@@ -24,13 +24,16 @@ from sempipe.engine.schema import shorthand_to_schema
 from sempipe.models.base import CompletionRequest  # a shared request value type, not behavior
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 __all__ = [
     "FILTER_JUDGE_SYSTEM",
     "JUDGE_SCHEMA",
     "MAP_JSON_SYSTEM",
     "MAP_PLAIN_SYSTEM",
+    "REDUCE_FINAL_JSON_SYSTEM",
+    "REDUCE_FINAL_SYSTEM",
+    "REDUCE_INTERMEDIATE_SYSTEM",
     "BraceToken",
     "MapPlan",
     "TextToken",
@@ -38,6 +41,8 @@ __all__ = [
     "brace_fields",
     "build_filter_request",
     "build_map_request",
+    "build_reduce_final",
+    "build_reduce_intermediate",
     "build_repair_request",
     "has_brace",
     "interpolate_fields",
@@ -71,6 +76,21 @@ JUDGE_SCHEMA: dict[str, object] = {
     "additionalProperties": False,
 }
 _JUDGE_MAX_TOKENS = 64
+
+REDUCE_FINAL_SYSTEM = (
+    "You synthesize many items into a single result. Follow the user's instruction "
+    "exactly and reply with only the result — no preamble, no meta-commentary."
+)
+REDUCE_FINAL_JSON_SYSTEM = (
+    "You synthesize many items into a single JSON object matching the schema. "
+    "Reply with ONLY the JSON object — no preamble, no code fences."
+)
+REDUCE_INTERMEDIATE_SYSTEM = (
+    "You are condensing PART of a larger collection. Produce dense notes that "
+    "preserve every detail relevant to the stated goal. Do NOT write a conclusion "
+    "or a final answer — only notes that a later step will combine with others."
+)
+_REDUCE_MAX_TOKENS = 8192
 
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
@@ -233,6 +253,31 @@ def build_filter_request(condition: str, item_text: str) -> CompletionRequest:
         json_schema=JUDGE_SCHEMA,
         max_tokens=_JUDGE_MAX_TOKENS,
     )
+
+
+def build_reduce_final(
+    instruction: str, texts: Sequence[str], schema: Mapping[str, object] | None
+) -> CompletionRequest:
+    system = REDUCE_FINAL_JSON_SYSTEM if schema is not None else REDUCE_FINAL_SYSTEM
+    return CompletionRequest(
+        system=system,
+        user=f"{instruction}\n\nItems:\n{_numbered(texts)}",
+        json_schema=schema,
+        max_tokens=_REDUCE_MAX_TOKENS,
+    )
+
+
+def build_reduce_intermediate(goal: str, texts: Sequence[str]) -> CompletionRequest:
+    return CompletionRequest(
+        system=REDUCE_INTERMEDIATE_SYSTEM,
+        user=f"Goal: {goal}\n\nItems:\n{_numbered(texts)}",
+        json_schema=None,
+        max_tokens=_REDUCE_MAX_TOKENS,
+    )
+
+
+def _numbered(texts: Sequence[str]) -> str:
+    return "\n\n---\n\n".join(f"[{index + 1}] {text}" for index, text in enumerate(texts))
 
 
 def _render_value(value: object) -> str:
