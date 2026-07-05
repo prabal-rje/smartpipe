@@ -27,23 +27,58 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DEFAULT_BASE_URL",
+    "MISTRAL_WIRE",
+    "OPENAI_WIRE",
     "OpenAIChatModel",
     "OpenAIEmbeddingModel",
+    "WireConfig",
     "require_api_key",
     "resolve_base_url",
 ]
 
-DEFAULT_BASE_URL = "https://api.openai.com"
+
+@dataclass(frozen=True, slots=True)
+class WireConfig:
+    """Everything provider-specific about an OpenAI-wire endpoint — the adapter
+    itself is one; providers differ only in these five strings (+ display name)."""
+
+    provider: str
+    display: str  # how screens name the provider ("OpenAI", "Mistral")
+    default_base_url: str
+    base_url_env: str
+    key_env: str
+    key_hint: str  # the copy-pasteable key shape in the missing-key screen
 
 
-def resolve_base_url(env: Mapping[str, str]) -> str:
-    return env.get("SEMPIPE_OPENAI_BASE_URL", "").strip().rstrip("/") or DEFAULT_BASE_URL
+OPENAI_WIRE = WireConfig(
+    provider="openai",
+    display="OpenAI",
+    default_base_url="https://api.openai.com",
+    base_url_env="SEMPIPE_OPENAI_BASE_URL",
+    key_env="OPENAI_API_KEY",
+    key_hint="sk-...",
+)
+
+MISTRAL_WIRE = WireConfig(
+    provider="mistral",
+    display="Mistral",
+    default_base_url="https://api.mistral.ai",
+    base_url_env="SEMPIPE_MISTRAL_BASE_URL",
+    key_env="MISTRAL_API_KEY",
+    key_hint="...        (create one at console.mistral.ai)",
+)
+
+DEFAULT_BASE_URL = OPENAI_WIRE.default_base_url
 
 
-def require_api_key(env: Mapping[str, str], model: str) -> str:
-    key = env.get("OPENAI_API_KEY", "").strip()
+def resolve_base_url(env: Mapping[str, str], wire: WireConfig = OPENAI_WIRE) -> str:
+    return env.get(wire.base_url_env, "").strip().rstrip("/") or wire.default_base_url
+
+
+def require_api_key(env: Mapping[str, str], model: str, wire: WireConfig = OPENAI_WIRE) -> str:
+    key = env.get(wire.key_env, "").strip()
     if not key:
-        raise SetupFault(screens.missing_api_key(model, "OpenAI", "OPENAI_API_KEY", "sk-..."))
+        raise SetupFault(screens.missing_api_key(model, wire.display, wire.key_env, wire.key_hint))
     return key
 
 
@@ -54,6 +89,7 @@ class OpenAIChatModel:
     base_url: str
     api_key: str
     retry: RetryPolicy = field(default_factory=RetryPolicy)
+    wire: WireConfig = OPENAI_WIRE  # names the right env vars in error screens
 
     async def complete(self, request: CompletionRequest) -> str:
         messages = [
@@ -94,6 +130,7 @@ class OpenAIEmbeddingModel:
     base_url: str
     api_key: str
     retry: RetryPolicy = field(default_factory=RetryPolicy)
+    wire: WireConfig = OPENAI_WIRE
 
     async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
         payload: dict[str, object] = {"model": self.ref.name, "input": list(texts)}
@@ -132,8 +169,8 @@ async def _post(
             raise SetupFault(
                 f"error: the API key for '{model.ref.name}' was rejected "
                 f"({exc.response.status_code})\n"
-                "  The endpoint answered, but it didn't accept OPENAI_API_KEY.\n"
-                "  Fix: check the key, or the endpoint in SEMPIPE_OPENAI_BASE_URL."
+                f"  The endpoint answered, but it didn't accept {model.wire.key_env}.\n"
+                f"  Fix: check the key, or the endpoint in {model.wire.base_url_env}."
             ) from exc
         raise ItemError(
             f"{model.ref.provider} error {exc.response.status_code}: {_detail(exc.response)}"
@@ -144,7 +181,7 @@ async def _post(
         raise SetupFault(
             f"error: can't reach {model.base_url} ({exc})\n"
             f"  The model '{model.ref}' needs that endpoint.\n"
-            "  Check your network, or SEMPIPE_OPENAI_BASE_URL if you pointed sempipe elsewhere."
+            f"  Check your network, or {model.wire.base_url_env} if you pointed sempipe elsewhere."
         ) from exc
     except httpx.HTTPError as exc:
         raise ItemError(f"request to {model.base_url} failed: {exc}") from exc
