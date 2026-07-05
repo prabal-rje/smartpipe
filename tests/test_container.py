@@ -157,3 +157,40 @@ async def test_build_container_surfaces_broken_config(tmp_path: Path) -> None:
     with pytest.raises(SetupFault, match="syntax error"):
         async with build_container(env):
             pass
+
+
+async def test_builds_mistral_chat_with_key(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client, env={"MISTRAL_API_KEY": "mk-x"}, config=Config(model="mistral-large-latest")
+    )
+    model = await container.chat_model()
+    assert isinstance(model, OpenAIChatModel)  # same wire, parametrized
+    assert model.api_key == "mk-x"
+    assert model.base_url == "https://api.mistral.ai"
+    assert model.wire.key_env == "MISTRAL_API_KEY"
+
+
+async def test_mistral_without_key_is_setup_fault(client: httpx.AsyncClient) -> None:
+    container = _container(client, config=Config(model="mistral-large-latest"))
+    with pytest.raises(SetupFault, match="MISTRAL_API_KEY"):
+        await container.chat_model()
+
+
+async def test_embed_mistral(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client, env={"MISTRAL_API_KEY": "mk-x"}, config=Config(embed_model="mistral-embed")
+    )
+    model = await container.embedding_model()
+    assert isinstance(model, OpenAIEmbeddingModel)
+    assert model.base_url == "https://api.mistral.ai"
+
+
+async def test_mistral_base_url_override(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client,
+        env={"MISTRAL_API_KEY": "mk-x", "SEMPIPE_MISTRAL_BASE_URL": "http://proxy:9999/"},
+        config=Config(model="mistral-small-latest"),
+    )
+    model = await container.chat_model()
+    assert isinstance(model, OpenAIChatModel)
+    assert model.base_url == "http://proxy:9999"

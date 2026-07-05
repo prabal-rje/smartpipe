@@ -40,7 +40,7 @@ __all__ = [
 @dataclass(frozen=True, slots=True)
 class WireConfig:
     """Everything provider-specific about an OpenAI-wire endpoint — the adapter
-    itself is one; providers differ only in these five strings (+ display name)."""
+    itself is one; providers differ only in these strings."""
 
     provider: str
     display: str  # how screens name the provider ("OpenAI", "Mistral")
@@ -48,6 +48,7 @@ class WireConfig:
     base_url_env: str
     key_env: str
     key_hint: str  # the copy-pasteable key shape in the missing-key screen
+    key_note: str = "add it to your shell profile to persist"
 
 
 OPENAI_WIRE = WireConfig(
@@ -65,7 +66,8 @@ MISTRAL_WIRE = WireConfig(
     default_base_url="https://api.mistral.ai",
     base_url_env="SEMPIPE_MISTRAL_BASE_URL",
     key_env="MISTRAL_API_KEY",
-    key_hint="...        (create one at console.mistral.ai)",
+    key_hint="...",
+    key_note="create one at console.mistral.ai",
 )
 
 DEFAULT_BASE_URL = OPENAI_WIRE.default_base_url
@@ -78,7 +80,11 @@ def resolve_base_url(env: Mapping[str, str], wire: WireConfig = OPENAI_WIRE) -> 
 def require_api_key(env: Mapping[str, str], model: str, wire: WireConfig = OPENAI_WIRE) -> str:
     key = env.get(wire.key_env, "").strip()
     if not key:
-        raise SetupFault(screens.missing_api_key(model, wire.display, wire.key_env, wire.key_hint))
+        raise SetupFault(
+            screens.missing_api_key(
+                model, wire.display, wire.key_env, wire.key_hint, note=wire.key_note
+            )
+        )
     return key
 
 

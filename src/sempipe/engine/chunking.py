@@ -22,7 +22,12 @@ __all__ = ["budget_for", "chunk_indices", "estimate_tokens", "fits_in_one"]
 
 # Conservative per-provider input windows; ollama is deliberately small because we
 # can't cheaply know a local model's context length (a smaller budget is always safe).
-_CONTEXT: dict[str, int] = {"ollama": 8000, "openai": 128000, "anthropic": 200000}
+_CONTEXT: dict[str, int] = {
+    "ollama": 8000,
+    "openai": 128000,
+    "anthropic": 200000,
+    "mistral": 128000,
+}
 _SAFETY = 0.6
 _CHARS_PER_TOKEN = 4
 

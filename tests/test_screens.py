@@ -37,6 +37,13 @@ _SCREENS: dict[str, str] = {
     "missing_api_key_anthropic": screens.missing_api_key(
         "claude-opus-4-8", "Anthropic", "ANTHROPIC_API_KEY", "sk-ant-..."
     ),
+    "missing_api_key_mistral": screens.missing_api_key(
+        "mistral-large-latest",
+        "Mistral",
+        "MISTRAL_API_KEY",
+        "...",
+        note="create one at console.mistral.ai",
+    ),
     "missing_anthropic_extra": screens.missing_anthropic_extra("claude-opus-4-8"),
 }
 

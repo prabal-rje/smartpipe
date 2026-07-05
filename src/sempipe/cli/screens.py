@@ -108,11 +108,17 @@ def ollama_model_missing(name: str, host: str, detail: str) -> str:
     )
 
 
-def missing_api_key(model: str, provider: str, env_var: str, key_shape: str) -> str:
+def missing_api_key(
+    model: str,
+    provider: str,
+    env_var: str,
+    key_shape: str,
+    note: str = "add it to your shell profile to persist",
+) -> str:
     return (
         f"error: model '{model}' needs {_an(provider)} {provider} API key\n"
         f"  sempipe found no {env_var} in the environment. Keys are never stored in config.\n"
-        f"  Fix: export {env_var}={key_shape}        (add it to your shell profile to persist)"
+        f"  Fix: export {env_var}={key_shape}        ({note})"
     )
 
 

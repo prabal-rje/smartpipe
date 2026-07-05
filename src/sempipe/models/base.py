@@ -1,10 +1,13 @@
 """Provider-neutral model contracts (plan/architecture.md "Provider abstraction").
 
 Routing rule (plan/decisions.md D04, refined): ``provider/name`` is explicit for
-the three known providers; bare names route by shape — ``claude-*`` → anthropic,
-``gpt-*``/o-series/``text-embedding-*`` → openai, everything else → ollama.
+the four known providers; bare names route by shape — ``claude-*`` → anthropic,
+``gpt-*``/o-series/``text-embedding-*`` → openai, the Mistral family prefixes
+(``mistral-``, ``codestral-``, ``pixtral-`` …) → mistral, everything else → ollama.
 Unknown ``x/y`` prefixes are NOT errors: Ollama supports namespaced model names
-(``someuser/model:tag``, ``hf.co/org/model``), so they route to ollama whole.
+(``someuser/model:tag``, ``hf.co/org/model``), so they route to ollama whole —
+which is also why ``hf.co/mistralai/...`` must never be hijacked by the bare-name
+prefixes (the slash form wins first).
 """
 
 from __future__ import annotations
@@ -28,10 +31,20 @@ __all__ = [
     "parse_model_ref",
 ]
 
-Provider = Literal["ollama", "openai", "anthropic"]
+Provider = Literal["ollama", "openai", "anthropic", "mistral"]
 
 _OPENAI_PREFIXES = ("gpt-", "chatgpt-", "text-embedding-")
 _OPENAI_O_SERIES = re.compile(r"o\d")
+_MISTRAL_PREFIXES = (
+    "mistral-",  # also covers mistral-embed
+    "ministral-",
+    "codestral-",
+    "magistral-",
+    "devstral-",
+    "pixtral-",
+    "open-mistral-",
+    "open-mixtral-",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +94,7 @@ def parse_model_ref(text: str) -> ModelRef:
     prefix, slash, rest = cleaned.partition("/")
     if slash:
         match prefix:
-            case "ollama" | "openai" | "anthropic":
+            case "ollama" | "openai" | "anthropic" | "mistral":
                 if not rest:
                     raise UsageFault(f"model '{cleaned}' is missing a name after '{prefix}/'")
                 return ModelRef(provider=prefix, name=rest)
@@ -91,4 +104,6 @@ def parse_model_ref(text: str) -> ModelRef:
         return ModelRef(provider="anthropic", name=cleaned)
     if cleaned.startswith(_OPENAI_PREFIXES) or _OPENAI_O_SERIES.match(cleaned):
         return ModelRef(provider="openai", name=cleaned)
+    if not slash and cleaned.startswith(_MISTRAL_PREFIXES):
+        return ModelRef(provider="mistral", name=cleaned)
     return ModelRef(provider="ollama", name=cleaned)

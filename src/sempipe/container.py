@@ -35,6 +35,7 @@ from sempipe.models.ollama import (
     resolve_host,
 )
 from sempipe.models.openai_compat import (
+    MISTRAL_WIRE,
     OpenAIChatModel,
     OpenAIEmbeddingModel,
     require_api_key,
@@ -164,6 +165,15 @@ class AppContainer:
                 return self._build_openai_chat(ref)
             case "anthropic":
                 return build_anthropic_chat_model(ref)
+            case "mistral":  # same wire as OpenAI, parametrized (workstream 10)
+                return OpenAIChatModel(
+                    ref=ref,
+                    client=self.http_client,
+                    base_url=resolve_base_url(self.env, MISTRAL_WIRE),
+                    api_key=require_api_key(self.env, ref.name, MISTRAL_WIRE),
+                    retry=self.retry,
+                    wire=MISTRAL_WIRE,
+                )
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)
 
@@ -183,6 +193,15 @@ class AppContainer:
                     f"error: '{ref.name}' is a chat model, not an embedding model\n"
                     "  Claude models don't provide embeddings. Use a local one:\n"
                     "  sempipe config embed-model nomic-embed-text"
+                )
+            case "mistral":  # mistral-embed rides the same /v1/embeddings wire
+                return OpenAIEmbeddingModel(
+                    ref=ref,
+                    client=self.http_client,
+                    base_url=resolve_base_url(self.env, MISTRAL_WIRE),
+                    api_key=require_api_key(self.env, ref.name, MISTRAL_WIRE),
+                    retry=self.retry,
+                    wire=MISTRAL_WIRE,
                 )
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)

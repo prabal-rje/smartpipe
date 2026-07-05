@@ -90,3 +90,10 @@ def test_embed_env_over_config() -> None:
 def test_embed_defaults_to_nomic() -> None:
     ref = resolve_embed_ref(None, {}, Config())
     assert str(ref) == "ollama/nomic-embed-text"
+
+
+async def test_mistral_env_model_resolves() -> None:
+    resolved = await resolve_chat_ref(
+        None, {"SEMPIPE_MODEL": "mistral/mistral-large-latest"}, Config(), _probe_none
+    )
+    assert str(resolved.ref) == "mistral/mistral-large-latest"
