@@ -29,8 +29,11 @@ from sempipe.models.base import (  # shared request value types, not behavior
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from sempipe.io.items import Item
+
 __all__ = [
     "FILTER_JUDGE_SYSTEM",
+    "JOIN_JUDGE_SYSTEM",
     "IMAGE_ITEM_PREFIX",
     "JUDGE_SCHEMA",
     "MAP_JSON_SYSTEM",
@@ -44,12 +47,15 @@ __all__ = [
     "Token",
     "brace_fields",
     "build_filter_request",
+    "build_judge_request",
     "build_map_request",
     "build_reduce_final",
     "build_reduce_intermediate",
     "build_repair_request",
     "has_brace",
     "interpolate_fields",
+    "interpolate_join",
+    "parse_join_predicate",
     "parse_prompt",
     "plan_map",
     "reject_comma_groups",
@@ -98,6 +104,7 @@ REDUCE_INTERMEDIATE_SYSTEM = (
 _REDUCE_MAX_TOKENS = 8192
 
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+_SIDED_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +121,7 @@ class BraceToken:
 Token = TextToken | BraceToken
 
 
-def parse_prompt(text: str) -> tuple[Token, ...]:
+def parse_prompt(text: str, *, ident: re.Pattern[str] = _IDENT) -> tuple[Token, ...]:
     tokens: list[Token] = []
     literal: list[str] = []
     index = 0
@@ -136,7 +143,7 @@ def parse_prompt(text: str) -> tuple[Token, ...]:
             index += 2
         elif char == "{":
             flush()
-            token, index = _parse_group(text, index)
+            token, index = _parse_group(text, index, ident)
             tokens.append(token)
         elif char == "}":
             raise UsageFault("unexpected '}' in prompt — use '}}' for a literal brace")
@@ -268,6 +275,85 @@ def build_filter_request(condition: str, item_text: str) -> CompletionRequest:
     )
 
 
+JOIN_JUDGE_SYSTEM = (
+    "You judge whether a statement about a pair of items is true. "
+    'Reply with ONLY a JSON object: {"match": true} or {"match": false}.'
+)
+
+_JOIN_EXAMPLE = (
+    '  Example: sempipe join "ticket {left.text} concerns {right.name}" --right products.jsonl'
+)
+
+
+def parse_join_predicate(text: str) -> tuple[Token, ...]:
+    """The join grammar (D21): filter-rule braces, side-qualified. Every brace
+    names a side; the predicate must read both sides (one-sided predicates match
+    everything or nothing — a mistake, refused up front)."""
+    tokens = parse_prompt(text, ident=_SIDED_IDENT)
+    reject_comma_groups(tokens)
+    sides: set[str] = set()
+    for token in tokens:
+        if not isinstance(token, BraceToken):
+            continue
+        field = token.fields[0]
+        side, dot, _name = field.partition(".")
+        if not dot:
+            raise UsageFault(
+                f"{{{field}}} is ambiguous in join — say {{left.{field}}} or {{right.{field}}}\n"
+                "  join reads two inputs; each brace names a side's field.\n"
+                + _JOIN_EXAMPLE
+            )
+        if side not in ("left", "right"):
+            raise UsageFault(
+                f"{token.raw} — the side must be left or right\n"
+                "  join reads two inputs; each brace names a side's field.\n" + _JOIN_EXAMPLE
+            )
+        sides.add(side)
+    for missing in ("left", "right"):
+        if missing not in sides:
+            raise UsageFault(
+                f"the predicate never mentions the {missing} side — "
+                f"say {{{missing}.field}} somewhere\n"
+                "  join judges PAIRS; a predicate that reads one side matches everything "
+                "or nothing."
+            )
+    return tokens
+
+
+def interpolate_join(tokens: tuple[Token, ...], left: Item, right: Item) -> str:
+    """Substitute ``{left.x}``/``{right.x}`` from the pair. ``.text`` falls back to
+    the item's whole text; any other missing field is an ``ItemError`` (pair-skip)."""
+    items = {"left": left, "right": right}
+    parts: list[str] = []
+    for token in tokens:
+        if isinstance(token, TextToken):
+            parts.append(token.text)
+            continue
+        side, _dot, name = token.fields[0].partition(".")
+        item = items[side]
+        parts.append(_join_value(side, name, item))
+    return "".join(parts)
+
+
+def _join_value(side: str, name: str, item: Item) -> str:
+    if item.data is not None and name in item.data:
+        return _render_value(item.data[name])
+    if name == "text":
+        return item.text  # the pinned fallback: the whole item as text
+    available = ", ".join(item.data) if item.data else "no fields (not JSON)"
+    raise ItemError(f"{side} has no field '{name}'; it has: {available}")
+
+
+def build_judge_request(tokens: tuple[Token, ...], left: Item, right: Item) -> CompletionRequest:
+    statement = interpolate_join(tokens, left, right)
+    return CompletionRequest(
+        system=JOIN_JUDGE_SYSTEM,
+        user=f"Statement about a pair of items:\n{statement}\n\nIs the statement true?",
+        json_schema=JUDGE_SCHEMA,
+        max_tokens=_JUDGE_MAX_TOKENS,
+    )
+
+
 def build_reduce_final(
     instruction: str, texts: Sequence[str], schema: Mapping[str, object] | None
 ) -> CompletionRequest:
@@ -299,14 +385,14 @@ def _render_value(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def _parse_group(text: str, start: int) -> tuple[BraceToken, int]:
+def _parse_group(text: str, start: int, ident: re.Pattern[str]) -> tuple[BraceToken, int]:
     close = text.find("}", start + 1)
     if close == -1:
         raise UsageFault("unclosed '{' in prompt — did you mean '{{' for a literal brace?")
     raw = text[start : close + 1]
     inner = text[start + 1 : close]
     fields = tuple(part.strip() for part in inner.split(","))
-    if any(not _IDENT.match(field) for field in fields):
+    if any(not ident.match(field) for field in fields):
         raise UsageFault(
             f"invalid field group: {raw}\n"
             "  field names must be identifiers (letters, digits, underscores), comma-separated"
