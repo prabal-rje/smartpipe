@@ -24,6 +24,7 @@ to **stderr**.
 | [`embed`](../verbs/embed.md) | items → vectors (NDJSON) | plumbing for `top_k` |
 | [`top_k`](../verbs/top-k.md) | rank by similarity to a query | `sort \| head`, by meaning |
 | [`reduce`](../verbs/reduce.md) | synthesize many items into one | recursive, automatic |
+| [`join`](../verbs/join.md) | match stdin against a second input | embed-block-judge |
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing | exit 0 = ready |
@@ -51,6 +52,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `filter` | `--not` (invert, like `grep -v`) |
 | `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT`, `--stream` (live leaderboard) |
 | `reduce` | `--schema FILE`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
+| `join` | `--right FILE` (required), `--k N` (default 5), `--threshold FLOAT`, `--embed-model` |
 
 ## `config`
 

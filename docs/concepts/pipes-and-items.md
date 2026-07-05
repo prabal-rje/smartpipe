@@ -93,6 +93,12 @@ However many items sempipe processes in parallel, **output order always matches
 input order.** Line 1's result comes before line 2's, always — so `diff`, `paste`,
 and line-numbered logs keep working.
 
+## The one verb that makes new rows
+
+Every verb above transforms, keeps, or combines *existing* items. `join` is the
+exception: it emits **pairs** — `{"left": …, "right": …, "_score": …}` — built
+from two inputs. The sides stay nested so their field names can never collide.
+
 ## See also
 
 - [`filter`](../verbs/filter.md) and [`map`](../verbs/map.md) — the verbs that consume items

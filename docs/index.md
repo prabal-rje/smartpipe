@@ -34,7 +34,7 @@ $ cat reviews.txt | sempipe filter "the reviewer is sarcastic" | sempipe map "Ex
 
 ## Recipes & reference
 
-- [Cookbook](cookbook/README.md) — contract extraction, log triage, ranking documents, live monitoring
+- [Cookbook](cookbook/README.md) — contract extraction, log triage, ranking documents, live monitoring, stream enrichment
 - [CLI reference](reference/cli.md) — every flag, format, and exit code
 - [`.sem` stage files](reference/sem-files.md) — save a pipe stage as an executable script
 - [Troubleshooting](troubleshooting.md) — find your error message

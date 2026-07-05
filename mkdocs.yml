@@ -34,6 +34,7 @@ nav:
       - embed: verbs/embed.md
       - top_k: verbs/top-k.md
       - reduce: verbs/reduce.md
+      - join: verbs/join.md
   - Concepts:
       - Pipes & items: concepts/pipes-and-items.md
       - Models & providers: concepts/models-and-providers.md
@@ -46,6 +47,7 @@ nav:
       - Log triage: cookbook/log-triage.md
       - Ranking documents: cookbook/ranking-documents.md
       - Live monitoring: cookbook/live-monitoring.md
+      - Stream enrichment: cookbook/stream-enrichment.md
   - Reference:
       - CLI reference: reference/cli.md
       - .sem stage files: reference/sem-files.md

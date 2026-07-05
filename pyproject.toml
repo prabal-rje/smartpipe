@@ -100,6 +100,8 @@ ignore = ["A005"]
 # MissingExtra is a control-flow signal (skip this file), named to read as prose
 # in a warning; an "Error" suffix would misrepresent it. Consistent with errors.py.
 "src/sempipe/parsing/extract.py" = ["N818"]
+# Dev scripts print by design — they ARE the report (join-eval, future tooling).
+"scripts/*" = ["T201"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

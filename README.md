@@ -25,6 +25,7 @@ a live leaderboard.
 | `embed` | turn items into vectors | plumbing for `top_k` | ✅ shipped |
 | `top_k` | rank items by similarity to a query | `sort \| head`, by meaning | ✅ shipped |
 | `reduce` | synthesize many items into one | `awk` END block, but literate | ✅ shipped |
+| `join` | match stdin against a second input | SQL join, but semantic | ✅ shipped (main) |
 | `config` | one-minute interactive setup | — | ✅ shipped |
 
 > **Stable surface** (SemVer since 1.0). All five verbs plus `config`, file inputs

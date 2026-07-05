@@ -41,7 +41,8 @@ Being honest about this matters more than winning a table:
   `llm` is deeper. sempipe deliberately does one thing.
 - **`fabric`** ships hundreds of curated prompt "patterns." If you want a library of
   ready-made prompts more than a set of composable verbs, it's a better fit.
-- **DocETL / LOTUS** have cost optimizers, joins, and a visual pipeline builder
+- **DocETL / LOTUS** have cost optimizers and a visual pipeline builder — and
+  LOTUS-style semantic join is now in sempipe too (`join`, embed-block-judge)
   (DocWrangler). For large, complex, declarative document-processing jobs with a team,
   those frameworks are more powerful — sempipe is for the command line, not a data
   platform.

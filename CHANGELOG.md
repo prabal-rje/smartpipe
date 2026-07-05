@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`sempipe join` — the sixth semantic verb (D21).** Match stdin against a
+  second input wherever a plain-English predicate holds:
+  `join "{left.text} concerns {right.name}" --right products.jsonl`. Embed →
+  block → judge keeps cost at lines×k (default k=5) instead of lines×catalog;
+  the right side is indexed up front so a bad file costs zero chat calls; a
+  TTY cost preview appears before big runs; the left side streams flag-free
+  (live enrichment). Output nests `{"left", "right", "_score"}` per matched
+  pair; `--fields` grows dotted paths. `make join-eval` publishes the recall@k
+  table that justifies the default, and the docs teach the `--k 20` spot-check.
 - **`sempipe doctor`** — every no-cost setup check on one screen: config parses,
   Ollama reachable, configured chat/embed models installed, API keys present
   (never printed, never validated — validation costs a call), ChatGPT login,
