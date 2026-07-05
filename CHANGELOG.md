@@ -5,6 +5,38 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-07-05
+
+**1.0.** The CLI surface — verbs, flags, output formats, exit codes, env vars — is now
+a contract governed by SemVer. The five semantic verbs, local-first defaults, file
+inputs, and adaptive output are complete and stable.
+
+### The whole thing, in one place
+- **Five verbs as Unix pipe stages:** `map` (transform), `filter` (semantic grep),
+  `embed` (vectors), `top_k` (similarity ranking), `reduce` (recursive synthesis) —
+  plus `config`.
+- **Local-first:** talks to a running Ollama by default; never silently calls a paid
+  API. OpenAI-compatible and Anthropic (optional extra) supported; API keys read from
+  the environment, never stored.
+- **Text in, text out, Unix-native:** results to stdout, diagnostics to stderr;
+  TTY-adaptive output (readable at a terminal, NDJSON when piped); order-preserving
+  bounded concurrency; per-item failures skip with a warning; documented exit codes.
+- **Structured output:** inline `{braces}` or `--schema`, with a one-shot repair.
+- **File inputs:** `--in`/`--from-files`; documents parsed automatically.
+- **Output formats:** `auto`, `text`, `json`, `csv`, `tsv`.
+- **Docs:** install, quickstart, a page per verb, concept guides, a cookbook, a CLI
+  reference, troubleshooting, a comparison, and a privacy/security note. A
+  mkdocs-material site config ships in the repo.
+
+### Quality
+- ~400 tests, 98% coverage (100% on every pure `engine`, `verbs`, and `parsing`
+  module); ruff + pyright-strict clean; no network calls in the test suite.
+
+### Post-1.0 roadmap (tracked, not blocking)
+- Streaming (`tail -f` per-line processing), `--fields` column projection, shell
+  completions, the vision image path, and binary-stdin sniffing. See the technical
+  plan's deferred-work ledger.
+
 ## [0.6.0] — 2026-07-05
 
 For the spreadsheet people.

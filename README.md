@@ -24,10 +24,9 @@ composes with `grep`, `jq`, `sort`, and `tail -f` like it was always there.
 | `reduce` | synthesize many items into one | `awk` END block, but literate | ✅ shipped |
 | `config` | one-minute interactive setup | — | ✅ shipped |
 
-> **v0.6.0** ships all five verbs plus `config`, reads files directly
-> (`--in 'reports/*.pdf'`, parsed automatically), and writes CSV/TSV for
-> spreadsheets (`--output csv`). Streaming and the 1.0 docs site come next.
-> Watch [CHANGELOG.md](CHANGELOG.md).
+> **v1.0** — the surface is stable (SemVer from here). All five verbs plus `config`,
+> file inputs (`--in 'reports/*.pdf'`, parsed automatically), and CSV/TSV output.
+> Streaming and `--fields` are on the [post-1.0 roadmap](CHANGELOG.md).
 
 ## Sixty seconds
 
@@ -69,16 +68,16 @@ no telemetry, no accounts, ever.
 
 ## Learn more
 
-- [Quickstart](docs/quickstart.md) — zero to first result, gently
-- [Install](docs/install.md) — pipx, pip, uv, and the optional extras
+Full docs in [`docs/`](docs/index.md) (or as a site — `uv run --group docs mkdocs serve`):
+
+- [Quickstart](docs/quickstart.md) — zero to first result, gently · [Install](docs/install.md)
 - The verbs — [`map`](docs/verbs/map.md), [`filter`](docs/verbs/filter.md), [`embed`](docs/verbs/embed.md), [`top_k`](docs/verbs/top-k.md), [`reduce`](docs/verbs/reduce.md) — examples first
-- [Pipes & items](docs/concepts/pipes-and-items.md) — the mental model
-- [Models & providers](docs/concepts/models-and-providers.md) — local vs cloud, model strings, precedence
-- [Structured output](docs/concepts/structured-output.md) — braces vs `--schema`
+- Concepts — [pipes & items](docs/concepts/pipes-and-items.md), [models & providers](docs/concepts/models-and-providers.md), [structured output](docs/concepts/structured-output.md), [output formats](docs/concepts/output-formats.md), [file inputs](docs/inputs/files.md)
+- [Cookbook](docs/cookbook/README.md) — contract extraction, log triage, ranking documents
+- [CLI reference](docs/reference/cli.md) · [Troubleshooting](docs/troubleshooting.md) · [Comparison](docs/comparison.md) · [Privacy](docs/privacy.md)
 
 ## Development
 
 Built in the open. The design docs, staged plan, and progress ledger live in
 [`plan/`](plan/README.md); contributor setup and the quality gates are in
-[CONTRIBUTING.md](CONTRIBUTING.md). Pre-1.0: the verb surface is stable; flags may
-still gain (rarely change) meaning.
+[CONTRIBUTING.md](CONTRIBUTING.md). As of 1.0 the CLI surface is a SemVer contract.

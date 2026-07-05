@@ -1,0 +1,59 @@
+site_name: sempipe
+site_description: Semantic pipes for your terminal — map, filter, embed, top_k, reduce for Unix pipelines, local-first.
+docs_dir: docs
+repo_url: https://github.com/prabal-rje/sempipe
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - content.code.copy
+    - toc.integrate
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Install: install.md
+      - Quickstart: quickstart.md
+  - Verbs:
+      - map: verbs/map.md
+      - filter: verbs/filter.md
+      - embed: verbs/embed.md
+      - top_k: verbs/top-k.md
+      - reduce: verbs/reduce.md
+  - Concepts:
+      - Pipes & items: concepts/pipes-and-items.md
+      - Models & providers: concepts/models-and-providers.md
+      - Structured output: concepts/structured-output.md
+      - Output formats: concepts/output-formats.md
+      - File inputs: inputs/files.md
+  - Cookbook:
+      - Overview: cookbook/README.md
+      - Contract extraction: cookbook/contract-extraction.md
+      - Log triage: cookbook/log-triage.md
+      - Ranking documents: cookbook/ranking-documents.md
+  - Reference:
+      - CLI reference: reference/cli.md
+      - Troubleshooting: troubleshooting.md
+      - Comparison: comparison.md
+      - Privacy & security: privacy.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - toc:
+      permalink: true

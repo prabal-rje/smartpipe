@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sempipe"
-version = "0.6.0"
+version = "1.0.0"
 description = "Semantic pipes for your terminal: map, filter, embed, top_k, reduce for Unix pipelines, local-first."
 readme = "README.md"
 license = "MIT"
@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 authors = [{ name = "Prabal Gupta", email = "prabal@rjeinc.ca" }]
 keywords = ["cli", "llm", "unix", "pipes", "semantic", "grep", "ollama"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
@@ -55,6 +55,9 @@ dev = [
   "pyright>=1.1.390",
   "pre-commit>=4",
 ]
+docs = [
+  "mkdocs-material>=9.5",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sempipe"]
@@ -62,7 +65,17 @@ packages = ["src/sempipe"]
 [tool.hatch.build.targets.sdist]
 # Ship the package, docs, and plan — not local-only reference material, venvs,
 # or build junk (context/ is a gitignored copy of another project).
-include = ["src", "docs", "plan", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+include = [
+  "src",
+  "docs",
+  "plan",
+  "README.md",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "LICENSE",
+  "mkdocs.yml",
+  "pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 100
