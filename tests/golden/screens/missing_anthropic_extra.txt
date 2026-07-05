@@ -1,0 +1,4 @@
+error: model 'claude-opus-4-8' needs the 'anthropic' extra
+  Claude models talk through the official SDK, which isn't installed
+  (sempipe stays small by default).
+  Fix: pip install 'sempipe[anthropic]'

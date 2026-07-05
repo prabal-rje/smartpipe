@@ -1,0 +1,3 @@
+error: can't reach ollama at http://localhost:11434 (connection refused)
+  The model 'ollama/qwen3:8b' is configured, but nothing is listening there.
+  Start it with: ollama serve    (or check OLLAMA_HOST if it runs elsewhere)

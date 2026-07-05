@@ -1,0 +1,3 @@
+error: model 'claude-opus-4-8' needs an Anthropic API key
+  sempipe found no ANTHROPIC_API_KEY in the environment. Keys are never stored in config.
+  Fix: export ANTHROPIC_API_KEY=sk-ant-...        (add it to your shell profile to persist)

@@ -1,0 +1,3 @@
+error: ollama doesn't have the model 'qwen3:8b'
+  (http://localhost:11434 answered: model 'qwen3:8b' not found)
+  Fix: ollama pull qwen3:8b        (or check the name with: ollama list)

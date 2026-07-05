@@ -1,0 +1,12 @@
+error: no model configured, and no local Ollama found
+
+  Local (free, private):
+    1. Install Ollama              https://ollama.com
+    2. ollama pull qwen3:8b
+    3. sempipe config model ollama/qwen3:8b
+
+  Cloud (paid):
+    sempipe config model claude-opus-4-8    then: export ANTHROPIC_API_KEY=sk-ant-...
+    sempipe config model gpt-4o-mini        then: export OPENAI_API_KEY=sk-...
+
+  Then rerun your command. 'sempipe config' walks you through this interactively.
