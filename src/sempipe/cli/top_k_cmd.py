@@ -1,0 +1,55 @@
+"""``sempipe top_k`` — rank items by similarity to a query."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+
+import click
+
+from sempipe.container import build_container
+from sempipe.core.errors import ExitCode
+from sempipe.verbs.top_k import TopKRequest, run_top_k
+
+__all__ = ["top_k_command"]
+
+
+@click.command(name="top_k")
+@click.argument("k", type=int, required=False)
+@click.option("--near", required=True, help="Rank items by similarity to this query.")
+@click.option("--threshold", type=float, help="Keep everything at or above this similarity (0-1).")
+@click.option("--embed-model", "model_flag", help="Embedding model.")
+@click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
+def top_k_command(
+    k: int | None,
+    near: str,
+    threshold: float | None,
+    model_flag: str | None,
+    concurrency_flag: int | None,
+) -> None:
+    """Rank items by similarity to a query and return the top K.
+
+    \b
+    Examples:
+      cat resumes/*.txt | sempipe top_k 5 --near "distributed systems engineer"
+      cat corpus.embeddings | sempipe top_k 10 --near "Q3 revenue strategy"
+      cat articles.jsonl | sempipe top_k --near "climate policy" --threshold 0.8
+
+    Give a number (K), a --threshold, or both. Each result gains a _score (0-1).
+    """
+    request = TopKRequest(
+        near=near,
+        k=k,
+        threshold=threshold,
+        model_flag=model_flag,
+        concurrency_flag=concurrency_flag,
+    )
+    code = asyncio.run(_run(request))
+    if code is not ExitCode.OK:
+        raise SystemExit(int(code))
+
+
+async def _run(request: TopKRequest) -> ExitCode:
+    async with build_container(os.environ) as container:
+        return await run_top_k(request, container, stdin=sys.stdin, stdout=sys.stdout)

@@ -14,13 +14,18 @@ import click
 from sempipe import __version__
 from sempipe.cli.config_cmd import config_command
 from sempipe.cli.echo_cmd import echo_command
+from sempipe.cli.embed_cmd import embed_command
 from sempipe.cli.filter_cmd import filter_command
 from sempipe.cli.map_cmd import map_command
 from sempipe.cli.screens import WELCOME
+from sempipe.cli.top_k_cmd import top_k_command
 from sempipe.core.errors import ExitCode, SempipeError, UsageFault
 from sempipe.io import diagnostics
 
 __all__ = ["cli", "main"]
+
+
+_ALIASES = {"top-k": "top_k", "topk": "top_k"}
 
 
 class _RootGroup(click.Group):
@@ -32,6 +37,10 @@ class _RootGroup(click.Group):
             ctx.exit(int(ExitCode.OK))
         return super().parse_args(ctx, args)
 
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        # Muscle-memory forgiveness for top_k's spelling; not shown in help.
+        return super().get_command(ctx, _ALIASES.get(cmd_name, cmd_name))
+
 
 @click.group(cls=_RootGroup)
 @click.version_option(__version__, prog_name="sempipe", message="%(prog)s %(version)s")
@@ -41,6 +50,8 @@ def cli() -> None:
 
 cli.add_command(map_command)
 cli.add_command(filter_command)
+cli.add_command(embed_command)
+cli.add_command(top_k_command)
 cli.add_command(config_command)
 cli.add_command(echo_command)
 
