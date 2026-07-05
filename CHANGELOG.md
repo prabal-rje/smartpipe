@@ -5,6 +5,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-07-05
+
+The last of the five verbs — sempipe's full vocabulary now works end to end.
+
+### Added
+- **`sempipe reduce`** — synthesize all input items into one result. When the input
+  exceeds the model's context, sempipe **automatically** chunks it, summarizes each
+  chunk into dense notes, and recurses on the notes — no flags, no strategy to pick.
+  `--group-by FIELD` produces one result per group (with `{field}` naming the
+  group's value in the prompt); `--schema` validates the final result (same one-shot
+  repair as `map`); `--verbose` prints the chunking tree. A chunk that fails is
+  skipped with a warning (exit 1) rather than aborting the whole reduction.
+- Docs: `reduce`.
+
 ## [0.3.0] — 2026-07-05
 
 ### Added

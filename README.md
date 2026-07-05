@@ -21,12 +21,12 @@ composes with `grep`, `jq`, `sort`, and `tail -f` like it was always there.
 | `filter` | keep items matching a plain-English condition | `grep`, but semantic | ✅ shipped |
 | `embed` | turn items into vectors | plumbing for `top_k` | ✅ shipped |
 | `top_k` | rank items by similarity to a query | `sort \| head`, by meaning | ✅ shipped |
-| `reduce` | synthesize many items into one | `awk` END block, but literate | 🔜 next |
+| `reduce` | synthesize many items into one | `awk` END block, but literate | ✅ shipped |
 | `config` | one-minute interactive setup | — | ✅ shipped |
 
-> **v0.3.0** ships `map`, `filter`, `embed`, `top_k`, and `config` end to end.
-> `reduce` (and file inputs, and streaming) land next — the architecture is already
-> in place. Watch [CHANGELOG.md](CHANGELOG.md).
+> **v0.4.0** ships all five verbs — `map`, `filter`, `embed`, `top_k`, `reduce` —
+> plus `config`, end to end. File inputs, streaming, and output polish come next.
+> Watch [CHANGELOG.md](CHANGELOG.md).
 
 ## Sixty seconds
 
@@ -70,7 +70,7 @@ no telemetry, no accounts, ever.
 
 - [Quickstart](docs/quickstart.md) — zero to first result, gently
 - [Install](docs/install.md) — pipx, pip, uv, and the optional extras
-- The verbs — [`map`](docs/verbs/map.md), [`filter`](docs/verbs/filter.md), [`embed`](docs/verbs/embed.md), [`top_k`](docs/verbs/top-k.md) — examples first
+- The verbs — [`map`](docs/verbs/map.md), [`filter`](docs/verbs/filter.md), [`embed`](docs/verbs/embed.md), [`top_k`](docs/verbs/top-k.md), [`reduce`](docs/verbs/reduce.md) — examples first
 - [Pipes & items](docs/concepts/pipes-and-items.md) — the mental model
 - [Models & providers](docs/concepts/models-and-providers.md) — local vs cloud, model strings, precedence
 - [Structured output](docs/concepts/structured-output.md) — braces vs `--schema`
