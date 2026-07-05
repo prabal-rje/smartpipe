@@ -38,11 +38,10 @@ def test_embed_emits_ndjson(run_cli: RunCli, respx_mock: respx.MockRouter) -> No
 
 
 def test_top_k_ranks(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
-    # query embedded first, then each item (concurrency 1 → deterministic call order)
+    # query embedded first, then the corpus in ONE ≤64-text chunk (DEFER-3)
     respx_mock.post(EMBED).side_effect = [
         _embeddings([1.0, 0.0]),  # query "target"
-        _embeddings([1.0, 0.0]),  # "match"  → identical → top
-        _embeddings([0.0, 1.0]),  # "other"  → orthogonal
+        _embeddings([1.0, 0.0], [0.0, 1.0]),  # "match" (identical → top) + "other"
     ]
     code, out, _err = run_cli(
         ["top_k", "1", "--near", "target", "--concurrency", "1"],
@@ -94,11 +93,13 @@ def test_embed_partial_failure_exits_1(run_cli: RunCli, respx_mock: respx.MockRo
 
 
 def test_top_k_skipped_embedding_exits_1(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
-    # query ok, item 1 ok, item 2 malformed → skipped; one ranked + one skipped → exit 1
+    # the chunk carries a malformed row → whole chunk re-runs per item (poison
+    # isolation); "good" ranks, "broken" skips alone → exit 1
     respx_mock.post(EMBED).side_effect = [
         _embeddings([1.0, 0.0]),  # query
-        _embeddings([1.0, 0.0]),  # item "good"
-        httpx.Response(200, json={"embeddings": [["bad"]]}),  # item "broken"
+        httpx.Response(200, json={"embeddings": [[1.0, 0.0], ["bad"]]}),  # poison chunk
+        _embeddings([1.0, 0.0]),  # fallback: item "good"
+        httpx.Response(200, json={"embeddings": [["bad"]]}),  # fallback: item "broken"
     ]
     code, out, err = run_cli(
         ["top_k", "5", "--near", "q", "--concurrency", "1"], stdin="good\nbroken\n"

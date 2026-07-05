@@ -173,6 +173,23 @@ async def test_embed_batches_and_parses_vectors(
     }
 
 
+async def test_a_full_chunk_travels_as_one_request_body(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    # DEFER-3 wire shape: 64 texts arrive together in a single /api/embed call
+    texts = [f"t{index}" for index in range(64)]
+    route = respx_mock.post(f"{HOST}/api/embed").mock(
+        return_value=httpx.Response(200, json={"embeddings": [[0.1, 0.2]] * 64})
+    )
+    model = OllamaEmbeddingModel(
+        ref=parse_model_ref("nomic-embed-text"), client=client, host=HOST, retry=FAST_RETRY
+    )
+    vectors = await model.embed(texts)
+    assert len(vectors) == 64
+    assert route.call_count == 1
+    assert json.loads(route.calls.last.request.content)["input"] == texts
+
+
 async def test_model_names_lists_tags(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:

@@ -37,6 +37,13 @@ which skips re-embedding items that already carry a `vector`.
 | `--concurrency N` | Max parallel model calls (default 4) |
 | `--fields A,B` | Select + order the `{text, vector, source}` record fields ([details](../concepts/output-formats.md#-fields--pick-and-order-your-columns)) |
 
+## Performance
+
+Batching is automatic. A file corpus (`--in 'docs/*'`) is embedded in chunks of
+up to 64 texts per call — 64× fewer round-trips, and if a chunk fails it is
+retried one item at a time so a single bad item skips alone. Piped input stays
+one item per call: on a live stream, latency beats throughput.
+
 ## Notes
 
 - **Embeddings are transient by design.** sempipe has no vector database — the

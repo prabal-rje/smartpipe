@@ -4,9 +4,10 @@ The only verb that never touches a chat LLM — it uses the embedding model and
 emits one NDJSON record per item: ``{"text", "vector", "source"}``. Output is
 always NDJSON (a vector has no human view), so it feeds ``top_k`` or a file.
 
-Embeddings are requested one item per call through the ordered runner, which keeps
-failure isolation per-item; batching the embed endpoint is a future optimization
-recorded in the plan ledger.
+Two execution shapes (plan/post-1.0/06, DEFER-3): a finite file corpus is
+embedded in ≤64-text chunks (64x fewer round-trips, poison chunks re-run
+item-by-item); a stream stays one item per call — latency beats throughput
+when lines arrive over time.
 """
 
 from __future__ import annotations
@@ -22,7 +23,12 @@ from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
-from sempipe.verbs.common import ensure_text_item, interrupted_exit_code, outcome_exit_code
+from sempipe.verbs.common import (
+    embed_in_batches,
+    ensure_text_item,
+    interrupted_exit_code,
+    outcome_exit_code,
+)
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -69,18 +75,27 @@ async def run_embed(
     spinner = make_stderr_spinner()
     spinner.start(total=total)
 
-    async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
-        return item, await _embed_one(model, item)
-
     done = 0
     skipped = 0
-    outcomes = run_ordered(
-        items_iter,
-        worker,
-        concurrency=concurrency,
-        failure_policy=FailurePolicy(),
-        stop=stop,
-    )
+    if total is not None:
+        # finite --in corpus: chunked calls, run_ordered bypassed on purpose —
+        # batching ≠ per-item workers (order from sequential chunks, isolation
+        # from the per-item fallback inside embed_in_batches)
+        collected = [item async for item in items_iter]
+        outcomes = embed_in_batches(model, collected, failure_policy=FailurePolicy(), stop=stop)
+    else:
+        # live stream: one item per call — latency beats throughput
+
+        async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
+            return item, await _embed_one(model, item)
+
+        outcomes = run_ordered(
+            items_iter,
+            worker,
+            concurrency=concurrency,
+            failure_policy=FailurePolicy(),
+            stop=stop,
+        )
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):

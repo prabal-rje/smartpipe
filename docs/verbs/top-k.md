@@ -76,6 +76,14 @@ than dies on) a record whose embedding dimensions don't match the query.
 
 *(Spellings `top-k` and `topk` also work.)*
 
+## Performance
+
+Items that need embedding are sent in chunks of up to 64 texts per call
+(precomputed `vector` fields from `sempipe embed` records are reused, never
+re-embedded). A failed chunk is retried item by item, so one bad item skips
+alone. `--stream` stays one item per call — a live leaderboard wants latency.
+
+
 ## Gotchas
 
 - **Use one embedding model for a corpus and its queries.** If the corpus was

@@ -54,6 +54,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ### Changed
 - **License: Apache-2.0** (from MIT), with a `NOTICE` file — matching the published
   repository. The `v1.0.0` tag points at the relicensed tree.
+- **Embeddings travel in batches.** `embed` over a file corpus and `top_k`'s
+  collection pass now send up to 64 texts per call (sequentially) instead of one
+  — 64× fewer round-trips on batch inputs. A failed chunk re-runs item by item,
+  so a single poison item skips alone; output order and NDJSON shape are
+  byte-identical. Piped/streaming input stays per-item (latency beats
+  throughput on a live stream). No new flags.
 - **Rate limits back off exactly as asked.** A 429 carrying `Retry-After`
   (seconds or HTTP-date) now sleeps the server's number — no jitter, capped at a
   60 s abuse ceiling — instead of guessing with exponential backoff. Ollama and

@@ -23,7 +23,7 @@ from sempipe.io.leaderboard import LiveBoard
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
 from sempipe.verbs.common import (
-    aiter_items,
+    embed_in_batches,
     ensure_text_item,
     interrupted_exit_code,
     outcome_exit_code,
@@ -70,7 +70,8 @@ async def run_top_k(
     if request.k is None and request.threshold is None:
         raise UsageFault("top_k needs a number (K), --threshold, or both")
     model = await context.embedding_model(request.model_flag)
-    concurrency = context.concurrency(request.concurrency_flag)
+    # still validates the flag; batch embedding is chunked (≤64/call), not per-item-parallel
+    context.concurrency(request.concurrency_flag)
 
     items_iter, _total = readers.resolve_items(request.input, stdin)
     items = [item async for item in items_iter]  # whole-set verbs need everything
@@ -78,7 +79,7 @@ async def run_top_k(
         return ExitCode.OK
 
     query_vector = (await model.embed([request.near]))[0]
-    vectors, skipped = await _collect_vectors(model, items, concurrency)
+    vectors, skipped = await _collect_vectors(model, items)
     _check_dimensions(query_vector, vectors)
 
     entries = sorted(vectors.items())  # (item_index, vector), stable by index for ties
@@ -219,8 +220,11 @@ def _emit_snapshot(
 
 
 async def _collect_vectors(
-    model: EmbeddingModel, items: list[Item], concurrency: int
+    model: EmbeddingModel, items: list[Item]
 ) -> tuple[dict[int, tuple[float, ...]], int]:
+    """Embed everything that needs embedding — chunked (≤64/call, DEFER-3),
+    run_ordered bypassed on purpose: batching ≠ per-item workers (order comes
+    from sequential chunks, isolation from the per-item poison fallback)."""
     vectors: dict[int, tuple[float, ...]] = {}
     to_embed: list[Item] = []
     for item in items:
@@ -233,18 +237,12 @@ async def _collect_vectors(
     spinner = make_stderr_spinner()
     spinner.start(total=len(to_embed))
     skipped = 0
-
-    async def worker(item: Item) -> tuple[float, ...]:
-        ensure_text_item(item)  # image items need map — ItemError → skip-and-warn
-        return (await model.embed([item.text]))[0]
-
-    outcomes = run_ordered(
-        aiter_items(to_embed), worker, concurrency=concurrency, failure_policy=FailurePolicy()
-    )
+    outcomes = embed_in_batches(model, to_embed, failure_policy=FailurePolicy())
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):
-                vectors[outcome.index] = outcome.value
+                _item, vector = outcome.value
+                vectors[outcome.index] = vector
             else:  # Skipped
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
                 skipped += 1

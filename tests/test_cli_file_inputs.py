@@ -66,8 +66,8 @@ def test_top_k_file_mode_ranks_filenames(
     (tmp_path / "far.txt").write_text("baking bread at home")
     respx_mock.post(EMBED).side_effect = [
         httpx.Response(200, json={"embeddings": [[1.0, 0.0]]}),  # query
-        httpx.Response(200, json={"embeddings": [[1.0, 0.0]]}),  # close.txt (sorted first)
-        httpx.Response(200, json={"embeddings": [[0.0, 1.0]]}),  # far.txt
+        # one chunked call: close.txt (glob-sorted first), then far.txt (DEFER-3)
+        httpx.Response(200, json={"embeddings": [[1.0, 0.0], [0.0, 1.0]]}),
     ]
     glob = str(tmp_path / "*.txt")
     code, out, _err = run_cli(
