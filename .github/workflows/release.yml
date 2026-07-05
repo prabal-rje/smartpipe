@@ -1,0 +1,25 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # PyPI Trusted Publishing (no token secret)
+      contents: write # GitHub release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { python-version: "3.12" }
+      - run: uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Extract this version's changelog section
+        run: |
+          awk '/^## \[/{if (seen) exit; if ($0 !~ /Unreleased/) seen=1} seen' CHANGELOG.md > release-notes.md
+          test -s release-notes.md || echo "See CHANGELOG.md" > release-notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          files: dist/*
