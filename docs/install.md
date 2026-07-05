@@ -51,6 +51,33 @@ libraries are opt-in, so you only install what you use:
 If you run a command that needs an extra you haven't installed, sempipe tells you
 exactly which one and how to get it — you never have to guess.
 
+## Tab completion
+
+One line per shell. Completions cover verbs and flags — and `--model` /
+`--embed-model` suggest your configured model plus whatever Ollama has installed
+(instantly; if Ollama doesn't answer within 150 ms, you just get no suggestions).
+
+**zsh** — add to `~/.zshrc`:
+
+```console
+$ eval "$(_SEMPIPE_COMPLETE=zsh_source sempipe)"
+```
+
+**bash** (4.4+) — add to `~/.bashrc`:
+
+```console
+$ eval "$(_SEMPIPE_COMPLETE=bash_source sempipe)"
+```
+
+**fish** — write it once to your completions directory:
+
+```console
+$ _SEMPIPE_COMPLETE=fish_source sempipe > ~/.config/fish/completions/sempipe.fish
+```
+
+(For a faster shell startup, redirect the script to a file and `source` it
+instead of `eval`-ing on every new shell.)
+
 ## Next
 
 You have sempipe; now it needs a model to talk to. The

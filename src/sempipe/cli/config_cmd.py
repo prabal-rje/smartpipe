@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import click
 
+from sempipe.cli.completions import complete_chat_models, complete_embed_models
 from sempipe.config.display import render_show, settings_with_origin
 from sempipe.config.paths import config_path, human_path
 from sempipe.config.store import Config, load_config, save_config
@@ -59,7 +60,7 @@ def config_show() -> None:
 
 
 @config_command.command(name="model")
-@click.argument("model_string")
+@click.argument("model_string", shell_complete=complete_chat_models)
 def config_set_model(model_string: str) -> None:
     """Set the default chat model (e.g. ollama/qwen3:8b, gpt-4o-mini)."""
     ref = parse_model_ref(model_string)
@@ -68,7 +69,7 @@ def config_set_model(model_string: str) -> None:
 
 
 @config_command.command(name="embed-model")
-@click.argument("model_string")
+@click.argument("model_string", shell_complete=complete_embed_models)
 def config_set_embed_model(model_string: str) -> None:
     """Set the embedding model used by embed and top_k."""
     ref = parse_model_ref(model_string)

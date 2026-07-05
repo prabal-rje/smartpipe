@@ -8,6 +8,7 @@ import sys
 
 import click
 
+from sempipe.cli.completions import complete_embed_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
 from sempipe.container import build_container
@@ -21,7 +22,9 @@ __all__ = ["top_k_command"]
 @click.argument("k", type=int, required=False)
 @click.option("--near", required=True, help="Rank items by similarity to this query.")
 @click.option("--threshold", type=float, help="Keep everything at or above this similarity (0-1).")
-@click.option("--embed-model", "model_flag", help="Embedding model.")
+@click.option(
+    "--embed-model", "model_flag", shell_complete=complete_embed_models, help="Embedding model."
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--stream", "stream", is_flag=True, help="Live leaderboard over a stream.")
 @fields_option

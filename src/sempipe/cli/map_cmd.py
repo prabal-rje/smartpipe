@@ -9,6 +9,7 @@ from pathlib import Path
 
 import click
 
+from sempipe.cli.completions import complete_chat_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
 from sempipe.container import build_container
@@ -30,6 +31,7 @@ __all__ = ["map_command"]
 @click.option(
     "--model",
     "model_flag",
+    shell_complete=complete_chat_models,
     help="Model for this run (e.g. ollama/qwen3:8b, claude-opus-4-8).",
 )
 @click.option(

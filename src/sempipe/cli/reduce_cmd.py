@@ -9,6 +9,7 @@ from pathlib import Path
 
 import click
 
+from sempipe.cli.completions import complete_chat_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
 from sempipe.container import build_container
@@ -27,7 +28,9 @@ __all__ = ["reduce_command"]
     help="Shape the final result with a JSON Schema.",
 )
 @click.option("--group-by", "group_by", help="Reduce per group (by an input JSON field).")
-@click.option("--model", "model_flag", help="Model for this run.")
+@click.option(
+    "--model", "model_flag", shell_complete=complete_chat_models, help="Model for this run."
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--verbose", is_flag=True, help="Show the chunking tree on stderr.")
 @click.option("--window", type=int, help="Stream mode: reduce every N lines (tumbling).")

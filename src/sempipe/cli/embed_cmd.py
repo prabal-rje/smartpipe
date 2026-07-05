@@ -8,6 +8,7 @@ import sys
 
 import click
 
+from sempipe.cli.completions import complete_embed_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
 from sempipe.container import build_container
@@ -18,7 +19,12 @@ __all__ = ["embed_command"]
 
 
 @click.command(name="embed")
-@click.option("--embed-model", "model_flag", help="Embedding model (e.g. nomic-embed-text).")
+@click.option(
+    "--embed-model",
+    "model_flag",
+    shell_complete=complete_embed_models,
+    help="Embedding model (e.g. nomic-embed-text).",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @fields_option
 @input_options

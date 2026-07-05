@@ -86,6 +86,12 @@ terminal and NDJSON when piped; `csv`/`tsv` need structured (named-field) output
 `--fields a,b` projects structured output to just those columns, in that order,
 identically in every format.
 
+## Shell completion
+
+Tab completion for bash, zsh, and fish — including live model-name suggestions on
+`--model`/`--embed-model` and `config model`. One-liners per shell in
+[Installing sempipe → Tab completion](../install.md#tab-completion).
+
 ## Environment variables
 
 | Variable | Effect |
