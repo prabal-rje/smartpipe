@@ -16,14 +16,15 @@ $ uv run sempipe                # welcome screen = working install
 
 ## The gates
 
-Every PR must pass exactly what CI runs:
+One command runs exactly what CI runs (lint + format check + strict types + coverage):
 
 ```console
-$ uv run pytest -q              # tests (coverage gate ≥ 90 %)
-$ uv run ruff check             # lint (includes T20: no print() — see below)
-$ uv run ruff format --check    # formatting
-$ uv run pyright                # strict type checking
+$ make gates
 ```
+
+Individual targets: `make test`, `make lint`, `make fmt`, `make types`, `make cov`,
+`make smoke` (build the wheel and run it clean), `make golden` (refresh golden files —
+review the diff before committing). `make help` lists them all.
 
 Optional but recommended: `uv run pre-commit install` wires ruff into your commits
 (pyright runs in CI either way).
