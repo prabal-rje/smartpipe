@@ -59,6 +59,11 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/sempipe"]
 
+[tool.hatch.build.targets.sdist]
+# Ship the package, docs, and plan — not local-only reference material, venvs,
+# or build junk (context/ is a gitignored copy of another project).
+include = ["src", "docs", "plan", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

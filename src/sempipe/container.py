@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, assert_never
 
 from sempipe.config.paths import config_path
 from sempipe.config.store import Config, load_config
-from sempipe.core.errors import SetupFault
+from sempipe.core.errors import SetupFault, UsageFault
 from sempipe.io import diagnostics, tty
 from sempipe.io.tty import ColorMode
 from sempipe.io.writers import OutputFormat, WriterConfig, make_writer, resolve_format
@@ -53,6 +53,8 @@ if TYPE_CHECKING:
 
 __all__ = ["AppContainer", "build_container"]
 
+_DEFAULT_CONCURRENCY = 4
+
 
 @dataclass(frozen=True, slots=True)
 class AppContainer:
@@ -70,6 +72,23 @@ class AppContainer:
 
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel:
         return self._build_embed(resolve_embed_ref(flag, self.env, self.config))
+
+    def concurrency(self, flag: int | None = None) -> int:
+        """Max parallel model calls: flag > SEMPIPE_CONCURRENCY > config > default 4."""
+        if flag is not None:
+            if flag < 1:
+                raise UsageFault(f"--concurrency must be >= 1, got {flag}")
+            return flag
+        env_value = self.env.get("SEMPIPE_CONCURRENCY", "").strip()
+        if env_value:
+            if not (env_value.isdigit() and int(env_value) >= 1):
+                raise UsageFault(
+                    f"SEMPIPE_CONCURRENCY must be a whole number >= 1, got {env_value!r}"
+                )
+            return int(env_value)
+        if self.config.concurrency is not None:
+            return self.config.concurrency
+        return _DEFAULT_CONCURRENCY
 
     def writer(
         self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO

@@ -9,14 +9,18 @@ throttling, and the stderr writes.
 
 from __future__ import annotations
 
+import sys
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+from sempipe.io import tty
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import TextIO
 
-__all__ = ["Spinner", "format_eta", "render_known", "render_unknown"]
+__all__ = ["Spinner", "format_eta", "make_stderr_spinner", "render_known", "render_unknown"]
 
 _BRAILLE = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _ASCII = "-\\|/"
@@ -97,3 +101,15 @@ class Spinner:
         self.stream.write(f"\r{line}{_CLEAR_LINE}")
         self.stream.flush()
         self._drew = True
+
+
+def make_stderr_spinner() -> Spinner:
+    """A spinner wired to the real stderr — enabled only when stderr is a TTY,
+    with a Braille or ASCII frame set depending on the encoding."""
+    encoding = (sys.stderr.encoding or "").lower()
+    return Spinner(
+        stream=sys.stderr,
+        enabled=tty.stderr_is_tty(),
+        ascii_only="utf" not in encoding,
+        clock=time.monotonic,
+    )

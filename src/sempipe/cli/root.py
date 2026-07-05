@@ -14,6 +14,7 @@ import click
 from sempipe import __version__
 from sempipe.cli.config_cmd import config_command
 from sempipe.cli.echo_cmd import echo_command
+from sempipe.cli.map_cmd import map_command
 from sempipe.cli.screens import WELCOME
 from sempipe.core.errors import ExitCode, SempipeError, UsageFault
 from sempipe.io import diagnostics
@@ -37,6 +38,7 @@ def cli() -> None:
     """sempipe — semantic pipes for your terminal."""
 
 
+cli.add_command(map_command)
 cli.add_command(config_command)
 cli.add_command(echo_command)
 
