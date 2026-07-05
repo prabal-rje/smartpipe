@@ -49,6 +49,30 @@ Mistral, OpenRouter, a local llama.cpp server — works by pointing sempipe at i
 $ export SEMPIPE_OPENAI_BASE_URL=https://api.groq.com/openai
 ```
 
+## Log in with ChatGPT (no API key)
+
+If you have a ChatGPT Plus/Pro plan, you can use it directly:
+
+```console
+$ sempipe auth login              # opens your browser (or --headless for a code)
+$ echo "hi" | sempipe map "translate to French" --model gpt-5.4
+```
+
+What to know:
+
+- **Which models:** the ChatGPT wire serves the Codex-era family (`gpt-5.x`,
+  `gpt-*-codex`). Older platform models like `gpt-4o-mini` still need an API key.
+- **Precedence:** an exported `OPENAI_API_KEY` always wins over a login — a key is
+  an explicit, billable choice. Unset it to use your plan.
+- **No embeddings:** `embed`/`top_k` need an API key or a local model.
+- **Where tokens live:** `~/.config/sempipe/auth.json`, permissions `0600`,
+  refreshed automatically, removed with `sempipe auth logout`. (API keys are still
+  never stored — this file holds only login tokens.)
+- **Why no login for Anthropic/Mistral:** they don't offer one to third-party
+  tools. OpenAI's login uses the same public OAuth client the Codex CLI and other
+  open-source tools use, and sempipe identifies itself honestly (`originator:
+  sempipe`).
+
 ## Setting a default
 
 ```console

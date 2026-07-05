@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Log in with ChatGPT.** `sempipe auth login` (browser PKCE, or `--headless`
+  device codes) lets ChatGPT Plus/Pro subscribers use OpenAI's Codex-family models
+  without an API key. Tokens live in `~/.config/sempipe/auth.json` (0600,
+  self-refreshing, `sempipe auth logout` removes them); an exported
+  `OPENAI_API_KEY` always takes precedence. Embeddings still need a key or a
+  local model — sempipe says so instead of failing cryptically.
 - **Vision.** Images (`--in 'photos/*.jpg'`, or one redirected to stdin) flow to
   the chat model as images — describe them, or extract `{fields}` from them —
   across all three providers. Non-vision models skip the item with a hint; the

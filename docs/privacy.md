@@ -18,9 +18,17 @@ or Anthropic (or whatever endpoint you configured). That's the deal you're optin
 
 ## API keys are never stored
 
-Credentials are read from environment variables (`OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`) at runtime and **never written** to the config file or logged.
+API keys are read from environment variables (`OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`) at runtime and **never written** to the config file or logged
+(ChatGPT *login tokens* are the one disclosed exception below).
 `sempipe config show` displays your model settings — never a key.
+
+## One exception, disclosed: ChatGPT login tokens
+
+`sempipe auth login` (optional) stores OAuth tokens — never API keys — in
+`~/.config/sempipe/auth.json` with `0600` permissions, because a login that can't
+refresh itself is useless. Delete them any time with `sempipe auth logout`. If you
+never log in, the file never exists.
 
 ## No telemetry, ever
 

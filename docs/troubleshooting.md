@@ -25,7 +25,21 @@ sempipe elsewhere with `OLLAMA_HOST`. Confirm it's up with `ollama list`.
 The model name isn't pulled locally. `ollama pull X`, or pick one you have with
 `ollama list` / `sempipe config model …`.
 
-## "ANTHROPIC_API_KEY isn't set" / "OPENAI_API_KEY isn't set" (exit 2)
+## "needs an OpenAI API key or a ChatGPT login" (exit 2)
+
+Two ways forward, pick one:
+
+```console
+$ export OPENAI_API_KEY=sk-…      # platform billing
+$ sempipe auth login              # or use your ChatGPT Plus/Pro plan
+```
+
+## "the ChatGPT login has expired" (exit 2)
+
+The refresh token was revoked (password change, session cleanup). Run
+`sempipe auth login` again.
+
+## "ANTHROPIC_API_KEY isn't set" (exit 2)
 
 A cloud model needs a key, and sempipe reads it from the environment (never a file):
 

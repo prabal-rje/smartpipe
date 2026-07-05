@@ -8,6 +8,8 @@ from __future__ import annotations
 
 __all__ = [
     "BINARY_STDIN_UNPARSEABLE",
+    "CHATGPT_LOGIN_EXPIRED",
+    "EMBEDDINGS_NEED_KEY",
     "FIELD_REF_ON_PLAIN_INPUT",
     "NO_MODEL",
     "WELCOME",
@@ -15,8 +17,29 @@ __all__ = [
     "missing_api_key",
     "ollama_model_missing",
     "ollama_unreachable",
+    "openai_needs_key_or_login",
     "stdin_document_failed",
 ]
+
+CHATGPT_LOGIN_EXPIRED = """\
+error: the ChatGPT login has expired and couldn't be refreshed
+  Fix: sempipe auth login"""
+
+EMBEDDINGS_NEED_KEY = """\
+error: embeddings aren't available through ChatGPT login
+  The ChatGPT plan wire serves chat models only.
+  Fix: export OPENAI_API_KEY=sk-...
+   or use a local model: sempipe config embed-model nomic-embed-text"""
+
+
+def openai_needs_key_or_login(model: str) -> str:
+    return (
+        f"error: model '{model}' needs an OpenAI API key or a ChatGPT login\n"
+        "  sempipe found no OPENAI_API_KEY and no ChatGPT login. Keys are never stored in config.\n"
+        "  Fix: export OPENAI_API_KEY=sk-...        (platform billing)\n"
+        "   or: sempipe auth login                  (use your ChatGPT Plus/Pro plan)"
+    )
+
 
 BINARY_STDIN_UNPARSEABLE = """\
 error: stdin looks like binary data sempipe can't parse

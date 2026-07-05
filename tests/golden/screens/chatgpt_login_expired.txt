@@ -1,0 +1,2 @@
+error: the ChatGPT login has expired and couldn't be refreshed
+  Fix: sempipe auth login

@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, assert_never
 
+from sempipe.cli import screens
 from sempipe.config.paths import config_path
 from sempipe.config.store import Config, load_config
 from sempipe.core.errors import SetupFault, UsageFault
@@ -103,6 +104,43 @@ class AppContainer:
         )
         return make_writer(config, stdout)
 
+    def _build_openai_chat(self, ref: ModelRef) -> ChatModel:
+        """D19 precedence: an explicit API key (billable, deliberate) always wins;
+        else a stored ChatGPT login rides the codex wire; else the dual-fix screen."""
+        if self.env.get("OPENAI_API_KEY", "").strip():
+            return OpenAIChatModel(
+                ref=ref,
+                client=self.http_client,
+                base_url=resolve_base_url(self.env),
+                api_key=require_api_key(self.env, ref.name),
+                retry=self.retry,
+            )
+        from sempipe.config.credentials import credentials_path, load_oauth
+
+        store = credentials_path(self.env)
+        credential = load_oauth(store, "openai")
+        if credential is not None:
+            from sempipe.models.openai_codex import CodexChatModel
+
+            return CodexChatModel(
+                ref=ref, client=self.http_client, store_path=store, credential=credential
+            )
+        raise SetupFault(screens.openai_needs_key_or_login(ref.name))
+
+    def _build_openai_embed(self, ref: ModelRef) -> EmbeddingModel:
+        if not self.env.get("OPENAI_API_KEY", "").strip():
+            from sempipe.config.credentials import credentials_path, load_oauth
+
+            if load_oauth(credentials_path(self.env), "openai") is not None:
+                raise SetupFault(screens.EMBEDDINGS_NEED_KEY)  # the login wire has no embeddings
+        return OpenAIEmbeddingModel(
+            ref=ref,
+            client=self.http_client,
+            base_url=resolve_base_url(self.env),
+            api_key=require_api_key(self.env, ref.name),
+            retry=self.retry,
+        )
+
     def _build_chat(self, ref: ModelRef) -> ChatModel:
         match ref.provider:
             case "ollama":
@@ -113,13 +151,7 @@ class AppContainer:
                     retry=self.retry,
                 )
             case "openai":
-                return OpenAIChatModel(
-                    ref=ref,
-                    client=self.http_client,
-                    base_url=resolve_base_url(self.env),
-                    api_key=require_api_key(self.env, ref.name),
-                    retry=self.retry,
-                )
+                return self._build_openai_chat(ref)
             case "anthropic":
                 return build_anthropic_chat_model(ref)
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
@@ -135,13 +167,7 @@ class AppContainer:
                     retry=self.retry,
                 )
             case "openai":
-                return OpenAIEmbeddingModel(
-                    ref=ref,
-                    client=self.http_client,
-                    base_url=resolve_base_url(self.env),
-                    api_key=require_api_key(self.env, ref.name),
-                    retry=self.retry,
-                )
+                return self._build_openai_embed(ref)
             case "anthropic":
                 raise SetupFault(
                     f"error: '{ref.name}' is a chat model, not an embedding model\n"

@@ -21,6 +21,9 @@ _SCREENS: dict[str, str] = {
     "no_model": screens.NO_MODEL,
     "field_ref_on_plain_input": screens.FIELD_REF_ON_PLAIN_INPUT,
     "binary_stdin_unparseable": screens.BINARY_STDIN_UNPARSEABLE,
+    "chatgpt_login_expired": screens.CHATGPT_LOGIN_EXPIRED,
+    "embeddings_need_key": screens.EMBEDDINGS_NEED_KEY,
+    "openai_needs_key_or_login": screens.openai_needs_key_or_login("gpt-5.4"),
     "stdin_document_failed": screens.stdin_document_failed("parse error"),
     "ollama_unreachable": screens.ollama_unreachable(
         "http://localhost:11434", "ollama/qwen3:8b", "connection refused"
@@ -57,6 +60,9 @@ def test_every_screen_export_is_pinned() -> None:
         "NO_MODEL",
         "FIELD_REF_ON_PLAIN_INPUT",
         "BINARY_STDIN_UNPARSEABLE",
+        "CHATGPT_LOGIN_EXPIRED",
+        "EMBEDDINGS_NEED_KEY",
+        "openai_needs_key_or_login",
         "stdin_document_failed",
         "ollama_unreachable",
         "ollama_model_missing",

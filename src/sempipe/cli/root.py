@@ -16,6 +16,7 @@ import sys
 import click
 
 from sempipe import __version__
+from sempipe.cli.auth_cmd import auth_command
 from sempipe.cli.cite_cmd import cite_command
 from sempipe.cli.config_cmd import config_command
 from sempipe.cli.echo_cmd import echo_command
@@ -60,6 +61,7 @@ cli.add_command(embed_command)
 cli.add_command(top_k_command)
 cli.add_command(reduce_command)
 cli.add_command(config_command)
+cli.add_command(auth_command)
 cli.add_command(cite_command)
 cli.add_command(echo_command)
 

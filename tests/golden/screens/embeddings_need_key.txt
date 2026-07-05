@@ -1,0 +1,4 @@
+error: embeddings aren't available through ChatGPT login
+  The ChatGPT plan wire serves chat models only.
+  Fix: export OPENAI_API_KEY=sk-...
+   or use a local model: sempipe config embed-model nomic-embed-text

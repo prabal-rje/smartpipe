@@ -59,6 +59,18 @@ $ sempipe config embed-model MODEL   # set the default embedding model
 
 API keys are **never** stored — they're read from the environment.
 
+## `auth`
+
+```console
+$ sempipe auth login             # log in with ChatGPT (browser)
+$ sempipe auth login --headless  # device-code flow for remote machines
+$ sempipe auth status            # logged in? which account?
+$ sempipe auth logout            # remove the stored tokens
+```
+
+With a login and no `OPENAI_API_KEY`, OpenAI models ride your ChatGPT plan
+(Codex-family models). An exported key always takes precedence.
+
 ## `cite`
 
 ```console
