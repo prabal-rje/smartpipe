@@ -63,7 +63,7 @@ class AppContainer:
     color_mode: ColorMode = ColorMode.AUTO
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
-        resolved = await resolve_chat_ref(flag, self.env, self.config, self._ollama_probe)
+        resolved = await resolve_chat_ref(flag, self.env, self.config, self.probe_ollama)
         if resolved.notice is not None:
             diagnostics.note(resolved.notice)
         return self._build_chat(resolved.ref)
@@ -132,7 +132,8 @@ class AppContainer:
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)
 
-    async def _ollama_probe(self) -> tuple[str, ...] | None:
+    async def probe_ollama(self) -> tuple[str, ...] | None:
+        """Installed ollama model names, or None if nothing is listening."""
         return await ollama_model_names(self.http_client, resolve_host(self.env))
 
 
