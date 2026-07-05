@@ -76,8 +76,25 @@ Full docs in [`docs/`](docs/index.md) (or as a site — `uv run --group docs mkd
 - [Cookbook](docs/cookbook/README.md) — contract extraction, log triage, ranking documents
 - [CLI reference](docs/reference/cli.md) · [Troubleshooting](docs/troubleshooting.md) · [Comparison](docs/comparison.md) · [Privacy](docs/privacy.md)
 
+## How to cite
+
+If sempipe is useful in your research, cite it (or run `sempipe cite` for the same):
+
+```bibtex
+@software{gupta_sempipe_2026,
+  author = {Gupta, Prabal},
+  title = {sempipe: semantic pipes for your terminal},
+  year = {2026},
+  version = {1.0.0},
+  license = {Apache-2.0},
+  url = {https://github.com/prabal-rje/sempipe}
+}
+```
+
+GitHub's "Cite this repository" button (from [CITATION.cff](CITATION.cff)) gives APA too.
+
 ## Development
 
-Built in the open. The design docs, staged plan, and progress ledger live in
-[`plan/`](plan/README.md); contributor setup and the quality gates are in
-[CONTRIBUTING.md](CONTRIBUTING.md). As of 1.0 the CLI surface is a SemVer contract.
+Built in the open, under **Apache-2.0**. The design docs, staged plan, and progress
+ledger live in [`plan/`](plan/README.md); contributor setup and the quality gates are
+in [CONTRIBUTING.md](CONTRIBUTING.md). As of 1.0 the CLI surface is a SemVer contract.

@@ -5,11 +5,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Added
+- **`sempipe cite`** — print a copy-paste BibTeX entry; `CITATION.cff` ships in the
+  repo (GitHub's "Cite this repository" reads it) and in the sdist.
+
+### Changed
+- **License: Apache-2.0** (from MIT), with a `NOTICE` file — matching the published
+  repository. The `v1.0.0` tag points at the relicensed tree.
+
 ## [1.0.0] — 2026-07-05
 
 **1.0.** The CLI surface — verbs, flags, output formats, exit codes, env vars — is now
 a contract governed by SemVer. The five semantic verbs, local-first defaults, file
-inputs, and adaptive output are complete and stable.
+inputs, and adaptive output are complete and stable. Licensed under **Apache-2.0**.
 
 ### The whole thing, in one place
 - **Five verbs as Unix pipe stages:** `map` (transform), `filter` (semantic grep),

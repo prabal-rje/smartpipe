@@ -57,6 +57,12 @@ $ sempipe config embed-model MODEL   # set the default embedding model
 
 API keys are **never** stored — they're read from the environment.
 
+## `cite`
+
+```console
+$ sempipe cite                       # print a BibTeX entry for citing sempipe
+```
+
 ## Output formats
 
 `--output` (or `SEMPIPE_OUTPUT`): `auto` (default), `text`, `json`, `csv`, `tsv`.
