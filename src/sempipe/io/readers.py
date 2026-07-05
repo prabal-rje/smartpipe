@@ -1,10 +1,18 @@
-"""Item sources. Batch stdin for now; files (stage 7) join with the same shape:
-``AsyncIterator[Item]`` — the runner never knows where items come from.
+"""Item sources — all with the same shape: ``AsyncIterator[Item]``.
+
+Stdin is read **incrementally** (stage-08 as amended): a daemon pump thread does the
+blocking ``readline`` and hands lines to a bounded asyncio queue, so items flow as
+they arrive (``tail -f`` works), backpressure is real (the pump stalls when the queue
+fills), and shutdown can never hang on a blocked read (the async side is cancellable;
+the daemon flag is the last-resort guarantee). ``--in`` file lists stay finite.
 """
 
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import contextlib
+import threading
 from typing import TYPE_CHECKING
 
 from sempipe.core.errors import ItemError, UsageFault
@@ -29,6 +37,7 @@ __all__ = [
 ]
 
 _HEAD_BYTES = 8192
+_QUEUE_MAX = 1024  # lines buffered ahead of consumption — memory stays bounded
 
 
 async def resolve_items(spec: InputSpec, stdin: TextIO) -> AsyncIterator[Item]:
@@ -50,31 +59,86 @@ async def resolve_items(spec: InputSpec, stdin: TextIO) -> AsyncIterator[Item]:
             yield item
 
 
-async def stdin_items(stdin: TextIO) -> AsyncIterator[Item]:
-    """Batch mode: drain the pipe, yield one Item per line, in order.
+async def _lines(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[str]:
+    """Incremental line source: daemon pump thread → bounded queue → cancellable get.
 
-    A final line without a trailing newline is still an item; empty input
-    yields nothing. Splitting is on ``\\n`` only (grep semantics) — CRLF is
-    handled per-item by ``item_from_line``.
+    The pump's blocking ``queue.put(...).result()`` is the backpressure (the thread
+    stalls while the queue is full) and the shutdown path (when the async side goes
+    away, the pending put is cancelled and the thread exits). ``None`` is the EOF
+    sentinel, delivered with a *blocking* put so a full queue can't swallow it.
     """
-    text = await asyncio.to_thread(stdin.read)
-    if not text:
-        return
-    lines = text.split("\n")
-    if lines[-1] == "":
-        lines.pop()
-    for index, line in enumerate(lines):
+    queue: asyncio.Queue[str | None] = asyncio.Queue(_QUEUE_MAX)
+    loop = asyncio.get_running_loop()
+
+    def pump() -> None:
+        try:
+            while True:
+                line = stdin.readline()  # blocks in this thread only
+                if not line:
+                    break  # EOF
+                asyncio.run_coroutine_threadsafe(queue.put(line), loop).result()
+        except (RuntimeError, ValueError, OSError, concurrent.futures.CancelledError):
+            # loop closed, consumer gone, or the stream was closed under us —
+            # any of these means "stop pumping", never a crash or a stderr trace
+            return
+        finally:
+            with contextlib.suppress(RuntimeError, concurrent.futures.CancelledError):
+                asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
+
+    threading.Thread(target=pump, name="sempipe-stdin-pump", daemon=True).start()
+    while True:
+        line = await _next_or_stop(queue, stop)
+        if line is None:
+            return
+        yield line
+
+
+async def _next_or_stop(queue: asyncio.Queue[str | None], stop: asyncio.Event | None) -> str | None:
+    if stop is None:
+        return await queue.get()
+    if stop.is_set():
+        return None
+    get_task = asyncio.ensure_future(queue.get())
+    stop_task = asyncio.ensure_future(stop.wait())
+    done, _pending = await asyncio.wait({get_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
+    if get_task in done:
+        stop_task.cancel()
+        return get_task.result()
+    get_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await get_task  # reap it — no strays, no destroyed-pending warnings
+    return None
+
+
+async def stdin_items(stdin: TextIO, *, stop: asyncio.Event | None = None) -> AsyncIterator[Item]:
+    """Each stdin line is one Item, yielded as it arrives (never waits for EOF).
+
+    A final line without a trailing newline is still an item; empty input yields
+    nothing; CRLF and the line-0 BOM are handled per-item by ``item_from_line``.
+    """
+    index = 0
+    async for line in _lines(stdin, stop):
         yield item_from_line(line, index)
+        index += 1
 
 
-async def from_files_items(stdin: TextIO) -> AsyncIterator[Item]:
-    """``--from-files``: each non-blank stdin line names a file to read."""
+async def from_files_items(
+    stdin: TextIO, *, stop: asyncio.Event | None = None
+) -> AsyncIterator[Item]:
+    """``--from-files``: each non-blank stdin line names a file to read — also
+    incremental, so ``find … | sempipe … --from-files`` processes as names arrive."""
     from pathlib import Path
 
-    text = await asyncio.to_thread(stdin.read)
-    paths = [Path(line.strip()) for line in text.splitlines() if line.strip()]
-    for item in file_items(paths):
-        yield item
+    warned_extras: set[str] = set()
+    index = 0
+    async for line in _lines(stdin, stop):
+        name = line.strip()
+        if not name:
+            continue
+        item = _load_file(Path(name), index, warned_extras)
+        if item is not None:
+            yield item
+            index += 1
 
 
 def file_items(paths: Sequence[Path]) -> list[Item]:
