@@ -16,7 +16,7 @@ import httpx
 from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
-from sempipe.models.http_support import is_retryable_http
+from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.retry import RetryPolicy, with_retries
 
 if TYPE_CHECKING:
@@ -120,7 +120,9 @@ async def _post(
         return response.json()
 
     try:
-        return await with_retries(model.retry, attempt, is_retryable=is_retryable_http)
+        return await with_retries(
+            model.retry, attempt, is_retryable=is_retryable_http, delay_hint=retry_after_seconds
+        )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code in (401, 403):
             raise SetupFault(

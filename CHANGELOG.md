@@ -54,6 +54,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ### Changed
 - **License: Apache-2.0** (from MIT), with a `NOTICE` file — matching the published
   repository. The `v1.0.0` tag points at the relicensed tree.
+- **Rate limits back off exactly as asked.** A 429 carrying `Retry-After`
+  (seconds or HTTP-date) now sleeps the server's number — no jitter, capped at a
+  60 s abuse ceiling — instead of guessing with exponential backoff. Ollama and
+  OpenAI-compatible endpoints; the Anthropic SDK already did this itself.
 - **Startup stays fast, now enforced.** `sempipe --help` no longer imports
   `httpx` or `jsonschema` (they load only when a command actually runs);
   an `importtime`-based test gates it in CI and `make startup` reports the

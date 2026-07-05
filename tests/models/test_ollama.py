@@ -133,6 +133,21 @@ async def test_transient_error_recovers(
     assert route.call_count == 2
 
 
+async def test_429_with_retry_after_zero_recovers_via_the_hint(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    # wires delay_hint=retry_after_seconds through the adapter: the header is
+    # parsed and honored (0 s here so the test never sleeps); delay values are
+    # pinned by the unit tests in test_retry.py / test_http_support.py.
+    route = respx_mock.post(f"{HOST}/api/chat")
+    route.side_effect = [
+        httpx.Response(429, headers={"Retry-After": "0"}, json={"error": "slow down"}),
+        httpx.Response(200, json={"message": {"content": "ok"}}),
+    ]
+    assert await _chat(client).complete(CompletionRequest(system=None, user="x")) == "ok"
+    assert route.call_count == 2
+
+
 async def test_unexpected_reply_shape_is_an_item_error(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:

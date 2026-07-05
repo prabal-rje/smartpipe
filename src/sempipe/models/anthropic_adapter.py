@@ -28,6 +28,8 @@ __all__ = [
 ]
 
 _TIMEOUT_SECONDS = 120.0
+# The SDK's built-in retries already honor Retry-After on 429 (unlike our raw-httpx
+# adapters, which route the header through retry.with_retries' delay_hint).
 _MAX_RETRIES = 3
 
 
