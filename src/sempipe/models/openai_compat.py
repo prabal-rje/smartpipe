@@ -171,16 +171,21 @@ async def _post(
             model.retry, attempt, is_retryable=is_retryable_http, delay_hint=retry_after_seconds
         )
     except httpx.HTTPStatusError as exc:
-        if exc.response.status_code in (401, 403):
+        status = exc.response.status_code
+        if status in (401, 403):
             raise SetupFault(
                 f"error: the API key for '{model.ref.name}' was rejected "
-                f"({exc.response.status_code})\n"
+                f"({status})\n"
                 f"  The endpoint answered, but it didn't accept {model.wire.key_env}.\n"
                 f"  Fix: check the key, or the endpoint in {model.wire.base_url_env}."
             ) from exc
-        raise ItemError(
-            f"{model.ref.provider} error {exc.response.status_code}: {_detail(exc.response)}"
-        ) from exc
+        detail = _detail(exc.response)
+        # D18: failures that doom every item identically stop the run at the first
+        if status == 404:
+            raise SetupFault(screens.cloud_model_missing(model.ref.name, _host(model))) from exc
+        if status == 400 and ("response_format" in detail or "json_schema" in detail):
+            raise SetupFault(screens.schema_rejected(_host(model), detail)) from exc
+        raise ItemError(f"{model.ref.provider} error {status}: {detail}") from exc
     except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
         # ConnectTimeout is a TimeoutException, not a ConnectError — both mean
         # "couldn't establish a connection", so both map to the same screen.
@@ -191,6 +196,10 @@ async def _post(
         ) from exc
     except httpx.HTTPError as exc:
         raise ItemError(f"request to {model.base_url} failed: {exc}") from exc
+
+
+def _host(model: OpenAIChatModel | OpenAIEmbeddingModel) -> str:
+    return model.base_url.removeprefix("https://").removeprefix("http://")
 
 
 def _detail(response: httpx.Response) -> str:

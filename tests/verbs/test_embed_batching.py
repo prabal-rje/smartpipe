@@ -132,8 +132,20 @@ async def test_poison_item_skips_alone(tmp_path: Path, capsys: pytest.CaptureFix
 # --- whole-service failure ------------------------------------------------------------
 
 
-async def test_small_corpus_all_failed_exits_3(tmp_path: Path) -> None:
-    texts = [f"text {index}" for index in range(10)]  # below the halt min_sample
+async def test_small_doomed_corpus_halts_after_five(tmp_path: Path) -> None:
+    # D18: zero successes + 5 consecutive failures = the run was doomed from item 1.
+    # Before the guardrail this ground through all 10 items to ALL_FAILED.
+    texts = [f"text {index}" for index in range(10)]
+    model = BatchFake(always_fail=True)
+    with pytest.raises(TooManyFailures):
+        await _run_files(tmp_path, texts, model)
+    assert len(model.calls) == 6  # 1 failed chunk + 5 per-item fallbacks, then stop
+
+
+async def test_tiny_corpus_below_the_consecutive_limit_still_reports_all_failed(
+    tmp_path: Path,
+) -> None:
+    texts = [f"text {index}" for index in range(3)]  # fewer than 5 — no halt to trip
     model = BatchFake(always_fail=True)
     code, out = await _run_files(tmp_path, texts, model)
     assert code is ExitCode.ALL_FAILED

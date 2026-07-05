@@ -67,6 +67,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   true outcome code; a second Ctrl-C exits 130 immediately.
 
 ### Fixed
+- **Doomed runs stop before the spend (D18).** A cloud 404 (model doesn't
+  exist) or a schema the endpoint rejects now stops the whole run at the *first*
+  occurrence with a fix screen — previously each item skipped individually,
+  burning a paid call per input line. Five consecutive failures with zero
+  successes also halt (a run that never worked was doomed from item 1); one
+  success anywhere disarms that rule, so a working run with a bad patch of
+  input still survives on the ordinary >50 % policy.
 - **Optional-field schemas no longer 400 on OpenAI/Mistral.** sempipe claimed
   `strict: true` structured output unconditionally; strict mode rejects any
   schema whose fields aren't all required (with `additionalProperties: false`),

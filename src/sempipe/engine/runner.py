@@ -35,6 +35,7 @@ __all__ = [
     "Skipped",
     "run_ordered",
     "should_halt",
+    "should_halt_consecutive",
 ]
 
 R = TypeVar("R")
@@ -60,12 +61,20 @@ ItemOutcome = Done[R] | Skipped
 class FailurePolicy:
     halt_ratio: float = 0.5
     min_sample: int = 20
+    consecutive_limit: int = 5  # D18: a doomed run must not wait for the ratio
 
 
 def should_halt(policy: FailurePolicy, *, total: int, skipped: int) -> bool:
     """True once enough items have finished and a majority of them failed.
     ``min_sample`` prevents a 3-item pipe halting on 2 flukes."""
     return total >= policy.min_sample and skipped > total * policy.halt_ratio
+
+
+def should_halt_consecutive(policy: FailurePolicy, *, succeeded: bool, consecutive: int) -> bool:
+    """D18's cost guardrail: N consecutive failures with zero successes *ever* means
+    the run was doomed from item 1 — stop paying. Any success disarms this rule
+    permanently (a working run with a bad patch of input must not die early)."""
+    return not succeeded and consecutive >= policy.consecutive_limit
 
 
 async def run_ordered(
@@ -92,6 +101,8 @@ async def run_ordered(
     next_to_emit = 0
     total = 0
     skipped = 0
+    consecutive = 0
+    succeeded = False
 
     def stopping() -> bool:
         return stop is not None and stop.is_set()
@@ -140,8 +151,16 @@ async def run_ordered(
             total += 1
             if isinstance(outcome, Skipped):
                 skipped += 1
+                consecutive += 1
                 if should_halt(failure_policy, total=total, skipped=skipped):
                     raise TooManyFailures(skipped, total, outcome.reason)
+                if should_halt_consecutive(
+                    failure_policy, succeeded=succeeded, consecutive=consecutive
+                ):
+                    raise TooManyFailures(skipped, total, outcome.reason)
+            else:
+                consecutive = 0
+                succeeded = True
     finally:
         intake_task.cancel()
         for task in pending.values():

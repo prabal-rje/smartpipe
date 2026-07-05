@@ -62,8 +62,19 @@ class CodexChatModel:
             response = await self._post(request)
             if response.status_code == 401:
                 raise SetupFault(LOGIN_EXPIRED)
+        if response.status_code == 404:  # D18: dooms every item — stop at the first
+            from sempipe.cli import screens
+
+            raise SetupFault(screens.cloud_model_missing(self.ref.name, "the ChatGPT wire"))
         if response.status_code != 200:
-            raise ItemError(f"chatgpt wire error {response.status_code}: {_detail(response)}")
+            detail = _detail(response)
+            if response.status_code == 400 and (
+                "response_format" in detail or "json_schema" in detail
+            ):
+                from sempipe.cli import screens
+
+                raise SetupFault(screens.schema_rejected("the ChatGPT wire", detail))
+            raise ItemError(f"chatgpt wire error {response.status_code}: {detail}")
         text = accumulate_sse(response.text)
         if not text:
             raise ItemError("the model returned an empty reply")

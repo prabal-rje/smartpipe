@@ -1,0 +1,3 @@
+error: the endpoint rejected the --schema
+  api.openai.com answered 400 (response_format): missing required property
+  Fix: simplify the schema — or drop --schema and validate downstream.

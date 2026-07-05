@@ -45,6 +45,8 @@ _SCREENS: dict[str, str] = {
         note="create one at console.mistral.ai",
     ),
     "missing_anthropic_extra": screens.missing_anthropic_extra("claude-opus-4-8"),
+    "cloud_model_missing": screens.cloud_model_missing("gpt-4o-mini-typo", "api.openai.com"),
+    "schema_rejected": screens.schema_rejected("api.openai.com", "missing required property"),
 }
 
 
@@ -75,5 +77,7 @@ def test_every_screen_export_is_pinned() -> None:
         "ollama_model_missing",
         "missing_api_key",
         "missing_anthropic_extra",
+        "cloud_model_missing",
+        "schema_rejected",
     }
     assert exported == covered, "a screens.py export is not pinned in _SCREENS"

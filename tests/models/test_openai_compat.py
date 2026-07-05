@@ -308,3 +308,45 @@ def test_mistral_missing_key_screen_points_at_the_console() -> None:
     message = str(excinfo.value)
     assert "MISTRAL_API_KEY" in message
     assert "console.mistral.ai" in message
+
+
+# --- D18: setup-class failures stop at first sight (workstream post-1.1/01) --------
+
+
+async def test_cloud_404_is_fatal_at_first_sight(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    route = respx_mock.post(f"{BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            404, json={"error": {"message": "The model 'nope' does not exist"}}
+        )
+    )
+    with pytest.raises(SetupFault, match="doesn't know the model"):
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))
+    assert route.call_count == 1  # permanent 4xx never consumes retry budget
+
+
+async def test_schema_rejection_400_is_fatal(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    respx_mock.post(f"{BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            400,
+            json={"error": {"message": "Invalid 'response_format.json_schema': missing items"}},
+        )
+    )
+    with pytest.raises(SetupFault, match="rejected the --schema"):
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))
+
+
+async def test_other_400s_stay_item_errors(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    # a content-policy 400 on one item must not kill the run (spec §6.3)
+    respx_mock.post(f"{BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            400, json={"error": {"message": "content flagged by moderation"}}
+        )
+    )
+    with pytest.raises(ItemError, match="openai error 400"):
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))

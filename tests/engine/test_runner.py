@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from sempipe.engine.runner import ItemOutcome
 
-NEVER_HALT = FailurePolicy(halt_ratio=1.0, min_sample=10**9)
+NEVER_HALT = FailurePolicy(halt_ratio=1.0, min_sample=10**9, consecutive_limit=10**9)
 
 
 def _item(index: int, text: str = "x") -> Item:
@@ -144,9 +144,13 @@ def test_should_halt_needs_min_sample() -> None:
 
 
 async def test_halts_past_the_failure_threshold() -> None:
+    # isolate the RATIO policy: one early success disarms the consecutive rule (D18),
+    # so this pins the >50%-of-≥20 behavior on a run that did work at first
     items = [_item(i) for i in range(100)]
 
     async def worker(item: Item) -> str:
+        if item.source.index == 0:
+            return "ok"
         raise ItemError(f"fail {item.source.index}")
 
     with pytest.raises(TooManyFailures) as excinfo:
@@ -256,3 +260,39 @@ async def test_emits_completed_results_while_intake_is_stalled() -> None:
     gate.set()
     rest = [o async for o in gen]
     assert [o.index for o in rest] == [1]
+
+
+# --- D18: five consecutive failures with zero successes halt the doomed run --------
+
+
+async def test_doomed_run_halts_after_five_consecutive_failures() -> None:
+    items = [_item(i) for i in range(10)]
+
+    async def worker(item: Item) -> int:
+        raise ItemError("same failure")
+
+    seen = 0
+    with pytest.raises(TooManyFailures) as excinfo:
+        async for _outcome in run_ordered(
+            _stream(items), worker, concurrency=1, failure_policy=FailurePolicy()
+        ):
+            seen += 1
+    assert seen == 5  # the 6th..10th items were never paid for
+    assert excinfo.value.failed == 5
+
+
+async def test_one_success_disarms_the_consecutive_rule_forever() -> None:
+    items = [_item(i) for i in range(12)]
+
+    async def worker(item: Item) -> int:
+        if item.source.index == 0:
+            return 0
+        raise ItemError("bad patch of input")
+
+    outcomes = [
+        outcome
+        async for outcome in run_ordered(
+            _stream(items), worker, concurrency=1, failure_policy=FailurePolicy()
+        )
+    ]
+    assert len(outcomes) == 12  # ran to completion; only the ratio policy applies now

@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, TypeVar
 
 from sempipe.core.errors import ExitCode, ItemError, TooManyFailures
-from sempipe.engine.runner import Done, FailurePolicy, ItemOutcome, Skipped, should_halt
+from sempipe.engine.runner import (
+    Done,
+    FailurePolicy,
+    ItemOutcome,
+    Skipped,
+    should_halt,
+    should_halt_consecutive,
+)
 
 if TYPE_CHECKING:
     import asyncio
@@ -90,12 +97,22 @@ async def embed_in_batches(
     """
     processed = 0
     skipped = 0
+    consecutive = 0
+    succeeded = False
 
     def account_skip(reason: str) -> None:
-        nonlocal skipped
+        nonlocal skipped, consecutive
         skipped += 1
+        consecutive += 1
         if should_halt(failure_policy, total=processed, skipped=skipped):
             raise TooManyFailures(skipped, processed, reason)
+        if should_halt_consecutive(failure_policy, succeeded=succeeded, consecutive=consecutive):
+            raise TooManyFailures(skipped, processed, reason)
+
+    def account_done() -> None:
+        nonlocal consecutive, succeeded
+        consecutive = 0
+        succeeded = True
 
     for chunk in batched(tuple(items), batch_size):
         if stop is not None and stop.is_set():
@@ -128,8 +145,10 @@ async def embed_in_batches(
                     yield Skipped(item.source.index, str(exc), item.source)
                     account_skip(str(exc))
                 else:
+                    account_done()
                     yield Done(item.source.index, (item, vector))
             continue
         for item, vector in zip(text_items, vectors, strict=True):
             processed += 1
+            account_done()
             yield Done(item.source.index, (item, vector))

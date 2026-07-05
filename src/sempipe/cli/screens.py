@@ -13,11 +13,13 @@ __all__ = [
     "FIELD_REF_ON_PLAIN_INPUT",
     "NO_MODEL",
     "WELCOME",
+    "cloud_model_missing",
     "missing_anthropic_extra",
     "missing_api_key",
     "ollama_model_missing",
     "ollama_unreachable",
     "openai_needs_key_or_login",
+    "schema_rejected",
     "stdin_document_failed",
 ]
 
@@ -119,6 +121,25 @@ def missing_api_key(
         f"error: model '{model}' needs {_an(provider)} {provider} API key\n"
         f"  sempipe found no {env_var} in the environment. Keys are never stored in config.\n"
         f"  Fix: export {env_var}={key_shape}        ({note})"
+    )
+
+
+def cloud_model_missing(model: str, host: str) -> str:
+    """D18: a 404 for the model dooms every item identically — stop at the first."""
+    return (
+        f"error: the endpoint doesn't know the model '{model}'\n"
+        f"  {host} answered 404 — every item would fail identically, "
+        "so sempipe stopped at the first.\n"
+        "  Fix: check the name, or set one that exists: sempipe config model gpt-4o-mini"
+    )
+
+
+def schema_rejected(host: str, detail: str) -> str:
+    """D18: a schema the endpoint rejects dooms every item identically."""
+    return (
+        "error: the endpoint rejected the --schema\n"
+        f"  {host} answered 400 (response_format): {detail}\n"
+        "  Fix: simplify the schema — or drop --schema and validate downstream."
     )
 
 

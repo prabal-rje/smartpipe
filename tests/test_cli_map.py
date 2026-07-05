@@ -114,3 +114,18 @@ def test_optional_field_schema_completes_on_the_openai_wire(
     assert out == '{"a":1}\n'
     body = json.loads(route.calls.last.request.content)
     assert body["response_format"]["json_schema"]["strict"] is False
+
+
+def test_doomed_404_run_stops_at_first_sight(
+    run_cli: RunCli, respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # D18: before the guardrail this skipped item-by-item, burning a call per line
+    monkeypatch.setenv("SEMPIPE_MODEL", "gpt-4o-mini-typo")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    route = respx_mock.post("https://api.openai.com/v1/chat/completions").mock(
+        return_value=httpx.Response(404, json={"error": {"message": "model not found"}})
+    )
+    code, _out, err = run_cli(["map", "translate", "--concurrency", "2"], stdin="one\ntwo\nthree\n")
+    assert code == 2
+    assert err.count("doesn't know the model") == 1  # one screen, not three skips
+    assert route.call_count <= 2  # at most the in-flight workers, never all items
