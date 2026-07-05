@@ -76,6 +76,7 @@ asyncio_mode = "auto"
 [tool.coverage.run]
 source = ["src/sempipe"]
 branch = true
+omit = ["*/__main__.py"]
 
 [tool.coverage.report]
 fail_under = 90

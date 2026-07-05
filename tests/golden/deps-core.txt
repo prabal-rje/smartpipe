@@ -1,0 +1,15 @@
+anyio
+attrs
+certifi
+click
+colorama
+h11
+httpcore
+httpx
+idna
+jsonschema
+jsonschema-specifications
+referencing
+rpds-py
+tomli-w
+typing-extensions

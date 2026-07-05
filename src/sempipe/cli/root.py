@@ -33,15 +33,15 @@ def cli() -> None:
 
 
 def main() -> None:
+    # standalone_mode=False so *we* own exit codes. In this mode click does not
+    # sys.exit(): a ctx.exit(n) / --version / --help comes back as a plain int
+    # return value (verified against click 8.4), and UsageError is raised.
     try:
-        cli.main(standalone_mode=False)
+        result = cli.main(standalone_mode=False, prog_name="sempipe")
     except click.UsageError as exc:
         click.echo(f"error: {exc.format_message()}", err=True)
         command_path = exc.ctx.command_path if exc.ctx is not None else "sempipe"
         click.echo(f"  try: {command_path} --help", err=True)
         raise SystemExit(int(ExitCode.USAGE)) from exc
-    except click.exceptions.Exit as exc:
-        raise SystemExit(exc.exit_code) from exc
-    except click.ClickException as exc:
-        exc.show()
-        raise SystemExit(int(ExitCode.USAGE)) from exc
+    if isinstance(result, int) and result != 0:
+        raise SystemExit(result)
