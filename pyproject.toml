@@ -68,6 +68,14 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "T20", "SIM", "RUF"]
 # T20 bans print(): ALL output must flow through io/writers or io/diagnostics
 # so the stdout-is-sacred rule is mechanically enforced.
+# A005: `sempipe.io` deliberately mirrors its responsibility; absolute imports
+# mean it can never shadow the stdlib `io` module in practice.
+ignore = ["A005"]
+
+[tool.ruff.lint.per-file-ignores]
+# The *Fault taxonomy (plan/architecture.md) is deliberate: "UsageError" would
+# collide with click.UsageError, which the CLI shell handles right next to ours.
+"src/sempipe/core/errors.py" = ["N818"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

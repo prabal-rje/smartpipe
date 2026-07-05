@@ -7,11 +7,14 @@ configured" (plan/decisions.md D12), so ``main`` maps click exceptions onto the
 
 from __future__ import annotations
 
+import os
+
 import click
 
 from sempipe import __version__
 from sempipe.cli.screens import WELCOME
-from sempipe.core.errors import ExitCode
+from sempipe.core.errors import ExitCode, SempipeError, UsageFault
+from sempipe.io import diagnostics
 
 __all__ = ["cli", "main"]
 
@@ -36,6 +39,9 @@ def main() -> None:
     # standalone_mode=False so *we* own exit codes. In this mode click does not
     # sys.exit(): a ctx.exit(n) / --version / --help comes back as a plain int
     # return value (verified against click 8.4), and UsageError is raised.
+    # --debug becomes a real global flag with the first verb (stage 3); until then
+    # the env var keeps tracebacks reachable for development.
+    debug = "SEMPIPE_DEBUG" in os.environ
     try:
         result = cli.main(standalone_mode=False, prog_name="sempipe")
     except click.UsageError as exc:
@@ -43,5 +49,13 @@ def main() -> None:
         command_path = exc.ctx.command_path if exc.ctx is not None else "sempipe"
         click.echo(f"  try: {command_path} --help", err=True)
         raise SystemExit(int(ExitCode.USAGE)) from exc
+    except SempipeError as exc:
+        diagnostics.die(exc, debug=debug)
+    except KeyboardInterrupt:
+        raise SystemExit(int(ExitCode.INTERRUPTED)) from None
+    except click.ClickException as exc:  # click-internal faults (e.g. click.FileError)
+        diagnostics.die(UsageFault(exc.format_message()), debug=debug)
+    except Exception as exc:  # the last-resort BUG screen (exit 70) — never a raw traceback
+        diagnostics.internal_error(exc, debug=debug)
     if isinstance(result, int) and result != 0:
         raise SystemExit(result)
