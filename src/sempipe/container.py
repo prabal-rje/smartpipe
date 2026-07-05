@@ -14,6 +14,7 @@ is clearer than a container framework.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, assert_never
@@ -27,6 +28,7 @@ from sempipe.io.tty import ColorMode
 from sempipe.io.writers import OutputFormat, WriterConfig, make_writer, resolve_format
 from sempipe.models.anthropic_adapter import build_anthropic_chat_model
 from sempipe.models.base import ModelRef
+from sempipe.models.budget import CallBudget, budgeted_chat, budgeted_embed
 from sempipe.models.http_support import make_client
 from sempipe.models.ollama import (
     OllamaChatModel,
@@ -65,15 +67,18 @@ class AppContainer:
     http_client: httpx.AsyncClient
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     color_mode: ColorMode = ColorMode.AUTO
+    budget: CallBudget | None = None  # --max-calls (D18); None = uncapped
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
         resolved = await resolve_chat_ref(flag, self.env, self.config, self.probe_ollama)
         if resolved.notice is not None:
             diagnostics.note(resolved.notice)
-        return self._build_chat(resolved.ref)
+        model = self._build_chat(resolved.ref)
+        return model if self.budget is None else budgeted_chat(model, self.budget)
 
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel:
-        return self._build_embed(resolve_embed_ref(flag, self.env, self.config))
+        model = self._build_embed(resolve_embed_ref(flag, self.env, self.config))
+        return model if self.budget is None else budgeted_embed(model, self.budget)
 
     def concurrency(self, flag: int | None = None) -> int:
         """Max parallel model calls: flag > SEMPIPE_CONCURRENCY > config > default 4."""
@@ -211,13 +216,34 @@ class AppContainer:
         return await ollama_model_names(self.http_client, resolve_host(self.env))
 
 
+def _resolve_max_calls(environ: Mapping[str, str], flag: int | None) -> int | None:
+    """--max-calls > SEMPIPE_MAX_CALLS > uncapped; bad values are loud (D18)."""
+    if flag is not None:
+        if flag < 1:
+            raise UsageFault(f"--max-calls must be >= 1, got {flag}")
+        return flag
+    env_value = environ.get("SEMPIPE_MAX_CALLS", "").strip()
+    if not env_value:
+        return None
+    if not (env_value.isdigit() and int(env_value) >= 1):
+        raise UsageFault(f"SEMPIPE_MAX_CALLS must be a whole number >= 1, got {env_value!r}")
+    return int(env_value)
+
+
 @asynccontextmanager
 async def build_container(
     environ: Mapping[str, str],
     *,
     color_mode: ColorMode = ColorMode.AUTO,
+    max_calls: int | None = None,
+    stop: asyncio.Event | None = None,
 ) -> AsyncGenerator[AppContainer]:
-    """Build the container for one invocation and own the HTTP client's lifecycle."""
+    """Build the container for one invocation and own the HTTP client's lifecycle.
+
+    ``stop`` is the drain event of the per-item verbs: a tripped call budget stops
+    intake through it. Whole-set verbs pass no stop — exhaustion there is fatal.
+    """
+    limit = _resolve_max_calls(environ, max_calls)
     config = load_config(config_path(environ))
     client = make_client()
     try:
@@ -226,6 +252,7 @@ async def build_container(
             config=config,
             http_client=client,
             color_mode=color_mode,
+            budget=None if limit is None else CallBudget(limit=limit, stop=stop),
         )
     finally:
         await client.aclose()

@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`--max-calls N` — a hard cost ceiling (D18).** Counts model calls (a repair
+  re-ask counts; wire retries don't). Per-item verbs stop intake at the cap and
+  drain gracefully (`note: stopped by --max-calls (N calls made)`); whole-set
+  `top_k`/`reduce` treat mid-collection exhaustion as fatal with a fix screen —
+  a partial collection is nothing usable. A capped run never exits 0. Also
+  `SEMPIPE_MAX_CALLS` and the `.sem` key `max-calls`.
 - **Mistral, first-class.** `--model mistral-large-latest` (or any of the
   family's bare prefixes — `ministral-*`, `codestral-*`, `magistral-*`,
   `devstral-*`, `pixtral-*`, `open-mistral-*`, `open-mixtral-*`) just works:

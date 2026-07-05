@@ -129,3 +129,34 @@ def test_doomed_404_run_stops_at_first_sight(
     assert code == 2
     assert err.count("doesn't know the model") == 1  # one screen, not three skips
     assert route.call_count <= 2  # at most the in-flight workers, never all items
+
+
+def test_max_calls_caps_the_run_and_never_exits_clean(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post(CHAT).mock(
+        return_value=httpx.Response(200, json={"message": {"content": "ok"}})
+    )
+    code, out, err = run_cli(
+        ["map", "translate", "--concurrency", "1", "--max-calls", "2"],
+        stdin="one\ntwo\nthree\nfour\nfive\n",
+    )
+    assert route.call_count == 2  # the hard ceiling held
+    assert out == "ok\nok\n"  # completed work was emitted (drained, not discarded)
+    assert code == 1  # a capped run is never a clean 0 (D18)
+    assert "stopped by --max-calls (2 calls made)" in err
+
+
+def test_max_calls_zero_is_a_usage_error(run_cli: RunCli) -> None:
+    code, _out, err = run_cli(["map", "x", "--max-calls", "0"], stdin="hi\n")
+    assert code == 64
+    assert "--max-calls must be >= 1, got 0" in err
+
+
+def test_max_calls_env_fallback_is_validated(
+    run_cli: RunCli, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SEMPIPE_MAX_CALLS", "nope")
+    code, _out, err = run_cli(["map", "x"], stdin="hi\n")
+    assert code == 64
+    assert "SEMPIPE_MAX_CALLS must be a whole number >= 1" in err

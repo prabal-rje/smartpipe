@@ -40,6 +40,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `--in GLOB` | Read each matching file as one item (repeatable). |
 | `--from-files` | Treat each stdin line as a filename. |
 | `--fields A,B` | Select + order columns of structured output (`map`, `embed`, `top_k`, `reduce` — never `filter`). |
+| `--max-calls N` | Hard ceiling on model calls (cost cap). Per-item verbs stop intake and drain; whole-set `top_k`/`reduce` treat exhaustion as fatal (nothing usable from a partial collection). A capped run never exits 0. |
 
 ## Verb-specific options
 
@@ -115,6 +116,7 @@ Tab completion for bash, zsh, and fish — including live model-name suggestions
 | `SEMPIPE_MODEL` | Default chat model. |
 | `SEMPIPE_EMBED_MODEL` | Default embedding model. |
 | `SEMPIPE_OUTPUT` | Default output format. |
+| `SEMPIPE_MAX_CALLS` | Default call ceiling (see `--max-calls`). |
 | `SEMPIPE_OPENAI_BASE_URL` | Point the OpenAI-compatible adapter at any endpoint. |
 | `SEMPIPE_MISTRAL_BASE_URL` | Point the Mistral adapter elsewhere (proxies, gateways). |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` | Cloud credentials (read, never stored). |

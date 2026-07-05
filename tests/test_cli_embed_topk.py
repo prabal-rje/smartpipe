@@ -107,3 +107,17 @@ def test_top_k_skipped_embedding_exits_1(run_cli: RunCli, respx_mock: respx.Mock
     assert code == 1
     assert out.splitlines()[0].startswith("good\t")
     assert "skipped: line 2" in err
+
+
+def test_whole_set_budget_exhaustion_is_fatal(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    # D18: top_k needs every item scored — a cap that stops early leaves nothing usable
+    respx_mock.post(EMBED).mock(return_value=_embeddings([1.0, 0.0]))
+    code, out, err = run_cli(
+        ["top_k", "1", "--near", "q", "--max-calls", "1", "--concurrency", "1"],
+        stdin="a\nb\n",
+    )
+    assert code == 2
+    assert out == ""
+    assert "call budget reached mid-collection" in err

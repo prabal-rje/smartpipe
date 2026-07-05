@@ -123,7 +123,10 @@ def test_unknown_key_names_it_and_lists_valid_keys(tmp_path: Path) -> None:
         parse_sem(path)
     message = str(excinfo.value)
     assert message.startswith(f"{path}: unknown key 'promt' — valid keys for map: ")
-    assert "concurrency, fields, from-files, in, model, output, prompt, schema-file" in message
+    assert (
+        "concurrency, fields, from-files, in, max-calls, model, output, prompt, schema-file"
+        in message
+    )
     assert "unattended" in message  # the why
 
 
@@ -226,3 +229,8 @@ def test_stream_and_concurrency_translate(tmp_path: Path) -> None:
         "--concurrency",
         "8",
     ]
+
+
+def test_max_calls_key_translates(tmp_path: Path) -> None:
+    path = _write(tmp_path, 'verb = "map"\nprompt = "x"\nmax-calls = 20\n')
+    assert parse_sem(path) == ["map", "x", "--max-calls", "20"]

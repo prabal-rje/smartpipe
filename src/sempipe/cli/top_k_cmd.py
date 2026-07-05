@@ -10,7 +10,7 @@ import click
 
 from sempipe.cli.completions import complete_embed_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
-from sempipe.cli.interrupts import graceful_interrupts
+from sempipe.cli.interrupts import graceful_interrupts, settle_budget
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.top_k import TopKRequest, run_top_k
 
@@ -25,6 +25,7 @@ __all__ = ["top_k_command"]
     "--embed-model", "model_flag", shell_complete=complete_embed_models, help="Embedding model."
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
+@click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @click.option("--stream", "stream", is_flag=True, help="Live leaderboard over a stream.")
 @fields_option
 @input_options
@@ -34,6 +35,7 @@ def top_k_command(
     threshold: float | None,
     model_flag: str | None,
     concurrency_flag: int | None,
+    max_calls: int | None,
     stream: bool,
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
@@ -60,18 +62,20 @@ def top_k_command(
         input=input_spec(in_patterns, from_files=from_files),
         fields=fields,
     )
-    code = asyncio.run(_run(request))
+    code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: TopKRequest) -> ExitCode:
+async def _run(request: TopKRequest, max_calls: int | None) -> ExitCode:
     from sempipe.container import build_container
 
-    async with build_container(os.environ) as container:
-        if not request.stream:  # whole-set mode: ^C exits immediately (ux.md §12)
+    if not request.stream:  # whole-set mode: ^C exits immediately; budget is fatal (D18)
+        async with build_container(os.environ, max_calls=max_calls) as container:
             return await run_top_k(request, container, stdin=sys.stdin, stdout=sys.stdout)
-        async with graceful_interrupts() as stop:
-            return await run_top_k(
-                request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop
-            )
+    async with (
+        graceful_interrupts() as stop,
+        build_container(os.environ, max_calls=max_calls, stop=stop) as container,
+    ):
+        code = await run_top_k(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
+        return settle_budget(container.budget, code)

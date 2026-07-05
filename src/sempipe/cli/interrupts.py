@@ -22,7 +22,13 @@ from sempipe.io import diagnostics
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-__all__ = ["drain_cap", "graceful_interrupts"]
+    from sempipe.models.budget import CallBudget
+
+__all__ = [
+    "drain_cap",
+    "graceful_interrupts",
+    "settle_budget",
+]
 
 _DEFAULT_DRAIN_SECONDS = 10.0
 
@@ -75,3 +81,12 @@ async def graceful_interrupts() -> AsyncGenerator[asyncio.Event]:
         loop.remove_signal_handler(signal.SIGINT)
         if watchdog is not None:
             watchdog.cancel()
+
+
+def settle_budget(budget: CallBudget | None, code: ExitCode) -> ExitCode:
+    """D18: a run whose --max-calls budget fired never exits 0 — completeness
+    can't be trusted; the note names the cause after the drain summary."""
+    if budget is None or not budget.exhausted:
+        return code
+    diagnostics.note(f"stopped by --max-calls ({budget.calls} calls made)")
+    return ExitCode.PARTIAL if code is ExitCode.OK else code

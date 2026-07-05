@@ -126,6 +126,7 @@ def _list_key(render: Callable[[object, Path], tuple[str, ...]]) -> _KeySpec:
 
 _COMMON_TAIL: tuple[tuple[str, _KeySpec], ...] = (
     ("concurrency", _int_key(_flag("--concurrency"))),
+    ("max-calls", _int_key(_flag("--max-calls"))),
     ("in", _list_key(_globs)),
     ("from-files", _bool_key(_switch("--from-files"))),
 )

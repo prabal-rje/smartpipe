@@ -56,6 +56,7 @@ command it stands for — stdin in, stdout out, same exit codes, same everything
 | `verbose` | boolean | reduce | `--verbose` |
 | `stream` | boolean | top_k | `--stream` |
 | `concurrency` | integer | all | `--concurrency` |
+| `max-calls` | integer | all | `--max-calls` |
 | `in` | array of strings | all | repeated `--in` (globs resolve against the **current directory**, like the flag) |
 | `from-files` | boolean | all | `--from-files` |
 

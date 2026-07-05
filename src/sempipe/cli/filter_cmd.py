@@ -9,7 +9,7 @@ import sys
 import click
 
 from sempipe.cli.input_options import input_options, input_spec
-from sempipe.cli.interrupts import graceful_interrupts
+from sempipe.cli.interrupts import graceful_interrupts, settle_budget
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.filter import FilterRequest, run_filter
 
@@ -21,12 +21,14 @@ __all__ = ["filter_command"]
 @click.option("--not", "invert", is_flag=True, help="Keep items that do NOT match (like grep -v).")
 @click.option("--model", "model_flag", help="Model for this run.")
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
+@click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @input_options
 def filter_command(
     condition: str,
     invert: bool,
     model_flag: str | None,
     concurrency_flag: int | None,
+    max_calls: int | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
 ) -> None:
@@ -48,13 +50,17 @@ def filter_command(
         concurrency_flag=concurrency_flag,
         input=input_spec(in_patterns, from_files=from_files),
     )
-    code = asyncio.run(_run(request))
+    code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: FilterRequest) -> ExitCode:
+async def _run(request: FilterRequest, max_calls: int | None) -> ExitCode:
     from sempipe.container import build_container
 
-    async with build_container(os.environ) as container, graceful_interrupts() as stop:
-        return await run_filter(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
+    async with (
+        graceful_interrupts() as stop,
+        build_container(os.environ, max_calls=max_calls, stop=stop) as container,
+    ):
+        code = await run_filter(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
+        return settle_budget(container.budget, code)

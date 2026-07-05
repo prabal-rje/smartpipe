@@ -10,7 +10,7 @@ import click
 
 from sempipe.cli.completions import complete_embed_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
-from sempipe.cli.interrupts import graceful_interrupts
+from sempipe.cli.interrupts import graceful_interrupts, settle_budget
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.embed import EmbedRequest, run_embed
 
@@ -25,11 +25,13 @@ __all__ = ["embed_command"]
     help="Embedding model (e.g. nomic-embed-text).",
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
+@click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @fields_option
 @input_options
 def embed_command(
     model_flag: str | None,
     concurrency_flag: int | None,
+    max_calls: int | None,
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
@@ -50,13 +52,17 @@ def embed_command(
         input=input_spec(in_patterns, from_files=from_files),
         fields=fields,
     )
-    code = asyncio.run(_run(request))
+    code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: EmbedRequest) -> ExitCode:
+async def _run(request: EmbedRequest, max_calls: int | None) -> ExitCode:
     from sempipe.container import build_container
 
-    async with build_container(os.environ) as container, graceful_interrupts() as stop:
-        return await run_embed(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
+    async with (
+        graceful_interrupts() as stop,
+        build_container(os.environ, max_calls=max_calls, stop=stop) as container,
+    ):
+        code = await run_embed(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
+        return settle_budget(container.budget, code)

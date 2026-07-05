@@ -11,7 +11,7 @@ import click
 
 from sempipe.cli.completions import complete_chat_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
-from sempipe.cli.interrupts import graceful_interrupts
+from sempipe.cli.interrupts import graceful_interrupts, settle_budget
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.reduce import ReduceRequest, run_reduce
 
@@ -31,6 +31,7 @@ __all__ = ["reduce_command"]
     "--model", "model_flag", shell_complete=complete_chat_models, help="Model for this run."
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
+@click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @click.option("--verbose", is_flag=True, help="Show the chunking tree on stderr.")
 @click.option("--window", type=int, help="Stream mode: reduce every N lines (tumbling).")
 @click.option("--every", type=int, help="With --window: slide, reducing after every M lines.")
@@ -42,6 +43,7 @@ def reduce_command(
     group_by: str | None,
     model_flag: str | None,
     concurrency_flag: int | None,
+    max_calls: int | None,
     verbose: bool,
     window: int | None,
     every: int | None,
@@ -72,18 +74,20 @@ def reduce_command(
         input=input_spec(in_patterns, from_files=from_files),
         fields=fields,
     )
-    code = asyncio.run(_run(request))
+    code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: ReduceRequest) -> ExitCode:
+async def _run(request: ReduceRequest, max_calls: int | None) -> ExitCode:
     from sempipe.container import build_container
 
-    async with build_container(os.environ) as container:
-        if request.window is None:  # whole-set mode: ^C exits immediately (ux.md §12)
+    if request.window is None:  # whole-set mode: ^C exits immediately; budget is fatal (D18)
+        async with build_container(os.environ, max_calls=max_calls) as container:
             return await run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout)
-        async with graceful_interrupts() as stop:  # stream mode drains + flushes partial
-            return await run_reduce(
-                request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop
-            )
+    async with (  # stream mode drains + flushes partial
+        graceful_interrupts() as stop,
+        build_container(os.environ, max_calls=max_calls, stop=stop) as container,
+    ):
+        code = await run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
+        return settle_budget(container.budget, code)
