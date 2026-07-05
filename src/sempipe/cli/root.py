@@ -7,7 +7,10 @@ configured" (plan/decisions.md D12), so ``main`` maps click exceptions onto the
 
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
+import sys
 
 import click
 
@@ -66,9 +69,15 @@ def main() -> None:
     # return value (verified against click 8.4), and UsageError is raised.
     # --debug becomes a real global flag with the first verb (stage 3); until then
     # the env var keeps tracebacks reachable for development.
+    if hasattr(signal, "SIGPIPE"):  # POSIX: when downstream closes, die exactly like grep
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     debug = "SEMPIPE_DEBUG" in os.environ
     try:
         result = cli.main(standalone_mode=False, prog_name="sempipe")
+    except BrokenPipeError:  # Windows / buffered-flush edge; POSIX rarely reaches here
+        with contextlib.suppress(OSError, ValueError):  # silence the shutdown flush
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        raise SystemExit(int(ExitCode.PIPE_CLOSED)) from None
     except click.UsageError as exc:
         click.echo(f"error: {exc.format_message()}", err=True)
         command_path = exc.ctx.command_path if exc.ctx is not None else "sempipe"

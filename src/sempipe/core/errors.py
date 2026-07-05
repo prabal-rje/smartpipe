@@ -25,6 +25,7 @@ class ExitCode(IntEnum):
     USAGE = 64
     BUG = 70
     INTERRUPTED = 130
+    PIPE_CLOSED = 141  # 128 + SIGPIPE: downstream closed the pipe (| head) — die silently
 
 
 class SempipeError(Exception):
