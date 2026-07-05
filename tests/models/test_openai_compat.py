@@ -133,6 +133,32 @@ async def test_server_error_exhausts_retries_then_skips_item(
     assert route.call_count == 3
 
 
+async def test_connect_timeout_retries_then_maps_to_unreachable_screen(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    # regression: a connect timeout must retry (transient) and then surface the
+    # actionable "can't reach" screen, exactly like a refused connection — not a
+    # generic item skip (ConnectTimeout != ConnectError).
+    route = respx_mock.post(f"{BASE}/v1/chat/completions").mock(
+        side_effect=httpx.ConnectTimeout("timed out")
+    )
+    with pytest.raises(SetupFault, match="can't reach"):
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))
+    assert route.call_count == 3  # retried before giving up
+
+
+async def test_read_timeout_after_retries_is_an_item_skip(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    # a slow response (endpoint reachable) is a per-item problem, not setup.
+    route = respx_mock.post(f"{BASE}/v1/chat/completions").mock(
+        side_effect=httpx.ReadTimeout("slow")
+    )
+    with pytest.raises(ItemError, match="failed"):
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))
+    assert route.call_count == 3
+
+
 async def test_embeddings_sort_by_index(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:

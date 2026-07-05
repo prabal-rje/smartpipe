@@ -85,7 +85,9 @@ async def test_non_retryable_raises_immediately() -> None:
     assert recorder.sleeps == []
 
 
-async def test_delay_is_capped_before_jitter() -> None:
+async def test_max_delay_is_a_hard_cap_even_under_full_jitter() -> None:
+    # regression (adversarial review): jitter is applied BEFORE the cap, so the
+    # actual sleep can never exceed max_delay. rand=0.99 => jitter factor ~1.49.
     recorder = _Recorder()
 
     async def operation() -> str:
@@ -94,10 +96,16 @@ async def test_delay_is_capped_before_jitter() -> None:
 
     with pytest.raises(_TransientError):
         await with_retries(
-            RetryPolicy(attempts=3, base_delay=4.0, max_delay=5.0),
+            RetryPolicy(attempts=4, base_delay=4.0, max_delay=5.0),
             operation,
             is_retryable=_is_transient,
             sleep=recorder.sleep,
-            rand=lambda: 0.5,
+            rand=lambda: 0.99,
         )
-    assert recorder.sleeps == [4.0, 5.0]  # 8.0 capped to 5.0
+    assert all(delay <= 5.0 for delay in recorder.sleeps), recorder.sleeps
+    assert max(recorder.sleeps) == pytest.approx(5.0)  # the cap is actually reached
+
+
+def test_attempts_below_one_is_rejected() -> None:
+    with pytest.raises(ValueError, match="attempts must be >= 1"):
+        RetryPolicy(attempts=0)

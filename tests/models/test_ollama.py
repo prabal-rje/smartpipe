@@ -87,6 +87,18 @@ async def test_connection_refused_is_the_unreachable_screen(
     assert "ollama serve" in message
 
 
+async def test_connect_timeout_is_the_unreachable_screen(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    # regression: a wedged daemon (connect timeout) must also fail fast to the
+    # fix screen, not become a generic item skip (ConnectTimeout != ConnectError).
+    respx_mock.post(f"{HOST}/api/chat").mock(side_effect=httpx.ConnectTimeout("timed out"))
+    with pytest.raises(SetupFault) as excinfo:
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))
+    assert "connection timed out" in str(excinfo.value)
+    assert "ollama serve" in str(excinfo.value)
+
+
 async def test_missing_model_is_a_setup_fault_with_pull_hint(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:

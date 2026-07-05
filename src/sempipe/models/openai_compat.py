@@ -131,7 +131,9 @@ async def _post(
         raise ItemError(
             f"{model.ref.provider} error {exc.response.status_code}: {_detail(exc.response)}"
         ) from exc
-    except httpx.ConnectError as exc:
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        # ConnectTimeout is a TimeoutException, not a ConnectError — both mean
+        # "couldn't establish a connection", so both map to the same screen.
         raise SetupFault(
             f"error: can't reach {model.base_url} ({exc})\n"
             f"  The model '{model.ref}' needs that endpoint.\n"

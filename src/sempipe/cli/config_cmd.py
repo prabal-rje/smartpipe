@@ -104,18 +104,19 @@ async def run_interactive_setup(
     save: Callable[[Config], None],
 ) -> Config:
     say("sempipe setup — one minute, three questions\n")
-    names = await probe()
-    if names:
+    names = await probe() or ()
+    chat = _first_chat(names)
+    if chat is not None:
         say(f"  ✓ found Ollama ({len(names)} models)\n")
-        model_answer = ask("Default model?", f"ollama/{_first_chat(names)}")
-        embed_answer = ask("Embedding model?", f"ollama/{_first_embed(names)}")
+        model_answer = ask("Default model?", f"ollama/{chat}")
     else:
+        # No Ollama, or Ollama has only embedding models — offer a cloud chat model.
         say(
-            "  no local Ollama found — install it free at https://ollama.com, "
+            "  no local chat model found — install one at https://ollama.com, "
             "or use a cloud model.\n"
         )
         model_answer = ask("Default model (e.g. gpt-4o-mini, needs OPENAI_API_KEY)", "gpt-4o-mini")
-        embed_answer = ask("Embedding model?", "nomic-embed-text")
+    embed_answer = ask("Embedding model?", f"ollama/{_first_embed(names)}")
 
     updated = replace(
         current,
@@ -131,8 +132,10 @@ async def run_interactive_setup(
     return updated
 
 
-def _first_chat(names: tuple[str, ...]) -> str:
-    return next((name for name in names if "embed" not in name.lower()), names[0])
+def _first_chat(names: tuple[str, ...]) -> str | None:
+    """The first non-embedding model, or None — never propose an embedding
+    model as the chat default just because it's the only thing installed."""
+    return next((name for name in names if "embed" not in name.lower()), None)
 
 
 def _first_embed(names: tuple[str, ...]) -> str:

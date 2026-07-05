@@ -18,11 +18,10 @@ def is_retryable_http(exc: Exception) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         return status == 429 or status >= 500
+    # TimeoutException is the shared base of ConnectTimeout/ReadTimeout/
+    # WriteTimeout/PoolTimeout — keying off it catches all four (the connect and
+    # write variants are NOT subclasses of ConnectError/WriteError in httpx).
     return isinstance(
         exc,
-        httpx.ConnectError
-        | httpx.ReadTimeout
-        | httpx.WriteError
-        | httpx.RemoteProtocolError
-        | httpx.PoolTimeout,
+        httpx.TimeoutException | httpx.ConnectError | httpx.RemoteProtocolError | httpx.WriteError,
     )

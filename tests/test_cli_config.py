@@ -159,7 +159,29 @@ async def test_interactive_without_ollama_offers_cloud() -> None:
         save=rec.save,
     )
     assert result.model == "openai/gpt-4o-mini"
-    assert any("no local Ollama found" in line for line in rec.said)
+    assert any("no local chat model found" in line for line in rec.said)
+
+
+async def test_interactive_with_only_embed_models_does_not_propose_embed_as_chat() -> None:
+    # regression (adversarial review): if Ollama has ONLY embedding models,
+    # the chat default must not be an embedding model — fall to the cloud prompt.
+    rec = _Recorder()
+    seen_defaults: dict[str, str] = {}
+
+    def ask(question: str, default: str) -> str:
+        seen_defaults[question] = default
+        return default
+
+    result = await run_interactive_setup(
+        current=Config(),
+        probe=lambda: _probe("nomic-embed-text", "mxbai-embed-large"),
+        ask=ask,
+        confirm=lambda _q: True,
+        say=rec.say,
+        save=rec.save,
+    )
+    assert result.model == "openai/gpt-4o-mini"  # not an embedding model
+    assert seen_defaults["Embedding model?"] == "ollama/nomic-embed-text"
 
 
 async def test_interactive_decline_does_not_save() -> None:

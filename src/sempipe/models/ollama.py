@@ -117,9 +117,15 @@ async def _post(
     async def attempt() -> object:
         try:
             response = await model.client.post(f"{model.host}{path}", json=payload)
-        except httpx.ConnectError as exc:
-            screen = screens.ollama_unreachable(model.host, str(model.ref), "connection refused")
-            raise SetupFault(screen) from exc
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # A local daemon that's down or wedged is a setup problem: fail fast
+            # with the fix screen rather than retrying (ConnectTimeout is a
+            # TimeoutException, so it must be named explicitly here).
+            timed_out = isinstance(exc, httpx.ConnectTimeout)
+            reason = "connection timed out" if timed_out else "connection refused"
+            raise SetupFault(
+                screens.ollama_unreachable(model.host, str(model.ref), reason)
+            ) from exc
         if response.status_code == 404:
             detail = _error_detail(response)
             raise SetupFault(screens.ollama_model_missing(model.ref.name, model.host, detail))
