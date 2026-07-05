@@ -1,0 +1,5 @@
+verb = "reduce"
+prompt = "Summarize the trend"
+window = 100
+every = 20
+verbose = true

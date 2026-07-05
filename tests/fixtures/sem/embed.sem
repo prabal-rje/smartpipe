@@ -1,0 +1,3 @@
+verb = "embed"
+embed-model = "nomic-embed-text"
+fields = ["vector"]

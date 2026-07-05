@@ -1,0 +1,5 @@
+#!/usr/bin/env -S sempipe run
+verb = "map"
+prompt = "Extract {vendor, total}"
+output = "csv"
+fields = ["vendor", "total"]

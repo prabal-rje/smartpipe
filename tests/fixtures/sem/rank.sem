@@ -1,0 +1,4 @@
+verb = "top_k"
+k = 5
+near = "billing dispute"
+threshold = 0.7

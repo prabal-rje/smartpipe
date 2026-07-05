@@ -1,0 +1,4 @@
+verb = "filter"
+prompt = "mentions a deadline"
+model = "ollama/qwen3:8b"
+not = true
