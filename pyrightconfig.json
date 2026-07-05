@@ -1,0 +1,8 @@
+{
+  "typeCheckingMode": "strict",
+  "pythonVersion": "3.11",
+  "include": ["src", "tests"],
+  "reportMatchNotExhaustive": true,
+  "reportUnnecessaryIsInstance": true,
+  "reportUnnecessaryCast": true
+}
