@@ -19,14 +19,14 @@ composes with `grep`, `jq`, `sort`, and `tail -f` like it was always there.
 |---|---|---|---|
 | `map` | transform each item with a prompt | `sed`, but it understands | ✅ shipped |
 | `filter` | keep items matching a plain-English condition | `grep`, but semantic | ✅ shipped |
-| `embed` | turn items into vectors | plumbing for `top_k` | 🔜 next |
-| `top_k` | rank items by similarity to a query | `sort \| head`, by meaning | 🔜 |
-| `reduce` | synthesize many items into one | `awk` END block, but literate | 🔜 |
+| `embed` | turn items into vectors | plumbing for `top_k` | ✅ shipped |
+| `top_k` | rank items by similarity to a query | `sort \| head`, by meaning | ✅ shipped |
+| `reduce` | synthesize many items into one | `awk` END block, but literate | 🔜 next |
 | `config` | one-minute interactive setup | — | ✅ shipped |
 
-> **v0.2.0** ships `map`, `filter`, and `config` end to end. The remaining verbs
-> land in the releases that follow — the architecture for all five is already in
-> place. Watch [CHANGELOG.md](CHANGELOG.md).
+> **v0.3.0** ships `map`, `filter`, `embed`, `top_k`, and `config` end to end.
+> `reduce` (and file inputs, and streaming) land next — the architecture is already
+> in place. Watch [CHANGELOG.md](CHANGELOG.md).
 
 ## Sixty seconds
 
@@ -70,7 +70,7 @@ no telemetry, no accounts, ever.
 
 - [Quickstart](docs/quickstart.md) — zero to first result, gently
 - [Install](docs/install.md) — pipx, pip, uv, and the optional extras
-- [`map`](docs/verbs/map.md) and [`filter`](docs/verbs/filter.md) — the verbs, examples first
+- The verbs — [`map`](docs/verbs/map.md), [`filter`](docs/verbs/filter.md), [`embed`](docs/verbs/embed.md), [`top_k`](docs/verbs/top-k.md) — examples first
 - [Pipes & items](docs/concepts/pipes-and-items.md) — the mental model
 - [Models & providers](docs/concepts/models-and-providers.md) — local vs cloud, model strings, precedence
 - [Structured output](docs/concepts/structured-output.md) — braces vs `--schema`

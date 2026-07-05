@@ -5,6 +5,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-05
+
+### Added
+- **`sempipe embed`** — convert each item to a vector embedding, emitted as NDJSON
+  (`{text, vector, source}`). Uses the embedding model (never a chat model);
+  redirect to a file to reuse. `--embed-model`, `--concurrency`.
+- **`sempipe top_k`** — rank items by cosine similarity to `--near`, keeping the
+  top `K` and/or everything above `--threshold` (each result gains a `_score`).
+  Reuses a precomputed `vector` from an `embed` record instead of re-embedding, so
+  a corpus can be embedded once and queried many times. A query/corpus embedding
+  dimension mismatch stops with a clear message. Spellings `top-k`/`topk` also work.
+- Docs: `embed`, `top_k`.
+
 ## [0.2.0] — 2026-07-05
 
 ### Added
