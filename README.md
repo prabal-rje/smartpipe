@@ -1,38 +1,79 @@
-# sempipe (planning repository)
+# sempipe
 
-> Semantic pipes for your terminal — `map`, `filter`, `embed`, `top_k`, `reduce` as
-> composable Unix verbs, powered by a local model by default.
-
-**Status: planning.** No code yet — this repository currently holds the product spec and
-a complete, staged implementation plan for building `sempipe` as an installable Python
-package. (The idea was drafted under the name *UNIPIPE*; it is being built as `sempipe`
-because `unipipe` is taken on PyPI — [why](plan/decisions.md#d01--the-name-unipipe-is-taken--rename-to-sempipe).)
-
-## Start here
-
-| You want to… | Read |
-|---|---|
-| Understand the idea and why it's worth building | [`idea.md`](idea.md) — the original design doc + a survey showing the niche is open |
-| See what we're building and in what order | [`plan/README.md`](plan/README.md) — the plan's front door (5-minute read) |
-| Check a specific design choice | [`plan/decisions.md`](plan/decisions.md) |
-| See what's happening right now | [`TODO.md`](TODO.md) |
-
-## The elevator pitch
+**Semantic pipes for your terminal.** Five Unix verbs that understand meaning —
+powered by a local model by default, a cloud model when you ask.
 
 ```console
 $ pip install sempipe
 $ echo "hello world" | sempipe map "translate to Spanish"
 hola mundo
-$ cat reviews.jsonl | sempipe filter "review is negative" \
-    | sempipe reduce "What are the top 3 complaints?"
 ```
 
-Text in, text out. No server, no YAML, no vector database, no telemetry. Local-first via
-Ollama; any cloud model on request. It composes with `grep`, `jq`, and `tail -f` because
-it behaves like the tools that came before it.
+`sempipe` treats an LLM the way Unix treats everything: text in, text out.
+No server. No YAML. No vector database. It reads stdin, writes stdout, and
+composes with `grep`, `jq`, `sort`, and `tail -f` like it was always there.
 
-## Roadmap at a glance
+## The verbs
 
-Eleven stages, each ending runnable, releases from Stage 3 (`v0.1.0`, the first
-`pip install`-able release) to Stage 10 (`v1.0.0`). Full map with links:
-[`plan/README.md → The stages`](plan/README.md#the-stages).
+| Verb | What it does | Feels like | Status |
+|---|---|---|---|
+| `map` | transform each item with a prompt | `sed`, but it understands | ✅ shipped |
+| `filter` | keep items matching a plain-English condition | `grep`, but semantic | 🔜 next |
+| `embed` | turn items into vectors | plumbing for `top_k` | 🔜 |
+| `top_k` | rank items by similarity to a query | `sort \| head`, by meaning | 🔜 |
+| `reduce` | synthesize many items into one | `awk` END block, but literate | 🔜 |
+| `config` | one-minute interactive setup | — | ✅ shipped |
+
+> **v0.1.0** ships `map` and `config` end to end. The remaining verbs land in the
+> releases that follow — the architecture for all five is already in place. Watch
+> [CHANGELOG.md](CHANGELOG.md).
+
+## Sixty seconds
+
+```console
+# 1. Point sempipe at a model (local & free via Ollama, or cloud):
+$ sempipe config
+
+# 2. Transform each line:
+$ cat notes.txt | sempipe map "translate to French"
+
+# 3. Structured extraction — braces name the fields you want back:
+$ cat receipts.txt | sempipe map "Extract {vendor, date, total}"
+{"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250.00}
+
+# 4. Compose. That's the whole point:
+$ cat receipts.txt | sempipe map "Extract {vendor, total}" | jq -r .total
+```
+
+New to any of this? The [ten-minute quickstart](docs/quickstart.md) assumes nothing —
+including that you know what a "model" is.
+
+## Local-first, by default
+
+Out of the box `sempipe` talks to [Ollama](https://ollama.com) on your machine: free,
+private, no API key. Any invocation can use a cloud model instead
+(`--model claude-opus-4-8`, `--model gpt-4o-mini` — keys via environment variables,
+never stored). Your text goes to the endpoint you configured and nowhere else —
+no telemetry, no accounts, ever.
+
+## It behaves like a real Unix tool
+
+- **stdout is data, stderr is chatter.** Progress bars never contaminate your pipe.
+- **TTY-aware.** Human-readable at the terminal, NDJSON when piped — automatically.
+- **Order-preserving.** Output order always matches input order, even with parallel calls.
+- **Failure-tolerant.** One bad item is a warning, not a crash.
+
+## Learn more
+
+- [Quickstart](docs/quickstart.md) — zero to first result, gently
+- [Install](docs/install.md) — pipx, pip, uv, and the optional extras
+- [`map`](docs/verbs/map.md) — the verb, examples first
+- [Models & providers](docs/concepts/models-and-providers.md) — local vs cloud, model strings, precedence
+- [Structured output](docs/concepts/structured-output.md) — braces vs `--schema`
+
+## Development
+
+Built in the open. The design docs, staged plan, and progress ledger live in
+[`plan/`](plan/README.md); contributor setup and the quality gates are in
+[CONTRIBUTING.md](CONTRIBUTING.md). Pre-1.0: the verb surface is stable; flags may
+still gain (rarely change) meaning.
