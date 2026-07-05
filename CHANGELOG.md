@@ -5,6 +5,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-07-05
+
+### Added
+- **`sempipe filter`** — semantic grep. Keeps the items that match a plain-English
+  condition, byte-for-byte unchanged and in input order (a strict subset of the
+  input). `--not` inverts, like `grep -v`. `{field}` references pull values out of
+  JSON Lines input (`"{priority} is wrong given {description}"`); comma-groups are
+  rejected as map-only, and a field reference on non-JSON input fails fast with a
+  clear message. An unparseable verdict is repaired once before the item is skipped.
+  Zero matches is a successful (exit 0) empty result.
+- Docs: `filter`, and a new "pipes & items" concept page.
+
 ## [0.1.0] — 2026-07-05
 
 The first release: `sempipe map` works end to end, local-first.

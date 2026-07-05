@@ -14,11 +14,12 @@ Grammar:
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
-from sempipe.core.errors import UsageFault
+from sempipe.core.errors import ItemError, UsageFault
 from sempipe.engine.schema import shorthand_to_schema
 from sempipe.models.base import CompletionRequest  # a shared request value type, not behavior
 
@@ -26,6 +27,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 __all__ = [
+    "FILTER_JUDGE_SYSTEM",
+    "JUDGE_SCHEMA",
     "MAP_JSON_SYSTEM",
     "MAP_PLAIN_SYSTEM",
     "BraceToken",
@@ -33,11 +36,14 @@ __all__ = [
     "TextToken",
     "Token",
     "brace_fields",
+    "build_filter_request",
     "build_map_request",
     "build_repair_request",
     "has_brace",
+    "interpolate_fields",
     "parse_prompt",
     "plan_map",
+    "reject_comma_groups",
     "render",
     "to_instruction",
 ]
@@ -52,6 +58,19 @@ MAP_JSON_SYSTEM = (
 )
 _PLAIN_MAX_TOKENS = 4096
 _STRUCTURED_MAX_TOKENS = 8192
+
+FILTER_JUDGE_SYSTEM = (
+    "You judge whether an item satisfies a condition. "
+    'Reply with ONLY JSON: {"match": true} if it satisfies the condition, '
+    'or {"match": false} if it does not. No preamble, no explanation.'
+)
+JUDGE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {"match": {"type": "boolean"}},
+    "required": ["match"],
+    "additionalProperties": False,
+}
+_JUDGE_MAX_TOKENS = 64
 
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
@@ -175,6 +194,51 @@ def build_repair_request(
         "Reply again with ONLY a corrected JSON object."
     )
     return replace(original, user=user)
+
+
+def reject_comma_groups(tokens: tuple[Token, ...]) -> None:
+    """In filter/reduce, ``{field}`` reads one input field — comma-groups are a
+    map-only shorthand (plan/decisions.md D13). Fail fast, don't guess."""
+    for token in tokens:
+        if isinstance(token, BraceToken) and len(token.fields) > 1:
+            raise UsageFault(
+                f"{token.raw} — comma-separated braces only work in 'map'\n"
+                "  In map, braces name the output fields. In filter and reduce, {field}\n"
+                "  inserts a field from each input item, one field per brace group."
+            )
+
+
+def interpolate_fields(tokens: tuple[Token, ...], data: Mapping[str, object] | None) -> str:
+    """Substitute each single-field ``{field}`` with the item's value. Raises
+    ``ItemError`` (→ skip-and-warn) when the item isn't JSON or lacks the field."""
+    parts: list[str] = []
+    for token in tokens:
+        if isinstance(token, TextToken):
+            parts.append(token.text)
+            continue
+        field = token.fields[0]  # comma-groups already rejected
+        if data is None:
+            raise ItemError(f"no field '{field}' (this item isn't JSON)")
+        if field not in data:
+            available = ", ".join(data) if data else "no fields"
+            raise ItemError(f"no field '{field}'; this item has: {available}")
+        parts.append(_render_value(data[field]))
+    return "".join(parts)
+
+
+def build_filter_request(condition: str, item_text: str) -> CompletionRequest:
+    return CompletionRequest(
+        system=FILTER_JUDGE_SYSTEM,
+        user=f"Condition: {condition}\n\nItem:\n{item_text}",
+        json_schema=JUDGE_SCHEMA,
+        max_tokens=_JUDGE_MAX_TOKENS,
+    )
+
+
+def _render_value(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def _parse_group(text: str, start: int) -> tuple[BraceToken, int]:

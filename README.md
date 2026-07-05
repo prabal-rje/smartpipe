@@ -18,15 +18,15 @@ composes with `grep`, `jq`, `sort`, and `tail -f` like it was always there.
 | Verb | What it does | Feels like | Status |
 |---|---|---|---|
 | `map` | transform each item with a prompt | `sed`, but it understands | ✅ shipped |
-| `filter` | keep items matching a plain-English condition | `grep`, but semantic | 🔜 next |
-| `embed` | turn items into vectors | plumbing for `top_k` | 🔜 |
+| `filter` | keep items matching a plain-English condition | `grep`, but semantic | ✅ shipped |
+| `embed` | turn items into vectors | plumbing for `top_k` | 🔜 next |
 | `top_k` | rank items by similarity to a query | `sort \| head`, by meaning | 🔜 |
 | `reduce` | synthesize many items into one | `awk` END block, but literate | 🔜 |
 | `config` | one-minute interactive setup | — | ✅ shipped |
 
-> **v0.1.0** ships `map` and `config` end to end. The remaining verbs land in the
-> releases that follow — the architecture for all five is already in place. Watch
-> [CHANGELOG.md](CHANGELOG.md).
+> **v0.2.0** ships `map`, `filter`, and `config` end to end. The remaining verbs
+> land in the releases that follow — the architecture for all five is already in
+> place. Watch [CHANGELOG.md](CHANGELOG.md).
 
 ## Sixty seconds
 
@@ -41,7 +41,10 @@ $ cat notes.txt | sempipe map "translate to French"
 $ cat receipts.txt | sempipe map "Extract {vendor, date, total}"
 {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250.00}
 
-# 4. Compose. That's the whole point:
+# 4. Semantic grep, then count:
+$ cat server.log | sempipe filter "indicates a real bug" | wc -l
+
+# 5. Compose. That's the whole point:
 $ cat receipts.txt | sempipe map "Extract {vendor, total}" | jq -r .total
 ```
 
@@ -67,7 +70,8 @@ no telemetry, no accounts, ever.
 
 - [Quickstart](docs/quickstart.md) — zero to first result, gently
 - [Install](docs/install.md) — pipx, pip, uv, and the optional extras
-- [`map`](docs/verbs/map.md) — the verb, examples first
+- [`map`](docs/verbs/map.md) and [`filter`](docs/verbs/filter.md) — the verbs, examples first
+- [Pipes & items](docs/concepts/pipes-and-items.md) — the mental model
 - [Models & providers](docs/concepts/models-and-providers.md) — local vs cloud, model strings, precedence
 - [Structured output](docs/concepts/structured-output.md) — braces vs `--schema`
 

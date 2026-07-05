@@ -19,6 +19,7 @@ GOLDEN = Path(__file__).parent / "golden" / "screens"
 _SCREENS: dict[str, str] = {
     "welcome": screens.WELCOME,
     "no_model": screens.NO_MODEL,
+    "field_ref_on_plain_input": screens.FIELD_REF_ON_PLAIN_INPUT,
     "ollama_unreachable": screens.ollama_unreachable(
         "http://localhost:11434", "ollama/qwen3:8b", "connection refused"
     ),
@@ -52,6 +53,7 @@ def test_every_screen_export_is_pinned() -> None:
     covered = {
         "WELCOME",
         "NO_MODEL",
+        "FIELD_REF_ON_PLAIN_INPUT",
         "ollama_unreachable",
         "ollama_model_missing",
         "missing_api_key",

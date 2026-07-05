@@ -7,6 +7,7 @@ require opening a browser or reading docs to resolve.
 from __future__ import annotations
 
 __all__ = [
+    "FIELD_REF_ON_PLAIN_INPUT",
     "NO_MODEL",
     "WELCOME",
     "missing_anthropic_extra",
@@ -14,6 +15,11 @@ __all__ = [
     "ollama_model_missing",
     "ollama_unreachable",
 ]
+
+FIELD_REF_ON_PLAIN_INPUT = """\
+error: the prompt references a {field}, but the input isn't JSON
+  {field} substitution needs JSON Lines input (one object per line).
+  Either drop the braces, or feed JSONL — e.g.: cat tickets.jsonl | sempipe filter ..."""
 
 WELCOME = """\
 sempipe — semantic pipes for your terminal
