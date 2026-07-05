@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 
 from sempipe.cli.input_options import input_options, input_spec
+from sempipe.cli.interrupts import graceful_interrupts
 from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
 from sempipe.io.writers import OutputFormat
@@ -74,5 +75,5 @@ def map_command(
 
 
 async def _run(request: MapRequest) -> ExitCode:
-    async with build_container(os.environ) as container:
-        return await run_map(request, container, stdin=sys.stdin, stdout=sys.stdout)
+    async with build_container(os.environ) as container, graceful_interrupts() as stop:
+        return await run_map(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)

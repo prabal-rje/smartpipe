@@ -64,6 +64,14 @@ $ cat notes.txt | sempipe map "summarize" > summaries.txt    # only results in t
 
 and you still see the progress and any warnings on your terminal.
 
+## It dies like a filter
+
+Resilience is the name of the game for Unix tools, and that includes *ending* well.
+If downstream closes the pipe (`sempipe … | head -1`), sempipe dies instantly and
+silently with the conventional code (141) — never an error screen. Ctrl-C drains
+in-flight work for the per-item verbs and reports what it saved. One bad item is a
+warning; only a majority-failure run halts early.
+
 ## Order is preserved
 
 However many items sempipe processes in parallel, **output order always matches

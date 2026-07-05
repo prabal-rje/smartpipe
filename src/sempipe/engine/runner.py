@@ -74,7 +74,11 @@ async def run_ordered(
     *,
     concurrency: int,
     failure_policy: FailurePolicy,
+    stop: asyncio.Event | None = None,
 ) -> AsyncIterator[ItemOutcome[R]]:
+    """``stop`` (set by the interrupt shell) halts *intake*: no new workers spawn,
+    but everything already in flight completes and is emitted in order — the drain
+    contract of ux.md §12."""
     item_iter = aiter(items)
     pending: dict[int, asyncio.Task[ItemOutcome[R]]] = {}
     next_to_emit = 0
@@ -83,6 +87,9 @@ async def run_ordered(
     total = 0
     skipped = 0
     last_reason = ""
+
+    def intake_open() -> bool:
+        return not exhausted and (stop is None or not stop.is_set())
 
     async def spawn() -> None:
         nonlocal next_index, exhausted
@@ -96,7 +103,7 @@ async def run_ordered(
         pending[index] = asyncio.create_task(_run_one(worker, item))
 
     try:
-        while not exhausted and len(pending) < concurrency:
+        while intake_open() and len(pending) < concurrency:
             await spawn()
         while pending:
             # pending always holds a contiguous range starting at next_to_emit,
@@ -111,7 +118,7 @@ async def run_ordered(
                 last_reason = outcome.reason
                 if should_halt(failure_policy, total=total, skipped=skipped):
                     raise TooManyFailures(skipped, total, last_reason)
-            while not exhausted and len(pending) < concurrency:
+            while intake_open() and len(pending) < concurrency:
                 await spawn()
     finally:
         for task in pending.values():

@@ -11,6 +11,7 @@ recorded in the plan ledger.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -21,7 +22,7 @@ from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
-from sempipe.verbs.common import aiter_items, outcome_exit_code
+from sempipe.verbs.common import aiter_items, interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -46,7 +47,12 @@ class EmbedContext(Protocol):
 
 
 async def run_embed(
-    request: EmbedRequest, context: EmbedContext, *, stdin: TextIO, stdout: TextIO
+    request: EmbedRequest,
+    context: EmbedContext,
+    *,
+    stdin: TextIO,
+    stdout: TextIO,
+    stop: asyncio.Event | None = None,
 ) -> ExitCode:
     model = await context.embedding_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
@@ -67,7 +73,11 @@ async def run_embed(
     done = 0
     skipped = 0
     outcomes = run_ordered(
-        aiter_items(items), worker, concurrency=concurrency, failure_policy=FailurePolicy()
+        aiter_items(items),
+        worker,
+        concurrency=concurrency,
+        failure_policy=FailurePolicy(),
+        stop=stop,
     )
     try:
         async for outcome in outcomes:
@@ -88,6 +98,9 @@ async def run_embed(
     finally:
         spinner.finish()
         writer.flush()
+    if stop is not None and stop.is_set():
+        diagnostics.interrupted_summary(processed=done, skipped=skipped)
+        return interrupted_exit_code(done=done, skipped=skipped)
     return outcome_exit_code(done=done, skipped=skipped)
 
 

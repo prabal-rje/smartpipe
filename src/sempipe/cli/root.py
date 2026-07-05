@@ -7,6 +7,7 @@ configured" (plan/decisions.md D12), so ``main`` maps click exceptions onto the
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 import signal
@@ -86,6 +87,8 @@ def main() -> None:
     except SempipeError as exc:
         diagnostics.die(exc, debug=debug)
     except KeyboardInterrupt:
+        raise SystemExit(int(ExitCode.INTERRUPTED)) from None
+    except asyncio.CancelledError:  # the drain watchdog cancelled the run (ux.md §12)
         raise SystemExit(int(ExitCode.INTERRUPTED)) from None
     except click.ClickException as exc:  # click-internal faults (e.g. click.FileError)
         diagnostics.die(UsageFault(exc.format_message()), debug=debug)

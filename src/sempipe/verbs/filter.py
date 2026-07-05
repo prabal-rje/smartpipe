@@ -8,6 +8,7 @@ is a valid result.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -29,7 +30,7 @@ from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import OutputFormat
-from sempipe.verbs.common import aiter_items, outcome_exit_code
+from sempipe.verbs.common import aiter_items, interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -61,7 +62,12 @@ class FilterContext(Protocol):
 
 
 async def run_filter(
-    request: FilterRequest, context: FilterContext, *, stdin: TextIO, stdout: TextIO
+    request: FilterRequest,
+    context: FilterContext,
+    *,
+    stdin: TextIO,
+    stdout: TextIO,
+    stop: asyncio.Event | None = None,
 ) -> ExitCode:
     tokens = parse_prompt(request.condition)  # UsageFault on bad grammar
     reject_comma_groups(tokens)  # UsageFault: comma-braces are map-only
@@ -83,7 +89,11 @@ async def run_filter(
     judged = 0
     skipped = 0
     outcomes = run_ordered(
-        aiter_items(items), worker, concurrency=concurrency, failure_policy=FailurePolicy()
+        aiter_items(items),
+        worker,
+        concurrency=concurrency,
+        failure_policy=FailurePolicy(),
+        stop=stop,
     )
     try:
         async for outcome in outcomes:
@@ -98,6 +108,9 @@ async def run_filter(
     finally:
         spinner.finish()
         writer.flush()
+    if stop is not None and stop.is_set():
+        diagnostics.interrupted_summary(processed=judged, skipped=skipped)
+        return interrupted_exit_code(done=judged, skipped=skipped)
     return outcome_exit_code(done=judged, skipped=skipped)
 
 

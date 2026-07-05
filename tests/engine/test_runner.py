@@ -186,3 +186,51 @@ def test_order_preserved_for_any_completion_schedule(delays: list[int], concurre
     outcomes = asyncio.run(_collect(items, worker, concurrency=concurrency))
     assert [o.index for o in outcomes] == list(range(len(delays)))
     assert [o.value for o in outcomes if isinstance(o, Done)] == list(range(len(delays)))
+
+
+# --- stop (graceful interrupt: stop intake, drain in-flight) -------------------
+
+
+async def test_stop_prevents_new_spawns_and_drains_in_flight() -> None:
+    stop = asyncio.Event()
+    started: list[int] = []
+    both_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def worker(item: Item) -> str:
+        started.append(item.source.index)
+        if len(started) == 2:
+            both_started.set()
+        await release.wait()
+        return item.text
+
+    outcomes: list[ItemOutcome[str]] = []
+    gen = run_ordered(
+        _stream([_item(i) for i in range(6)]),
+        worker,
+        concurrency=2,
+        failure_policy=NEVER_HALT,
+        stop=stop,
+    )
+    pull = asyncio.ensure_future(anext(gen))
+    await asyncio.wait_for(both_started.wait(), timeout=2)  # first two workers running
+    assert started == [0, 1]
+    stop.set()  # interrupt: no NEW work may start...
+    release.set()  # ...but in-flight work completes and is emitted
+    outcomes.append(await pull)
+    outcomes.extend([o async for o in gen])
+    assert [o.index for o in outcomes] == [0, 1]  # drained in order, intake stopped
+    assert started == [0, 1]  # items 2-5 never ran
+
+
+async def test_stop_already_set_yields_nothing() -> None:
+    stop = asyncio.Event()
+    stop.set()
+
+    async def worker(item: Item) -> str:  # pragma: no cover — must never run
+        raise AssertionError("spawned despite stop")
+
+    gen = run_ordered(
+        _stream([_item(0)]), worker, concurrency=2, failure_policy=NEVER_HALT, stop=stop
+    )
+    assert [o async for o in gen] == []

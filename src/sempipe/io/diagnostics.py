@@ -20,7 +20,7 @@ from sempipe.core.errors import (
 )
 from sempipe.io import tty
 
-__all__ = ["die", "internal_error", "note", "warn"]
+__all__ = ["die", "drain_timed_out", "internal_error", "interrupted_summary", "note", "warn"]
 
 _RED = "\x1b[31m"
 _RESET = "\x1b[0m"
@@ -34,6 +34,17 @@ def warn(message: str) -> None:
 
 def note(message: str) -> None:
     sys.stderr.write(f"note: {message}\n")
+    sys.stderr.flush()
+
+
+def interrupted_summary(*, processed: int, skipped: int) -> None:
+    """The ux.md §12 drain summary — exact wording is contract."""
+    sys.stderr.write(f"done: interrupted — {processed} processed · {skipped} skipped\n")
+    sys.stderr.flush()
+
+
+def drain_timed_out() -> None:
+    sys.stderr.write("done: interrupted — drain timed out\n")
     sys.stderr.flush()
 
 

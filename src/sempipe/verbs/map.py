@@ -9,6 +9,7 @@ validator's complaint before the item is skipped.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -26,7 +27,7 @@ from sempipe.io import diagnostics, readers
 from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
-from sempipe.verbs.common import aiter_items, outcome_exit_code
+from sempipe.verbs.common import aiter_items, interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -63,7 +64,12 @@ class MapContext(Protocol):
 
 
 async def run_map(
-    request: MapRequest, context: MapContext, *, stdin: TextIO, stdout: TextIO
+    request: MapRequest,
+    context: MapContext,
+    *,
+    stdin: TextIO,
+    stdout: TextIO,
+    stop: asyncio.Event | None = None,
 ) -> ExitCode:
     tokens = parse_prompt(request.prompt)  # UsageFault on bad grammar
     schema = load_schema(request.schema_path) if request.schema_path is not None else None
@@ -84,7 +90,11 @@ async def run_map(
     done = 0
     skipped = 0
     outcomes = run_ordered(
-        aiter_items(items), worker, concurrency=concurrency, failure_policy=FailurePolicy()
+        aiter_items(items),
+        worker,
+        concurrency=concurrency,
+        failure_policy=FailurePolicy(),
+        stop=stop,
     )
     try:
         async for outcome in outcomes:
@@ -98,6 +108,9 @@ async def run_map(
     finally:
         spinner.finish()
         writer.flush()
+    if stop is not None and stop.is_set():
+        diagnostics.interrupted_summary(processed=done, skipped=skipped)
+        return interrupted_exit_code(done=done, skipped=skipped)
     return outcome_exit_code(done=done, skipped=skipped)
 
 

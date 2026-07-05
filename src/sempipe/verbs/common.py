@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
     from sempipe.io.items import Item
 
-__all__ = ["aiter_items", "outcome_exit_code"]
+__all__ = ["aiter_items", "interrupted_exit_code", "outcome_exit_code"]
 
 
 def outcome_exit_code(*, done: int, skipped: int) -> ExitCode:
@@ -21,6 +21,14 @@ def outcome_exit_code(*, done: int, skipped: int) -> ExitCode:
     if done == 0:
         return ExitCode.ALL_FAILED
     return ExitCode.PARTIAL
+
+
+def interrupted_exit_code(*, done: int, skipped: int) -> ExitCode:
+    """After a drained Ctrl-C (ux.md §12): the run's normal outcome code — an
+    interrupt doesn't mask partiality — except 130 when nothing finished at all."""
+    if done == 0 and skipped == 0:
+        return ExitCode.INTERRUPTED
+    return outcome_exit_code(done=done, skipped=skipped)
 
 
 async def aiter_items(items: Sequence[Item]) -> AsyncIterator[Item]:

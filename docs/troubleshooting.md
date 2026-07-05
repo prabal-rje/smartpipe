@@ -79,6 +79,20 @@ Also by design. At a terminal, structured results show a readable view; piped, t
 become NDJSON. Force one with `--output json` (or `text`, `csv`, `tsv`). See
 [output formats](concepts/output-formats.md).
 
+## I piped into `head` and sempipe "died" (exit 141)
+
+That's correct behavior, not a crash. When downstream closes the pipe (`head` got what
+it needed), sempipe dies instantly and silently — exactly like `grep` or `cat` — with
+exit code 141 (SIGPIPE). Scripts using `set -o pipefail` can treat 141 from the left
+side of a `| head` as expected.
+
+## What does Ctrl-C do mid-run?
+
+For `map`/`filter`/`embed`: the first Ctrl-C stops new work, finishes what's in flight
+(≤10 s), writes those results, prints a `done: interrupted — …` summary to stderr, and
+exits with the normal outcome code. Press Ctrl-C twice to bail immediately (exit 130).
+`reduce`/`top_k` exit immediately — they have no partial result to save.
+
 ## An internal error / "BUG" screen (exit 70)
 
 That's a sempipe bug, not your fault. The screen tells you how to report it; re-run

@@ -93,7 +93,17 @@ Chosen so a script can branch on *how* a run went, not just pass/fail:
 | `3` | ALL_FAILED — every item failed. |
 | `64` | USAGE — bad flags or input. |
 | `70` | BUG — an internal error (please report it). |
-| `130` | INTERRUPTED — Ctrl-C. |
+| `130` | INTERRUPTED — Ctrl-C (before anything finished, or pressed twice). |
+| `141` | SIGPIPE — downstream closed the pipe (normal in `\| head` pipelines); sempipe prints nothing. |
+
+### What Ctrl-C does
+
+For the per-item verbs (`map`, `filter`, `embed`), the **first Ctrl-C** stops new work,
+lets what's already in flight finish (up to 10 s), emits those results in order, prints
+`done: interrupted — N processed · M skipped` on stderr, and exits with the run's normal
+outcome code (`0`/`1`/`3`) — so a script still learns whether the partial output is
+trustworthy. A **second Ctrl-C** exits `130` immediately. `reduce` and `top_k` exit
+`130` at once — they produce one result at the end, so there's nothing to drain.
 
 ## See also
 

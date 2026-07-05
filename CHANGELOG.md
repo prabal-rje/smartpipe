@@ -8,6 +8,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ### Added
 - **`sempipe cite`** — print a copy-paste BibTeX entry; `CITATION.cff` ships in the
   repo (GitHub's "Cite this repository" reads it) and in the sdist.
+- **Unix death done right.** Downstream closing the pipe (`… | head`) now kills
+  sempipe instantly and silently with the conventional exit 141 — never the BUG
+  screen. The first Ctrl-C on `map`/`filter`/`embed` stops intake, drains in-flight
+  work (10 s cap), emits completed results in order, prints a
+  `done: interrupted — N processed · M skipped` summary, and exits with the run's
+  true outcome code; a second Ctrl-C exits 130 immediately.
 
 ### Changed
 - **License: Apache-2.0** (from MIT), with a `NOTICE` file — matching the published
