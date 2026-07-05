@@ -60,6 +60,9 @@ $ sempipe config embed-model MODEL   # set the default embedding model
 
 API keys are **never** stored — they're read from the environment.
 
+Edits via `sempipe config` rewrite the file atomically; unknown keys are
+preserved, comments are not.
+
 ## `auth`
 
 ```console

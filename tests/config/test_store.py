@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -90,3 +92,75 @@ def test_bool_is_not_a_valid_concurrency(tmp_path: Path) -> None:
     path.write_text("concurrency = true\n", encoding="utf-8")
     with pytest.raises(SetupFault):
         load_config(path)
+
+
+# --- atomic writes + unknown-key preservation (DEFER-1, workstream 07) -------------
+
+
+def test_save_preserves_unknown_keys(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        'model = "x"\nfuture-flag = true\n\n[some.table]\nnested = 1\n', encoding="utf-8"
+    )
+    save_config(path, Config(model="y"))
+    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    assert raw["model"] == "y"
+    assert raw["future-flag"] is True  # a key we don't know survives verbatim
+    assert raw["some"]["table"]["nested"] == 1
+
+
+def test_save_removes_none_fields(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('model = "x"\nembed-model = "old"\n', encoding="utf-8")
+    save_config(path, Config(model="x", embed_model=None))  # None = unset (pinned)
+    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    assert "embed-model" not in raw
+
+
+def test_save_is_atomic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "config.toml"
+    replaces: list[tuple[str, str]] = []
+    real_replace = os.replace
+
+    def recording_replace(src: str | Path, dst: str | Path) -> None:
+        replaces.append((str(src), str(dst)))
+        real_replace(src, dst)
+
+    monkeypatch.setattr("os.replace", recording_replace)
+    save_config(path, Config(model="x"))
+    assert len(replaces) == 1
+    src, dst = replaces[0]
+    assert Path(src).parent == path.parent  # same directory = same filesystem
+    assert dst == str(path)  # the target is written ONLY via os.replace
+    assert list(tmp_path.glob("*.tmp")) == []  # no residue after success
+
+
+def test_save_cleans_temp_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "config.toml"
+
+    def explode(document: object) -> str:
+        raise RuntimeError("serializer down")
+
+    monkeypatch.setattr("tomli_w.dumps", explode)
+    with pytest.raises(RuntimeError):
+        save_config(path, Config(model="x"))
+    assert list(tmp_path.glob("*.tmp")) == []  # nothing left behind
+
+
+def test_comments_are_lost_is_documented(tmp_path: Path) -> None:
+    """Comments do not survive a rewrite — admitted in docs/reference/cli.md
+    ("unknown keys are preserved, comments are not"); tomli-w cannot round-trip
+    them and tomlkit stays outside the dependency budget. This test anchors the
+    limitation so it can never become undocumented folklore."""
+    path = tmp_path / "config.toml"
+    path.write_text('# my note\nmodel = "x"\n', encoding="utf-8")
+    save_config(path, Config(model="y"))
+    assert "# my note" not in path.read_text(encoding="utf-8")
+
+
+def test_save_refuses_to_overwrite_a_corrupt_file(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("model =\n", encoding="utf-8")  # broken TOML = evidence
+    with pytest.raises(SetupFault):
+        save_config(path, Config(model="y"))
+    assert path.read_text(encoding="utf-8") == "model =\n"  # untouched

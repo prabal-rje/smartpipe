@@ -1,13 +1,21 @@
 """Read and write ``config.toml``.
 
-Rules (plan/decisions.md D09): the file is optional; unknown keys are ignored
-(forward compatibility); wrong-typed values fail loudly with the key named;
-API keys are never stored here.
+Rules (plan/decisions.md D09 + DEFER-1): the file is optional; unknown keys are
+*ignored* on read (forward compatibility) but *preserved* on write — an older
+sempipe never strips a newer one's settings; wrong-typed values fail loudly
+with the key named; API keys are never stored here. Writes are atomic
+(same-directory temp file + ``os.replace``), so a concurrent reader can never
+see a torn file. Comments do not survive a rewrite: tomli-w cannot round-trip
+them and tomlkit stays outside the dependency budget — docs/reference/cli.md
+says so out loud.
 """
 
 from __future__ import annotations
 
+import contextlib
+import os
 import re
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -33,12 +41,7 @@ class Config:
 
 
 def load_config(path: Path) -> Config:
-    if not path.exists():
-        return Config()
-    try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as exc:
-        raise SetupFault(_broken_screen(path, exc)) from exc
+    data = _read_raw(path)
     return Config(
         model=_string(data, "model", path),
         embed_model=_string(data, "embed-model", path),
@@ -48,17 +51,38 @@ def load_config(path: Path) -> Config:
 
 
 def save_config(path: Path, config: Config) -> None:
-    document: dict[str, str | int] = {}
-    if config.model is not None:
-        document["model"] = config.model
-    if config.embed_model is not None:
-        document["embed-model"] = config.embed_model
-    if config.concurrency is not None:
-        document["concurrency"] = config.concurrency
-    if config.output is not None:
-        document["output"] = config.output
+    merged = dict(_read_raw(path))  # a corrupt file fails loudly before we overwrite evidence
+    ours: dict[str, str | int | None] = {
+        "model": config.model,
+        "embed-model": config.embed_model,
+        "concurrency": config.concurrency,
+        "output": config.output,
+    }
+    for key, value in ours.items():
+        if value is None:
+            merged.pop(key, None)  # None = unset (pinned semantics)
+        else:
+            merged[key] = value
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tomli_w.dumps(document), encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(tomli_w.dumps(merged))
+        os.replace(tmp, path)  # atomic on POSIX & Windows (same volume by construction)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def _read_raw(path: Path) -> Mapping[str, object]:
+    """The file as parsed TOML — ``{}`` if missing, the broken-file screen if corrupt."""
+    if not path.exists():
+        return {}
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise SetupFault(_broken_screen(path, exc)) from exc
 
 
 def _string(data: Mapping[str, object], key: str, path: Path) -> str | None:
