@@ -5,6 +5,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-07-05
+
+For the spreadsheet people.
+
+### Added
+- **`--output csv` / `--output tsv`** — structured results as a real table. Columns
+  are fixed by the schema order or the first record; missing values are empty cells;
+  a surprise key is dropped with a one-time warning (a rectangle is the contract).
+  Nested values become compact JSON in the cell, CSV follows RFC 4180 (quoting +
+  CRLF), TSV strips embedded tabs/newlines, and a `_score` column (from `top_k`)
+  sorts last. CSV/TSV require named columns — a plain-text prompt with `--output
+  csv` is a clear usage error.
+- Docs: `docs/concepts/output-formats.md`.
+
+### Note
+- `--fields` column projection, shell completions, and the startup-time budget gate
+  (the rest of the output-ergonomics stage) are planned follow-ups.
+
 ## [0.5.0] — 2026-07-05
 
 Documents become items — point any verb at files.
