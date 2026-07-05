@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
     from sempipe.io.items import Item
 
-__all__ = ["aiter_items", "interrupted_exit_code", "outcome_exit_code"]
+__all__ = ["aiter_items", "interrupted_exit_code", "outcome_exit_code", "prepend"]
 
 
 def outcome_exit_code(*, done: int, skipped: int) -> ExitCode:
@@ -33,4 +33,11 @@ def interrupted_exit_code(*, done: int, skipped: int) -> ExitCode:
 
 async def aiter_items(items: Sequence[Item]) -> AsyncIterator[Item]:
     for item in items:
+        yield item
+
+
+async def prepend(first: Item, rest: AsyncIterator[Item]) -> AsyncIterator[Item]:
+    """Re-attach an item pulled for a first-item check (filter's brace fail-fast)."""
+    yield first
+    async for item in rest:
         yield item

@@ -27,7 +27,7 @@ from sempipe.io import diagnostics, readers
 from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
-from sempipe.verbs.common import aiter_items, interrupted_exit_code, outcome_exit_code
+from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -75,14 +75,14 @@ async def run_map(
     schema = load_schema(request.schema_path) if request.schema_path is not None else None
     plan = plan_map(tokens, schema=schema)
     instruction = to_instruction(tokens)
-    items = [item async for item in readers.resolve_items(request.input, stdin)]  # tty/glob checks
+    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
     structured = plan.mode == "structured"
     writer = context.writer(request.output, structured=structured, stdout=stdout)
     concurrency = context.concurrency(request.concurrency_flag)
 
     spinner = make_stderr_spinner()
-    spinner.start(total=len(items))
+    spinner.start(total=total)
 
     async def worker(item: Item) -> str | Mapping[str, object]:
         return await _map_one(model, plan, instruction, item.text)
@@ -90,7 +90,7 @@ async def run_map(
     done = 0
     skipped = 0
     outcomes = run_ordered(
-        aiter_items(items),
+        items_iter,
         worker,
         concurrency=concurrency,
         failure_policy=FailurePolicy(),

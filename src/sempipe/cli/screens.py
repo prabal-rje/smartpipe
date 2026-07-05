@@ -17,7 +17,7 @@ __all__ = [
 ]
 
 FIELD_REF_ON_PLAIN_INPUT = """\
-error: the prompt references a {field}, but the input isn't JSON
+error: the prompt references a {field}, but the first input line isn't JSON
   {field} substitution needs JSON Lines input (one object per line).
   Either drop the braces, or feed JSONL — e.g.: cat tickets.jsonl | sempipe filter ..."""
 

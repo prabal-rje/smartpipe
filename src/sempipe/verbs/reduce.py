@@ -76,7 +76,10 @@ async def run_reduce(
             "(where {field} means the group's value)"
         )
     schema = load_schema(request.schema_path) if request.schema_path is not None else None
-    items = [item async for item in readers.resolve_items(request.input, stdin)]  # tty/glob checks
+    items_iter, _total = readers.resolve_items(request.input, stdin)
+    items = [
+        item async for item in items_iter
+    ]  # whole-set verbs need everything  # tty/glob checks
     model = await context.chat_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
     structured = schema is not None

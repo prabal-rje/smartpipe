@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 
 
 async def _collect(spec: InputSpec, stdin: str = "") -> list[str]:
-    return [item.text async for item in resolve_items(spec, io.StringIO(stdin))]
+    items, _total = resolve_items(spec, io.StringIO(stdin))
+    return [item.text async for item in items]
 
 
 async def test_glob_reads_each_file_sorted(tmp_path: Path) -> None:
@@ -28,7 +29,8 @@ async def test_file_item_source_is_the_path(tmp_path: Path) -> None:
     f = tmp_path / "doc.txt"
     f.write_text("hello")
     spec = InputSpec(patterns=(str(f),), from_files=False)
-    items = [item async for item in resolve_items(spec, io.StringIO(""))]
+    items_iter, _total = resolve_items(spec, io.StringIO(""))
+    items = [item async for item in items_iter]
     assert items[0].source.kind == "file"
     assert items[0].source.name == str(f)
 
@@ -122,6 +124,7 @@ async def test_utf8_replacement_warning_on_file(
     f = tmp_path / "messy.txt"  # .txt → text by extension, invalid bytes replaced
     f.write_bytes(b"ok \xff\xfe done")
     spec = InputSpec(patterns=(str(f),), from_files=False)
-    items = [item async for item in resolve_items(spec, io.StringIO(""))]
+    items_iter, _total = resolve_items(spec, io.StringIO(""))
+    items = [item async for item in items_iter]
     assert len(items) == 1
     assert "some bytes were replaced" in capsys.readouterr().err

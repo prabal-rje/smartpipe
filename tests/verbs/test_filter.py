@@ -175,3 +175,62 @@ def test_kept_output_is_always_a_verbatim_subset(lines: list[str]) -> None:
     code, out, _model = asyncio.run(_run("x", stdin, lambda _u: '{"match": true}'))
     assert code == ExitCode.OK
     assert out == stdin  # match-all reproduces the input exactly
+
+
+# --- interrupt paths (unit twins of the signals e2e) ----------------------------
+
+
+async def test_interrupted_empty_stream_exits_130(capsys: pytest.CaptureFixture[str]) -> None:
+    import asyncio
+
+    stop = asyncio.Event()
+    stop.set()  # interrupted before anything arrived
+    model = FakeChat(_match_if("x"))
+    out = io.StringIO()
+    code = await run_filter(
+        _request("x"), FakeContext(model), stdin=io.StringIO(""), stdout=out, stop=stop
+    )
+    assert code == ExitCode.INTERRUPTED
+    assert "0 processed · 0 skipped" in capsys.readouterr().err
+
+
+async def test_interrupted_after_results_keeps_outcome_code(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import asyncio
+
+    stop = asyncio.Event()
+    model = FakeChat(_match_if("keep"))
+
+    class StopAfterFirst(FakeContext):
+        def writer(self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO):  # type: ignore[override]
+            inner = super().writer(output_flag, structured=structured, stdout=stdout)
+
+            class W:
+                def write_text(self, line: str) -> None:
+                    inner.write_text(line)
+                    stop.set()  # interrupt lands right after the first emission
+
+                def write_record(self, record: object) -> None:  # pragma: no cover
+                    raise AssertionError
+
+                def write_passthrough(self, item: object) -> None:
+                    inner.write_passthrough(item)  # type: ignore[arg-type]
+                    stop.set()
+
+                def flush(self) -> None:
+                    inner.flush()
+
+            return W()
+
+    out = io.StringIO()
+    code = await run_filter(
+        _request("x"),
+        StopAfterFirst(model),
+        stdin=io.StringIO("keep me\nkeep too\nnever seen\n"),
+        stdout=out,
+        stop=stop,
+    )
+    assert code == ExitCode.OK  # everything that ran succeeded
+    assert "done: interrupted" in capsys.readouterr().err
+    assert out.getvalue().startswith("keep me\n")

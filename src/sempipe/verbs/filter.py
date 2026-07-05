@@ -30,7 +30,7 @@ from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import OutputFormat
-from sempipe.verbs.common import aiter_items, interrupted_exit_code, outcome_exit_code
+from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code, prepend
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -71,25 +71,35 @@ async def run_filter(
 ) -> ExitCode:
     tokens = parse_prompt(request.condition)  # UsageFault on bad grammar
     reject_comma_groups(tokens)  # UsageFault: comma-braces are map-only
-    items = [item async for item in readers.resolve_items(request.input, stdin)]  # tty/glob checks
+    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     model = await context.chat_model(request.model_flag)
     writer = context.writer(OutputFormat.AUTO, structured=False, stdout=stdout)
     concurrency = context.concurrency(request.concurrency_flag)
 
-    if has_brace(tokens) and not any(item.data is not None for item in items):
-        raise UsageFault(screens.FIELD_REF_ON_PLAIN_INPUT)  # exit 64, before any model call
+    # First-item brace check (streaming can't see "all items" up front): the common
+    # mistake — braces over a plain-text pipe — still fails fast, before any model
+    # call; a mixed stream after a JSON first line skips per item instead.
+    first = await anext(items_iter, None)
+    if first is None:
+        if stop is not None and stop.is_set():
+            diagnostics.interrupted_summary(processed=0, skipped=0)
+            return interrupted_exit_code(done=0, skipped=0)
+        return ExitCode.OK
+    if has_brace(tokens) and first.data is None:
+        raise UsageFault(screens.FIELD_REF_ON_PLAIN_INPUT)  # exit 64, zero model calls
+    items_iter = prepend(first, items_iter)
 
     spinner = make_stderr_spinner()
-    spinner.start(total=len(items))
-    by_index = {item.source.index: item for item in items}
+    spinner.start(total=total)
 
-    async def worker(item: Item) -> bool:
-        return await _judge(model, tokens, item)
+    async def worker(item: Item) -> tuple[Item, bool]:
+        return item, await _judge(model, tokens, item)
 
     judged = 0
+    matches = 0
     skipped = 0
     outcomes = run_ordered(
-        aiter_items(items),
+        items_iter,
         worker,
         concurrency=concurrency,
         failure_policy=FailurePolicy(),
@@ -99,8 +109,12 @@ async def run_filter(
         async for outcome in outcomes:
             if isinstance(outcome, Done):
                 judged += 1
-                if outcome.value is not request.invert:  # matched (or, with --not, didn't)
-                    _emit_match(writer, by_index[outcome.index])
+                item, matched = outcome.value
+                if matched:
+                    matches += 1
+                    spinner.matched = matches  # the status line's "N matched" segment
+                if matched is not request.invert:  # kept (or, with --not, dropped)
+                    _emit_match(writer, item)
             else:  # Skipped
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
                 skipped += 1

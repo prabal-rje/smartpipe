@@ -56,7 +56,8 @@ async def run_top_k(
     model = await context.embedding_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
 
-    items = [item async for item in readers.resolve_items(request.input, stdin)]
+    items_iter, _total = readers.resolve_items(request.input, stdin)
+    items = [item async for item in items_iter]  # whole-set verbs need everything
     if not items:
         return ExitCode.OK
 

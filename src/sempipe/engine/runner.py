@@ -78,53 +78,75 @@ async def run_ordered(
 ) -> AsyncIterator[ItemOutcome[R]]:
     """``stop`` (set by the interrupt shell) halts *intake*: no new workers spawn,
     but everything already in flight completes and is emitted in order — the drain
-    contract of ux.md §12."""
+    contract of ux.md §12.
+
+    Intake runs as its OWN task so that waiting for the next input item never
+    blocks the emission of already-completed outcomes — the streaming property
+    (a live stream can pause mid-flow; results must still come out).
+    """
     item_iter = aiter(items)
     pending: dict[int, asyncio.Task[ItemOutcome[R]]] = {}
+    slots = asyncio.Semaphore(concurrency)
+    progressed = asyncio.Event()  # set whenever intake adds a task or finishes
+    intake_done = False
     next_to_emit = 0
-    next_index = 0
-    exhausted = False
     total = 0
     skipped = 0
-    last_reason = ""
 
-    def intake_open() -> bool:
-        return not exhausted and (stop is None or not stop.is_set())
+    def stopping() -> bool:
+        return stop is not None and stop.is_set()
 
-    async def spawn() -> None:
-        nonlocal next_index, exhausted
+    async def intake() -> None:
+        nonlocal intake_done
+        index = 0
         try:
-            item = await anext(item_iter)
-        except StopAsyncIteration:
-            exhausted = True
-            return
-        index = next_index
-        next_index += 1
-        pending[index] = asyncio.create_task(_run_one(worker, item))
+            while not stopping():
+                await slots.acquire()
+                if stopping():  # woke up into a drain — don't start new work
+                    slots.release()
+                    break
+                try:
+                    item = await anext(item_iter)
+                except StopAsyncIteration:
+                    slots.release()
+                    break
+                pending[index] = asyncio.create_task(_run_one(worker, item))
+                index += 1
+                progressed.set()
+        finally:
+            intake_done = True
+            progressed.set()
 
+    intake_task = asyncio.create_task(intake())
     try:
-        while intake_open() and len(pending) < concurrency:
-            await spawn()
-        while pending:
-            # pending always holds a contiguous range starting at next_to_emit,
-            # so this key is present; awaiting it lets the other in-flight
-            # workers keep running (head-of-line emission, full concurrency).
-            outcome = await pending.pop(next_to_emit)
+        while True:
+            task = pending.get(next_to_emit)
+            if task is None:
+                if intake_done and not pending:
+                    return
+                progressed.clear()
+                # re-check before sleeping: intake may have progressed between the
+                # get() above and the clear() — a real race, so the branch can't be
+                # hit deterministically in a test; excluded rather than pretended at.
+                if next_to_emit in pending or (intake_done and not pending):  # pragma: no cover
+                    continue  # pragma: no cover
+                await progressed.wait()
+                continue
+            outcome = await task
+            del pending[next_to_emit]
+            slots.release()
             next_to_emit += 1
             yield outcome
             total += 1
             if isinstance(outcome, Skipped):
                 skipped += 1
-                last_reason = outcome.reason
                 if should_halt(failure_policy, total=total, skipped=skipped):
-                    raise TooManyFailures(skipped, total, last_reason)
-            while intake_open() and len(pending) < concurrency:
-                await spawn()
+                    raise TooManyFailures(skipped, total, outcome.reason)
     finally:
+        intake_task.cancel()
         for task in pending.values():
             task.cancel()
-        if pending:
-            await asyncio.gather(*pending.values(), return_exceptions=True)
+        await asyncio.gather(intake_task, *pending.values(), return_exceptions=True)
 
 
 async def _run_one(worker: Callable[[Item], Awaitable[R]], item: Item) -> ItemOutcome[R]:

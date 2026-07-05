@@ -25,8 +25,9 @@ class PacedOllama:
     the response — key on the *item text inside the prompt*, never on arrival order.
     """
 
-    def __init__(self, reply: Callable[[dict[str, object]], str]) -> None:
+    def __init__(self, reply: Callable[[dict[str, object]], str], *, paced: bool = True) -> None:
         self._reply = reply
+        self._paced = paced
         self._gate = threading.Semaphore(0)
         self._arrived = 0
         self._cond = threading.Condition()
@@ -42,7 +43,8 @@ class PacedOllama:
                 with outer._cond:
                     outer._arrived += 1
                     outer._cond.notify_all()
-                outer._gate.acquire()
+                if outer._paced:
+                    outer._gate.acquire()
                 self._respond({"message": {"content": outer._reply(body)}})
 
             def _respond(self, payload: dict[str, object]) -> None:

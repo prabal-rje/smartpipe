@@ -234,3 +234,25 @@ async def test_stop_already_set_yields_nothing() -> None:
         _stream([_item(0)]), worker, concurrency=2, failure_policy=NEVER_HALT, stop=stop
     )
     assert [o async for o in gen] == []
+
+
+async def test_emits_completed_results_while_intake_is_stalled() -> None:
+    """THE streaming property at the engine level: a completed outcome must emit
+    even though the source has more capacity and is still waiting for input.
+    (Regression: the spawn loop used to block emission on ``anext``.)"""
+    gate = asyncio.Event()
+
+    async def source() -> AsyncIterator[Item]:
+        yield _item(0, "first")
+        await gate.wait()  # a live stream pausing — no EOF, no next item yet
+        yield _item(1, "second")
+
+    async def worker(item: Item) -> str:
+        return item.text
+
+    gen = run_ordered(source(), worker, concurrency=4, failure_policy=NEVER_HALT)
+    first = await asyncio.wait_for(anext(gen), timeout=2)  # old runner hung here
+    assert isinstance(first, Done) and first.value == "first"
+    gate.set()
+    rest = [o async for o in gen]
+    assert [o.index for o in rest] == [1]

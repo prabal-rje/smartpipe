@@ -135,7 +135,7 @@ async def test_bounded_queue_backpressure(monkeypatch: pytest.MonkeyPatch) -> No
 
 async def test_stringio_path_matches_pipe_path() -> None:
     """Equivalence: the same lines through StringIO and a real pipe yield identical items."""
-    lines = ["a", "", "json: {\"k\": 1}", "final"]
+    lines = ["a", "", 'json: {"k": 1}', "final"]
     text = "\n".join(lines) + "\n"
 
     async def collect(source: TextIO) -> list[tuple[str, int]]:

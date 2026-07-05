@@ -22,7 +22,7 @@ from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
-from sempipe.verbs.common import aiter_items, interrupted_exit_code, outcome_exit_code
+from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -57,23 +57,22 @@ async def run_embed(
     model = await context.embedding_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
 
-    items = [item async for item in readers.resolve_items(request.input, stdin)]
-    if items and tty.stdout_is_tty():
+    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
+    if (total is None or total > 0) and tty.stdout_is_tty():
         diagnostics.note(
             "embeddings are large — redirect to a file: sempipe embed > corpus.embeddings"
         )
     writer = make_writer(WriterConfig(mode=RenderMode.NDJSON, color=False, width=80), stdout)
     spinner = make_stderr_spinner()
-    spinner.start(total=len(items))
-    by_index = {item.source.index: item for item in items}
+    spinner.start(total=total)
 
-    async def worker(item: Item) -> tuple[float, ...]:
-        return await _embed_one(model, item)
+    async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
+        return item, await _embed_one(model, item)
 
     done = 0
     skipped = 0
     outcomes = run_ordered(
-        aiter_items(items),
+        items_iter,
         worker,
         concurrency=concurrency,
         failure_policy=FailurePolicy(),
@@ -82,11 +81,11 @@ async def run_embed(
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):
-                item = by_index[outcome.index]
+                item, vector = outcome.value
                 writer.write_record(
                     {
                         "text": item.text,
-                        "vector": list(outcome.value),
+                        "vector": list(vector),
                         "source": item.source.name,
                     }
                 )

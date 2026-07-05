@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import contextlib
+import os
 import threading
 from typing import TYPE_CHECKING
 
@@ -40,23 +41,29 @@ _HEAD_BYTES = 8192
 _QUEUE_MAX = 1024  # lines buffered ahead of consumption — memory stays bounded
 
 
-async def resolve_items(spec: InputSpec, stdin: TextIO) -> AsyncIterator[Item]:
+def resolve_items(
+    spec: InputSpec, stdin: TextIO, *, stop: asyncio.Event | None = None
+) -> tuple[AsyncIterator[Item], int | None]:
     """The single entry point every verb uses: dispatch on the input flags.
-    ``--in`` reads files; ``--from-files`` reads filenames from stdin; otherwise
-    stdin lines. Only the stdin paths guard against a bare terminal."""
+
+    Returns ``(items, total)`` — total is known only for ``--in`` file lists;
+    stdin is a stream (``tail -f`` works), so its total is ``None`` and the
+    spinner shows count+rate instead of an ETA. Only the stdin paths guard
+    against a bare terminal."""
     from sempipe.io.inputs import expand_globs
 
     if spec.patterns:
-        for item in file_items(expand_globs(spec.patterns)):  # UsageFault if no match
-            yield item
-    elif spec.from_files:
-        ensure_not_a_tty(stdin)
-        async for item in from_files_items(stdin):
-            yield item
-    else:
-        ensure_not_a_tty(stdin)
-        async for item in stdin_items(stdin):
-            yield item
+        loaded = file_items(expand_globs(spec.patterns))  # UsageFault if no match
+        return _iter_list(loaded), len(loaded)
+    ensure_not_a_tty(stdin)
+    if spec.from_files:
+        return from_files_items(stdin, stop=stop), None
+    return stdin_items(stdin, stop=stop), None
+
+
+async def _iter_list(items: Sequence[Item]) -> AsyncIterator[Item]:
+    for item in items:
+        yield item
 
 
 async def _lines(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[str]:
@@ -66,24 +73,64 @@ async def _lines(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[str
     stalls while the queue is full) and the shutdown path (when the async side goes
     away, the pending put is cancelled and the thread exits). ``None`` is the EOF
     sentinel, delivered with a *blocking* put so a full queue can't swallow it.
+
+    Real streams are read with ``os.read`` on the raw fd, NOT ``stdin.readline()``:
+    a thread blocked in ``readline`` holds the TextIOWrapper's lock, and CPython's
+    interpreter-shutdown finalization then deadlocks trying to close the stream —
+    the exact hang the streaming e2e caught. ``os.read`` holds no Python-level
+    lock, so a parked daemon pump can never wedge exit. Lock-free line assembly +
+    UTF-8 ``errors="replace"`` decoding happen here. Objects without a usable fd
+    (StringIO in tests) fall back to ``readline`` — they never block, so the
+    shutdown hazard doesn't exist for them.
     """
     queue: asyncio.Queue[str | None] = asyncio.Queue(_QUEUE_MAX)
     loop = asyncio.get_running_loop()
 
+    def put(line: str) -> None:
+        asyncio.run_coroutine_threadsafe(queue.put(line), loop).result()
+
+    def pump_fd(fd: int) -> None:
+        buffer = bytearray()
+        while True:
+            chunk = os.read(fd, 65536)  # blocks WITHOUT holding any io lock
+            if not chunk:
+                if buffer:  # final line without a trailing newline
+                    put(buffer.decode("utf-8", errors="replace"))
+                return
+            buffer += chunk
+            while (newline := buffer.find(0x0A)) != -1:
+                line = bytes(buffer[: newline + 1])
+                del buffer[: newline + 1]
+                put(line.decode("utf-8", errors="replace"))
+
+    def pump_readline() -> None:
+        while True:
+            line = stdin.readline()  # non-blocking sources only (StringIO et al.)
+            if not line:
+                return
+            put(line)
+
     def pump() -> None:
         try:
-            while True:
-                line = stdin.readline()  # blocks in this thread only
-                if not line:
-                    break  # EOF
-                asyncio.run_coroutine_threadsafe(queue.put(line), loop).result()
+            fd: int | None
+            try:
+                fd = stdin.fileno()
+            except (OSError, ValueError, AttributeError):
+                fd = None
+            if fd is None:
+                pump_readline()
+            else:
+                pump_fd(fd)
         except (RuntimeError, ValueError, OSError, concurrent.futures.CancelledError):
             # loop closed, consumer gone, or the stream was closed under us —
             # any of these means "stop pumping", never a crash or a stderr trace
             return
         finally:
-            with contextlib.suppress(RuntimeError, concurrent.futures.CancelledError):
-                asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
+            sentinel = queue.put(None)  # blocking put — a full queue can't swallow EOF
+            try:
+                asyncio.run_coroutine_threadsafe(sentinel, loop).result()
+            except (RuntimeError, concurrent.futures.CancelledError):
+                sentinel.close()  # loop gone — don't leave a never-awaited coroutine
 
     threading.Thread(target=pump, name="sempipe-stdin-pump", daemon=True).start()
     while True:
