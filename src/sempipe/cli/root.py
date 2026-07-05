@@ -12,6 +12,7 @@ import os
 import click
 
 from sempipe import __version__
+from sempipe.cli.echo_cmd import echo_command
 from sempipe.cli.screens import WELCOME
 from sempipe.core.errors import ExitCode, SempipeError, UsageFault
 from sempipe.io import diagnostics
@@ -33,6 +34,9 @@ class _RootGroup(click.Group):
 @click.version_option(__version__, prog_name="sempipe", message="%(prog)s %(version)s")
 def cli() -> None:
     """sempipe — semantic pipes for your terminal."""
+
+
+cli.add_command(echo_command)
 
 
 def main() -> None:

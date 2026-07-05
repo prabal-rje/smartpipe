@@ -49,11 +49,9 @@ def item_from_line(line: str, index: int) -> Item:
 
 def describe_source(source: ItemSource) -> str:
     """Human wording for warnings — 1-based lines, plain filenames."""
-    match source.kind:
-        case "stdin":
-            return f"line {source.index + 1}"
-        case "file":
-            return source.name
+    if source.kind == "stdin":
+        return f"line {source.index + 1}"
+    return source.name
 
 
 def _sniff_json_object(raw: str) -> Mapping[str, object] | None:
@@ -64,15 +62,11 @@ def _sniff_json_object(raw: str) -> Mapping[str, object] | None:
         parsed: object = json.loads(candidate)
     except json.JSONDecodeError:
         return None
-    if not _is_object_mapping(parsed):
+    if not _is_json_object(parsed):  # pragma: no cover — a parsed "{…}" is always an object
         return None
-    record: dict[str, object] = {}
-    for key, value in parsed.items():
-        if not isinstance(key, str):  # unreachable for json.loads, kept for type honesty
-            return None
-        record[key] = value
-    return record
+    return dict(parsed)
 
 
-def _is_object_mapping(value: object) -> TypeGuard[Mapping[object, object]]:
+def _is_json_object(value: object) -> TypeGuard[Mapping[str, object]]:
+    """Sound claim: ``json.loads`` produces ``str`` keys by contract."""
     return isinstance(value, dict)

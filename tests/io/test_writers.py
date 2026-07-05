@@ -56,6 +56,18 @@ def test_csv_and_tsv_are_not_available_yet() -> None:
             resolve_format(flag, {}, stdout_tty=False, structured=True)
 
 
+def test_make_writer_rejects_csv_modes_directly() -> None:
+    for mode in (RenderMode.CSV, RenderMode.TSV):
+        with pytest.raises(UsageFault, match=r"v0\.7"):
+            make_writer(WriterConfig(mode=mode, color=False, width=80), io.StringIO())
+
+
+def test_flush_is_safe_on_every_writer() -> None:
+    for mode in (RenderMode.TEXT, RenderMode.NDJSON, RenderMode.HUMAN):
+        _stream, writer = _writer(mode)
+        writer.flush()
+
+
 # --- writers ------------------------------------------------------------------
 
 

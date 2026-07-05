@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, assert_never
 
 from sempipe.core.errors import UsageFault
 
@@ -96,6 +96,8 @@ def resolve_format(
             return RenderMode.NDJSON
         case OutputFormat.CSV | OutputFormat.TSV:
             raise UsageFault("csv/tsv output arrives in v0.7")
+        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+            assert_never(unreachable)
 
 
 def make_writer(config: WriterConfig, stdout: TextIO) -> ResultWriter:
@@ -108,6 +110,8 @@ def make_writer(config: WriterConfig, stdout: TextIO) -> ResultWriter:
             return _HumanWriter(stream=stdout, color=config.color, width=config.width)
         case RenderMode.CSV | RenderMode.TSV:
             raise UsageFault("csv/tsv output arrives in v0.7")
+        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+            assert_never(unreachable)
 
 
 def _compact_json(value: object) -> str:

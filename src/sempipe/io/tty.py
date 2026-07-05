@@ -10,7 +10,7 @@ import os
 import shutil
 import sys
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -52,6 +52,8 @@ def supports_color(stream_is_tty: bool, *, mode: ColorMode, env: Mapping[str, st
             if "NO_COLOR" in env:  # any value disables — https://no-color.org
                 return False
             return env.get("TERM") != "dumb"
+        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+            assert_never(unreachable)
 
 
 def stderr_supports_color(mode: ColorMode = ColorMode.AUTO) -> bool:

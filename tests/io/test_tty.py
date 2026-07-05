@@ -30,3 +30,9 @@ def test_auto_mode_truth_table(is_tty: bool, env: dict[str, str], expected: bool
 def test_always_and_never_are_constant(is_tty: bool, env: dict[str, str]) -> None:
     assert supports_color(is_tty, mode=ColorMode.ALWAYS, env=env) is True
     assert supports_color(is_tty, mode=ColorMode.NEVER, env=env) is False
+
+
+def test_enable_windows_vt_is_a_noop_success_off_windows() -> None:
+    from sempipe.io.tty import enable_windows_vt
+
+    assert enable_windows_vt() is True
