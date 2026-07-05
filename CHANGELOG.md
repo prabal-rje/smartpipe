@@ -51,6 +51,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   `done: interrupted — N processed · M skipped` summary, and exits with the run's
   true outcome code; a second Ctrl-C exits 130 immediately.
 
+### Fixed
+- **Config edits are atomic and lossless (except comments).** `sempipe config
+  model …` now rewrites `config.toml` via a same-directory temp file +
+  `os.replace` (a concurrent reader can never see a torn file), and keys it
+  doesn't know survive the rewrite — an older sempipe no longer strips a newer
+  one's settings. Comments still don't survive (tomli-w can't round-trip them;
+  the CLI reference says so).
+- **CJK-safe alignment.** `config show` columns and the terminal view's value
+  truncation now measure display width (wide chars = 2 cells, combining marks
+  = 0) instead of code points, so East-Asian values line up and never overshoot
+  the terminal width.
+
 ### Changed
 - **License: Apache-2.0** (from MIT), with a `NOTICE` file — matching the published
   repository. The `v1.0.0` tag points at the relicensed tree.

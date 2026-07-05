@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Protocol, assert_never
 
 from sempipe.core.errors import UsageFault
 from sempipe.io import diagnostics
+from sempipe.io.text import clip_to_width, display_width
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -304,9 +305,10 @@ class _HumanWriter:
             rendered = (
                 "" if value is None else value if isinstance(value, str) else _compact_json(value)
             )
-            available = self.width - len(key) - 2
-            if available >= 2 and len(rendered) > available:
-                rendered = rendered[: available - 1] + _ELLIPSIS
+            # budget in terminal cells, not code points (DEFER-2) — a Wide char is 2
+            available = self.width - display_width(key) - 2
+            if available >= 2 and display_width(rendered) > available:
+                rendered = clip_to_width(rendered, available - 1) + _ELLIPSIS
             label = f"{_DIM}{key}:{_RESET}" if self.color else f"{key}:"
             self.stream.write(f"{label} {rendered}\n")
         self.stream.write("\n")

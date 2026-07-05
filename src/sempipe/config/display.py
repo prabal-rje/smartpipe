@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from sempipe.io.text import display_width
+
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
@@ -42,11 +44,16 @@ def settings_with_origin(env: Mapping[str, str], config: Config) -> tuple[Settin
 
 
 def render_show(settings: Sequence[Setting], config_file: str) -> str:
-    key_width = max(len(s.key) for s in (*settings, Setting("config file", "", ""))) + 2
-    value_width = max(len(s.value) for s in settings) + 2
-    lines = [f"{s.key:<{key_width}}{s.value:<{value_width}}({s.origin})" for s in settings]
-    lines.append(f"{'config file':<{key_width}}{config_file}")
+    key_width = max(display_width(s.key) for s in (*settings, Setting("config file", "", ""))) + 2
+    value_width = max(display_width(s.value) for s in settings) + 2
+    lines = [f"{_pad(s.key, key_width)}{_pad(s.value, value_width)}({s.origin})" for s in settings]
+    lines.append(f"{_pad('config file', key_width)}{config_file}")
     return "\n".join(lines)
+
+
+def _pad(text: str, width: int) -> str:
+    """Pad to ``width`` terminal cells (DEFER-2) — f-string ``<`` pads code points."""
+    return text + " " * max(0, width - display_width(text))
 
 
 def _resolve(key: str, env_value: str | None, config_value: object) -> Setting:

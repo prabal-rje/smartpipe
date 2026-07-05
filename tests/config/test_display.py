@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sempipe.config.display import Setting, render_show, settings_with_origin
 from sempipe.config.store import Config
+from sempipe.io.text import display_width
 
 
 def test_origins_default_when_nothing_set() -> None:
@@ -37,3 +38,12 @@ def test_render_show_is_aligned_and_ends_with_file_path() -> None:
     assert lines[2] == "concurrency  4                 (default)"
     assert lines[3] == "output       auto              (default)"
     assert lines[4] == "config file  /home/u/.config/sempipe/config.toml"
+
+
+def test_render_show_aligns_cjk_values_by_display_width() -> None:
+    # DEFER-2: a Wide value must not push its origin column out of line
+    config = Config(model="ollama/日本語モデル", embed_model="nomic-embed-text")
+    rendered = render_show(settings_with_origin({}, config), "~/.config/sempipe/config.toml")
+    lines = rendered.splitlines()
+    cells_before_origin = {display_width(line[: line.index("(")]) for line in lines[:4]}
+    assert len(cells_before_origin) == 1  # every origin starts in the same terminal cell

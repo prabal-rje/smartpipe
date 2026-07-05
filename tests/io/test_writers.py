@@ -120,6 +120,17 @@ def test_human_writer_truncates_long_values_to_width() -> None:
     assert line == "summary: " + "x" * 10 + "…"
 
 
+def test_human_writer_truncates_wide_chars_by_cells_never_overshooting() -> None:
+    # DEFER-2: a Wide (CJK) value at the boundary must not overshoot the terminal
+    from sempipe.io.text import display_width
+
+    stream, writer = _writer(RenderMode.HUMAN, width=20)
+    writer.write_record({"summary": "名" * 30})
+    line = stream.getvalue().splitlines()[0]
+    assert display_width(line) <= 20
+    assert line.endswith("…")
+
+
 def test_human_writer_dims_keys_when_color_on() -> None:
     stream, writer = _writer(RenderMode.HUMAN, color=True)
     writer.write_record({"a": "b"})
