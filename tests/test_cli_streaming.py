@@ -119,3 +119,25 @@ async def test_map_emits_before_eof_in_process() -> None:
         if not task.done():
             task.cancel()
         reader.close()
+
+
+def test_binary_stdin_document_end_to_end() -> None:
+    """The stage-07 demo, real markitdown: `sempipe map "Summarize" < report.pdf`."""
+    pytest.importorskip("markitdown")
+
+    def reply(_body: dict[str, object]) -> str:
+        return "ONE-LINE SUMMARY"
+
+    with PacedOllama(reply, paced=False) as server:
+        env = {**os.environ, "OLLAMA_HOST": server.url, "SEMPIPE_MODEL": "ollama/qwen3:8b"}
+        with open("tests/corpus/one-page.pdf", "rb") as pdf:
+            proc = subprocess.run(
+                [sys.executable, "-m", "sempipe", "map", "Summarize"],
+                stdin=pdf,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=60,
+            )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout == "ONE-LINE SUMMARY\n"  # one document → one item → one result

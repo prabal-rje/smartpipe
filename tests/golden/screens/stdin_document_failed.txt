@@ -1,0 +1,3 @@
+error: stdin looks like a document, but it couldn't be read (parse error)
+  sempipe reads ONE binary document per run from stdin.
+  Alternative: sempipe map "…" --in 'report.pdf'

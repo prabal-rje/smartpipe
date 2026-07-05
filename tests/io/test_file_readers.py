@@ -78,9 +78,9 @@ async def test_image_file_becomes_an_image_item(tmp_path: Path) -> None:
     good = tmp_path / "note.txt"
     good.write_text("text")
     spec = InputSpec(patterns=(str(tmp_path / "*"),), from_files=False)
-    items_iter, total = resolve_items(spec, io.StringIO(""))
+    items_iter, _total = resolve_items(spec, io.StringIO(""))  # empty piped stdin leg
     items = [item async for item in items_iter]
-    assert total == 2
+    assert len(items) == 2
     by_name = {item.source.name.rsplit("/", 1)[-1]: item for item in items}
     photo = by_name["photo.png"]
     assert photo.image is not None  # bytes carried to the vision path
@@ -133,3 +133,37 @@ async def test_utf8_replacement_warning_on_file(
     items = [item async for item in items_iter]
     assert len(items) == 1
     assert "some bytes were replaced" in capsys.readouterr().err
+
+
+async def test_in_plus_piped_stdin_is_files_first_then_lines(tmp_path: Path) -> None:
+    (tmp_path / "a.txt").write_text("file-a")
+    spec = InputSpec(patterns=(str(tmp_path / "*.txt"),), from_files=False)
+    items_iter, total = resolve_items(spec, io.StringIO("line-1\nline-2\n"))
+    items = [item async for item in items_iter]
+    assert total is None  # the stdin leg makes the total unknowable
+    assert [i.text for i in items] == ["file-a", "line-1", "line-2"]  # spec §8 order
+    assert [i.source.kind for i in items] == ["file", "stdin", "stdin"]
+    # line numbering restarts for the stdin leg (describe_source stays honest)
+    from sempipe.io.items import describe_source
+
+    assert describe_source(items[1].source) == "line 1"
+
+
+async def test_in_with_tty_stdin_is_files_only(tmp_path: Path) -> None:
+    (tmp_path / "a.txt").write_text("file-a")
+
+    class TtyStdin(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    spec = InputSpec(patterns=(str(tmp_path / "*.txt"),), from_files=False)
+    items_iter, total = resolve_items(spec, TtyStdin(""))
+    items = [item async for item in items_iter]
+    assert total == 1  # finite again — no stdin leg, ETA stays
+    assert [i.text for i in items] == ["file-a"]
+
+
+async def test_in_plus_from_files_is_a_usage_error(tmp_path: Path) -> None:
+    spec = InputSpec(patterns=(str(tmp_path / "*.txt"),), from_files=True)
+    with pytest.raises(UsageFault, match="both file sources"):
+        resolve_items(spec, io.StringIO(""))

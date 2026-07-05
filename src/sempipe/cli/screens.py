@@ -7,6 +7,7 @@ require opening a browser or reading docs to resolve.
 from __future__ import annotations
 
 __all__ = [
+    "BINARY_STDIN_UNPARSEABLE",
     "FIELD_REF_ON_PLAIN_INPUT",
     "NO_MODEL",
     "WELCOME",
@@ -14,7 +15,22 @@ __all__ = [
     "missing_api_key",
     "ollama_model_missing",
     "ollama_unreachable",
+    "stdin_document_failed",
 ]
+
+BINARY_STDIN_UNPARSEABLE = """\
+error: stdin looks like binary data sempipe can't parse
+  Recognized on stdin: text lines, or a single PDF/DOCX/PPTX/XLSX/audio/image document.
+  For files on disk use --in: sempipe map "Summarize" --in 'report.pdf'"""
+
+
+def stdin_document_failed(reason: str) -> str:
+    return (
+        f"error: stdin looks like a document, but it couldn't be read ({reason})\n"
+        "  sempipe reads ONE binary document per run from stdin.\n"
+        "  Alternative: sempipe map \"…\" --in 'report.pdf'"
+    )
+
 
 FIELD_REF_ON_PLAIN_INPUT = """\
 error: the prompt references a {field}, but the first input line isn't JSON

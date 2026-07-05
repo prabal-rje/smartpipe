@@ -74,11 +74,40 @@ A corrupt PDF, an unsupported binary, or a file you can't read is skipped with a
 warning on stderr — the rest of the batch still runs. The exit code reflects it:
 `1` if some files were skipped, `3` if every one failed.
 
-## Not yet
+## Images: described by your vision model
 
-Images (describing a `.jpg` with a vision model) and reading a single binary file
-straight from stdin (`sempipe map … < report.pdf`) are planned for a later release.
-For now, use `--in` with image or document globs; images are skipped with a note.
+Point `map` at images and each one is sent — bytes and all — to the model, with the
+prompt applied to what it *sees*:
+
+```console
+$ sempipe map "Describe the product shown" --in 'photos/*.jpg' --model ollama/qwen3-vl
+$ sempipe map "Extract {brand, color}" --in shelf.png --model gpt-4o-mini
+```
+
+The chat model must be vision-capable; if it isn't, the item is skipped with a
+message naming a model to try. The other verbs read text, so they skip image items
+with a pointer to `map`.
+
+## A binary document on stdin
+
+Redirect a single document and it becomes one item — sempipe sniffs the bytes,
+spools, and parses it exactly as `--in` would:
+
+```console
+$ sempipe map "Summarize this document" < report.pdf
+```
+
+One document per run (stdin is one stream); for many documents use `--in`.
+Unrecognizable binary data stops with a clear message instead of garbling.
+
+## Mixing files and a pipe
+
+`--in` composes with piped stdin: the files come first (glob-sorted), then the
+stdin lines, one run:
+
+```console
+$ cat extra-notes.txt | sempipe map "Summarize" --in 'reports/*.pdf'
+```
 
 ## See also
 

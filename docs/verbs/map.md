@@ -31,6 +31,14 @@ In `map`, braces describe the *output*. (In `filter` and `reduce`, `{field}` rea
 an input field instead — see [structured output](../concepts/structured-output.md)
 for the full grammar.)
 
+## Images
+
+`map` is the vision verb: an image item (from `--in 'photos/*.jpg'` or a redirected
+image on stdin) is sent to the model as an image, and your prompt describes what to
+do with it — including structured extraction (`"Extract {brand, color}"`). Needs a
+vision-capable model (`ollama/qwen3-vl`, `gpt-4o-mini`, `claude-opus-4-8`, …);
+without one, the item skips with a hint.
+
 ## Streaming
 
 `map` processes stdin incrementally — results appear as input arrives, so live

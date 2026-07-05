@@ -20,6 +20,8 @@ _SCREENS: dict[str, str] = {
     "welcome": screens.WELCOME,
     "no_model": screens.NO_MODEL,
     "field_ref_on_plain_input": screens.FIELD_REF_ON_PLAIN_INPUT,
+    "binary_stdin_unparseable": screens.BINARY_STDIN_UNPARSEABLE,
+    "stdin_document_failed": screens.stdin_document_failed("parse error"),
     "ollama_unreachable": screens.ollama_unreachable(
         "http://localhost:11434", "ollama/qwen3:8b", "connection refused"
     ),
@@ -54,6 +56,8 @@ def test_every_screen_export_is_pinned() -> None:
         "WELCOME",
         "NO_MODEL",
         "FIELD_REF_ON_PLAIN_INPUT",
+        "BINARY_STDIN_UNPARSEABLE",
+        "stdin_document_failed",
         "ollama_unreachable",
         "ollama_model_missing",
         "missing_api_key",

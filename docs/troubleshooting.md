@@ -105,6 +105,17 @@ For `map`/`filter`/`embed`: the first Ctrl-C stops new work, finishes what's in 
 exits with the normal outcome code. Press Ctrl-C twice to bail immediately (exit 130).
 `reduce`/`top_k` exit immediately — they have no partial result to save.
 
+## "stdin looks like binary data sempipe can't parse" (exit 2)
+
+You redirected something sempipe doesn't recognize (a zip? an executable?). On
+stdin it accepts text lines or a single PDF/DOCX/PPTX/XLSX/audio/image document.
+For files on disk, `--in 'file.ext'` is the general route.
+
+## "model can't read images" — my image was skipped
+
+The chat model you're using has no vision. Pick one that does:
+`--model ollama/qwen3-vl` locally, or a cloud vision model.
+
 ## An internal error / "BUG" screen (exit 70)
 
 That's a sempipe bug, not your fault. The screen tells you how to report it; re-run

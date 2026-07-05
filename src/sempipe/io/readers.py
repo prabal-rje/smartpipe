@@ -14,18 +14,19 @@ import concurrent.futures
 import contextlib
 import os
 import threading
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sempipe.core.errors import ItemError, UsageFault
+from sempipe.core.errors import ItemError, SetupFault, UsageFault
 from sempipe.io import diagnostics
 from sempipe.io.items import Item, item_from_file, item_from_line
-from sempipe.parsing.detect import detect_kind
+from sempipe.models.base import ImageData
+from sempipe.parsing.detect import FileKind, detect_kind, route
 from sempipe.parsing.extract import MissingExtra, extract
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
-    from pathlib import Path
     from typing import TextIO
 
     from sempipe.io.inputs import InputSpec
@@ -53,13 +54,30 @@ def resolve_items(
     against a bare terminal."""
     from sempipe.io.inputs import expand_globs
 
+    if spec.patterns and spec.from_files:
+        raise UsageFault(
+            "--in and --from-files are both file sources — use one\n"
+            "  --in takes globs; --from-files reads filenames from stdin."
+        )
     if spec.patterns:
         loaded = file_items(expand_globs(spec.patterns))  # UsageFault if no match
-        return _iter_list(loaded), len(loaded)
+        if stdin.isatty():  # files only — no pipe to chain
+            return _iter_list(loaded), len(loaded)
+        # spec §8: mixed input is files first (glob-sorted), then stdin lines
+        return _chain_files_then_stdin(loaded, stdin, stop), None
     ensure_not_a_tty(stdin)
     if spec.from_files:
         return from_files_items(stdin, stop=stop), None
     return stdin_items(stdin, stop=stop), None
+
+
+async def _chain_files_then_stdin(
+    loaded: Sequence[Item], stdin: TextIO, stop: asyncio.Event | None
+) -> AsyncIterator[Item]:
+    for item in loaded:
+        yield item
+    async for item in stdin_items(stdin, stop=stop):
+        yield item
 
 
 async def _iter_list(items: Sequence[Item]) -> AsyncIterator[Item]:
@@ -67,49 +85,99 @@ async def _iter_list(items: Sequence[Item]) -> AsyncIterator[Item]:
         yield item
 
 
-async def _lines(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[str]:
-    """Incremental line source: daemon pump thread → bounded queue → cancellable get.
+@dataclass(frozen=True, slots=True)
+class _StdinDocument:
+    tmp_name: str
+    kind: FileKind
 
-    The pump's blocking ``queue.put(...).result()`` is the backpressure (the thread
-    stalls while the queue is full) and the shutdown path (when the async side goes
-    away, the pending put is cancelled and the thread exits). ``None`` is the EOF
-    sentinel, delivered with a *blocking* put so a full queue can't swallow it.
+
+# A queue message: ("line", text) · ("document", _StdinDocument) ·
+# ("image", ImageData) · ("fatal", screen) · None = EOF.
+_Message = tuple[str, object] | None
+
+_KIND_SUFFIX: dict[FileKind, str] = {
+    FileKind.PDF: ".pdf",
+    FileKind.DOCX: ".docx",
+    FileKind.XLSX: ".xlsx",
+    FileKind.PPTX: ".pptx",
+    FileKind.HTML: ".html",
+    FileKind.EPUB: ".epub",
+    FileKind.AUDIO: ".mp3",
+}
+
+
+async def _messages(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[tuple[str, object]]:
+    """Incremental stdin source: daemon pump thread → bounded queue → cancellable get.
 
     Real streams are read with ``os.read`` on the raw fd, NOT ``stdin.readline()``:
     a thread blocked in ``readline`` holds the TextIOWrapper's lock, and CPython's
     interpreter-shutdown finalization then deadlocks trying to close the stream —
-    the exact hang the streaming e2e caught. ``os.read`` holds no Python-level
-    lock, so a parked daemon pump can never wedge exit. Lock-free line assembly +
-    UTF-8 ``errors="replace"`` decoding happen here. Objects without a usable fd
-    (StringIO in tests) fall back to ``readline`` — they never block, so the
-    shutdown hazard doesn't exist for them.
+    the exact hang the streaming e2e caught. On the fd path the FIRST read also
+    sniffs (stage-07 task 4): a binary document redirected to stdin becomes one
+    spooled document message; text proceeds as lines with the sniffed bytes as the
+    carry. Objects without a usable fd (StringIO in tests) fall back to
+    ``readline`` — text-only by construction, never blocking, never sniffed.
     """
-    queue: asyncio.Queue[str | None] = asyncio.Queue(_QUEUE_MAX)
+    queue: asyncio.Queue[_Message] = asyncio.Queue(_QUEUE_MAX)
     loop = asyncio.get_running_loop()
 
-    def put(line: str) -> None:
-        asyncio.run_coroutine_threadsafe(queue.put(line), loop).result()
+    def put(message: _Message) -> None:
+        asyncio.run_coroutine_threadsafe(queue.put(message), loop).result()
 
-    def pump_fd(fd: int) -> None:
-        buffer = bytearray()
+    def pump_text_fd(fd: int, carry: bytes) -> None:
+        buffer = bytearray(carry)
         while True:
-            chunk = os.read(fd, 65536)  # blocks WITHOUT holding any io lock
-            if not chunk:
-                if buffer:  # final line without a trailing newline
-                    put(buffer.decode("utf-8", errors="replace"))
-                return
-            buffer += chunk
             while (newline := buffer.find(0x0A)) != -1:
                 line = bytes(buffer[: newline + 1])
                 del buffer[: newline + 1]
-                put(line.decode("utf-8", errors="replace"))
+                put(("line", line.decode("utf-8", errors="replace")))
+            chunk = os.read(fd, 65536)  # blocks WITHOUT holding any io lock
+            if not chunk:
+                if buffer:  # final line without a trailing newline
+                    put(("line", bytes(buffer).decode("utf-8", errors="replace")))
+                return
+            buffer += chunk
+
+    def spool_document(fd: int, head: bytes, kind: FileKind) -> None:
+        import tempfile
+
+        suffix = _KIND_SUFFIX.get(kind, "")
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            handle.write(head)
+            while chunk := os.read(fd, 65536):
+                handle.write(chunk)
+        put(("document", _StdinDocument(handle.name, kind)))
+
+    def collect_image(fd: int, head: bytes) -> None:
+        data = bytearray(head)
+        while chunk := os.read(fd, 65536):
+            data += chunk
+        mime = _magic_image_mime(bytes(data[:16]))
+        put(("image", ImageData(data=bytes(data), mime=mime)))
+
+    def pump_fd(fd: int) -> None:
+        head = os.read(fd, _HEAD_BYTES)  # one read — a live stream must not stall here
+        if not head:
+            return  # empty stdin
+        kind = detect_kind(Path("<stdin>"), head)
+        match route(kind):
+            case "text":
+                pump_text_fd(fd, head)
+            case "doc" | "audio":
+                spool_document(fd, head, kind)
+            case "image":
+                collect_image(fd, head)
+            case "skip":
+                from sempipe.cli import screens
+
+                put(("fatal", screens.BINARY_STDIN_UNPARSEABLE))
 
     def pump_readline() -> None:
         while True:
             line = stdin.readline()  # non-blocking sources only (StringIO et al.)
             if not line:
                 return
-            put(line)
+            put(("line", line))
 
     def pump() -> None:
         try:
@@ -135,13 +203,23 @@ async def _lines(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[str
 
     threading.Thread(target=pump, name="sempipe-stdin-pump", daemon=True).start()
     while True:
-        line = await _next_or_stop(queue, stop)
-        if line is None:
+        message = await _next_or_stop(queue, stop)
+        if message is None:
             return
-        yield line
+        yield message
 
 
-async def _next_or_stop(queue: asyncio.Queue[str | None], stop: asyncio.Event | None) -> str | None:
+def _magic_image_mime(head: bytes) -> str:
+    if head.startswith(b"\x89PNG"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    return "image/webp" if head[8:12] == b"WEBP" else "image/png"
+
+
+async def _next_or_stop(queue: asyncio.Queue[_Message], stop: asyncio.Event | None) -> _Message:
     if stop is None:
         return await queue.get()
     if stop.is_set():
@@ -158,16 +236,63 @@ async def _next_or_stop(queue: asyncio.Queue[str | None], stop: asyncio.Event | 
     return None
 
 
+async def _lines(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[str]:
+    """Text-only view of the message stream (``--from-files`` wants filenames)."""
+    async for message in _messages(stdin, stop):
+        tag, payload = message
+        if tag != "line":
+            raise SetupFault(
+                "error: --from-files expects filenames on stdin, got a binary document\n"
+                "  Pipe a list of paths in, e.g.: find . -name '*.md' | sempipe map … --from-files"
+            )
+        assert isinstance(payload, str)
+        yield payload
+
+
 async def stdin_items(stdin: TextIO, *, stop: asyncio.Event | None = None) -> AsyncIterator[Item]:
     """Each stdin line is one Item, yielded as it arrives (never waits for EOF).
 
-    A final line without a trailing newline is still an item; empty input yields
-    nothing; CRLF and the line-0 BOM are handled per-item by ``item_from_line``.
+    A redirected binary document (``sempipe map … < report.pdf``) is ONE item:
+    spooled, extracted, source ``<stdin>`` (stage-07 task 4). A final line without
+    a trailing newline is still an item; empty input yields nothing; CRLF and the
+    line-0 BOM are handled per-item by ``item_from_line``.
     """
+
     index = 0
-    async for line in _lines(stdin, stop):
-        yield item_from_line(line, index)
-        index += 1
+    async for message in _messages(stdin, stop):
+        tag, payload = message
+        if tag == "line":
+            assert isinstance(payload, str)
+            yield item_from_line(payload, index)
+            index += 1
+        elif tag == "document":
+            assert isinstance(payload, _StdinDocument)
+            yield await asyncio.to_thread(_extract_stdin_document, payload.tmp_name, payload.kind)
+        elif tag == "image":
+            assert isinstance(payload, ImageData)
+            item = item_from_file("", "<stdin>", 0)
+            yield replace(item, image=payload)
+        else:  # "fatal"
+            assert isinstance(payload, str)
+            raise SetupFault(payload)
+
+
+def _extract_stdin_document(tmp_name: str, kind: FileKind) -> Item:
+    from sempipe.cli import screens
+
+    path = Path(tmp_name)
+    try:
+        extracted = extract(path, kind)
+    except MissingExtra as exc:
+        raise SetupFault(screens.stdin_document_failed(exc.guidance.splitlines()[0])) from exc
+    except ItemError as exc:
+        raise SetupFault(screens.stdin_document_failed(str(exc))) from exc
+    finally:
+        with contextlib.suppress(OSError):
+            path.unlink()  # statelessness: the spool never outlives the run
+    if extracted.warning is not None:
+        diagnostics.warn(f"<stdin>: {extracted.warning}")
+    return item_from_file(extracted.text, "<stdin>", 0)
 
 
 async def from_files_items(

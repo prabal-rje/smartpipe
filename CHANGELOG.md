@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Vision.** Images (`--in 'photos/*.jpg'`, or one redirected to stdin) flow to
+  the chat model as images — describe them, or extract `{fields}` from them —
+  across all three providers. Non-vision models skip the item with a hint; the
+  other verbs point you to `map`.
+- **Binary stdin.** `sempipe map "Summarize" < report.pdf` works: the bytes are
+  sniffed, spooled, and parsed as one document item. Unrecognizable binary input
+  stops with a clear screen instead of garbling.
+- **Mixed input.** `--in` now composes with a pipe: files first (glob-sorted),
+  then stdin lines, one run.
 - **Streaming, flag-free.** `map`, `filter`, and `embed` now read stdin
   incrementally — `tail -f app.log | sempipe filter "…"` just works, with results
   flowing out as lines arrive and a count+rate status line (`· N matched` for

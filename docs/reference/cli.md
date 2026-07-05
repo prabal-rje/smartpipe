@@ -10,8 +10,10 @@ within a major version.
 sempipe <verb> [PROMPT] [OPTIONS]
 ```
 
-Input comes from stdin (each line an item) or from files (`--in` / `--from-files`,
-each file an item). Results go to **stdout**; progress and warnings go to **stderr**.
+Input comes from stdin (each line an item — or ONE redirected binary document),
+from files (`--in` / `--from-files`, each file an item), or both (`--in` files
+first, then the piped lines). Results go to **stdout**; progress and warnings go
+to **stderr**.
 
 ## Verbs
 
