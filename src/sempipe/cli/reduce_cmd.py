@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 
 from sempipe.cli.input_options import input_options, input_spec
+from sempipe.cli.interrupts import graceful_interrupts
 from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.reduce import ReduceRequest, run_reduce
@@ -29,6 +30,8 @@ __all__ = ["reduce_command"]
 @click.option("--model", "model_flag", help="Model for this run.")
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--verbose", is_flag=True, help="Show the chunking tree on stderr.")
+@click.option("--window", type=int, help="Stream mode: reduce every N lines (tumbling).")
+@click.option("--every", type=int, help="With --window: slide, reducing after every M lines.")
 @input_options
 def reduce_command(
     prompt: str,
@@ -37,6 +40,8 @@ def reduce_command(
     model_flag: str | None,
     concurrency_flag: int | None,
     verbose: bool,
+    window: int | None,
+    every: int | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
 ) -> None:
@@ -58,6 +63,8 @@ def reduce_command(
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,
         verbose=verbose,
+        window=window,
+        every=every,
         input=input_spec(in_patterns, from_files=from_files),
     )
     code = asyncio.run(_run(request))
@@ -67,4 +74,9 @@ def reduce_command(
 
 async def _run(request: ReduceRequest) -> ExitCode:
     async with build_container(os.environ) as container:
-        return await run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout)
+        if request.window is None:  # whole-set mode: ^C exits immediately (ux.md §12)
+            return await run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout)
+        async with graceful_interrupts() as stop:  # stream mode drains + flushes partial
+            return await run_reduce(
+                request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop
+            )

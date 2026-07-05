@@ -8,6 +8,7 @@ with the Unix tools you already use.
 | [Contract & document extraction](contract-extraction.md) | Pull structured fields out of a folder of PDFs |
 | [Log triage](log-triage.md) | Filter and summarize noisy logs by meaning |
 | [Ranking documents](ranking-documents.md) | Find the most relevant files for a query |
+| [Live monitoring](live-monitoring.md) | `tail -f` through semantic verbs, windows, and a live leaderboard |
 
 ## The shape of every recipe
 

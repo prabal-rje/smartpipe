@@ -43,8 +43,8 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 |---|---|
 | `map` | `--schema FILE`, `--output {auto,text,json,csv,tsv}` |
 | `filter` | `--not` (invert, like `grep -v`) |
-| `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT` |
-| `reduce` | `--schema FILE`, `--group-by FIELD`, `--verbose` |
+| `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT`, `--stream` (live leaderboard) |
+| `reduce` | `--schema FILE`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
 
 ## `config`
 
@@ -102,8 +102,10 @@ For the per-item verbs (`map`, `filter`, `embed`), the **first Ctrl-C** stops ne
 lets what's already in flight finish (up to 10 s), emits those results in order, prints
 `done: interrupted — N processed · M skipped` on stderr, and exits with the run's normal
 outcome code (`0`/`1`/`3`) — so a script still learns whether the partial output is
-trustworthy. A **second Ctrl-C** exits `130` immediately. `reduce` and `top_k` exit
-`130` at once — they produce one result at the end, so there's nothing to drain.
+trustworthy. A **second Ctrl-C** exits `130` immediately. The same drain applies to the stream
+modes (`reduce --window` flushes its partial window; `top_k --stream`'s board is
+already on screen). Whole-set `reduce`/`top_k` exit `130` at once — they produce one
+result at the end, so there's nothing to drain.
 
 ## See also
 

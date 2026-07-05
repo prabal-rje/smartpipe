@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = ["cosine", "rank", "select", "unit_score"]
+__all__ = ["board_insert", "cosine", "rank", "select", "unit_score"]
 
 
 def cosine(a: Sequence[float], b: Sequence[float]) -> float:
@@ -43,3 +43,20 @@ def select(
     kept = ranked if threshold is None else [p for p in ranked if p[1] >= threshold]
     limited = kept if k is None else kept[:k]
     return tuple(limited)
+
+
+BoardEntry = tuple[float, int]  # (score, arrival) — payloads live with the caller
+
+
+def board_insert(
+    board: tuple[BoardEntry, ...], score: float, arrival: int, k: int
+) -> tuple[tuple[BoardEntry, ...], bool]:
+    """Insert a candidate into a top-K board (stage-08 §4.3, pure).
+
+    Rank by score descending, ties broken by earlier arrival. Returns the new
+    board and whether membership/order changed — the leaderboard repaints or
+    emits a snapshot only on change.
+    """
+    merged = sorted((*board, (score, arrival)), key=lambda e: (-e[0], e[1]))[:k]
+    new_board = tuple(merged)
+    return new_board, new_board != board

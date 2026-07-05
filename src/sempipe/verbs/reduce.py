@@ -25,10 +25,12 @@ from sempipe.engine.prompts import (
     to_instruction,
 )
 from sempipe.engine.schema import load_schema, validate_and_coerce
+from sempipe.engine.windows import Window, WindowBuffer, WindowPolicy
 from sempipe.io import diagnostics, readers
 from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.writers import OutputFormat
+from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -55,6 +57,8 @@ class ReduceRequest:
     concurrency_flag: int | None
     verbose: bool
     input: InputSpec = STDIN
+    window: int | None = None  # --window N: stream mode, one reduce per window
+    every: int | None = None  # --every M: sliding stride (default: tumbling)
 
 
 class ReduceContext(Protocol):
@@ -66,7 +70,12 @@ class ReduceContext(Protocol):
 
 
 async def run_reduce(
-    request: ReduceRequest, context: ReduceContext, *, stdin: TextIO, stdout: TextIO
+    request: ReduceRequest,
+    context: ReduceContext,
+    *,
+    stdin: TextIO,
+    stdout: TextIO,
+    stop: asyncio.Event | None = None,
 ) -> ExitCode:
     tokens = parse_prompt(request.prompt)
     reject_comma_groups(tokens)
@@ -76,6 +85,14 @@ async def run_reduce(
             "(where {field} means the group's value)"
         )
     schema = load_schema(request.schema_path) if request.schema_path is not None else None
+    if request.every is not None and request.window is None:
+        raise UsageFault(
+            "--every only makes sense with --window\n"
+            "  --window N summarizes every N lines; --every M makes those windows slide.\n"
+            '  Example: tail -f app.log | sempipe reduce --window 100 --every 20 "error trend?"'
+        )
+    if request.window is not None:
+        return await _run_windowed(request, tokens, schema, context, stdin, stdout, stop)
     items_iter, _total = readers.resolve_items(request.input, stdin)
     items = [
         item async for item in items_iter
@@ -121,6 +138,76 @@ async def _run_single(
         return
     _emit(writer, structured=schema is not None, result=result)
     reducer.produced += 1
+
+
+async def _run_windowed(
+    request: ReduceRequest,
+    tokens: tuple[Token, ...],
+    schema: Mapping[str, object] | None,
+    context: ReduceContext,
+    stdin: TextIO,
+    stdout: TextIO,
+    stop: asyncio.Event | None,
+) -> ExitCode:
+    """Stream mode (stage-08 §4.2): one reduce per window, emitted as it lands;
+    the trailing partial window is flushed so Ctrl+C never discards buffered lines."""
+    assert request.window is not None
+    if request.group_by is not None:
+        raise UsageFault(
+            "--window can't combine with --group-by (windows and groups don't compose)"
+        )
+    if request.input.patterns or request.input.from_files:
+        raise UsageFault(
+            "reduce --window reads a stream from stdin — it can't combine with --in\n"
+            "  File inputs are a finite batch. Drop --window, or pipe the stream in."
+        )
+    try:
+        policy = WindowPolicy(size=request.window, every=request.every or request.window)
+    except ValueError as exc:
+        raise UsageFault(str(exc)) from exc
+
+    model = await context.chat_model(request.model_flag)
+    writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
+    instruction = to_instruction(tokens)
+    reducer = _Reducer(
+        model=model,
+        budget=budget_for(model.ref.provider, prompt_overhead=_OVERHEAD_TOKENS),
+        concurrency=context.concurrency(request.concurrency_flag),
+        verbose=request.verbose,
+    )
+    buffer: WindowBuffer[str] = WindowBuffer(policy)
+    produced = 0
+    failed = 0
+
+    async def emit(window: Window[str]) -> None:
+        nonlocal produced, failed
+        try:
+            result = await reducer.reduce(instruction, schema, list(window.items))
+        except ItemError as exc:
+            diagnostics.warn(f"skipped: window ending at line {window.end_index} ({exc})")
+            failed += 1
+            return
+        record: dict[str, object] = {"window_end": window.end_index, "result": result}
+        if window.partial:
+            record["partial"] = True
+        writer.write_record(record)
+        produced += 1
+
+    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
+    try:
+        async for item in items_iter:
+            window = buffer.push(item.text)
+            if window is not None:
+                await emit(window)
+        tail = buffer.flush()
+        if tail is not None:
+            await emit(tail)
+    finally:
+        writer.flush()
+    if stop is not None and stop.is_set():
+        diagnostics.interrupted_summary(processed=produced, skipped=failed)
+        return interrupted_exit_code(done=produced, skipped=failed)
+    return outcome_exit_code(done=produced, skipped=failed)
 
 
 async def _run_grouped(

@@ -9,6 +9,7 @@ import sys
 import click
 
 from sempipe.cli.input_options import input_options, input_spec
+from sempipe.cli.interrupts import graceful_interrupts
 from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.top_k import TopKRequest, run_top_k
@@ -22,6 +23,7 @@ __all__ = ["top_k_command"]
 @click.option("--threshold", type=float, help="Keep everything at or above this similarity (0-1).")
 @click.option("--embed-model", "model_flag", help="Embedding model.")
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
+@click.option("--stream", "stream", is_flag=True, help="Live leaderboard over a stream.")
 @input_options
 def top_k_command(
     k: int | None,
@@ -29,6 +31,7 @@ def top_k_command(
     threshold: float | None,
     model_flag: str | None,
     concurrency_flag: int | None,
+    stream: bool,
     in_patterns: tuple[str, ...],
     from_files: bool,
 ) -> None:
@@ -49,6 +52,7 @@ def top_k_command(
         threshold=threshold,
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,
+        stream=stream,
         input=input_spec(in_patterns, from_files=from_files),
     )
     code = asyncio.run(_run(request))
@@ -58,4 +62,9 @@ def top_k_command(
 
 async def _run(request: TopKRequest) -> ExitCode:
     async with build_container(os.environ) as container:
-        return await run_top_k(request, container, stdin=sys.stdin, stdout=sys.stdout)
+        if not request.stream:  # whole-set mode: ^C exits immediately (ux.md §12)
+            return await run_top_k(request, container, stdin=sys.stdin, stdout=sys.stdout)
+        async with graceful_interrupts() as stop:
+            return await run_top_k(
+                request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop
+            )

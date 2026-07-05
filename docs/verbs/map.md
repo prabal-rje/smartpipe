@@ -31,6 +31,15 @@ In `map`, braces describe the *output*. (In `filter` and `reduce`, `{field}` rea
 an input field instead — see [structured output](../concepts/structured-output.md)
 for the full grammar.)
 
+## Streaming
+
+`map` processes stdin incrementally — results appear as input arrives, so live
+sources work with no flag:
+
+```console
+$ tail -f app.log | sempipe map "Classify: {severity, category}" | tee incidents.jsonl
+```
+
 ## Options
 
 | Option | Meaning |

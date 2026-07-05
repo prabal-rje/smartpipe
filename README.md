@@ -11,7 +11,10 @@ hola mundo
 
 `sempipe` treats an LLM the way Unix treats everything: text in, text out.
 No server. No YAML. No vector database. It reads stdin, writes stdout, and
-composes with `grep`, `jq`, `sort`, and `tail -f` like it was always there.
+composes with `grep`, `jq`, `sort` — and `tail -f`: the per-item verbs stream,
+so `tail -f app.log | sempipe filter "a real error"` works with no flag, and
+`reduce --window` / `top_k --stream` turn live feeds into rolling summaries and
+a live leaderboard.
 
 ## The verbs
 
@@ -24,9 +27,9 @@ composes with `grep`, `jq`, `sort`, and `tail -f` like it was always there.
 | `reduce` | synthesize many items into one | `awk` END block, but literate | ✅ shipped |
 | `config` | one-minute interactive setup | — | ✅ shipped |
 
-> **v1.0** — the surface is stable (SemVer from here). All five verbs plus `config`,
-> file inputs (`--in 'reports/*.pdf'`, parsed automatically), and CSV/TSV output.
-> Streaming and `--fields` are on the [post-1.0 roadmap](CHANGELOG.md).
+> **Stable surface** (SemVer since 1.0). All five verbs plus `config`, file inputs
+> (`--in 'reports/*.pdf'`, parsed automatically), CSV/TSV output — and, new on main:
+> true streaming (`tail -f`, `--window`, the live leaderboard). See [CHANGELOG.md](CHANGELOG.md).
 
 ## Sixty seconds
 

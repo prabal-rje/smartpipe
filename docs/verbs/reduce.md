@@ -63,11 +63,29 @@ same enforcement and one-shot repair as [`map`](map.md):
 $ cat reports.jsonl | sempipe reduce "Synthesize findings" --schema summary.json
 ```
 
+## Streaming: `--window`
+
+A stream never ends, so give `reduce` a boundary: `--window N` synthesizes every N
+lines and emits each result immediately; `--every M` makes the windows slide (a
+fresh take on the last N lines after every M new ones):
+
+```console
+$ tail -f server.log | sempipe reduce --window 100 --every 20 "current error trend?"
+{"window_end": 100, "result": "…"}
+```
+
+Each window's record carries `window_end` (the stream position); the final,
+incomplete window is flushed on Ctrl-C or EOF with `"partial": true` — buffered
+lines are never silently discarded. `--window` reads stdin only (not `--in`) and
+doesn't combine with `--group-by`.
+
 ## Options
 
 | Option | Meaning |
 |---|---|
 | `--group-by FIELD` | Reduce once per distinct value of a JSON field |
+| `--window N` | Stream mode: one reduce per N lines (tumbling) |
+| `--every M` | With `--window`: slide, reducing after every M lines |
 | `--schema FILE` | Validate the final result against a JSON Schema |
 | `--verbose` | Print the chunking tree on stderr |
 | `--model TEXT` | Model for this run |

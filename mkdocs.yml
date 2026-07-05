@@ -45,6 +45,7 @@ nav:
       - Contract extraction: cookbook/contract-extraction.md
       - Log triage: cookbook/log-triage.md
       - Ranking documents: cookbook/ranking-documents.md
+      - Live monitoring: cookbook/live-monitoring.md
   - Reference:
       - CLI reference: reference/cli.md
       - Troubleshooting: troubleshooting.md

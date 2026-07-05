@@ -6,6 +6,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Streaming, flag-free.** `map`, `filter`, and `embed` now read stdin
+  incrementally — `tail -f app.log | sempipe filter "…"` just works, with results
+  flowing out as lines arrive and a count+rate status line (`· N matched` for
+  filter). Finite-input behavior is byte-identical to 1.0.
+- **`reduce --window N [--every M]`** — rolling synthesis over a stream: one
+  reduce per window (tumbling, or sliding with `--every`), each emitted as
+  `{"window_end": …, "result": …}`; the trailing partial window is flushed on
+  Ctrl-C/EOF with `"partial": true`.
+- **`top_k K --stream --near "…"`** — the live leaderboard: repaints the top-K
+  block in place at a terminal; in a pipe, emits an NDJSON snapshot (a
+  `{"_snapshot": n}` marker + K ranked records) whenever membership changes.
 - **`sempipe cite`** — print a copy-paste BibTeX entry; `CITATION.cff` ships in the
   repo (GitHub's "Cite this repository" reads it) and in the sdist.
 - **Unix death done right.** Downstream closing the pipe (`… | head`) now kills

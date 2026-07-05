@@ -47,6 +47,21 @@ $ cat corpus.embeddings | sempipe top_k 5 --near "second question"
 The `vector` field is plumbing, so `top_k` drops it from the output and keeps the
 rest of the record plus `_score`.
 
+## Streaming: `--stream` (the live leaderboard)
+
+Keep a running top-K over a live stream:
+
+```console
+$ tail -f tickets.jsonl | sempipe top_k 5 --stream --near "billing dispute"
+```
+
+At a terminal the K-line board repaints in place as better matches arrive. In a
+pipe, every membership/order change emits an NDJSON **snapshot**: a
+`{"_snapshot": N}` marker line, then the K records in rank order, each with
+`_score` and `_rank` — split on the markers to consume programmatically; no
+change means no output. `--stream` needs `K`, reads stdin only, and skips (rather
+than dies on) a record whose embedding dimensions don't match the query.
+
 ## Options
 
 | Option | Meaning |
@@ -54,6 +69,7 @@ rest of the record plus `_score`.
 | `K` (positional) | Return at most this many items |
 | `--near TEXT` | The query to rank against (required) |
 | `--threshold FLOAT` | Keep everything at or above this similarity (0–1) |
+| `--stream` | Live leaderboard over a stream (needs `K`) |
 | `--embed-model TEXT` | The embedding model |
 | `--concurrency N` | Max parallel model calls |
 

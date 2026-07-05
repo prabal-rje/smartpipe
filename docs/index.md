@@ -34,7 +34,7 @@ $ cat reviews.txt | sempipe filter "the reviewer is sarcastic" | sempipe map "Ex
 
 ## Recipes & reference
 
-- [Cookbook](cookbook/README.md) — contract extraction, log triage, ranking documents
+- [Cookbook](cookbook/README.md) — contract extraction, log triage, ranking documents, live monitoring
 - [CLI reference](reference/cli.md) — every flag, format, and exit code
 - [Troubleshooting](troubleshooting.md) — find your error message
 - [How sempipe compares](comparison.md) — where it fits among the alternatives

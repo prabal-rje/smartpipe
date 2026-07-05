@@ -52,6 +52,21 @@ it produces structured output, so its results flow straight into `jq`:
 $ cat receipts.txt | sempipe map "Extract {vendor, total}" | jq 'select(.total > 1000)'
 ```
 
+## Streams just work
+
+The per-item verbs (`map`, `filter`, `embed`) read stdin **incrementally**: each line
+is processed as it arrives, and results flow out as they complete. That means
+`tail -f app.log | sempipe filter "…"` works with no flag — sempipe never waits for
+an end-of-file that isn't coming. Two practical notes:
+
+- Piped stdin has no known total, so the progress line shows a count and rate
+  (`⠋ Processing [847] 3.1/s`) instead of a percentage/ETA. `--in` file lists keep
+  the full ETA (their total is known).
+- `reduce` and `top_k` need the whole set by nature — over a live stream, use
+  [`reduce --window`](../verbs/reduce.md) or [`top_k --stream`](../verbs/top-k.md),
+  which redefine "the whole set" as a window or a running board. See the
+  [live monitoring cookbook](../cookbook/live-monitoring.md).
+
 ## stdout is data, stderr is chatter
 
 One rule makes sempipe safe in any pipeline: **only results go to stdout.**

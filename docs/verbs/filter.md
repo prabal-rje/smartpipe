@@ -35,6 +35,22 @@ items. Two forms:
 > *output*.) One field per brace group — comma-groups like `{a, b}` are a `map`-only
 > shorthand and `filter` rejects them with a clear message.
 
+## Streaming
+
+`filter` streams by nature — pipe a live source in and matches flow out as lines
+arrive, with a running `· N matched` tally on the stderr status line:
+
+```console
+$ tail -f app.log | sempipe filter "a user is hitting a real error"
+```
+
+Compose with `head` to wait for the first occurrence (sempipe exits cleanly when
+`head` closes the pipe):
+
+```console
+$ tail -f app.log | sempipe filter "signals an outage" | head -1 && page-oncall
+```
+
 ## Options
 
 | Option | Meaning |

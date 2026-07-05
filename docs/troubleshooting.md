@@ -79,6 +79,18 @@ Also by design. At a terminal, structured results show a readable view; piped, t
 become NDJSON. Force one with `--output json` (or `text`, `csv`, `tsv`). See
 [output formats](concepts/output-formats.md).
 
+## Why is there no ETA / percentage when I pipe input in?
+
+Piped stdin is a stream — sempipe processes lines as they arrive and can't know how
+many are coming, so the progress line shows a count and rate instead. `--in` file
+mode knows its total and keeps the ETA.
+
+## My `tail -f` pipeline never ends
+
+That's `tail -f` — it follows forever. Your sempipe results stream out as lines
+arrive. End the pipeline with `| head -N` (sempipe exits cleanly when downstream
+closes) or Ctrl-C (drains and summarizes).
+
 ## I piped into `head` and sempipe "died" (exit 141)
 
 That's correct behavior, not a crash. When downstream closes the pipe (`head` got what
