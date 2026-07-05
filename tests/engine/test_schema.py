@@ -10,6 +10,7 @@ from hypothesis import strategies as st
 
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.engine.schema import (
+    is_strict_compatible,
     load_schema,
     shorthand_to_schema,
     validate_and_coerce,
@@ -170,3 +171,73 @@ def test_uncoercible_boolean_falls_back_then_fails_validation() -> None:
 def test_never_raises_other_than_item_error(text: str) -> None:
     with contextlib.suppress(ItemError):
         validate_and_coerce(text, _SCHEMA)
+
+
+# --- strict-mode compatibility (workstream 10 Task 1) -------------------------------
+
+
+def test_shorthand_schema_is_strict_compatible() -> None:
+    assert is_strict_compatible(shorthand_to_schema(["vendor", "total"])) is True
+
+
+def test_optional_field_is_not_strict_compatible() -> None:
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": {"a": {}, "b": {}},
+        "required": ["a"],  # b is optional — strict mode 400s on this
+        "additionalProperties": False,
+    }
+    assert is_strict_compatible(schema) is False
+
+
+def test_open_object_is_not_strict_compatible() -> None:
+    assert is_strict_compatible({"type": "object"}) is False  # additionalProperties unset
+
+
+def test_nested_optional_is_not_strict_compatible() -> None:
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "inner": {
+                "type": "object",
+                "properties": {"x": {}, "y": {}},
+                "required": ["x"],
+                "additionalProperties": False,
+            }
+        },
+        "required": ["inner"],
+        "additionalProperties": False,
+    }
+    assert is_strict_compatible(schema) is False
+
+
+def test_nested_closed_object_is_strict_compatible() -> None:
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "inner": {
+                "type": "object",
+                "properties": {"x": {"type": "string"}},
+                "required": ["x"],
+                "additionalProperties": False,
+            }
+        },
+        "required": ["inner"],
+        "additionalProperties": False,
+    }
+    assert is_strict_compatible(schema) is True
+
+
+def test_array_items_recurse_for_strictness() -> None:
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "rows": {
+                "type": "array",
+                "items": {"type": "object", "properties": {"a": {}}, "required": []},
+            }
+        },
+        "required": ["rows"],
+        "additionalProperties": False,
+    }
+    assert is_strict_compatible(schema) is False  # items object is open + optional

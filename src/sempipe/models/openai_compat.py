@@ -16,6 +16,7 @@ import httpx
 from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
+from sempipe.engine.schema import is_strict_compatible
 from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.retry import RetryPolicy, with_retries
 
@@ -65,12 +66,15 @@ class OpenAIChatModel:
         ]
         payload: dict[str, object] = {"model": self.ref.name, "messages": messages}
         if request.json_schema is not None:
+            schema = dict(request.json_schema)
             payload["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
                     "name": "sempipe_output",
-                    "schema": dict(request.json_schema),
-                    "strict": True,
+                    "schema": schema,
+                    # claiming strict for a schema with optional fields draws a 400;
+                    # non-strict stays schema-guided, validate_and_coerce is the backstop
+                    "strict": is_strict_compatible(schema),
                 },
             }
         data = await _post(self, "/v1/chat/completions", payload)

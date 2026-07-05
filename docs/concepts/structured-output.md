@@ -44,6 +44,14 @@ point `--schema` at a standard [JSON Schema](https://json-schema.org) file:
 $ cat invoices.txt | sempipe map "Extract the invoice data" --schema invoice.json
 ```
 
+Two layers make this reliable. The schema is sent to the provider as guidance
+(their native JSON mode; sempipe only claims the provider's *strict* variant
+when the schema qualifies — every field required, no open objects — because
+claiming it for a schema with optional fields, like `date` above, would be
+rejected outright). The guarantee, either way, is client-side: every reply is
+validated against your schema, repaired once if it fails, and skipped with a
+warning if it fails again.
+
 With a schema, sempipe:
 
 - **enforces it** via the model's native structured-output mode where available;

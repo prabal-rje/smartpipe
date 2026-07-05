@@ -69,7 +69,13 @@ def _model(client: httpx.AsyncClient, store: Path, *, expires_ms: int = FRESH_MS
 
 
 def test_payload_shape_is_pinned() -> None:
-    request = CompletionRequest(system="Judge.", user="hi", json_schema={"type": "object"})
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": {"verdict": {}},
+        "required": ["verdict"],
+        "additionalProperties": False,
+    }
+    request = CompletionRequest(system="Judge.", user="hi", json_schema=schema)
     payload = build_payload("gpt-5.4", request)
     assert payload["model"] == "gpt-5.4"
     assert payload["instructions"] == "Judge."
@@ -79,10 +85,19 @@ def test_payload_shape_is_pinned() -> None:
         "format": {
             "type": "json_schema",
             "name": "sempipe_output",
-            "schema": {"type": "object"},
+            "schema": schema,
             "strict": True,
         }
     }
+
+
+def test_payload_never_claims_strict_for_an_open_schema() -> None:
+    request = CompletionRequest(system=None, user="hi", json_schema={"type": "object"})
+    payload = build_payload("gpt-5.4", request)
+    from sempipe.core.jsontools import record_at
+
+    fmt = record_at(payload["text"], "format")
+    assert fmt is not None and fmt["strict"] is False
 
 
 def test_payload_carries_images_as_data_uris() -> None:

@@ -5,6 +5,7 @@ unit tests (which inject a fake context) deliberately bypass.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import httpx
@@ -13,6 +14,8 @@ import pytest
 from tests.conftest import RunCli
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import respx
 
 CHAT = "http://localhost:11434/api/chat"
@@ -79,3 +82,35 @@ def test_no_model_configured_is_setup_screen(
     code, _out, err = run_cli(["map", "translate"], stdin="hello\n")
     assert code == 2
     assert "no model configured" in err
+
+
+def test_optional_field_schema_completes_on_the_openai_wire(
+    run_cli: RunCli,
+    respx_mock: respx.MockRouter,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # workstream 10 Task 1: strict:true for an optional-field schema drew a 400
+    # from OpenAI/Mistral and skipped every item for the wrong reason
+    monkeypatch.setenv("SEMPIPE_MODEL", "gpt-4o-mini")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    schema_path = tmp_path / "optional.json"
+    schema_path.write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {"a": {}, "b": {}},
+                "required": ["a"],
+                "additionalProperties": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    route = respx_mock.post("https://api.openai.com/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": '{"a": 1}'}}]})
+    )
+    code, out, _err = run_cli(["map", "Extract data", "--schema", str(schema_path)], stdin="x\n")
+    assert code == 0
+    assert out == '{"a":1}\n'
+    body = json.loads(route.calls.last.request.content)
+    assert body["response_format"]["json_schema"]["strict"] is False

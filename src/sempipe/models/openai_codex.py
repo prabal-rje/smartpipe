@@ -117,12 +117,16 @@ def build_payload(model: str, request: CompletionRequest) -> dict[str, object]:
     if request.system is not None:
         payload["instructions"] = request.system
     if request.json_schema is not None:
+        from sempipe.engine.schema import is_strict_compatible
+
+        schema = dict(request.json_schema)
         payload["text"] = {
             "format": {
                 "type": "json_schema",
                 "name": "sempipe_output",
-                "schema": dict(request.json_schema),
-                "strict": True,
+                "schema": schema,
+                # same 400 hazard as the platform wire: only claim strict when true
+                "strict": is_strict_compatible(schema),
             }
         }
     return payload

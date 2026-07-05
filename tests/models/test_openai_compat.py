@@ -88,13 +88,31 @@ async def test_response_format_present_iff_schema(
     route = respx_mock.post(f"{BASE}/v1/chat/completions").mock(
         return_value=httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
     )
-    schema: dict[str, object] = {"type": "object"}
-    await _chat(client).complete(CompletionRequest(system=None, user="x", json_schema=schema))
+    strict_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {"a": {}},
+        "required": ["a"],
+        "additionalProperties": False,
+    }
+    await _chat(client).complete(
+        CompletionRequest(system=None, user="x", json_schema=strict_schema)
+    )
     sent = json.loads(route.calls.last.request.content)
     assert sent["response_format"] == {
         "type": "json_schema",
-        "json_schema": {"name": "sempipe_output", "schema": schema, "strict": True},
+        "json_schema": {"name": "sempipe_output", "schema": strict_schema, "strict": True},
     }
+
+    # a schema strict mode would 400 on (optional field) must NOT claim strict
+    open_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {"a": {}, "b": {}},
+        "required": ["a"],
+        "additionalProperties": False,
+    }
+    await _chat(client).complete(CompletionRequest(system=None, user="x", json_schema=open_schema))
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["response_format"]["json_schema"]["strict"] is False
 
     await _chat(client).complete(CompletionRequest(system=None, user="x"))
     assert "response_format" not in json.loads(route.calls.last.request.content)

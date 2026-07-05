@@ -13,13 +13,13 @@ import re
 from typing import TYPE_CHECKING
 
 from sempipe.core.errors import ItemError, SetupFault
-from sempipe.core.jsontools import as_record, as_str
+from sempipe.core.jsontools import as_items, as_record, as_str
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-__all__ = ["load_schema", "shorthand_to_schema", "validate_and_coerce"]
+__all__ = ["is_strict_compatible", "load_schema", "shorthand_to_schema", "validate_and_coerce"]
 
 _FENCE = re.compile(r"^```[A-Za-z0-9]*\n?|\n?```$")
 
@@ -33,6 +33,33 @@ def shorthand_to_schema(fields: Sequence[str]) -> dict[str, object]:
         "required": list(fields),
         "additionalProperties": False,
     }
+
+
+def is_strict_compatible(schema: Mapping[str, object]) -> bool:
+    """Would OpenAI/Mistral ``strict: true`` json_schema mode accept this schema?
+
+    Strict mode demands, at every object layer: every property listed in
+    ``required`` and ``additionalProperties: false``. Brace-shorthand schemas
+    qualify by construction; a user ``--schema`` with optional fields does not —
+    claiming strict for it draws a 400 and skips items for the wrong reason.
+    """
+    if _looks_like_object(schema):
+        if schema.get("additionalProperties") is not False:
+            return False
+        properties = as_record(schema.get("properties")) or {}
+        required = as_items(schema.get("required")) or ()
+        required_names = {name for name in required if isinstance(name, str)}
+        if not set(properties) <= required_names:
+            return False
+        children = (as_record(value) for value in properties.values())
+        if not all(child is None or is_strict_compatible(child) for child in children):
+            return False
+    items = as_record(schema.get("items"))
+    return items is None or is_strict_compatible(items)
+
+
+def _looks_like_object(schema: Mapping[str, object]) -> bool:
+    return schema.get("type") == "object" or as_record(schema.get("properties")) is not None
 
 
 def load_schema(path: Path) -> dict[str, object]:
