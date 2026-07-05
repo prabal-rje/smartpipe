@@ -196,3 +196,10 @@ async def test_interactive_decline_does_not_save() -> None:
     )
     assert rec.saved is None
     assert any("Not saved" in line for line in rec.said)
+
+
+def test_set_embed_model_mistral(run_cli: RunCli, config_home: Path) -> None:
+    code, out, _err = run_cli(["config", "embed-model", "mistral-embed"])
+    assert code == 0
+    assert out.strip() == "embed-model set to mistral/mistral-embed"
+    assert load_config(config_home).embed_model == "mistral/mistral-embed"

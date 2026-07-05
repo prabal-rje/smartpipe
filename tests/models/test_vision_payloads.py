@@ -72,16 +72,25 @@ async def test_ollama_vision_400_becomes_a_skip(
         await model.complete(_vision_request())
 
 
-async def test_openai_sends_a_data_uri_content_array(
-    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+@pytest.mark.parametrize(
+    ("base", "ref"),
+    [
+        ("https://api.openai.com", ModelRef("openai", "gpt-4o-mini")),
+        # pixtral takes the exact same image_url data-URI content array (workstream 10)
+        ("https://api.mistral.ai", ModelRef("mistral", "pixtral-12b-latest")),
+    ],
+    ids=["openai", "mistral"],
+)
+async def test_openai_wire_sends_a_data_uri_content_array(
+    base: str, ref: ModelRef, client: httpx.AsyncClient, respx_mock: respx.MockRouter
 ) -> None:
-    route = respx_mock.post("https://api.openai.com/v1/chat/completions").mock(
+    route = respx_mock.post(f"{base}/v1/chat/completions").mock(
         return_value=httpx.Response(200, json={"choices": [{"message": {"content": "a cat"}}]})
     )
     model = OpenAIChatModel(
-        ref=ModelRef("openai", "gpt-4o-mini"),
+        ref=ref,
         client=client,
-        base_url="https://api.openai.com",
+        base_url=base,
         api_key="sk-test",
     )
     assert await model.complete(_vision_request()) == "a cat"

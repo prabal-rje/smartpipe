@@ -9,6 +9,7 @@ import pytest
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.models.base import CompletionRequest, parse_model_ref
 from sempipe.models.openai_compat import (
+    MISTRAL_WIRE,
     OpenAIChatModel,
     OpenAIEmbeddingModel,
     require_api_key,
@@ -199,3 +200,111 @@ async def test_embeddings_sort_by_index(
         retry=FAST_RETRY,
     )
     assert await model.embed(["a", "b"]) == ((0.1, 0.2), (0.3, 0.4))
+
+
+# --- the same wire, Mistral-parametrized (workstream 10 Task 4) ---------------------
+
+MISTRAL_BASE = "https://api.mistral.ai"
+
+
+def _mistral_chat(client: httpx.AsyncClient, name: str = "mistral-small-latest") -> OpenAIChatModel:
+    return OpenAIChatModel(
+        ref=parse_model_ref(name),
+        client=client,
+        base_url=MISTRAL_BASE,
+        api_key="mk-test",
+        retry=FAST_RETRY,
+        wire=MISTRAL_WIRE,
+    )
+
+
+async def test_mistral_chat_golden_shape(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    route = respx_mock.post(f"{MISTRAL_BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "salut"}}]})
+    )
+    reply = await _mistral_chat(client).complete(CompletionRequest(system="sys", user="hello"))
+    assert reply == "salut"
+    request = route.calls.last.request
+    assert request.headers["authorization"] == "Bearer mk-test"
+    assert json.loads(request.content) == {
+        "model": "mistral-small-latest",
+        "messages": [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"},
+        ],
+    }
+
+
+async def test_mistral_structured_output_carries_the_strictness_logic(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    route = respx_mock.post(f"{MISTRAL_BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+    )
+    open_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {"a": {}, "b": {}},
+        "required": ["a"],
+        "additionalProperties": False,
+    }
+    await _mistral_chat(client).complete(
+        CompletionRequest(system=None, user="x", json_schema=open_schema)
+    )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["response_format"]["type"] == "json_schema"
+    assert sent["response_format"]["json_schema"]["strict"] is False  # Task-1 logic, same wire
+
+
+async def test_mistral_embed_via_v1_embeddings(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    route = respx_mock.post(f"{MISTRAL_BASE}/v1/embeddings").mock(
+        return_value=httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1] * 1024}]})
+    )
+    model = OpenAIEmbeddingModel(
+        ref=parse_model_ref("mistral-embed"),
+        client=client,
+        base_url=MISTRAL_BASE,
+        api_key="mk-test",
+        retry=FAST_RETRY,
+        wire=MISTRAL_WIRE,
+    )
+    vectors = await model.embed(["hello"])
+    assert len(vectors[0]) == 1024
+    assert json.loads(route.calls.last.request.content)["model"] == "mistral-embed"
+
+
+async def test_mistral_429_honors_retry_after(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    # resilience comes free from with_retries/is_retryable_http — prove the wiring
+    route = respx_mock.post(f"{MISTRAL_BASE}/v1/chat/completions")
+    route.side_effect = [
+        httpx.Response(429, headers={"Retry-After": "0"}, json={"error": {"message": "slow"}}),
+        httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}),
+    ]
+    assert await _mistral_chat(client).complete(CompletionRequest(system=None, user="x")) == "ok"
+    assert route.call_count == 2
+
+
+async def test_mistral_rejected_key_names_the_right_env_vars(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    respx_mock.post(f"{MISTRAL_BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(401, json={"error": {"message": "bad key"}})
+    )
+    with pytest.raises(SetupFault) as excinfo:
+        await _mistral_chat(client).complete(CompletionRequest(system=None, user="x"))
+    message = str(excinfo.value)
+    assert "MISTRAL_API_KEY" in message
+    assert "SEMPIPE_MISTRAL_BASE_URL" in message
+
+
+def test_mistral_missing_key_screen_points_at_the_console() -> None:
+    with pytest.raises(SetupFault) as excinfo:
+        require_api_key({}, "mistral-large-latest", MISTRAL_WIRE)
+    message = str(excinfo.value)
+    assert "MISTRAL_API_KEY" in message
+    assert "console.mistral.ai" in message
