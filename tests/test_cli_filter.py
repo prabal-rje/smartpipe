@@ -74,10 +74,11 @@ def test_zero_matches_is_exit_0(run_cli: RunCli, respx_mock: respx.MockRouter) -
 
 
 def test_skipped_item_exits_1(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
-    # one item whose verdict is unparseable twice (original + repair) → skip → exit 1
+    # item 1 is judged (no match); item 2's verdict is unparseable twice → skip.
+    # one judged + one skipped → PARTIAL (exit 1).
     unparseable = httpx.Response(200, json={"message": {"content": "hmm, maybe"}})
-    respx_mock.post(CHAT).side_effect = [unparseable, unparseable]
-    code, out, err = run_cli(["filter", "x", "--concurrency", "1"], stdin="only line\n")
+    respx_mock.post(CHAT).side_effect = [_verdict(False), unparseable, unparseable]
+    code, out, err = run_cli(["filter", "x", "--concurrency", "1"], stdin="kept?\nbroken\n")
     assert code == 1
     assert out == ""
-    assert "skipped: line 1" in err
+    assert "skipped: line 2" in err

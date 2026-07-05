@@ -150,7 +150,17 @@ async def test_unparseable_verdict_repairs_then_recovers() -> None:
 
 async def test_verdict_bad_twice_skips_item() -> None:
     code, out, _model = await _run("x", "a\n", lambda _u: "never json")
-    assert code == ExitCode.PARTIAL  # the one item was skipped
+    assert code == ExitCode.ALL_FAILED  # the only item was skipped
+    assert out == ""
+
+
+async def test_one_skip_among_judged_is_partial() -> None:
+    # item "a" is judged (no match), item "b" errors twice → skipped
+    def verdict(user: str) -> str:
+        return "never json" if "\nb" in user else '{"match": false}'
+
+    code, out, _model = await _run("x", "a\nb\n", verdict)
+    assert code == ExitCode.PARTIAL
     assert out == ""
 
 

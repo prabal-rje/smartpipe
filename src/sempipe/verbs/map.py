@@ -25,9 +25,10 @@ from sempipe.engine.schema import load_schema, validate_and_coerce
 from sempipe.io import diagnostics, readers
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
+from sempipe.verbs.common import aiter_items, outcome_exit_code
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping
+    from collections.abc import Mapping
     from pathlib import Path
     from typing import TextIO
 
@@ -81,7 +82,7 @@ async def run_map(
     done = 0
     skipped = 0
     outcomes = run_ordered(
-        _aiter(items), worker, concurrency=concurrency, failure_policy=FailurePolicy()
+        aiter_items(items), worker, concurrency=concurrency, failure_policy=FailurePolicy()
     )
     try:
         async for outcome in outcomes:
@@ -95,7 +96,7 @@ async def run_map(
     finally:
         spinner.finish()
         writer.flush()
-    return _exit_code(done=done, skipped=skipped)
+    return outcome_exit_code(done=done, skipped=skipped)
 
 
 async def _map_one(
@@ -118,16 +119,3 @@ def _write(writer: ResultWriter, *, structured: bool, value: str | Mapping[str, 
         writer.write_record(value)
     else:
         writer.write_text(value if isinstance(value, str) else str(value))
-
-
-def _exit_code(*, done: int, skipped: int) -> ExitCode:
-    if skipped == 0:
-        return ExitCode.OK
-    if done == 0:
-        return ExitCode.ALL_FAILED
-    return ExitCode.PARTIAL
-
-
-async def _aiter(items: list[Item]) -> AsyncIterator[Item]:
-    for item in items:
-        yield item

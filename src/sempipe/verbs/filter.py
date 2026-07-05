@@ -28,9 +28,9 @@ from sempipe.io import diagnostics, readers
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import OutputFormat
+from sempipe.verbs.common import aiter_items, outcome_exit_code
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
     from typing import TextIO
 
     from sempipe.engine.prompts import Token
@@ -78,13 +78,15 @@ async def run_filter(
     async def worker(item: Item) -> bool:
         return await _judge(model, tokens, item)
 
+    judged = 0
     skipped = 0
     outcomes = run_ordered(
-        _aiter(items), worker, concurrency=concurrency, failure_policy=FailurePolicy()
+        aiter_items(items), worker, concurrency=concurrency, failure_policy=FailurePolicy()
     )
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):
+                judged += 1
                 if outcome.value is not request.invert:  # matched (or, with --not, didn't)
                     writer.write_passthrough(by_index[outcome.index])
             else:  # Skipped
@@ -94,7 +96,7 @@ async def run_filter(
     finally:
         spinner.finish()
         writer.flush()
-    return ExitCode.OK if skipped == 0 else ExitCode.PARTIAL
+    return outcome_exit_code(done=judged, skipped=skipped)
 
 
 async def _judge(model: ChatModel, tokens: tuple[Token, ...], item: Item) -> bool:
@@ -108,8 +110,3 @@ async def _judge(model: ChatModel, tokens: tuple[Token, ...], item: Item) -> boo
         repaired = await model.complete(repair)
         verdict = validate_and_coerce(repaired, JUDGE_SCHEMA)  # second failure → Skipped
     return bool(verdict["match"])
-
-
-async def _aiter(items: list[Item]) -> AsyncIterator[Item]:
-    for item in items:
-        yield item
