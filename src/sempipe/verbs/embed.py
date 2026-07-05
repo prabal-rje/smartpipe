@@ -22,7 +22,7 @@ from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
-from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code
+from sempipe.verbs.common import ensure_text_item, interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -104,5 +104,6 @@ async def run_embed(
 
 
 async def _embed_one(model: EmbeddingModel, item: Item) -> tuple[float, ...]:
+    ensure_text_item(item)  # image items need map — ItemError → skip-and-warn
     vectors = await model.embed([item.text])
     return vectors[0]

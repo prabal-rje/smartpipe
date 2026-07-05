@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Literal, TypeGuard
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from sempipe.models.base import ImageData
+
 __all__ = ["Item", "ItemSource", "describe_source", "item_from_file", "item_from_line"]
 
 _BOM = "﻿"
@@ -33,6 +35,7 @@ class Item:
     text: str  # model-facing content (== raw for lines; extracted text for files)
     data: Mapping[str, object] | None  # parsed object if the line was a JSON object
     source: ItemSource
+    image: ImageData | None = None  # an image file's bytes — only map can consume it
 
 
 def item_from_line(line: str, index: int) -> Item:

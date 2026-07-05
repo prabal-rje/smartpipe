@@ -20,7 +20,12 @@ from sempipe.core.jsontools import as_str, record_at
 if TYPE_CHECKING:
     from sempipe.models.base import CompletionRequest, ModelRef
 
-__all__ = ["AnthropicChatModel", "build_anthropic_chat_model", "load_anthropic_client"]
+__all__ = [
+    "AnthropicChatModel",
+    "build_anthropic_chat_model",
+    "build_kwargs",
+    "load_anthropic_client",
+]
 
 _TIMEOUT_SECONDS = 120.0
 _MAX_RETRIES = 3
@@ -53,7 +58,7 @@ class AnthropicChatModel:
     async def complete(self, request: CompletionRequest) -> str:
         import anthropic
 
-        kwargs = _build_kwargs(self.ref.name, request)
+        kwargs = build_kwargs(self.ref.name, request)
         try:
             message = await self.client.messages.create(**kwargs)
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
@@ -69,11 +74,11 @@ class AnthropicChatModel:
         return _reply_text(self.ref.name, message)
 
 
-def _build_kwargs(name: str, request: CompletionRequest) -> dict[str, object]:
+def build_kwargs(name: str, request: CompletionRequest) -> dict[str, object]:
     kwargs: dict[str, object] = {
         "model": name,
         "max_tokens": request.max_tokens,
-        "messages": [{"role": "user", "content": request.user}],
+        "messages": [{"role": "user", "content": _user_content(request)}],
     }
     if request.system is not None:
         kwargs["system"] = request.system
@@ -82,6 +87,27 @@ def _build_kwargs(name: str, request: CompletionRequest) -> dict[str, object]:
             "format": {"type": "json_schema", "schema": dict(request.json_schema)}
         }
     return kwargs
+
+
+def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
+    """Plain string normally; image blocks (image first) when images ride along."""
+    if not request.images:
+        return request.user
+    import base64
+
+    blocks: list[dict[str, object]] = [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": image.mime,
+                "data": base64.b64encode(image.data).decode(),
+            },
+        }
+        for image in request.images
+    ]
+    blocks.append({"type": "text", "text": request.user})
+    return blocks
 
 
 def _reply_text(name: str, message: Any) -> str:

@@ -14,6 +14,7 @@ import concurrent.futures
 import contextlib
 import os
 import threading
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from sempipe.core.errors import ItemError, UsageFault
@@ -218,14 +219,12 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
     except ItemError as exc:
         diagnostics.warn(f"skipped: {path} ({exc})")
         return None
-    if extracted.image is not None:
-        diagnostics.warn(
-            f"skipped: {path} (image input needs a vision model — arriving in a later release)"
-        )
-        return None
     if extracted.warning is not None:
         diagnostics.warn(f"{path}: {extracted.warning}")
-    return item_from_file(extracted.text, str(path), index)
+    item = item_from_file(extracted.text, str(path), index)
+    if extracted.image is not None:
+        item = replace(item, image=extracted.image)  # map sends it to a vision model
+    return item
 
 
 def ensure_not_a_tty(stdin: TextIO) -> None:

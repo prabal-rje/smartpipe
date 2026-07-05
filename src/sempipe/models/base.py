@@ -22,6 +22,7 @@ __all__ = [
     "ChatModel",
     "CompletionRequest",
     "EmbeddingModel",
+    "ImageData",
     "ModelRef",
     "Provider",
     "parse_model_ref",
@@ -31,6 +32,12 @@ Provider = Literal["ollama", "openai", "anthropic"]
 
 _OPENAI_PREFIXES = ("gpt-", "chatgpt-", "text-embedding-")
 _OPENAI_O_SERIES = re.compile(r"o\d")
+
+
+@dataclass(frozen=True, slots=True)
+class ImageData:
+    data: bytes
+    mime: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +55,7 @@ class CompletionRequest:
     user: str
     json_schema: Mapping[str, object] | None = None  # provider-native structured output
     max_tokens: int = 8192
-    images: tuple[bytes, ...] = ()  # vision path (stage 7)
+    images: tuple[ImageData, ...] = ()  # vision path (bytes + mime — two providers need the mime)
 
 
 class ChatModel(Protocol):

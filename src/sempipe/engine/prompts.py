@@ -21,13 +21,17 @@ from typing import TYPE_CHECKING, Literal
 
 from sempipe.core.errors import ItemError, UsageFault
 from sempipe.engine.schema import shorthand_to_schema
-from sempipe.models.base import CompletionRequest  # a shared request value type, not behavior
+from sempipe.models.base import (  # shared request value types, not behavior
+    CompletionRequest,
+    ImageData,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
 __all__ = [
     "FILTER_JUDGE_SYSTEM",
+    "IMAGE_ITEM_PREFIX",
     "JUDGE_SCHEMA",
     "MAP_JSON_SYSTEM",
     "MAP_PLAIN_SYSTEM",
@@ -61,6 +65,7 @@ MAP_JSON_SYSTEM = (
     "Extract exactly the requested fields as a single JSON object matching the schema. "
     "Reply with ONLY the JSON object — no preamble, no code fences, no commentary."
 )
+IMAGE_ITEM_PREFIX = "The item is an image. "  # stage-07 contract, verbatim
 _PLAIN_MAX_TOKENS = 4096
 _STRUCTURED_MAX_TOKENS = 8192
 
@@ -193,13 +198,21 @@ def plan_map(tokens: tuple[Token, ...], *, schema: Mapping[str, object] | None) 
     return MapPlan("plain", None, MAP_PLAIN_SYSTEM)
 
 
-def build_map_request(plan: MapPlan, instruction: str, item_text: str) -> CompletionRequest:
+def build_map_request(
+    plan: MapPlan,
+    instruction: str,
+    item_text: str,
+    *,
+    images: tuple[ImageData, ...] = (),
+) -> CompletionRequest:
     max_tokens = _STRUCTURED_MAX_TOKENS if plan.mode == "structured" else _PLAIN_MAX_TOKENS
+    system = f"{IMAGE_ITEM_PREFIX}{plan.system}" if images else plan.system
     return CompletionRequest(
-        system=plan.system,
-        user=f"{instruction}\n\n{item_text}",
+        system=system,
+        user=f"{instruction}\n\n{item_text}" if item_text else instruction,
         json_schema=plan.schema,
         max_tokens=max_tokens,
+        images=images,
     )
 
 

@@ -94,9 +94,10 @@ async def run_reduce(
     if request.window is not None:
         return await _run_windowed(request, tokens, schema, context, stdin, stdout, stop)
     items_iter, _total = readers.resolve_items(request.input, stdin)
-    items = [
-        item async for item in items_iter
-    ]  # whole-set verbs need everything  # tty/glob checks
+    collected = [item async for item in items_iter]  # whole-set verbs need everything
+    items = [item for item in collected if item.image is None]
+    for skipped_item in (i for i in collected if i.image is not None):
+        diagnostics.warn(f"skipped: {describe_source(skipped_item.source)} (image items need map)")
     model = await context.chat_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
     structured = schema is not None
@@ -196,6 +197,10 @@ async def _run_windowed(
     items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
     try:
         async for item in items_iter:
+            if item.image is not None:
+                diagnostics.warn(f"skipped: {describe_source(item.source)} (image items need map)")
+                failed += 1
+                continue
             window = buffer.push(item.text)
             if window is not None:
                 await emit(window)

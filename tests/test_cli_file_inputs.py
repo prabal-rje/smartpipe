@@ -100,3 +100,48 @@ def test_empty_glob_is_usage_error(
     assert code == 64
     assert "no files matched" in err
     assert route.call_count == 0
+
+
+def test_map_describes_an_image_via_vision(
+    run_cli: RunCli, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    import base64
+
+    (tmp_path / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\nPIXELS")
+    route = respx_mock.post(CHAT).mock(
+        return_value=httpx.Response(200, json={"message": {"content": "a red bicycle"}})
+    )
+    code, out, _err = run_cli(["map", "Describe", "--in", str(tmp_path / "*.png")])
+    assert code == 0
+    assert out == "a red bicycle\n"
+    from sempipe.core.jsontools import as_items, as_record, as_str
+    from tests.helpers.wire import sent_json
+
+    body = as_record(sent_json(route))
+    assert body is not None
+    messages = as_items(body.get("messages"))
+    assert messages
+    user = as_record(messages[-1])
+    images = as_items(user.get("images")) if user is not None else None
+    first = as_str(images[0]) if images else None
+    assert first is not None
+    assert base64.b64decode(first) == b"\x89PNG\r\n\x1a\nPIXELS"
+    system_message = as_record(messages[0])
+    system = as_str(system_message.get("content")) if system_message is not None else None
+    assert system is not None and system.startswith("The item is an image. ")  # pinned prefix
+
+
+def test_filter_skips_image_items_with_a_pointer(
+    run_cli: RunCli, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    (tmp_path / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 4)
+    (tmp_path / "note.txt").write_text("keep me")
+    respx_mock.post(CHAT).mock(
+        return_value=httpx.Response(200, json={"message": {"content": '{"match": true}'}})
+    )
+    code, out, err = run_cli(
+        ["filter", "anything", "--in", str(tmp_path / "*"), "--concurrency", "1"]
+    )
+    assert code == 1  # the image was skipped; the text judged
+    assert out == f"{tmp_path / 'note.txt'}\n"
+    assert "image items need map" in err

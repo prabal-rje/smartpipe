@@ -72,16 +72,21 @@ async def test_default_is_stdin_lines() -> None:
     assert await _collect(spec, stdin="one\ntwo\n") == ["one", "two"]
 
 
-async def test_image_file_is_skipped_for_now(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+async def test_image_file_becomes_an_image_item(tmp_path: Path) -> None:
     img = tmp_path / "photo.png"
     img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
     good = tmp_path / "note.txt"
     good.write_text("text")
     spec = InputSpec(patterns=(str(tmp_path / "*"),), from_files=False)
-    assert await _collect(spec) == ["text"]
-    assert "vision model" in capsys.readouterr().err
+    items_iter, total = resolve_items(spec, io.StringIO(""))
+    items = [item async for item in items_iter]
+    assert total == 2
+    by_name = {item.source.name.rsplit("/", 1)[-1]: item for item in items}
+    photo = by_name["photo.png"]
+    assert photo.image is not None  # bytes carried to the vision path
+    assert photo.image.mime == "image/png"
+    assert photo.text == ""  # nothing to "read" — the model sees the image
+    assert by_name["note.txt"].image is None
 
 
 async def test_missing_extra_warns_once(

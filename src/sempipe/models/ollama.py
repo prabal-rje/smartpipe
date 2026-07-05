@@ -7,6 +7,7 @@ transient blip); 429/5xx/timeouts are retried, then skip just that item.
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from sempipe.models.base import CompletionRequest, ModelRef
+
+_NO_VISION = "model can't read images — try a vision model, e.g. --model ollama/qwen3-vl"
 
 __all__ = [
     "DEFAULT_HOST",
@@ -52,7 +55,10 @@ class OllamaChatModel:
         messages: list[dict[str, object]] = []
         if request.system is not None:
             messages.append({"role": "system", "content": request.system})
-        messages.append({"role": "user", "content": request.user})
+        user: dict[str, object] = {"role": "user", "content": request.user}
+        if request.images:
+            user["images"] = [base64.b64encode(image.data).decode() for image in request.images]
+        messages.append(user)
         payload: dict[str, object] = {
             "model": self.ref.name,
             "stream": False,
@@ -60,7 +66,14 @@ class OllamaChatModel:
         }
         if request.json_schema is not None:
             payload["format"] = dict(request.json_schema)
-        data = await _post(self, "/api/chat", payload)
+        try:
+            data = await _post(self, "/api/chat", payload)
+        except ItemError as exc:
+            # _post maps a 400 to ItemError; with images in flight that almost
+            # always means "this model has no vision" — say so, name a fix.
+            if request.images and "error 400" in str(exc):
+                raise ItemError(_NO_VISION) from exc
+            raise
         message = record_at(data, "message")
         content = as_str(message.get("content")) if message is not None else None
         if content is None:

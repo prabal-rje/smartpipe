@@ -22,7 +22,12 @@ from sempipe.io.items import describe_source
 from sempipe.io.leaderboard import LiveBoard
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
-from sempipe.verbs.common import aiter_items, interrupted_exit_code, outcome_exit_code
+from sempipe.verbs.common import (
+    aiter_items,
+    ensure_text_item,
+    interrupted_exit_code,
+    outcome_exit_code,
+)
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -123,6 +128,7 @@ async def _run_stream(
     query_vector = (await model.embed([request.near]))[0]
 
     async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
+        ensure_text_item(item)  # image items need map — ItemError → skip-and-warn
         vector = _precomputed_vector(item)
         if vector is None:
             vector = (await model.embed([item.text]))[0]
@@ -224,6 +230,7 @@ async def _collect_vectors(
     skipped = 0
 
     async def worker(item: Item) -> tuple[float, ...]:
+        ensure_text_item(item)  # image items need map — ItemError → skip-and-warn
         return (await model.embed([item.text]))[0]
 
     outcomes = run_ordered(

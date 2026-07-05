@@ -4,14 +4,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sempipe.core.errors import ExitCode
+from sempipe.core.errors import ExitCode, ItemError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
     from sempipe.io.items import Item
 
-__all__ = ["aiter_items", "interrupted_exit_code", "outcome_exit_code", "prepend"]
+__all__ = [
+    "aiter_items",
+    "ensure_text_item",
+    "interrupted_exit_code",
+    "outcome_exit_code",
+    "prepend",
+]
 
 
 def outcome_exit_code(*, done: int, skipped: int) -> ExitCode:
@@ -41,3 +47,9 @@ async def prepend(first: Item, rest: AsyncIterator[Item]) -> AsyncIterator[Item]
     yield first
     async for item in rest:
         yield item
+
+
+def ensure_text_item(item: Item) -> None:
+    """Non-map verbs read text; an image item is skipped with a pointer, not a crash."""
+    if item.image is not None:
+        raise ItemError("image items need map — this verb reads text")

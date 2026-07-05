@@ -85,7 +85,7 @@ async def run_map(
     spinner.start(total=total)
 
     async def worker(item: Item) -> str | Mapping[str, object]:
-        return await _map_one(model, plan, instruction, item.text)
+        return await _map_one(model, plan, instruction, item)
 
     done = 0
     skipped = 0
@@ -115,9 +115,10 @@ async def run_map(
 
 
 async def _map_one(
-    model: ChatModel, plan: MapPlan, instruction: str, item_text: str
+    model: ChatModel, plan: MapPlan, instruction: str, item: Item
 ) -> str | Mapping[str, object]:
-    request = build_map_request(plan, instruction, item_text)
+    images = (item.image,) if item.image is not None else ()
+    request = build_map_request(plan, instruction, item.text, images=images)
     reply = await model.complete(request)
     if plan.schema is None:
         return reply.rstrip()  # plain mode: keep the reply, only trim trailing whitespace

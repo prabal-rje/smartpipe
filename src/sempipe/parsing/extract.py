@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, assert_never
 
 from sempipe.core.errors import ItemError
+from sempipe.models.base import ImageData
 from sempipe.parsing.detect import FileKind, route
 
 if TYPE_CHECKING:
@@ -36,12 +37,6 @@ class MissingExtra(Exception):
         super().__init__(guidance)
         self.extra = extra
         self.guidance = guidance
-
-
-@dataclass(frozen=True, slots=True)
-class ImageData:
-    data: bytes
-    mime: str
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,6 +7,7 @@ leaves the machine, with the screen that names the fix.
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -60,7 +61,7 @@ class OpenAIChatModel:
                 if request.system is not None
                 else []
             ),
-            {"role": "user", "content": request.user},
+            {"role": "user", "content": _user_content(request)},
         ]
         payload: dict[str, object] = {"model": self.ref.name, "messages": messages}
         if request.json_schema is not None:
@@ -151,3 +152,14 @@ def _detail(response: httpx.Response) -> str:
     error = record_at(record, "error") if record is not None else None
     message = as_str(error.get("message")) if error is not None else None
     return message if message is not None else response.text[:200].strip() or "no detail"
+
+
+def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
+    """Plain string normally; the content-array form when images ride along."""
+    if not request.images:
+        return request.user
+    parts: list[dict[str, object]] = [{"type": "text", "text": request.user}]
+    for image in request.images:
+        data_uri = f"data:{image.mime};base64,{base64.b64encode(image.data).decode()}"
+        parts.append({"type": "image_url", "image_url": {"url": data_uri}})
+    return parts
