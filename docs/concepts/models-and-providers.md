@@ -24,13 +24,17 @@ Ollama is found, it prints a short setup screen and stops.
 
 You name a model with a string. Two forms:
 
-- **Explicit provider:** `ollama/qwen3:8b`, `openai/gpt-4o-mini`, `anthropic/claude-opus-4-8`.
+- **Explicit provider:** `ollama/qwen3:8b`, `openai/gpt-4o-mini`,
+  `anthropic/claude-opus-4-8`, `mistral/mistral-large-latest`.
 - **Bare name:** sempipe routes by shape — `claude-*` → Anthropic, `gpt-*` / `o*` /
-  `text-embedding-*` → OpenAI, anything else → Ollama. So `gpt-4o-mini` and
+  `text-embedding-*` → OpenAI, the Mistral family (`mistral-*`, `ministral-*`,
+  `codestral-*`, `magistral-*`, `devstral-*`, `pixtral-*`, `open-mistral-*`,
+  `open-mixtral-*`) → Mistral, anything else → Ollama. So `gpt-4o-mini` and
   `openai/gpt-4o-mini` mean the same thing.
 
 Namespaced Ollama models keep working as bare names too: `hf.co/org/model` routes to
-Ollama whole.
+Ollama whole — including `hf.co/mistralai/...`, which is an Ollama name, not a
+Mistral cloud model.
 
 ## Cloud credentials
 
@@ -39,11 +43,14 @@ Keys are read from the environment and **never stored** in sempipe's config:
 ```console
 $ export OPENAI_API_KEY=sk-...
 $ export ANTHROPIC_API_KEY=sk-ant-...
+$ export MISTRAL_API_KEY=...            # console.mistral.ai
 ```
 
 Claude models also need an optional package: `pip install 'sempipe[anthropic]'`.
-(sempipe tells you if it's missing.) Any OpenAI-compatible endpoint — Groq,
-Mistral, OpenRouter, a local llama.cpp server — works by pointing sempipe at it:
+(sempipe tells you if it's missing.) Mistral needs nothing extra — chat,
+`mistral-embed` embeddings, and `pixtral-*` vision all ride the built-in adapter.
+Any *other* OpenAI-compatible endpoint — Groq, OpenRouter, a local llama.cpp
+server — works by pointing sempipe at it:
 
 ```console
 $ export SEMPIPE_OPENAI_BASE_URL=https://api.groq.com/openai

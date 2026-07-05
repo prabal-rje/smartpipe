@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Mistral, first-class.** `--model mistral-large-latest` (or any of the
+  family's bare prefixes — `ministral-*`, `codestral-*`, `magistral-*`,
+  `devstral-*`, `pixtral-*`, `open-mistral-*`, `open-mixtral-*`) just works:
+  routing, `MISTRAL_API_KEY`, `mistral-embed` embeddings, `pixtral-*` vision,
+  structured output, and the same retry/`Retry-After` resilience — all on the
+  built-in OpenAI-wire adapter, no extra install. `SEMPIPE_MISTRAL_BASE_URL`
+  redirects it; `hf.co/mistralai/...` still routes to Ollama, untouched.
 - **`.sem` stage files + `sempipe run`.** Save one verb invocation as TOML
   (`verb = "map"`, `prompt = …`, the verb's flags as keys) and execute it with
   `sempipe run stage.sem` — or add `#!/usr/bin/env -S sempipe run`, `chmod +x`,
@@ -60,6 +67,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   true outcome code; a second Ctrl-C exits 130 immediately.
 
 ### Fixed
+- **Optional-field schemas no longer 400 on OpenAI/Mistral.** sempipe claimed
+  `strict: true` structured output unconditionally; strict mode rejects any
+  schema whose fields aren't all required (with `additionalProperties: false`),
+  so a `--schema` with optional fields skipped every item for the wrong reason.
+  Strictness is now claimed only when the schema qualifies; either way, replies
+  are validated client-side with one repair retry.
 - **Config edits are atomic and lossless (except comments).** `sempipe config
   model …` now rewrites `config.toml` via a same-directory temp file +
   `os.replace` (a concurrent reader can never see a torn file), and keys it

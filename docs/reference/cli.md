@@ -116,7 +116,8 @@ Tab completion for bash, zsh, and fish — including live model-name suggestions
 | `SEMPIPE_EMBED_MODEL` | Default embedding model. |
 | `SEMPIPE_OUTPUT` | Default output format. |
 | `SEMPIPE_OPENAI_BASE_URL` | Point the OpenAI-compatible adapter at any endpoint. |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Cloud credentials (read, never stored). |
+| `SEMPIPE_MISTRAL_BASE_URL` | Point the Mistral adapter elsewhere (proxies, gateways). |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` | Cloud credentials (read, never stored). |
 | `OLLAMA_HOST` | Ollama endpoint (default `http://localhost:11434`). |
 | `NO_COLOR` | Disable color. |
 
