@@ -70,6 +70,7 @@ sempipe — semantic pipes for your terminal
   embed    Convert items to vector embeddings
   top_k    Rank items by similarity to a query
   reduce   Synthesize many items into one
+  join     Match stdin against a second input, semantically
   config   Configure models and settings
 
 Get started:

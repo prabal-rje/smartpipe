@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 __all__ = ["parse_sem"]
 
-_VERB_NAMES = "map, filter, embed, top_k, reduce"
+_VERB_NAMES = "map, filter, embed, top_k, reduce, join"
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +102,11 @@ def _schema(value: object, sem_dir: Path) -> tuple[str, ...]:
     return ("--schema", str((sem_dir / value).resolve()))
 
 
+def _right(value: object, sem_dir: Path) -> tuple[str, ...]:
+    assert isinstance(value, str)  # a script and its right side travel together (D21)
+    return ("--right", str((sem_dir / value).resolve()))
+
+
 def _str_key(render: Callable[[object, Path], tuple[str, ...]]) -> _KeySpec:
     return _KeySpec("a string", _is_str, render)
 
@@ -160,6 +165,17 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
         ("stream", _bool_key(_switch("--stream"))),
         *_COMMON_TAIL,
     ),
+    "join": (
+        ("prompt", _str_key(_positional)),
+        ("right", _str_key(_right)),
+        ("k", _int_key(_flag("--k"))),
+        ("threshold", _num_key(_flag("--threshold"))),
+        ("model", _str_key(_flag("--model"))),
+        ("embed-model", _str_key(_flag("--embed-model"))),
+        ("output", _str_key(_flag("--output"))),
+        ("fields", _list_key(_fields_arg)),
+        *_COMMON_TAIL,
+    ),
     "reduce": (
         ("prompt", _str_key(_positional)),
         ("model", _str_key(_flag("--model"))),
@@ -173,7 +189,7 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
     ),
 }
 
-_REQUIRES_PROMPT = ("map", "filter", "reduce")
+_REQUIRES_PROMPT = ("map", "filter", "reduce", "join")
 
 
 def parse_sem(path: Path) -> list[str]:

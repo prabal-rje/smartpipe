@@ -141,7 +141,7 @@ def test_missing_verb(tmp_path: Path) -> None:
     with pytest.raises(UsageFault) as excinfo:
         parse_sem(path)
     assert str(excinfo.value).startswith(
-        f"{path}: 'verb' is required (map, filter, embed, top_k, reduce)"
+        f"{path}: 'verb' is required (map, filter, embed, top_k, reduce, join)"
     )
 
 
@@ -234,3 +234,19 @@ def test_stream_and_concurrency_translate(tmp_path: Path) -> None:
 def test_max_calls_key_translates(tmp_path: Path) -> None:
     path = _write(tmp_path, 'verb = "map"\nprompt = "x"\nmax-calls = 20\n')
     assert parse_sem(path) == ["map", "x", "--max-calls", "20"]
+
+
+def test_join_sem_translates_with_sibling_right(tmp_path: Path) -> None:
+    (tmp_path / "catalog.jsonl").write_text("x\n", encoding="utf-8")
+    path = _write(
+        tmp_path,
+        'verb = "join"\nprompt = "t {left.text} c {right.name}"\nright = "catalog.jsonl"\nk = 3\n',
+    )
+    assert parse_sem(path) == [
+        "join",
+        "t {left.text} c {right.name}",
+        "--right",
+        str((tmp_path / "catalog.jsonl").resolve()),
+        "--k",
+        "3",
+    ]
