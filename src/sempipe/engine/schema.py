@@ -12,8 +12,6 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-import jsonschema
-
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_record, as_str
 
@@ -57,6 +55,8 @@ def load_schema(path: Path) -> dict[str, object]:
 
 
 def validate_and_coerce(reply: str, schema: Mapping[str, object]) -> dict[str, object]:
+    import jsonschema  # function-local: --help must not pay for the validator stack
+
     record = as_record(_extract_json(reply))
     if record is None:
         raise ItemError("model returned JSON but not an object")

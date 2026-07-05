@@ -11,7 +11,6 @@ import click
 from sempipe.cli.completions import complete_embed_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
-from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.top_k import TopKRequest, run_top_k
 
@@ -67,6 +66,8 @@ def top_k_command(
 
 
 async def _run(request: TopKRequest) -> ExitCode:
+    from sempipe.container import build_container
+
     async with build_container(os.environ) as container:
         if not request.stream:  # whole-set mode: ^C exits immediately (ux.md §12)
             return await run_top_k(request, container, stdin=sys.stdin, stdout=sys.stdout)

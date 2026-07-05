@@ -54,6 +54,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ### Changed
 - **License: Apache-2.0** (from MIT), with a `NOTICE` file — matching the published
   repository. The `v1.0.0` tag points at the relicensed tree.
+- **Startup stays fast, now enforced.** `sempipe --help` no longer imports
+  `httpx` or `jsonschema` (they load only when a command actually runs);
+  an `importtime`-based test gates it in CI and `make startup` reports the
+  advisory wall-clock number (~64 ms median locally).
 
 ## [1.0.0] — 2026-07-05
 

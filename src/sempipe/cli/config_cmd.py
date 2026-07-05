@@ -19,7 +19,6 @@ from sempipe.cli.completions import complete_chat_models, complete_embed_models
 from sempipe.config.display import render_show, settings_with_origin
 from sempipe.config.paths import config_path, human_path
 from sempipe.config.store import Config, load_config, save_config
-from sempipe.container import build_container
 from sempipe.core.errors import SetupFault
 from sempipe.models.base import parse_model_ref
 
@@ -83,6 +82,8 @@ def _update(change: Callable[[Config], Config]) -> None:
 
 
 async def _interactive_entry() -> None:
+    from sempipe.container import build_container
+
     async with build_container(os.environ) as container:
         path = config_path(os.environ)
         await run_interactive_setup(

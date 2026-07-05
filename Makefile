@@ -3,7 +3,7 @@
 # `tail` silently swallows non-zero exit codes — don't reintroduce it).
 
 .DEFAULT_GOAL := help
-.PHONY: help install test cov lint fmt fmt-check types gates smoke golden clean
+.PHONY: help install test cov lint fmt fmt-check types gates smoke golden startup clean
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -36,6 +36,10 @@ gates: lint fmt-check types cov ## The full PR gate: lint + format + types + cov
 
 golden: ## Refresh golden files (review the diff before committing)
 	UPDATE_GOLDEN=1 uv run pytest -q
+
+startup: ## Time `--help` startup (advisory; the deterministic gate is tests/test_startup_imports.py)
+	uv run hyperfine --warmup 3 'python -m sempipe --help' || \
+	  uv run python -c "import subprocess, sys, time; t = [__import__('timeit').timeit(lambda: subprocess.run([sys.executable, '-m', 'sempipe', '--help'], capture_output=True, check=True), number=1) for _ in range(8)]; t.sort(); print(f'median --help wall clock: {t[len(t)//2]*1000:.0f} ms (hyperfine not installed; rough fallback)')"
 
 smoke: ## Build the wheel and run it from a clean environment
 	rm -rf dist

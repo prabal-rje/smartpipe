@@ -11,7 +11,6 @@ import click
 from sempipe.cli.completions import complete_embed_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
-from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.embed import EmbedRequest, run_embed
 
@@ -57,5 +56,7 @@ def embed_command(
 
 
 async def _run(request: EmbedRequest) -> ExitCode:
+    from sempipe.container import build_container
+
     async with build_container(os.environ) as container, graceful_interrupts() as stop:
         return await run_embed(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)

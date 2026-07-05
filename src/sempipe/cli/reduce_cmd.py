@@ -12,7 +12,6 @@ import click
 from sempipe.cli.completions import complete_chat_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
-from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.reduce import ReduceRequest, run_reduce
 
@@ -79,6 +78,8 @@ def reduce_command(
 
 
 async def _run(request: ReduceRequest) -> ExitCode:
+    from sempipe.container import build_container
+
     async with build_container(os.environ) as container:
         if request.window is None:  # whole-set mode: ^C exits immediately (ux.md §12)
             return await run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout)

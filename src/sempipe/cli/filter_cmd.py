@@ -10,7 +10,6 @@ import click
 
 from sempipe.cli.input_options import input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
-from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.filter import FilterRequest, run_filter
 
@@ -55,5 +54,7 @@ def filter_command(
 
 
 async def _run(request: FilterRequest) -> ExitCode:
+    from sempipe.container import build_container
+
     async with build_container(os.environ) as container, graceful_interrupts() as stop:
         return await run_filter(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)

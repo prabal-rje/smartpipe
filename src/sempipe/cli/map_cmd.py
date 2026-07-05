@@ -12,7 +12,6 @@ import click
 from sempipe.cli.completions import complete_chat_models
 from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
-from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
 from sempipe.io.writers import OutputFormat
 from sempipe.verbs.map import MapRequest, run_map
@@ -80,5 +79,7 @@ def map_command(
 
 
 async def _run(request: MapRequest) -> ExitCode:
+    from sempipe.container import build_container
+
     async with build_container(os.environ) as container, graceful_interrupts() as stop:
         return await run_map(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)

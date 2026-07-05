@@ -49,3 +49,9 @@ Optional but recommended: `uv run pre-commit install` wires ruff into your commi
 Core install weight is a feature: the runtime dependency list is `click`, `httpx`,
 `jsonschema`, `tomli-w` — a snapshot test guards it. Anything heavier goes behind an
 optional extra, and heavy imports stay function-local (startup time is budgeted).
+
+**New heavy import? Function-local or justify.** `--help` must never import
+`httpx`, `jsonschema`, `anthropic`, or `markitdown` —
+`tests/test_startup_imports.py` is the enforcement (it runs `-X importtime` and
+fails on any banned module). `make startup` gives an advisory wall-clock number;
+the import test is the deterministic gate.
