@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`.sem` stage files + `sempipe run`.** Save one verb invocation as TOML
+  (`verb = "map"`, `prompt = …`, the verb's flags as keys) and execute it with
+  `sempipe run stage.sem` — or add `#!/usr/bin/env -S sempipe run`, `chmod +x`,
+  and pipe stages together like any other command. CLI flags override the
+  file's values; `schema-file` resolves next to the script; unknown keys are
+  loud errors (scripts run unattended — unlike config.toml's forward-compat
+  ignore). Composition stays in the shell: one stage per file, by design.
+  Docs: `docs/reference/sem-files.md`.
 - **`--fields a,b` column projection** — select and order the columns of
   structured output, identically in NDJSON / terminal / CSV / TSV, on `map`,
   `embed`, `top_k`, and `reduce` (never `filter` — its output stays byte-faithful).

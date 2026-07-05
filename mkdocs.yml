@@ -48,6 +48,7 @@ nav:
       - Live monitoring: cookbook/live-monitoring.md
   - Reference:
       - CLI reference: reference/cli.md
+      - .sem stage files: reference/sem-files.md
       - Troubleshooting: troubleshooting.md
       - Comparison: comparison.md
       - Privacy & security: privacy.md

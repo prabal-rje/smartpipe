@@ -49,6 +49,9 @@ $ cat server.log | sempipe filter "indicates a real bug" | wc -l
 
 # 5. Compose. That's the whole point:
 $ cat receipts.txt | sempipe map "Extract {vendor, total}" | jq -r .total
+
+# 6. Save a stage you use often as a .sem file, and it becomes a command:
+$ sempipe run extract.sem < cards.txt        # or chmod +x and just ./extract.sem
 ```
 
 New to any of this? The [ten-minute quickstart](docs/quickstart.md) assumes nothing —

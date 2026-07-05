@@ -25,6 +25,7 @@ to **stderr**.
 | [`top_k`](../verbs/top-k.md) | rank by similarity to a query | `sort \| head`, by meaning |
 | [`reduce`](../verbs/reduce.md) | synthesize many items into one | recursive, automatic |
 | [`config`](#config) | view and set defaults | interactive setup |
+| [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 
 ## Common options
 
@@ -80,6 +81,18 @@ With a login and no `OPENAI_API_KEY`, OpenAI models ride your ChatGPT plan
 ```console
 $ sempipe cite                       # print a BibTeX entry for citing sempipe
 ```
+
+## `run`
+
+```console
+$ sempipe run extract.sem < cards.txt        # execute a saved stage
+$ sempipe run extract.sem --model ollama/qwen3:8b   # flags override the file
+```
+
+A `.sem` file pins one verb invocation in TOML; with a
+`#!/usr/bin/env -S sempipe run` shebang it runs directly (`./extract.sem`).
+Unknown keys in the file are errors (scripts run unattended). Full format:
+[.sem stage files](sem-files.md).
 
 ## Output formats
 

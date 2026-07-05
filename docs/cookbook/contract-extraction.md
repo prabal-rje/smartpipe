@@ -62,7 +62,29 @@ $ sempipe filter "is a signed vendor agreement" --in 'docs/**/*.pdf' \
 The `filter` emits the *paths* of matching files; `--from-files` feeds those paths to
 `map`. You extract fields from only the vendor agreements, skipping everything else.
 
+## Save it as a stage
+
+Once the extraction works, freeze it as an executable `.sem` file so the whole
+team runs the same stage:
+
+```toml
+#!/usr/bin/env -S sempipe run
+verb = "map"
+prompt = "Extract {vendor, renewal_date, annual_cost}"
+schema-file = "contract.json"
+output = "csv"
+```
+
+```console
+$ chmod +x extract-contract.sem
+$ sempipe filter "is a signed vendor agreement" --in 'docs/**/*.pdf' \
+    | ./extract-contract.sem --from-files > contracts.csv
+```
+
+`schema-file` resolves next to the `.sem` file, so the script and its schema
+travel together. Full format: [.sem files](../reference/sem-files.md).
+
 ## See also
 
 - [File inputs](../inputs/files.md) · [Structured output](../concepts/structured-output.md) ·
-  [`map`](../verbs/map.md)
+  [`map`](../verbs/map.md) · [.sem files](../reference/sem-files.md)
