@@ -52,13 +52,17 @@ class CompletionRequest:
 
 
 class ChatModel(Protocol):
-    ref: ModelRef
+    # A read-only property (not a bare attribute) so frozen-dataclass adapters,
+    # whose fields pyright treats as read-only, structurally satisfy the Protocol.
+    @property
+    def ref(self) -> ModelRef: ...
 
     async def complete(self, request: CompletionRequest) -> str: ...
 
 
 class EmbeddingModel(Protocol):
-    ref: ModelRef
+    @property
+    def ref(self) -> ModelRef: ...
 
     async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]: ...
 
