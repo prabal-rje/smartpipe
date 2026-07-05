@@ -9,18 +9,22 @@ terminal renders structured results as a human view, while an *explicit*
 
 from __future__ import annotations
 
+import csv
 import json
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, assert_never
 
 from sempipe.core.errors import UsageFault
+from sempipe.io import diagnostics
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from typing import TextIO
 
     from sempipe.io.items import Item
+
+_TRAILING_COLUMNS = ("_score", "_rank")  # ranking metadata sorts to the right of the sheet
 
 __all__ = [
     "OutputFormat",
@@ -94,10 +98,22 @@ def resolve_format(
             return RenderMode.TEXT
         case OutputFormat.JSON:
             return RenderMode.NDJSON
-        case OutputFormat.CSV | OutputFormat.TSV:
-            raise UsageFault("csv/tsv output arrives in v0.7")
+        case OutputFormat.CSV:
+            _require_structured(requested, structured=structured)
+            return RenderMode.CSV
+        case OutputFormat.TSV:
+            _require_structured(requested, structured=structured)
+            return RenderMode.TSV
         case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
             assert_never(unreachable)
+
+
+def _require_structured(fmt: OutputFormat, *, structured: bool) -> None:
+    if not structured:
+        raise UsageFault(
+            f"--output {fmt.value} needs structured output — a table needs named columns\n"
+            '  add braces to the prompt (e.g. "Extract {name, email}") or pass --schema'
+        )
 
 
 def make_writer(config: WriterConfig, stdout: TextIO) -> ResultWriter:
@@ -108,8 +124,10 @@ def make_writer(config: WriterConfig, stdout: TextIO) -> ResultWriter:
             return _NdjsonWriter(stream=stdout)
         case RenderMode.HUMAN:
             return _HumanWriter(stream=stdout, color=config.color, width=config.width)
-        case RenderMode.CSV | RenderMode.TSV:
-            raise UsageFault("csv/tsv output arrives in v0.7")
+        case RenderMode.CSV:
+            return _TableWriter(stream=stdout, delimiter=",", fields=config.fields)
+        case RenderMode.TSV:
+            return _TableWriter(stream=stdout, delimiter="\t", fields=config.fields)
         case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
             assert_never(unreachable)
 
@@ -153,6 +171,74 @@ class _NdjsonWriter:
 
     def flush(self) -> None:
         self.stream.flush()
+
+
+class _TableWriter:
+    """CSV/TSV — a rectangle is the contract. Columns are fixed by ``--fields`` or the
+    first record; later records fill missing cells empty and drop surprise keys with a
+    one-time warning. Nested values become compact JSON; TSV strips tabs/newlines."""
+
+    def __init__(self, *, stream: TextIO, delimiter: str, fields: tuple[str, ...] | None) -> None:
+        self.stream = stream
+        self.delimiter = delimiter
+        self.fields = fields
+        self.columns: tuple[str, ...] | None = None
+        self.warned: set[str] = set()
+        self.tsv_cleaned = False
+        # excel dialect gives RFC 4180 quoting + CRLF; TSV mirrors it with a tab delimiter
+        self.csv = csv.writer(stream, dialect="excel", delimiter=delimiter)
+
+    def write_text(self, line: str) -> None:
+        # csv is guarded to structured output, but stay valid if a plain result slips in
+        self.write_record({"result": line})
+
+    def write_record(self, record: Mapping[str, object]) -> None:
+        if self.columns is None:
+            self.columns = self._header(record)
+            self.csv.writerow(self.columns)
+        for key in record:
+            if key not in self.columns and key not in self.warned:
+                diagnostics.warn(
+                    f"column {key!r} appeared after the header was fixed; "
+                    "use --fields to pin columns"
+                )
+                self.warned.add(key)
+        self.csv.writerow([self._cell(record.get(column)) for column in self.columns])
+        self.stream.flush()
+
+    def write_passthrough(self, item: Item) -> None:  # pragma: no cover — csv is structured-only
+        self.write_text(item.raw)
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+    def _header(self, record: Mapping[str, object]) -> tuple[str, ...]:
+        if self.fields is not None:
+            return self.fields
+        body = [key for key in record if key not in _TRAILING_COLUMNS]
+        trailing = [key for key in _TRAILING_COLUMNS if key in record]
+        return (*body, *trailing)
+
+    def _cell(self, value: object) -> str:
+        text = _scalar(value)
+        if self.delimiter == "\t" and any(ch in text for ch in "\t\n\r"):
+            if not self.tsv_cleaned:
+                diagnostics.warn("replaced tabs/newlines in TSV cells with spaces")
+                self.tsv_cleaned = True
+            text = text.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+        return text
+
+
+def _scalar(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return str(value)
+    return _compact_json(value)  # objects/arrays → compact JSON in one cell
 
 
 @dataclass(frozen=True, slots=True)

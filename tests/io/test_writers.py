@@ -50,16 +50,10 @@ def test_invalid_env_value_is_a_usage_fault() -> None:
     assert "SEMPIPE_OUTPUT" in str(excinfo.value)
 
 
-def test_csv_and_tsv_are_not_available_yet() -> None:
-    for flag in (OutputFormat.CSV, OutputFormat.TSV):
-        with pytest.raises(UsageFault, match=r"v0\.7"):
-            resolve_format(flag, {}, stdout_tty=False, structured=True)
-
-
-def test_make_writer_rejects_csv_modes_directly() -> None:
-    for mode in (RenderMode.CSV, RenderMode.TSV):
-        with pytest.raises(UsageFault, match=r"v0\.7"):
-            make_writer(WriterConfig(mode=mode, color=False, width=80), io.StringIO())
+def test_csv_and_tsv_resolve_when_structured() -> None:
+    # detailed CSV/TSV behavior lives in tests/io/test_table_writer.py
+    assert resolve_format(OutputFormat.CSV, {}, stdout_tty=False, structured=True) == RenderMode.CSV
+    assert resolve_format(OutputFormat.TSV, {}, stdout_tty=True, structured=True) == RenderMode.TSV
 
 
 def test_flush_is_safe_on_every_writer() -> None:
