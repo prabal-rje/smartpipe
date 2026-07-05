@@ -216,9 +216,7 @@ def test_fields_must_be_an_array_of_strings(tmp_path: Path) -> None:
 
 
 def test_stream_and_concurrency_translate(tmp_path: Path) -> None:
-    path = _write(
-        tmp_path, 'verb = "top_k"\nk = 3\nnear = "q"\nstream = true\nconcurrency = 8\n'
-    )
+    path = _write(tmp_path, 'verb = "top_k"\nk = 3\nnear = "q"\nstream = true\nconcurrency = 8\n')
     assert parse_sem(path) == [
         "top_k",
         "3",

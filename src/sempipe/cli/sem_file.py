@@ -215,8 +215,9 @@ def _checked_verb(path: Path, document: Mapping[str, object]) -> str:
     if not isinstance(verb, str):
         raise UsageFault(_wrong_type_screen(path, "verb", "a string", verb))
     if verb in ("run", "config"):
+        spelled_out = _VERB_NAMES.replace(", reduce", ", or reduce")
         raise UsageFault(
-            f"{path}: verb {verb!r} can't run from a script — use {_VERB_NAMES.replace(', reduce', ', or reduce')}\n"
+            f"{path}: verb {verb!r} can't run from a script — use {spelled_out}\n"
             "  Scripts hold pipe stages; composition and setup stay at the shell."
         )
     if verb not in _VERB_KEYS:
