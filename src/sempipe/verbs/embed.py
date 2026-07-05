@@ -39,6 +39,7 @@ class EmbedRequest:
     model_flag: str | None
     concurrency_flag: int | None
     input: InputSpec = STDIN
+    fields: tuple[str, ...] | None = None  # --fields: project the {text, vector, source} records
 
 
 class EmbedContext(Protocol):
@@ -62,7 +63,9 @@ async def run_embed(
         diagnostics.note(
             "embeddings are large — redirect to a file: sempipe embed > corpus.embeddings"
         )
-    writer = make_writer(WriterConfig(mode=RenderMode.NDJSON, color=False, width=80), stdout)
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=request.fields), stdout
+    )
     spinner = make_stderr_spinner()
     spinner.start(total=total)
 

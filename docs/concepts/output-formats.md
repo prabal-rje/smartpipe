@@ -63,6 +63,39 @@ error: --output csv needs structured output — a table needs named columns
   add braces to the prompt (e.g. "Extract {name, email}") or pass --schema
 ```
 
+## `--fields` — pick and order your columns
+
+`--fields a,b` projects structured output down to just those fields, in exactly
+that order. It works the same in every format — NDJSON, the terminal view, CSV,
+and TSV — on `map`, `embed`, `top_k`, and `reduce`:
+
+```console
+$ cat cards.txt | sempipe map "Extract {name, email, role}" --fields name,email --output tsv
+name	email
+Ada Lovelace	ada@example.com
+Grace Hopper	grace@example.com
+```
+
+The projection rules:
+
+- **Order is yours.** Columns appear in the order you list them, not the order the
+  model produced.
+- **The shape never wobbles.** A field a result doesn't carry stays in place —
+  `null` in NDJSON, an empty cell in CSV/TSV, a blank value at the terminal — and
+  you get a one-time warning on stderr naming it.
+- **Dropping the rest is the point.** Fields you didn't ask for are omitted
+  silently.
+- **Structured output only.** On a plain-text run there are no named fields to
+  pick from, so `--fields` is a usage error that says exactly that. (`filter`
+  never has the flag — its output is a byte-faithful subset of its input.)
+
+```console
+$ cat notes.txt | sempipe map "shout" --fields name
+error: --fields selects columns from structured output
+  This run produces plain text — there are no named fields to pick from.
+  Add braces to the prompt (e.g. "Extract {name, email}") or pass --schema.
+```
+
 ## See also
 
 - [Structured output](structured-output.md) — how to get named fields

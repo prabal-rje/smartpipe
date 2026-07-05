@@ -48,10 +48,15 @@ class FakeContext:
         return 4
 
     def writer(
-        self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO
+        self,
+        output_flag: OutputFormat,
+        *,
+        structured: bool,
+        stdout: TextIO,
+        fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
         mode = RenderMode.NDJSON if structured else RenderMode.TEXT
-        return make_writer(WriterConfig(mode=mode, color=False, width=80), stdout)
+        return make_writer(WriterConfig(mode=mode, color=False, width=80, fields=fields), stdout)
 
 
 def _request(

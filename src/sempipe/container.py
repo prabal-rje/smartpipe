@@ -92,15 +92,25 @@ class AppContainer:
         return _DEFAULT_CONCURRENCY
 
     def writer(
-        self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO
+        self,
+        output_flag: OutputFormat,
+        *,
+        structured: bool,
+        stdout: TextIO,
+        fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
         mode = resolve_format(
-            output_flag, self.env, stdout_tty=tty.stdout_is_tty(), structured=structured
+            output_flag,
+            self.env,
+            stdout_tty=tty.stdout_is_tty(),
+            structured=structured,
+            fields=fields,
         )
         config = WriterConfig(
             mode=mode,
             color=tty.stdout_supports_color(self.color_mode),
             width=tty.terminal_width(),
+            fields=fields,
         )
         return make_writer(config, stdout)
 

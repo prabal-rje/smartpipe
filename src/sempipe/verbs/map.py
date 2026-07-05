@@ -51,6 +51,7 @@ class MapRequest:
     output: OutputFormat
     concurrency_flag: int | None
     input: InputSpec = STDIN
+    fields: tuple[str, ...] | None = None  # --fields: project structured output
 
 
 class MapContext(Protocol):
@@ -59,7 +60,12 @@ class MapContext(Protocol):
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     def concurrency(self, flag: int | None = None) -> int: ...
     def writer(
-        self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO
+        self,
+        output_flag: OutputFormat,
+        *,
+        structured: bool,
+        stdout: TextIO,
+        fields: tuple[str, ...] | None = None,
     ) -> ResultWriter: ...
 
 
@@ -78,7 +84,9 @@ async def run_map(
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
     structured = plan.mode == "structured"
-    writer = context.writer(request.output, structured=structured, stdout=stdout)
+    writer = context.writer(
+        request.output, structured=structured, stdout=stdout, fields=request.fields
+    )
     concurrency = context.concurrency(request.concurrency_flag)
 
     spinner = make_stderr_spinner()

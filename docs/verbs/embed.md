@@ -35,6 +35,7 @@ which skips re-embedding items that already carry a `vector`.
 |---|---|
 | `--embed-model TEXT` | The embedding model (default `nomic-embed-text`, configured separately from the chat model) |
 | `--concurrency N` | Max parallel model calls (default 4) |
+| `--fields A,B` | Select + order the `{text, vector, source}` record fields ([details](../concepts/output-formats.md#-fields--pick-and-order-your-columns)) |
 
 ## Notes
 

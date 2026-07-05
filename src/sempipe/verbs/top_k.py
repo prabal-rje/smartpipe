@@ -49,6 +49,7 @@ class TopKRequest:
     concurrency_flag: int | None
     input: InputSpec = STDIN
     stream: bool = False  # --stream: the live leaderboard (a different output protocol)
+    fields: tuple[str, ...] | None = None  # --fields: project structured records
 
 
 class TopKContext(Protocol):
@@ -86,7 +87,9 @@ async def run_top_k(
     chosen = select(scored, k=request.k, threshold=request.threshold)
 
     by_index = {item.source.index: item for item in items}
-    writer = make_writer(WriterConfig(mode=RenderMode.TEXT, color=False, width=80), stdout)
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.TEXT, color=False, width=80, fields=request.fields), stdout
+    )
     for item_index, score in chosen:
         _emit(writer, by_index[item_index], score)
     writer.flush()
@@ -141,7 +144,9 @@ async def _run_stream(
     board: tuple[tuple[float, int], ...] = ()
     by_arrival: dict[int, Item] = {}
     live = _make_live_board(stdout)
-    writer = make_writer(WriterConfig(mode=RenderMode.NDJSON, color=False, width=80), stdout)
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=request.fields), stdout
+    )
     snapshot_seq = 0
     scored = 0
     skipped = 0

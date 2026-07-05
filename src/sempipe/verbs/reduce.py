@@ -59,13 +59,19 @@ class ReduceRequest:
     input: InputSpec = STDIN
     window: int | None = None  # --window N: stream mode, one reduce per window
     every: int | None = None  # --every M: sliding stride (default: tumbling)
+    fields: tuple[str, ...] | None = None  # --fields: project structured output
 
 
 class ReduceContext(Protocol):
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     def concurrency(self, flag: int | None = None) -> int: ...
     def writer(
-        self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO
+        self,
+        output_flag: OutputFormat,
+        *,
+        structured: bool,
+        stdout: TextIO,
+        fields: tuple[str, ...] | None = None,
     ) -> ResultWriter: ...
 
 
@@ -101,7 +107,9 @@ async def run_reduce(
     model = await context.chat_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
     structured = schema is not None
-    writer = context.writer(OutputFormat.AUTO, structured=structured, stdout=stdout)
+    writer = context.writer(
+        OutputFormat.AUTO, structured=structured, stdout=stdout, fields=request.fields
+    )
 
     if not items:
         return ExitCode.OK
@@ -168,7 +176,9 @@ async def _run_windowed(
         raise UsageFault(str(exc)) from exc
 
     model = await context.chat_model(request.model_flag)
-    writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
+    writer = context.writer(
+        OutputFormat.AUTO, structured=True, stdout=stdout, fields=request.fields
+    )
     instruction = to_instruction(tokens)
     reducer = _Reducer(
         model=model,

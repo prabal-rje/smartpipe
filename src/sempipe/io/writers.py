@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, assert_never
 
@@ -77,7 +77,14 @@ def resolve_format(
     *,
     stdout_tty: bool,
     structured: bool,
+    fields: tuple[str, ...] | None = None,
 ) -> RenderMode:
+    if fields is not None and not structured:
+        raise UsageFault(
+            "--fields selects columns from structured output\n"
+            "  This run produces plain text — there are no named fields to pick from.\n"
+            '  Add braces to the prompt (e.g. "Extract {name, email}") or pass --schema.'
+        )
     requested = flag
     if requested is OutputFormat.AUTO:
         env_value = env.get("SEMPIPE_OUTPUT", "")
@@ -119,11 +126,13 @@ def _require_structured(fmt: OutputFormat, *, structured: bool) -> None:
 def make_writer(config: WriterConfig, stdout: TextIO) -> ResultWriter:
     match config.mode:
         case RenderMode.TEXT:
-            return _TextWriter(stream=stdout)
+            return _TextWriter(stream=stdout, fields=config.fields)
         case RenderMode.NDJSON:
-            return _NdjsonWriter(stream=stdout)
+            return _NdjsonWriter(stream=stdout, fields=config.fields)
         case RenderMode.HUMAN:
-            return _HumanWriter(stream=stdout, color=config.color, width=config.width)
+            return _HumanWriter(
+                stream=stdout, color=config.color, width=config.width, fields=config.fields
+            )
         case RenderMode.CSV:
             return _TableWriter(stream=stdout, delimiter=",", fields=config.fields)
         case RenderMode.TSV:
@@ -136,15 +145,35 @@ def _compact_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def _warn_missing(record: Mapping[str, object], fields: tuple[str, ...], warned: set[str]) -> None:
+    """The one-time heads-up per requested-but-absent field (plan/ux.md, --fields)."""
+    for name in fields:
+        if name not in record and name not in warned:
+            diagnostics.warn(f"--fields: no field {name!r} in the results; emitting null")
+            warned.add(name)
+
+
+def _project(
+    record: Mapping[str, object], fields: tuple[str, ...], warned: set[str]
+) -> dict[str, object]:
+    """Select + order the requested columns; absent ones become null (shape stays stable)."""
+    _warn_missing(record, fields, warned)
+    return {name: record.get(name) for name in fields}
+
+
 @dataclass(frozen=True, slots=True)
 class _TextWriter:
     stream: TextIO
+    fields: tuple[str, ...] | None = None  # top_k routes structured records through TEXT
+    warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
         self.stream.write(f"{line}\n")
         self.stream.flush()
 
     def write_record(self, record: Mapping[str, object]) -> None:
+        if self.fields is not None:
+            record = _project(record, self.fields, self.warned)
         self.write_text(_compact_json(dict(record)))
 
     def write_passthrough(self, item: Item) -> None:
@@ -157,11 +186,15 @@ class _TextWriter:
 @dataclass(frozen=True, slots=True)
 class _NdjsonWriter:
     stream: TextIO
+    fields: tuple[str, ...] | None = None
+    warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
         self.write_record({"result": line})
 
     def write_record(self, record: Mapping[str, object]) -> None:
+        if self.fields is not None:
+            record = _project(record, self.fields, self.warned)
         self.stream.write(f"{_compact_json(dict(record))}\n")
         self.stream.flush()
 
@@ -196,13 +229,17 @@ class _TableWriter:
         if self.columns is None:
             self.columns = self._header(record)
             self.csv.writerow(self.columns)
-        for key in record:
-            if key not in self.columns and key not in self.warned:
-                diagnostics.warn(
-                    f"column {key!r} appeared after the header was fixed; "
-                    "use --fields to pin columns"
-                )
-                self.warned.add(key)
+        if self.fields is not None:
+            # explicit projection: dropping extras is the point, absence gets the shared warning
+            _warn_missing(record, self.fields, self.warned)
+        else:
+            for key in record:
+                if key not in self.columns and key not in self.warned:
+                    diagnostics.warn(
+                        f"column {key!r} appeared after the header was fixed; "
+                        "use --fields to pin columns"
+                    )
+                    self.warned.add(key)
         self.csv.writerow([self._cell(record.get(column)) for column in self.columns])
         self.stream.flush()
 
@@ -252,14 +289,21 @@ class _HumanWriter:
     stream: TextIO
     color: bool
     width: int
+    fields: tuple[str, ...] | None = None
+    warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
         self.stream.write(f"{line}\n")
         self.stream.flush()
 
     def write_record(self, record: Mapping[str, object]) -> None:
+        if self.fields is not None:
+            record = _project(record, self.fields, self.warned)
         for key, value in record.items():
-            rendered = value if isinstance(value, str) else _compact_json(value)
+            # null shows as nothing — for humans an absent value reads best as blank
+            rendered = (
+                "" if value is None else value if isinstance(value, str) else _compact_json(value)
+            )
             available = self.width - len(key) - 2
             if available >= 2 and len(rendered) > available:
                 rendered = rendered[: available - 1] + _ELLIPSIS

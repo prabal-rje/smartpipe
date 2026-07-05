@@ -56,6 +56,7 @@ $ tail -f app.log | sempipe map "Classify: {severity, category}" | tee incidents
 | `--model TEXT` | Model for this run (e.g. `ollama/qwen3:8b`, `gpt-4o-mini`, `claude-opus-4-8`) |
 | `--output FORMAT` | `auto` (default) · `text` · `json`. `auto` = human-readable at a terminal, NDJSON when piped |
 | `--concurrency N` | Max parallel model calls (default 4) |
+| `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md#-fields--pick-and-order-your-columns)) |
 | `--verbose` / `--debug` | More detail on stderr / full tracebacks |
 
 ## Inline braces vs. `--schema`

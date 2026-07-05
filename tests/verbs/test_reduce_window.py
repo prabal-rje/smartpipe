@@ -46,9 +46,15 @@ class FakeContext:
         return 4
 
     def writer(
-        self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO
+        self,
+        output_flag: OutputFormat,
+        *,
+        structured: bool,
+        stdout: TextIO,
+        fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
-        return make_writer(WriterConfig(mode=RenderMode.NDJSON, color=False, width=80), stdout)
+        config = WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=fields)
+        return make_writer(config, stdout)
 
 
 def _request(prompt: str = "Summarize", **kw: object) -> ReduceRequest:

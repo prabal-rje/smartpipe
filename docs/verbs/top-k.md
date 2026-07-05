@@ -72,6 +72,7 @@ than dies on) a record whose embedding dimensions don't match the query.
 | `--stream` | Live leaderboard over a stream (needs `K`) |
 | `--embed-model TEXT` | The embedding model |
 | `--concurrency N` | Max parallel model calls |
+| `--fields A,B` | Select + order columns of JSON results (incl. `_score`) ([details](../concepts/output-formats.md#-fields--pick-and-order-your-columns)) |
 
 *(Spellings `top-k` and `topk` also work.)*
 

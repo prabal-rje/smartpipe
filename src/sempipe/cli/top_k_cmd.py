@@ -8,7 +8,7 @@ import sys
 
 import click
 
-from sempipe.cli.input_options import input_options, input_spec
+from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
 from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
@@ -24,6 +24,7 @@ __all__ = ["top_k_command"]
 @click.option("--embed-model", "model_flag", help="Embedding model.")
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--stream", "stream", is_flag=True, help="Live leaderboard over a stream.")
+@fields_option
 @input_options
 def top_k_command(
     k: int | None,
@@ -32,6 +33,7 @@ def top_k_command(
     model_flag: str | None,
     concurrency_flag: int | None,
     stream: bool,
+    fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
 ) -> None:
@@ -54,6 +56,7 @@ def top_k_command(
         concurrency_flag=concurrency_flag,
         stream=stream,
         input=input_spec(in_patterns, from_files=from_files),
+        fields=fields,
     )
     code = asyncio.run(_run(request))
     if code is not ExitCode.OK:

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import click
 
-from sempipe.cli.input_options import input_options, input_spec
+from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
 from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
@@ -32,6 +32,7 @@ __all__ = ["reduce_command"]
 @click.option("--verbose", is_flag=True, help="Show the chunking tree on stderr.")
 @click.option("--window", type=int, help="Stream mode: reduce every N lines (tumbling).")
 @click.option("--every", type=int, help="With --window: slide, reducing after every M lines.")
+@fields_option
 @input_options
 def reduce_command(
     prompt: str,
@@ -42,6 +43,7 @@ def reduce_command(
     verbose: bool,
     window: int | None,
     every: int | None,
+    fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
 ) -> None:
@@ -66,6 +68,7 @@ def reduce_command(
         window=window,
         every=every,
         input=input_spec(in_patterns, from_files=from_files),
+        fields=fields,
     )
     code = asyncio.run(_run(request))
     if code is not ExitCode.OK:

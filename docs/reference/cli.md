@@ -38,6 +38,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `--concurrency N` | Max parallel model calls (default 4). |
 | `--in GLOB` | Read each matching file as one item (repeatable). |
 | `--from-files` | Treat each stdin line as a filename. |
+| `--fields A,B` | Select + order columns of structured output (`map`, `embed`, `top_k`, `reduce` — never `filter`). |
 
 ## Verb-specific options
 
@@ -82,6 +83,8 @@ $ sempipe cite                       # print a BibTeX entry for citing sempipe
 `--output` (or `SEMPIPE_OUTPUT`): `auto` (default), `text`, `json`, `csv`, `tsv`.
 See [Output formats](../concepts/output-formats.md). `auto` shows a readable view at a
 terminal and NDJSON when piped; `csv`/`tsv` need structured (named-field) output.
+`--fields a,b` projects structured output to just those columns, in that order,
+identically in every format.
 
 ## Environment variables
 

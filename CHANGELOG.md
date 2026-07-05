@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`--fields a,b` column projection** — select and order the columns of
+  structured output, identically in NDJSON / terminal / CSV / TSV, on `map`,
+  `embed`, `top_k`, and `reduce` (never `filter` — its output stays byte-faithful).
+  A field the results don't carry keeps its place (null / empty cell) with a
+  one-time stderr warning; on a plain-text run the flag is a clear usage error.
 - **Log in with ChatGPT.** `sempipe auth login` (browser PKCE, or `--headless`
   device codes) lets ChatGPT Plus/Pro subscribers use OpenAI's Codex-family models
   without an API key. Tokens live in `~/.config/sempipe/auth.json` (0600,

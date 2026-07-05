@@ -79,6 +79,24 @@ def test_fields_pins_columns_and_order() -> None:
     assert out.getvalue() == "role,name\r\neng,Ada\r\n"
 
 
+def test_fields_missing_column_warned_once_and_kept_empty(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    writer, out = _csv(fields=("name", "email"))
+    writer.write_record({"name": "Ada"})
+    writer.write_record({"name": "Bob"})
+    assert out.getvalue() == "name,email\r\nAda,\r\nBob,\r\n"
+    assert capsys.readouterr().err.count("no field 'email' in the results") == 1
+
+
+def test_explicit_fields_drop_extras_silently(capsys: pytest.CaptureFixture[str]) -> None:
+    # dropping unrequested columns is the point of --fields — no surprise-key warning
+    writer, out = _csv(fields=("name",))
+    writer.write_record({"name": "Ada", "extra": "x"})
+    assert out.getvalue() == "name\r\nAda\r\n"
+    assert capsys.readouterr().err == ""
+
+
 # --- TSV ----------------------------------------------------------------------
 
 

@@ -8,7 +8,7 @@ import sys
 
 import click
 
-from sempipe.cli.input_options import input_options, input_spec
+from sempipe.cli.input_options import fields_option, input_options, input_spec
 from sempipe.cli.interrupts import graceful_interrupts
 from sempipe.container import build_container
 from sempipe.core.errors import ExitCode
@@ -20,10 +20,12 @@ __all__ = ["embed_command"]
 @click.command(name="embed")
 @click.option("--embed-model", "model_flag", help="Embedding model (e.g. nomic-embed-text).")
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
+@fields_option
 @input_options
 def embed_command(
     model_flag: str | None,
     concurrency_flag: int | None,
+    fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
 ) -> None:
@@ -41,6 +43,7 @@ def embed_command(
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,
         input=input_spec(in_patterns, from_files=from_files),
+        fields=fields,
     )
     code = asyncio.run(_run(request))
     if code is not ExitCode.OK:
