@@ -16,6 +16,7 @@ from sempipe.core.jsontools import as_float_vector
 from sempipe.engine.ranking import rank, select
 from sempipe.engine.runner import Done, FailurePolicy, run_ordered
 from sempipe.io import diagnostics, readers
+from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
@@ -24,6 +25,7 @@ from sempipe.verbs.common import aiter_items
 if TYPE_CHECKING:
     from typing import TextIO
 
+    from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import ResultWriter
     from sempipe.models.base import EmbeddingModel
@@ -38,6 +40,7 @@ class TopKRequest:
     threshold: float | None
     model_flag: str | None
     concurrency_flag: int | None
+    input: InputSpec = STDIN
 
 
 class TopKContext(Protocol):
@@ -50,11 +53,10 @@ async def run_top_k(
 ) -> ExitCode:
     if request.k is None and request.threshold is None:
         raise UsageFault("top_k needs a number (K), --threshold, or both")
-    readers.ensure_not_a_tty(stdin)
     model = await context.embedding_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
 
-    items = [item async for item in readers.stdin_items(stdin)]
+    items = [item async for item in readers.resolve_items(request.input, stdin)]
     if not items:
         return ExitCode.OK
 
@@ -133,7 +135,9 @@ def _check_dimensions(query: tuple[float, ...], vectors: dict[int, tuple[float, 
 
 def _emit(writer: ResultWriter, item: Item, score: float) -> None:
     rounded = round(score, 4)
-    if item.data is not None:
+    if item.source.kind == "file":  # rank files → get filenames back (the resume demo)
+        writer.write_text(f"{item.source.name}\t{rounded}")
+    elif item.data is not None:
         record = {key: value for key, value in item.data.items() if key != "vector"}
         record["_score"] = rounded
         writer.write_record(record)

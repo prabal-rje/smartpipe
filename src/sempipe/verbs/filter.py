@@ -25,6 +25,7 @@ from sempipe.engine.prompts import (
 from sempipe.engine.runner import Done, FailurePolicy, run_ordered
 from sempipe.engine.schema import validate_and_coerce
 from sempipe.io import diagnostics, readers
+from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import OutputFormat
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from typing import TextIO
 
     from sempipe.engine.prompts import Token
+    from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import ResultWriter
     from sempipe.models.base import ChatModel
@@ -47,6 +49,7 @@ class FilterRequest:
     invert: bool
     model_flag: str | None
     concurrency_flag: int | None
+    input: InputSpec = STDIN
 
 
 class FilterContext(Protocol):
@@ -60,14 +63,13 @@ class FilterContext(Protocol):
 async def run_filter(
     request: FilterRequest, context: FilterContext, *, stdin: TextIO, stdout: TextIO
 ) -> ExitCode:
-    readers.ensure_not_a_tty(stdin)
     tokens = parse_prompt(request.condition)  # UsageFault on bad grammar
     reject_comma_groups(tokens)  # UsageFault: comma-braces are map-only
+    items = [item async for item in readers.resolve_items(request.input, stdin)]  # tty/glob checks
     model = await context.chat_model(request.model_flag)
     writer = context.writer(OutputFormat.AUTO, structured=False, stdout=stdout)
     concurrency = context.concurrency(request.concurrency_flag)
 
-    items = [item async for item in readers.stdin_items(stdin)]
     if has_brace(tokens) and not any(item.data is not None for item in items):
         raise UsageFault(screens.FIELD_REF_ON_PLAIN_INPUT)  # exit 64, before any model call
 
@@ -88,7 +90,7 @@ async def run_filter(
             if isinstance(outcome, Done):
                 judged += 1
                 if outcome.value is not request.invert:  # matched (or, with --not, didn't)
-                    writer.write_passthrough(by_index[outcome.index])
+                    _emit_match(writer, by_index[outcome.index])
             else:  # Skipped
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
                 skipped += 1
@@ -97,6 +99,15 @@ async def run_filter(
         spinner.finish()
         writer.flush()
     return outcome_exit_code(done=judged, skipped=skipped)
+
+
+def _emit_match(writer: ResultWriter, item: Item) -> None:
+    # In file mode the useful output is the filename, not the extracted document text
+    # (rank/keep files → get paths back, the Unix behavior — spec §8 / stage-07).
+    if item.source.kind == "file":
+        writer.write_text(item.source.name)
+    else:
+        writer.write_passthrough(item)
 
 
 async def _judge(model: ChatModel, tokens: tuple[Token, ...], item: Item) -> bool:

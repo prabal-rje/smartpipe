@@ -23,6 +23,7 @@ from sempipe.engine.prompts import (
 from sempipe.engine.runner import Done, FailurePolicy, run_ordered
 from sempipe.engine.schema import load_schema, validate_and_coerce
 from sempipe.io import diagnostics, readers
+from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.verbs.common import aiter_items, outcome_exit_code
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from typing import TextIO
 
     from sempipe.engine.prompts import MapPlan
+    from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import OutputFormat, ResultWriter
     from sempipe.models.base import ChatModel
@@ -47,6 +49,7 @@ class MapRequest:
     model_flag: str | None
     output: OutputFormat
     concurrency_flag: int | None
+    input: InputSpec = STDIN
 
 
 class MapContext(Protocol):
@@ -62,17 +65,16 @@ class MapContext(Protocol):
 async def run_map(
     request: MapRequest, context: MapContext, *, stdin: TextIO, stdout: TextIO
 ) -> ExitCode:
-    readers.ensure_not_a_tty(stdin)
     tokens = parse_prompt(request.prompt)  # UsageFault on bad grammar
     schema = load_schema(request.schema_path) if request.schema_path is not None else None
     plan = plan_map(tokens, schema=schema)
     instruction = to_instruction(tokens)
+    items = [item async for item in readers.resolve_items(request.input, stdin)]  # tty/glob checks
     model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
     structured = plan.mode == "structured"
     writer = context.writer(request.output, structured=structured, stdout=stdout)
     concurrency = context.concurrency(request.concurrency_flag)
 
-    items = [item async for item in readers.stdin_items(stdin)]
     spinner = make_stderr_spinner()
     spinner.start(total=len(items))
 

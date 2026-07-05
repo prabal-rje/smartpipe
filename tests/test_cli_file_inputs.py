@@ -1,0 +1,102 @@
+"""Full-stack file-input tests: --in / --from-files through the real CLI and adapters."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import httpx
+import pytest
+
+from tests.conftest import RunCli
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import respx
+
+CHAT = "http://localhost:11434/api/chat"
+EMBED = "http://localhost:11434/api/embed"
+
+
+@pytest.fixture(autouse=True)
+def local_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SEMPIPE_MODEL", "ollama/qwen3:8b")
+    monkeypatch.setenv("SEMPIPE_EMBED_MODEL", "ollama/nomic-embed-text")
+
+
+def test_map_reads_each_file_as_an_item(
+    run_cli: RunCli, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    (tmp_path / "a.txt").write_text("alpha content")
+    (tmp_path / "b.txt").write_text("beta content")
+    respx_mock.post(CHAT).side_effect = [
+        httpx.Response(200, json={"message": {"content": "A"}}),
+        httpx.Response(200, json={"message": {"content": "B"}}),
+    ]
+    code, out, _err = run_cli(
+        ["map", "First letter", "--in", str(tmp_path / "*.txt"), "--concurrency", "1"]
+    )
+    assert code == 0
+    assert out == "A\nB\n"  # two files → two items, sorted
+
+
+def test_filter_file_mode_emits_paths(
+    run_cli: RunCli, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    keep = tmp_path / "keep.txt"
+    keep.write_text("this document discusses a security incident")
+    drop = tmp_path / "drop.txt"
+    drop.write_text("this is a lunch menu")
+    # files are glob-sorted: drop.txt before keep.txt → verdicts in that order
+    respx_mock.post(CHAT).side_effect = [
+        httpx.Response(200, json={"message": {"content": '{"match": false}'}}),  # drop.txt
+        httpx.Response(200, json={"message": {"content": '{"match": true}'}}),  # keep.txt
+    ]
+    code, out, _err = run_cli(
+        ["filter", "about security", "--in", str(tmp_path / "*.txt"), "--concurrency", "1"]
+    )
+    assert code == 0
+    assert out == f"{keep}\n"  # the matching FILENAME, not the document text
+
+
+def test_top_k_file_mode_ranks_filenames(
+    run_cli: RunCli, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    (tmp_path / "close.txt").write_text("distributed systems and kubernetes")
+    (tmp_path / "far.txt").write_text("baking bread at home")
+    respx_mock.post(EMBED).side_effect = [
+        httpx.Response(200, json={"embeddings": [[1.0, 0.0]]}),  # query
+        httpx.Response(200, json={"embeddings": [[1.0, 0.0]]}),  # close.txt (sorted first)
+        httpx.Response(200, json={"embeddings": [[0.0, 1.0]]}),  # far.txt
+    ]
+    glob = str(tmp_path / "*.txt")
+    code, out, _err = run_cli(
+        ["top_k", "1", "--near", "infra engineer", "--in", glob, "--concurrency", "1"]
+    )
+    assert code == 0
+    assert out.splitlines()[0].startswith(f"{tmp_path / 'close.txt'}\t")
+
+
+def test_from_files_reads_named_files(
+    run_cli: RunCli, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    doc = tmp_path / "note.txt"
+    doc.write_text("some content")
+    respx_mock.post(CHAT).mock(
+        return_value=httpx.Response(200, json={"message": {"content": "ok"}})
+    )
+    code, out, _err = run_cli(["map", "Summarize", "--from-files"], stdin=f"{doc}\n")
+    assert code == 0
+    assert out == "ok\n"
+
+
+def test_empty_glob_is_usage_error(
+    run_cli: RunCli, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    route = respx_mock.post(CHAT).mock(
+        return_value=httpx.Response(200, json={"message": {"content": "x"}})
+    )
+    code, _out, err = run_cli(["map", "Summarize", "--in", str(tmp_path / "*.pdf")])
+    assert code == 64
+    assert "no files matched" in err
+    assert route.call_count == 0

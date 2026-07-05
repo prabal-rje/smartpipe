@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Protocol
 from sempipe.core.errors import ExitCode
 from sempipe.engine.runner import Done, FailurePolicy, run_ordered
 from sempipe.io import diagnostics, readers, tty
+from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
@@ -25,6 +26,7 @@ from sempipe.verbs.common import aiter_items, outcome_exit_code
 if TYPE_CHECKING:
     from typing import TextIO
 
+    from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.models.base import EmbeddingModel
 
@@ -35,6 +37,7 @@ __all__ = ["EmbedContext", "EmbedRequest", "run_embed"]
 class EmbedRequest:
     model_flag: str | None
     concurrency_flag: int | None
+    input: InputSpec = STDIN
 
 
 class EmbedContext(Protocol):
@@ -45,11 +48,10 @@ class EmbedContext(Protocol):
 async def run_embed(
     request: EmbedRequest, context: EmbedContext, *, stdin: TextIO, stdout: TextIO
 ) -> ExitCode:
-    readers.ensure_not_a_tty(stdin)
     model = await context.embedding_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
 
-    items = [item async for item in readers.stdin_items(stdin)]
+    items = [item async for item in readers.resolve_items(request.input, stdin)]
     if items and tty.stdout_is_tty():
         diagnostics.note(
             "embeddings are large — redirect to a file: sempipe embed > corpus.embeddings"

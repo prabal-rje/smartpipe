@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Literal, TypeGuard
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-__all__ = ["Item", "ItemSource", "describe_source", "item_from_line"]
+__all__ = ["Item", "ItemSource", "describe_source", "item_from_file", "item_from_line"]
 
 _BOM = "﻿"
 
@@ -44,6 +44,17 @@ def item_from_line(line: str, index: int) -> Item:
         text=raw,
         data=_sniff_json_object(raw),
         source=ItemSource(kind="stdin", name="-", index=index),
+    )
+
+
+def item_from_file(text: str, path: str, index: int) -> Item:
+    """A whole file is one item: its extracted text, with no JSON sniffing (a
+    document's text isn't an NDJSON line). ``filter``/``top_k`` emit its path."""
+    return Item(
+        raw=text,
+        text=text,
+        data=None,
+        source=ItemSource(kind="file", name=path, index=index),
     )
 
 

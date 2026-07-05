@@ -81,6 +81,9 @@ ignore = ["A005"]
 # The *Fault taxonomy (plan/architecture.md) is deliberate: "UsageError" would
 # collide with click.UsageError, which the CLI shell handles right next to ours.
 "src/sempipe/core/errors.py" = ["N818"]
+# MissingExtra is a control-flow signal (skip this file), named to read as prose
+# in a warning; an "Error" suffix would misrepresent it. Consistent with errors.py.
+"src/sempipe/parsing/extract.py" = ["N818"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

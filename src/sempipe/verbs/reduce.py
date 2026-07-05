@@ -26,6 +26,7 @@ from sempipe.engine.prompts import (
 )
 from sempipe.engine.schema import load_schema, validate_and_coerce
 from sempipe.io import diagnostics, readers
+from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.writers import OutputFormat
 
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from typing import TextIO
 
     from sempipe.engine.prompts import Token
+    from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import ResultWriter
     from sempipe.models.base import ChatModel
@@ -52,6 +54,7 @@ class ReduceRequest:
     model_flag: str | None
     concurrency_flag: int | None
     verbose: bool
+    input: InputSpec = STDIN
 
 
 class ReduceContext(Protocol):
@@ -65,7 +68,6 @@ class ReduceContext(Protocol):
 async def run_reduce(
     request: ReduceRequest, context: ReduceContext, *, stdin: TextIO, stdout: TextIO
 ) -> ExitCode:
-    readers.ensure_not_a_tty(stdin)
     tokens = parse_prompt(request.prompt)
     reject_comma_groups(tokens)
     if has_brace(tokens) and request.group_by is None:
@@ -74,12 +76,12 @@ async def run_reduce(
             "(where {field} means the group's value)"
         )
     schema = load_schema(request.schema_path) if request.schema_path is not None else None
+    items = [item async for item in readers.resolve_items(request.input, stdin)]  # tty/glob checks
     model = await context.chat_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
     structured = schema is not None
     writer = context.writer(OutputFormat.AUTO, structured=structured, stdout=stdout)
 
-    items = [item async for item in readers.stdin_items(stdin)]
     if not items:
         return ExitCode.OK
 
