@@ -1,5 +1,9 @@
 # Troubleshooting
 
+> **First move: `sempipe doctor`.** It checks config, Ollama, models, keys,
+> login, extras, and completions in one screen — with the fix on each line —
+> and never spends a model call.
+
 Symptom-indexed. Find your error message; each entry says what it means and the fix.
 Every one of these is also a friendly screen sempipe prints on stderr — you shouldn't
 have to come here, but here's the reference.

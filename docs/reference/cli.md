@@ -26,6 +26,7 @@ to **stderr**.
 | [`reduce`](../verbs/reduce.md) | synthesize many items into one | recursive, automatic |
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
+| [`doctor`](#doctor) | check the whole setup, spend nothing | exit 0 = ready |
 
 ## Common options
 
@@ -82,6 +83,15 @@ With a login and no `OPENAI_API_KEY`, OpenAI models ride your ChatGPT plan
 ```console
 $ sempipe cite                       # print a BibTeX entry for citing sempipe
 ```
+
+## `doctor`
+
+```console
+$ sempipe doctor        # config · Ollama · models · keys · login · extras · completions
+```
+
+One line per check with its fix inline; exit 0 all-green, 1 if anything needs
+attention. Never makes a paid model call; key lines report presence, never values.
 
 ## `run`
 

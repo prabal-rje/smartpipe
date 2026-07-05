@@ -55,6 +55,9 @@ $ export OPENAI_API_KEY=sk-...           # sempipe never stores your key
 Either way, `sempipe config` (with no arguments) walks you through this
 interactively if you'd rather answer a few questions.
 
+Not sure everything took? `sempipe doctor` checks the whole setup in one
+screen — without spending a model call.
+
 ## 3. Your first transform
 
 ```console

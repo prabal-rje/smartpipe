@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`sempipe doctor`** — every no-cost setup check on one screen: config parses,
+  Ollama reachable, configured chat/embed models installed, API keys present
+  (never printed, never validated — validation costs a call), ChatGPT login,
+  optional extras, shell completions. Each ✗ carries its fix; exit 0 all-green,
+  1 otherwise. A broken config is a reported line, not a crash.
 - **`--max-calls N` — a hard cost ceiling (D18).** Counts model calls (a repair
   re-ask counts; wire retries don't). Per-item verbs stop intake at the cap and
   drain gracefully (`note: stopped by --max-calls (N calls made)`); whole-set
