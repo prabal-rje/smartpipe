@@ -7,7 +7,8 @@ name = "sempipe"
 version = "1.0.0"
 description = "Semantic pipes for your terminal: map, filter, embed, top_k, reduce for Unix pipelines, local-first."
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 authors = [{ name = "Prabal Gupta", email = "prabal@rjeinc.ca" }]
 keywords = ["cli", "llm", "unix", "pipes", "semantic", "grep", "ollama"]
@@ -73,6 +74,8 @@ include = [
   "CHANGELOG.md",
   "CONTRIBUTING.md",
   "LICENSE",
+  "NOTICE",
+  "CITATION.cff",
   "mkdocs.yml",
   "pyproject.toml",
 ]
