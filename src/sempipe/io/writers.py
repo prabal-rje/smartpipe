@@ -11,16 +11,17 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, assert_never
 
 from sempipe.core.errors import UsageFault
+from sempipe.core.jsontools import as_record
 from sempipe.io import diagnostics
 from sempipe.io.text import clip_to_width, display_width
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from typing import TextIO
 
     from sempipe.io.items import Item
@@ -146,10 +147,26 @@ def _compact_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+_ABSENT = object()  # sentinel: "no such field", distinct from a genuine null
+
+
+def _lookup(record: Mapping[str, object], name: str) -> object:
+    """Exact key first; else a dotted walk into nested objects (join's left.x/right.x)."""
+    if name in record:
+        return record[name]
+    current: object = record
+    for part in name.split("."):
+        narrowed = as_record(current)
+        if narrowed is None or part not in narrowed:
+            return _ABSENT
+        current = narrowed[part]
+    return current
+
+
 def _warn_missing(record: Mapping[str, object], fields: tuple[str, ...], warned: set[str]) -> None:
     """The one-time heads-up per requested-but-absent field (plan/ux.md, --fields)."""
     for name in fields:
-        if name not in record and name not in warned:
+        if _lookup(record, name) is _ABSENT and name not in warned:
             diagnostics.warn(f"--fields: no field {name!r} in the results; emitting null")
             warned.add(name)
 
@@ -159,7 +176,8 @@ def _project(
 ) -> dict[str, object]:
     """Select + order the requested columns; absent ones become null (shape stays stable)."""
     _warn_missing(record, fields, warned)
-    return {name: record.get(name) for name in fields}
+    projected = {name: _lookup(record, name) for name in fields}
+    return {name: (None if value is _ABSENT else value) for name, value in projected.items()}
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,7 +259,8 @@ class _TableWriter:
                         "use --fields to pin columns"
                     )
                     self.warned.add(key)
-        self.csv.writerow([self._cell(record.get(column)) for column in self.columns])
+        cells = (_lookup(record, column) for column in self.columns)
+        self.csv.writerow([self._cell(None if value is _ABSENT else value) for value in cells])
         self.stream.flush()
 
     def write_passthrough(self, item: Item) -> None:  # pragma: no cover — csv is structured-only

@@ -16,7 +16,7 @@ from sempipe.engine.prompts import (
 from sempipe.io.items import item_from_line
 
 
-def _json_item(payload: str, index: int = 0):  # noqa: ANN202 — test helper
+def _json_item(payload: str, index: int = 0):
     return item_from_line(payload + "\n", index)
 
 
@@ -60,10 +60,7 @@ def test_interpolates_fields_from_both_sides() -> None:
     tokens = parse_join_predicate("ticket {left.body} concerns {right.name}")
     left = _json_item('{"body": "printer is on fire"}')
     right = _json_item('{"name": "LaserJet 9"}', 1)
-    assert (
-        interpolate_join(tokens, left, right)
-        == "ticket printer is on fire concerns LaserJet 9"
-    )
+    assert interpolate_join(tokens, left, right) == "ticket printer is on fire concerns LaserJet 9"
 
 
 def test_dot_text_falls_back_to_the_raw_text() -> None:

@@ -33,8 +33,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "FILTER_JUDGE_SYSTEM",
-    "JOIN_JUDGE_SYSTEM",
     "IMAGE_ITEM_PREFIX",
+    "JOIN_JUDGE_SYSTEM",
     "JUDGE_SCHEMA",
     "MAP_JSON_SYSTEM",
     "MAP_PLAIN_SYSTEM",
@@ -300,8 +300,7 @@ def parse_join_predicate(text: str) -> tuple[Token, ...]:
         if not dot:
             raise UsageFault(
                 f"{{{field}}} is ambiguous in join — say {{left.{field}}} or {{right.{field}}}\n"
-                "  join reads two inputs; each brace names a side's field.\n"
-                + _JOIN_EXAMPLE
+                "  join reads two inputs; each brace names a side's field.\n" + _JOIN_EXAMPLE
             )
         if side not in ("left", "right"):
             raise UsageFault(

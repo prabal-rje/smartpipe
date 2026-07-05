@@ -20,7 +20,15 @@ from sempipe.core.errors import (
 )
 from sempipe.io import tty
 
-__all__ = ["die", "drain_timed_out", "internal_error", "interrupted_summary", "note", "warn"]
+__all__ = [
+    "die",
+    "drain_timed_out",
+    "internal_error",
+    "interrupted_summary",
+    "note",
+    "preview",
+    "warn",
+]
 
 _RED = "\x1b[31m"
 _RESET = "\x1b[0m"
@@ -30,6 +38,13 @@ _ISSUES_URL = "https://github.com/prabal-rje/sempipe/issues/new"
 def warn(message: str) -> None:
     sys.stderr.write(f"⚠ {message}\n")
     sys.stderr.flush()
+
+
+def preview(message: str) -> None:
+    """Informational cost/awareness lines (D18/D21): TTY-only, never in pipes/cron."""
+    if tty.stderr_is_tty():
+        sys.stderr.write(f"{message}\n")
+        sys.stderr.flush()
 
 
 def note(message: str) -> None:
