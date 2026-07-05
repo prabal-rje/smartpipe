@@ -13,7 +13,7 @@ That's the whole install. `sempipe` is now a command:
 
 ```console
 $ sempipe --version
-sempipe 0.1.0
+sempipe 0.5.0
 ```
 
 ## Recommended: pipx
@@ -44,8 +44,8 @@ libraries are opt-in, so you only install what you use:
 | Extra | Enables | Install |
 |---|---|---|
 | `anthropic` | Claude models (`claude-*`) | `pip install 'sempipe[anthropic]'` |
-| `files` | reading PDF, DOCX, PPTX, XLSX documents | `pip install 'sempipe[files]'` *(coming with file support)* |
-| `audio` | transcribing audio files | `pip install 'sempipe[audio]'` *(coming with file support)* |
+| `files` | reading PDF, DOCX, PPTX, XLSX, HTML, EPUB via [`--in`](inputs/files.md) | `pip install 'sempipe[files]'` |
+| `audio` | transcribing audio files | `pip install 'sempipe[audio]'` |
 | `all` | everything above | `pip install 'sempipe[all]'` |
 
 If you run a command that needs an extra you haven't installed, sempipe tells you

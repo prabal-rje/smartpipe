@@ -13,7 +13,14 @@ the whole mental model — everything else follows.
 
   Each line of the log is judged on its own.
 
-*(File inputs — where each *file* is one item — arrive in a later release.)*
+- **Reading files (`--in` / `--from-files`):** each **file** is one item.
+
+  ```console
+  $ sempipe map "Summarize this document" --in 'reports/*.pdf'
+  ```
+
+  See [File inputs](../inputs/files.md) for the details, including how documents
+  are parsed automatically and what `filter`/`top_k` return in file mode.
 
 ## Plain text vs. JSON Lines
 

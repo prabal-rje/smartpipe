@@ -5,6 +5,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-05
+
+Documents become items — point any verb at files.
+
+### Added
+- **File inputs** — `--in 'reports/*.pdf'` reads each matching file as one item;
+  `--from-files` treats each stdin line as a filename. Works with every verb.
+- **Automatic parsing** — you never name a parser. Text files read directly; PDF,
+  DOCX, PPTX, XLSX, HTML, and EPUB extract via the optional `sempipe[files]` extra;
+  detection is by extension with a magic-byte fallback. Unreadable, unparseable, or
+  unsupported files are skipped with a warning — a bad file never crashes the run.
+  Missing an extra shows one-time install guidance, then skips those files.
+- **File-mode output for `filter`/`top_k`** — they emit the matching/ranked
+  **filenames** (with the score, for `top_k`), so filtering or ranking a folder of
+  documents returns paths you can pipe onward.
+- Docs: `docs/inputs/files.md`; extras table and pipes-and-items updated.
+
+### Not yet
+- Describing images with a vision model, and reading a single binary file from
+  stdin (`sempipe map … < report.pdf`), are planned for a following release.
+
 ## [0.4.0] — 2026-07-05
 
 The last of the five verbs — sempipe's full vocabulary now works end to end.

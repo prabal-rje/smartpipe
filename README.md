@@ -24,9 +24,9 @@ composes with `grep`, `jq`, `sort`, and `tail -f` like it was always there.
 | `reduce` | synthesize many items into one | `awk` END block, but literate | ✅ shipped |
 | `config` | one-minute interactive setup | — | ✅ shipped |
 
-> **v0.4.0** ships all five verbs — `map`, `filter`, `embed`, `top_k`, `reduce` —
-> plus `config`, end to end. File inputs, streaming, and output polish come next.
-> Watch [CHANGELOG.md](CHANGELOG.md).
+> **v0.5.0** ships all five verbs plus `config`, and reads files directly:
+> `sempipe map "Summarize" --in 'reports/*.pdf'` parses each document automatically.
+> Streaming and output polish come next. Watch [CHANGELOG.md](CHANGELOG.md).
 
 ## Sixty seconds
 
