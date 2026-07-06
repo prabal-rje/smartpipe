@@ -23,7 +23,7 @@ def _run(by: str, stdin_text: str, *, descending: bool = False) -> tuple[str, st
 
 def test_numbers_sort_numerically() -> None:
     out, _ = _run("score", '{"score": 10}\n{"score": 2}\n{"score": 33}\n')
-    assert [line for line in out.splitlines()] == ['{"score": 2}', '{"score": 10}', '{"score": 33}']
+    assert out.splitlines() == ['{"score": 2}', '{"score": 10}', '{"score": 33}']
 
 
 def test_desc_flips_and_missing_still_lands_last() -> None:
