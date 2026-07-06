@@ -40,6 +40,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`sempipe distinct` — near-duplicate folding (D38/03).** Exact duplicates
+  fold free before any embedding; the rest embed once and leader-cluster
+  (hand-rolled, deterministic, order-stable — no sklearn). First occurrence
+  wins, output keeps input order and bytes, the receipt names the split
+  (`kept 412 of 1,208 — 573 exact + 223 near folded`), `--show-groups` is
+  the audit trail, and items that fail to embed are KEPT and disclosed.
+  The training-data decontamination move and the alert-storm collapser.
 - **`sempipe extend` — your record, plus columns (D38/02).** map's machinery
   with a merge at the emit edge: every input field survives, extracted fields
   land beside them (collisions overwrite idempotently, disclosed once per

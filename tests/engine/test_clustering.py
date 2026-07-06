@@ -1,0 +1,38 @@
+"""Leader clustering + kNN weirdness (D38): deterministic, order-stable."""
+
+from __future__ import annotations
+
+from sempipe.engine.clustering import knn_mean_distance, leader_clusters
+
+NEARLY_RIGHT = (0.995, 0.0999)  # ~cos 0.995 to (1,0)
+RIGHT = (1.0, 0.0)
+UP = (0.0, 1.0)
+
+
+def test_near_vectors_fold_into_the_first_leader() -> None:
+    clusters = leader_clusters([RIGHT, NEARLY_RIGHT, UP], threshold=0.9)
+    assert clusters == [[0, 1], [2]]  # leader = first member, input order kept
+
+
+def test_threshold_separates() -> None:
+    clusters = leader_clusters([RIGHT, NEARLY_RIGHT], threshold=0.9999)
+    assert clusters == [[0], [1]]
+
+
+def test_order_stability_is_a_feature() -> None:
+    # the same corpus reversed founds clusters in reversed order — but the
+    # GROUPING is the same; re-runs of the same input are identical
+    forward = leader_clusters([RIGHT, NEARLY_RIGHT, UP], threshold=0.9)
+    again = leader_clusters([RIGHT, NEARLY_RIGHT, UP], threshold=0.9)
+    assert forward == again
+
+
+def test_knn_ranks_the_planted_outlier_highest() -> None:
+    cluster = [RIGHT, NEARLY_RIGHT, (0.99, 0.14)]
+    corpus = [*cluster, UP]  # UP is far from the tight cluster
+    scores = knn_mean_distance(corpus, k=2)
+    assert max(range(len(corpus)), key=lambda index: scores[index]) == 3
+
+
+def test_knn_on_tiny_corpus_is_zero() -> None:
+    assert knn_mean_distance([RIGHT], k=5) == [0.0]

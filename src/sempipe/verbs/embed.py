@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from sempipe.io.items import Item
     from sempipe.models.base import ChatModel, EmbeddingModel
 
-__all__ = ["EmbedContext", "EmbedRequest", "run_embed"]
+__all__ = ["EmbedContext", "EmbedRequest", "optional_chat", "run_embed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +80,7 @@ async def run_embed(
     spinner.start(total=total)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     converter = make_converter(
-        await _optional_chat(context), allow_paid=request.allow_captions, log=log
+        await optional_chat(context), allow_paid=request.allow_captions, log=log
     )
 
     done = 0
@@ -137,7 +137,7 @@ async def run_embed(
     return outcome_exit_code(done=done, skipped=skipped)
 
 
-async def _optional_chat(context: EmbedContext) -> ChatModel | None:
+async def optional_chat(context: EmbedContext) -> ChatModel | None:
     """The converter's LLM rung — absent when no chat model is configured;
     embedding never fails because chat isn't set up (D33)."""
     try:

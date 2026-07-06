@@ -26,6 +26,7 @@ to **stderr**.
 | [`reduce`](../verbs/reduce.md) | synthesize many items into one | recursive, automatic |
 | [`join`](../verbs/join.md) | match stdin against a second input | embed-block-judge |
 | [`extend`](../verbs/extend.md) | add extracted fields to each record (map that merges) | 1 call per item |
+| [`distinct`](../verbs/distinct.md) | fold near-duplicate items, first occurrence wins | embeddings only |
 | [`where`](../verbs/where.md) | keep rows matching a deterministic predicate | free — no model calls |
 | [`split`](../verbs/split.md) | break oversized items into chunk items | free — no model calls |
 | `chart` | bar-chart a field's values; `--save` writes SVG | free — no model calls |
@@ -61,6 +62,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
 | `join` | `--right FILE` (required), `--k N` (default 5), `--threshold FLOAT`, `--unmatched FILE`, `--embed-model` |
 | `extend` | map's flags (braces/--schema/--schema-from/--tally/--explode/--fields) |
+| `distinct` | `--show-groups`, `--threshold F` (cosine, default 0.90), `--embed-model` |
 | `where` | `'PREDICATE'` (has, contains, matches /re/, == != > >= < <=, and/or/not) |
 | `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
 | `chart` | `FIELD` (or whole lines), `--top N`, `--save FILE.svg`, `--title` |

@@ -20,6 +20,7 @@ from sempipe.cli.auth_cmd import auth_command
 from sempipe.cli.chart_cmd import chart_command
 from sempipe.cli.cite_cmd import cite_command
 from sempipe.cli.config_cmd import config_command
+from sempipe.cli.distinct_cmd import distinct_command
 from sempipe.cli.doctor_cmd import doctor_command
 from sempipe.cli.echo_cmd import echo_command
 from sempipe.cli.embed_cmd import embed_command
@@ -70,6 +71,7 @@ cli.add_command(embed_command)
 cli.add_command(top_k_command)
 cli.add_command(reduce_command)
 cli.add_command(join_command)
+cli.add_command(distinct_command)
 cli.add_command(run_command)
 cli.add_command(config_command)
 cli.add_command(doctor_command)
