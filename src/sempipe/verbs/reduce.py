@@ -13,7 +13,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from sempipe.core.errors import ExitCode, ItemError, UsageFault
-from sempipe.engine.chunking import budget_for, chunk_indices, estimate_tokens, fits_in_one
+from sempipe.engine.chunking import (
+    budget_for,
+    chunk_indices,
+    estimate_tokens,
+    fits_in_one,
+    halve,
+    is_context_overflow,
+)
 from sempipe.engine.prompts import (
     build_reduce_final,
     build_reduce_intermediate,
@@ -38,7 +45,7 @@ from sempipe.verbs.common import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
     from pathlib import Path
     from typing import TextIO
 
@@ -46,9 +53,9 @@ if TYPE_CHECKING:
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import ResultWriter
-    from sempipe.models.base import ChatModel
+    from sempipe.models.base import ChatModel, ModelRef
 
-__all__ = ["ReduceContext", "ReduceRequest", "run_reduce"]
+__all__ = ["ReduceContext", "ReduceRequest", "Reducer", "run_reduce"]
 
 _OVERHEAD_TOKENS = 300  # reserve room for the prompt template + response
 
@@ -70,6 +77,7 @@ class ReduceRequest:
 
 class ReduceContext(Protocol):
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
+    async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
     def writer(
         self,
@@ -125,11 +133,12 @@ async def run_reduce(
     if not items:
         return ExitCode.OK
 
-    reducer = _Reducer(
+    reducer = Reducer(
         model=model,
         budget=budget_for(model.ref.provider, prompt_overhead=_OVERHEAD_TOKENS),
         concurrency=concurrency,
         verbose=request.verbose,
+        window_budget=_window_budget(context, model),
     )
     try:
         if request.group_by is not None:
@@ -144,7 +153,7 @@ async def run_reduce(
 
 
 async def _run_single(
-    reducer: _Reducer,
+    reducer: Reducer,
     tokens: tuple[Token, ...],
     schema: Mapping[str, object] | None,
     items: list[Item],
@@ -191,11 +200,12 @@ async def _run_windowed(
         OutputFormat.AUTO, structured=True, stdout=stdout, fields=request.fields
     )
     instruction = to_instruction(tokens)
-    reducer = _Reducer(
+    reducer = Reducer(
         model=model,
         budget=budget_for(model.ref.provider, prompt_overhead=_OVERHEAD_TOKENS),
         concurrency=context.concurrency(request.concurrency_flag),
         verbose=request.verbose,
+        window_budget=_window_budget(context, model),
     )
     buffer: WindowBuffer[str] = WindowBuffer(policy)
     produced = 0
@@ -240,7 +250,7 @@ async def _run_windowed(
 
 
 async def _run_grouped(
-    reducer: _Reducer,
+    reducer: Reducer,
     request: ReduceRequest,
     tokens: tuple[Token, ...],
     schema: Mapping[str, object] | None,
@@ -260,9 +270,7 @@ async def _run_grouped(
         reducer.produced += 1
 
 
-def _group(
-    items: list[Item], field_name: str, reducer: _Reducer
-) -> list[tuple[object, list[Item]]]:
+def _group(items: list[Item], field_name: str, reducer: Reducer) -> list[tuple[object, list[Item]]]:
     order: list[str] = []
     groups: dict[str, tuple[object, list[Item]]] = {}
     for item in items:
@@ -286,14 +294,27 @@ def _emit(writer: ResultWriter, *, structured: bool, result: str | Mapping[str, 
         writer.write_text(result if isinstance(result, str) else str(result))
 
 
+def _window_budget(context: ReduceContext, model: ChatModel) -> Callable[[], Awaitable[int | None]]:
+    async def refreshed() -> int | None:
+        window = await context.context_window(model.ref)
+        if window is None:
+            return None
+        return budget_for(model.ref.provider, prompt_overhead=_OVERHEAD_TOKENS, window=window)
+
+    return refreshed
+
+
 @dataclass
-class _Reducer:
+class Reducer:
     model: ChatModel
     budget: int
     concurrency: int
     verbose: bool
     skipped: int = 0
     produced: int = 0
+    bisection_noted: bool = False
+    window_budget: Callable[[], Awaitable[int | None]] | None = None
+    probed: bool = False
 
     async def reduce(
         self, instruction: str, schema: Mapping[str, object] | None, texts: Sequence[str]
@@ -301,17 +322,29 @@ class _Reducer:
         trace = [len(texts)]
         current = list(texts)
         semaphore = asyncio.Semaphore(self.concurrency)
-        while not fits_in_one([estimate_tokens(t) for t in current], self.budget):
-            chunks = chunk_indices([estimate_tokens(t) for t in current], self.budget)
-            trace.append(len(chunks))
-            current = await self._reduce_level(instruction, current, chunks, semaphore)
-            if not current:
-                raise ItemError("every chunk failed to reduce")
-        if len(trace) > 1:
-            trace.append(1)
-            if self.verbose:
-                diagnostics.note(_trace_line(trace))
-        return await self._final(instruction, schema, current)
+        await self._widen_if_possible(current)
+        while True:
+            while not fits_in_one([estimate_tokens(t) for t in current], self.budget):
+                chunks = chunk_indices([estimate_tokens(t) for t in current], self.budget)
+                trace.append(len(chunks))
+                current = await self._reduce_level(instruction, current, chunks, semaphore)
+                if not current:
+                    raise ItemError("every chunk failed to reduce")
+            try:
+                if len(trace) > 1:
+                    trace.append(1)
+                    if self.verbose:
+                        diagnostics.note(_trace_line(trace))
+                return await self._final(instruction, schema, current)
+            except ItemError as exc:
+                if not (is_context_overflow(str(exc)) and len(current) > 1):
+                    raise
+                # the synthesis call itself overflowed: collapse one more level
+                self._note_bisection()
+                first, second = halve(tuple(range(len(current))))
+                current = await self._reduce_level(instruction, current, (first, second), semaphore)
+                if not current:
+                    raise ItemError("every chunk failed to reduce") from exc
 
     async def _reduce_level(
         self,
@@ -320,21 +353,47 @@ class _Reducer:
         chunks: tuple[tuple[int, ...], ...],
         semaphore: asyncio.Semaphore,
     ) -> list[str]:
-        async def reduce_chunk(chunk: tuple[int, ...]) -> str | None:
-            async with semaphore:
-                request = build_reduce_intermediate(goal, [texts[i] for i in chunk])
-                try:
-                    return await self.model.complete(request)
-                except ItemError as exc:
-                    diagnostics.warn(
-                        f"skipped: chunk over items {chunk[0] + 1}-{chunk[-1] + 1} ({exc})"
-                    )
-                    self.skipped += 1
-                    return None
+        async def reduce_chunk(chunk: tuple[int, ...]) -> list[str]:
+            request = build_reduce_intermediate(goal, [texts[i] for i in chunk])
+            try:
+                async with semaphore:  # released before any bisection recursion
+                    return [await self.model.complete(request)]
+            except ItemError as exc:
+                if is_context_overflow(str(exc)) and len(chunk) > 1:
+                    # D26: the wire said this chunk is too big — the estimate
+                    # lied, so split at item boundaries and retry both halves
+                    self._note_bisection()
+                    first, second = halve(chunk)
+                    return [*await reduce_chunk(first), *await reduce_chunk(second)]
+                assert chunk, "chunk_indices never yields an empty chunk"
+                diagnostics.warn(
+                    f"skipped: chunk over items {chunk[0] + 1}-{chunk[-1] + 1} ({exc})"
+                )
+                self.skipped += 1
+                return []
 
         tasks = [asyncio.create_task(reduce_chunk(chunk)) for chunk in chunks]
-        notes = [await task for task in tasks]  # awaited in order
-        return [note for note in notes if note is not None]
+        notes = [note for task in tasks for note in await task]  # awaited in order
+        return notes
+
+    async def _widen_if_possible(self, texts: list[str]) -> None:
+        """D26 layer 1: the table budget looks too small — ask the provider for
+        the real window, once. A bigger true window means fewer (or no) levels."""
+        if self.window_budget is None or self.probed:
+            return
+        if fits_in_one([estimate_tokens(t) for t in texts], self.budget):
+            return
+        self.probed = True
+        refreshed = await self.window_budget()
+        if refreshed is not None and refreshed > self.budget:
+            self.budget = refreshed
+
+    def _note_bisection(self) -> None:
+        if not self.bisection_noted:
+            self.bisection_noted = True
+            diagnostics.note(
+                "a chunk overflowed the model's window — splitting further and retrying"
+            )
 
     async def _final(
         self, instruction: str, schema: Mapping[str, object] | None, texts: list[str]

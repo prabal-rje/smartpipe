@@ -40,6 +40,7 @@ nav:
       - top_k: verbs/top-k.md
       - reduce: verbs/reduce.md
       - join: verbs/join.md
+      - split: verbs/split.md
   - Concepts:
       - Pipes & items: concepts/pipes-and-items.md
       - Models & providers: concepts/models-and-providers.md

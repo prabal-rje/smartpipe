@@ -83,6 +83,9 @@ async def test_map_emits_before_eof_in_process() -> None:
         async def chat_model(self, flag: str | None = None) -> EchoUpper:
             return EchoUpper()
 
+        async def context_window(self, ref: object) -> int | None:
+            return None  # the static table stands here
+
         def concurrency(self, flag: int | None = None) -> int:
             return 2
 

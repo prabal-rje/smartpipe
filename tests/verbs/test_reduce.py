@@ -44,6 +44,9 @@ class FakeContext:
     async def chat_model(self, flag: str | None = None) -> FakeChat:
         return self.model
 
+    async def context_window(self, ref: object) -> int | None:
+        return None  # table budget stands; the probe layer is exercised separately
+
     def concurrency(self, flag: int | None = None) -> int:
         return 4
 
@@ -290,3 +293,48 @@ async def test_schema_repair_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
     assert code == ExitCode.OK
     assert json.loads(out.strip()) == {"headline": "fixed"}
     assert len(model.calls) == 2  # original + one repair
+
+
+class OverflowingChat:
+    """Says 'context length exceeded' for any request over its true window,
+    regardless of what the estimator believed."""
+
+    def __init__(self, window_chars: int) -> None:
+        self.ref = ModelRef("ollama", "tight")
+        self.window_chars = window_chars
+        self.calls: list[int] = []
+
+    async def complete(self, request: CompletionRequest) -> str:
+        size = len(request.user)
+        self.calls.append(size)
+        if size > self.window_chars:
+            raise ItemError("this model's maximum context length is smaller than that")
+        return "note"
+
+
+async def test_bisection_recovers_when_the_estimate_lies(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from sempipe.verbs.reduce import Reducer
+
+    model = OverflowingChat(window_chars=900)
+    reducer = Reducer(model=model, budget=10_000, concurrency=1, verbose=False)
+    # budget says these fit in ONE call; the wire disagrees until quartered
+    texts = ["x" * 400 for _ in range(8)]
+    result = await reducer.reduce("summarize", None, texts)
+    assert result == "note"
+    assert reducer.skipped == 0  # nothing lost — bisection, not skipping
+    assert max(model.calls[-3:]) <= 900  # the final calls fit the true window
+    err = capsys.readouterr().err
+    assert err.count("splitting further and retrying") == 1  # the pinned once-note
+
+
+async def test_single_item_overflow_surfaces_the_wire_error() -> None:
+    # one item that alone exceeds the true window can't be bisected at item
+    # boundaries — the wire's own message surfaces loudly (D26: split is the fix)
+    from sempipe.verbs.reduce import Reducer
+
+    model = OverflowingChat(window_chars=100)
+    reducer = Reducer(model=model, budget=10_000, concurrency=1, verbose=False)
+    with pytest.raises(ItemError, match="maximum context length"):
+        await reducer.reduce("summarize", None, ["y" * 5_000])

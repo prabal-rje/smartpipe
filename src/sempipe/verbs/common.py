@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, TypeVar, assert_never
 
 from sempipe.core.errors import ExitCode, ItemError, TooManyFailures, UsageFault
@@ -18,7 +18,7 @@ from sempipe.models.base import AudioData, ImageData
 
 if TYPE_CHECKING:
     import asyncio
-    from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+    from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
     from pathlib import Path
 
     from sempipe.io.items import Item
@@ -28,7 +28,9 @@ __all__ = [
     "AUDIO_NEEDS_TEXT",
     "EMBED_BATCH_SIZE",
     "IMAGE_NEEDS_MAP",
+    "WindowGate",
     "batched",
+    "embed_budget",
     "embed_in_batches",
     "ensure_text",
     "interrupted_exit_code",
@@ -101,6 +103,57 @@ async def ensure_text(item: Item, *, transcriber: Callable[[AudioData], str] = t
             assert_never(unreachable)
 
 
+EMBED_BUDGET_TOKENS = 4_800  # 8k published minus the usual safety margin
+_GEMINI_EMBED_BUDGET_TOKENS = 1_200  # gemini-embedding caps input at 2k tokens
+
+
+def embed_budget(provider: str) -> int:
+    """Embedding windows aren't published via API — a conservative static table."""
+    return _GEMINI_EMBED_BUDGET_TOKENS if provider == "gemini" else EMBED_BUDGET_TOKENS
+
+
+@dataclass
+class WindowGate:
+    """Per-run, probe-aware oversize gate for chat calls (D26).
+
+    Fast path: an item within the static table budget never triggers anything.
+    The first item that exceeds it asks the provider for the real window once
+    (four wires publish it); the answer can only widen the budget.
+    """
+
+    provider: str
+    model_name: str
+    overhead: int
+    window: Callable[[], Awaitable[int | None]]
+    _budget: int | None = None
+    _probed: bool = False
+
+    async def budget_for_oversized(self, text: str) -> int | None:
+        """None when the text fits (no probe, no cost); else the best-known budget."""
+        from sempipe.engine.chunking import budget_for, estimate_tokens
+
+        if self._budget is None:
+            self._budget = budget_for(self.provider, prompt_overhead=self.overhead)
+        if estimate_tokens(text) <= self._budget:
+            return None
+        if not self._probed:
+            self._probed = True
+            probed = await self.window()
+            if probed is not None:
+                widened = budget_for(self.provider, prompt_overhead=self.overhead, window=probed)
+                self._budget = max(self._budget, widened)
+        return None if estimate_tokens(text) <= self._budget else self._budget
+
+    def refusal(self, text: str, budget: int) -> str:
+        from sempipe.engine.chunking import estimate_tokens
+
+        return (
+            f"~{estimate_tokens(text):,} tokens is past {self.model_name}'s "
+            f"~{budget:,}-token budget — split it first: "
+            'sempipe split --in FILE | sempipe map "..." | sempipe reduce "..."'
+        )
+
+
 def resolve_schema(
     path: Path | None,
     dsl: str | None,
@@ -165,43 +218,83 @@ async def embed_in_batches(
         consecutive = 0
         succeeded = True
 
-    for chunk in batched(tuple(items), batch_size):
-        if stop is not None and stop.is_set():
+    from sempipe.engine.chunking import estimate_tokens, mean_pool, split_text
+
+    budget = embed_budget(model.ref.provider)
+
+    async def embed_batch(
+        batch: list[Item],
+    ) -> AsyncIterator[ItemOutcome[tuple[Item, tuple[float, ...]]]]:
+        if not batch:
             return
-        text_items: list[Item] = []
-        for item in chunk:
-            if item.media is None:
-                text_items.append(item)
-                continue
-            try:
-                text_items.append(await ensure_text(item, transcriber=transcriber))
-            except ItemError as exc:
-                processed += 1
-                yield Skipped(item.source.index, str(exc), item.source)
-                account_skip(str(exc))
-        if not text_items:
-            continue
         try:
-            vectors = await model.embed([item.text for item in text_items])
-            if len(vectors) != len(text_items):
-                raise ItemError(
-                    f"endpoint returned {len(vectors)} vectors for {len(text_items)} texts"
-                )
+            vectors = await model.embed([entry.text for entry in batch])
+            if len(vectors) != len(batch):
+                raise ItemError(f"endpoint returned {len(vectors)} vectors for {len(batch)} texts")
         except ItemError:
-            for item in text_items:
+            # the poison fallback (DEFER-3): re-run item-by-item so one bad item
+            # skips alone — accounting runs BETWEEN calls so the D18 halt can
+            # stop the spend mid-batch, not after it
+            for entry in batch:
                 if stop is not None and stop.is_set():
                     return
-                processed += 1
                 try:
-                    vector = (await model.embed([item.text]))[0]
+                    vector = (await model.embed([entry.text]))[0]
                 except ItemError as exc:
-                    yield Skipped(item.source.index, str(exc), item.source)
-                    account_skip(str(exc))
+                    skip = Skipped(entry.source.index, str(exc), entry.source)
+                    account(skip)
+                    yield skip
                 else:
-                    account_done()
-                    yield Done(item.source.index, (item, vector))
-            continue
-        for item, vector in zip(text_items, vectors, strict=True):
-            processed += 1
+                    done = Done(entry.source.index, (entry, vector))
+                    account(done)
+                    yield done
+            return
+        for entry, vector in zip(batch, vectors, strict=True):
+            done = Done(entry.source.index, (entry, vector))
+            account(done)
+            yield done
+
+    async def pooled(entry: Item) -> ItemOutcome[tuple[Item, tuple[float, ...]]]:
+        # D26: one text past the embedding window — embed its chunks, mean-pool
+        try:
+            vectors = await model.embed(list(split_text(entry.text, budget)))
+        except ItemError as exc:
+            return Skipped(entry.source.index, str(exc), entry.source)
+        return Done(entry.source.index, (entry, mean_pool(vectors)))
+
+    def account(outcome: ItemOutcome[tuple[Item, tuple[float, ...]]]) -> None:
+        nonlocal processed
+        processed += 1
+        if isinstance(outcome, Done):
             account_done()
-            yield Done(item.source.index, (item, vector))
+        else:
+            account_skip(outcome.reason)
+
+    pending: list[Item] = []
+    for item in items:
+        if stop is not None and stop.is_set():
+            return
+        if item.media is not None:
+            try:
+                item = await ensure_text(item, transcriber=transcriber)
+            except ItemError as exc:
+                skip = Skipped(item.source.index, str(exc), item.source)
+                account(skip)
+                yield skip
+                continue
+        if estimate_tokens(item.text) > budget:
+            # flush first so stdout order stays input order, then pool this one
+            async for outcome in embed_batch(pending):
+                yield outcome
+            pending = []
+            pooled_outcome = await pooled(item)
+            account(pooled_outcome)
+            yield pooled_outcome
+            continue
+        pending.append(item)
+        if len(pending) >= batch_size:
+            async for outcome in embed_batch(pending):
+                yield outcome
+            pending = []
+    async for outcome in embed_batch(pending):
+        yield outcome

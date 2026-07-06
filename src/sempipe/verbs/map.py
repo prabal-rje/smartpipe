@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from sempipe.core.errors import ExitCode, ItemError
@@ -28,7 +29,12 @@ from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.models.base import AudioData
-from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code, resolve_schema
+from sempipe.verbs.common import (
+    WindowGate,
+    interrupted_exit_code,
+    outcome_exit_code,
+    resolve_schema,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -39,9 +45,11 @@ if TYPE_CHECKING:
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import OutputFormat, ResultWriter
-    from sempipe.models.base import ChatModel
+    from sempipe.models.base import ChatModel, ModelRef
 
 __all__ = ["MapContext", "MapRequest", "run_map"]
+
+_PROMPT_OVERHEAD_TOKENS = 500  # instruction + wrapper + reply headroom
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +68,7 @@ class MapContext(Protocol):
     """The slice of the container ``map`` needs — a DI seam so tests inject fakes."""
 
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
+    async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
     def writer(
         self,
@@ -95,8 +104,18 @@ async def run_map(
     spinner.start(total=total)
 
     fallback_noted = [False]  # the once-per-run transcription note (ux.md pin)
+    gate = WindowGate(
+        provider=model.ref.provider,
+        model_name=model.ref.name,
+        overhead=_PROMPT_OVERHEAD_TOKENS,
+        window=partial(context.context_window, model.ref),
+    )
 
     async def worker(item: Item) -> str | Mapping[str, object]:
+        budget = await gate.budget_for_oversized(item.text)
+        if budget is not None:
+            # D26: silently chunking would change what was asked — teach the pipeline
+            raise ItemError(gate.refusal(item.text, budget))
         return await _map_one(model, plan, instruction, item, fallback_noted)
 
     done = 0

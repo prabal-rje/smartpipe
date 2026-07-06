@@ -94,6 +94,9 @@ class FakeContext:
     async def chat_model(self, flag: str | None = None):
         return self.model
 
+    async def context_window(self, ref: object) -> int | None:
+        return None  # the static table stands in these tests
+
     def concurrency(self, flag: int | None = None) -> int:
         return 1
 

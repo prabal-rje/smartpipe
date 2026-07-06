@@ -77,3 +77,9 @@ $ tail -f app.log | sempipe filter "signals an outage" | head -1 && page-oncall
 - [Structured output](../concepts/structured-output.md) — the `{field}` grammar in full
 - [Pipes & items](../concepts/pipes-and-items.md) — what counts as "one item"
 - [`map`](map.md) — transform items instead of filtering them
+
+## Items bigger than the window
+
+An oversized item is judged in chunks: if **any** chunk matches, the whole item
+is kept (byte-verbatim, as always); `--not` inverts at the end. You pay one
+judge call per chunk until the first match.

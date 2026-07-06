@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -8,6 +9,10 @@ from sempipe.engine.chunking import (
     chunk_indices,
     estimate_tokens,
     fits_in_one,
+    halve,
+    is_context_overflow,
+    mean_pool,
+    split_text,
 )
 
 # --- estimation ---------------------------------------------------------------
@@ -77,3 +82,68 @@ def test_fits_implies_one_chunk(sizes: list[int]) -> None:
     budget = sum(sizes) + 1
     assert fits_in_one(sizes, budget)
     assert len(chunk_indices(sizes, budget)) == 1
+
+
+def test_window_override_beats_the_table() -> None:
+    assert budget_for("ollama", prompt_overhead=0, window=100_000) == 60_000
+    assert budget_for("openai", prompt_overhead=500) == int(128_000 * 0.6) - 500
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "This model's maximum context length is 8192 tokens",  # openai
+        "prompt is too long: 210000 tokens > 200000 maximum",  # anthropic
+        "the input length exceeds the limit",
+        "Request too large",  # mistral 413-style
+    ],
+)
+def test_overflow_messages_classify(message: str) -> None:
+    assert is_context_overflow(message) is True
+
+
+def test_ordinary_errors_do_not_classify() -> None:
+    assert is_context_overflow("model returned invalid JSON") is False
+    assert is_context_overflow("rate limited, retry later") is False
+
+
+def test_halve_splits_non_empty() -> None:
+    assert halve((0, 1, 2, 3, 4)) == ((0, 1), (2, 3, 4))
+    assert halve((7, 9)) == ((7,), (9,))
+
+
+# --- split_text (D26 layer 3) --------------------------------------------------
+
+
+def test_small_text_is_one_chunk() -> None:
+    assert split_text("hello", 100) == ("hello",)
+
+
+def test_paragraph_boundaries_win() -> None:
+    text = "para one is here.\n\npara two is here.\n\npara three."
+    chunks = split_text(text, budget=6)  # ~24 chars per chunk
+    assert all(estimate_tokens(c) <= 6 or "\n\n" not in c for c in chunks)
+    assert "".join(chunks) == text  # nothing added, nothing lost
+
+
+@given(
+    body=st.text(min_size=0, max_size=2000),
+    budget=st.integers(min_value=1, max_value=50),
+)
+def test_chunks_always_reassemble_exactly(body: str, budget: int) -> None:
+    assert "".join(split_text(body, budget)) == body
+
+
+@given(
+    body=st.text(alphabet="ab \n", min_size=1, max_size=800),
+    budget=st.integers(min_value=2, max_value=20),
+)
+def test_multi_piece_chunks_respect_the_budget(body: str, budget: int) -> None:
+    # any chunk over budget must be a single indivisible hard-cut piece
+    for chunk in split_text(body, budget):
+        assert estimate_tokens(chunk) <= budget or len(chunk) <= budget * 4 + 2
+
+
+def test_mean_pool_averages_componentwise() -> None:
+    assert mean_pool([(1.0, 0.0), (0.0, 1.0)]) == (0.5, 0.5)
+    assert mean_pool([(2.0, 4.0)]) == (2.0, 4.0)

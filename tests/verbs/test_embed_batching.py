@@ -230,3 +230,31 @@ async def test_pre_set_stop_reports_interrupted(tmp_path: Path) -> None:
     )
     assert code is ExitCode.INTERRUPTED  # nothing finished at all (ux.md §12)
     assert out.getvalue() == ""
+
+
+async def test_oversized_item_is_pooled_from_chunk_vectors(tmp_path: Path) -> None:
+    class PoolFake:
+        def __init__(self) -> None:
+            self.ref = ModelRef("openai", "text-embedding-3-small")
+            self.calls: list[list[str]] = []
+
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            self.calls.append(list(texts))
+            # distinct constant vectors so the mean is recognizable
+            return tuple((float(i + 1), 0.0) for i in range(len(texts)))
+
+    model = PoolFake()
+    small = "tiny"
+    big = "x" * 50_000  # ~12.5k tokens, past the 4.8k embed budget
+    items = _items([small, big, small])
+    outcomes = [o async for o in embed_in_batches(model, items, failure_policy=FailurePolicy())]
+    assert [type(o).__name__ for o in outcomes] == ["Done", "Done", "Done"]
+    assert [o.index for o in outcomes] == [0, 1, 2]  # stdout order = input order
+    # the big item's vector is the mean of its chunk vectors, not a single call
+    big_call = max(model.calls, key=len)
+    assert len(big_call) >= 3  # it really was chunked
+    done_big = outcomes[1]
+    assert isinstance(done_big, Done)
+    _item_out, vector = done_big.value
+    expected_first = sum(range(1, len(big_call) + 1)) / len(big_call)
+    assert vector == (expected_first, 0.0)

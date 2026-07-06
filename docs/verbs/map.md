@@ -59,6 +59,19 @@ $ tail -f app.log | sempipe map "Classify: {severity, category}" | tee incidents
 | `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md)) |
 | `--verbose` / `--debug` | More detail on stderr / full tracebacks |
 
+## Items bigger than the window
+
+`map` refuses an item the model can't hold, before spending anything:
+
+```
+⚠ skipped: report.pdf (~87,886 tokens is past gpt-4o-mini's ~76,300-token budget —
+  split it first: sempipe split --in FILE | sempipe map "..." | sempipe reduce "...")
+```
+
+Silently chunking would change what you asked, so the recipe is explicit:
+[split](split.md) makes the chunks visible, `map` transforms each, `reduce`
+recombines.
+
 ## Audio and images
 
 `map` is the multimodal verb: image items reach vision models as images, audio

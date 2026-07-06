@@ -96,6 +96,18 @@ $ env -u OPENAI_API_KEY sempipe map …          # force the ChatGPT login path
 $ SEMPIPE_OPENAI_BASE_URL=https://… sempipe …  # point the wire elsewhere
 ```
 
+## Context windows: probed, not guessed
+
+sempipe keeps a conservative window table per provider, and when an input
+actually exceeds it, asks the provider for the real number (one cached
+metadata call — Ollama, Mistral, Gemini, and OpenRouter publish it; OpenAI and
+Anthropic don't). A live example: the table floors Gemini at 128k, but the
+probe discovers `gemini-2.5-flash` really holds 1M and widens the budget 8x.
+`SEMPIPE_CONTEXT_TOKENS=32000` overrides everything. And if every estimate is
+wrong anyway, `reduce` self-corrects: a chunk the wire rejects as too big is
+split in half and retried (you'll see one note: `splitting further and
+retrying`).
+
 ## Setting a default
 
 ```console

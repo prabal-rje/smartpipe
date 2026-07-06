@@ -25,6 +25,7 @@ to **stderr**.
 | [`top_k`](../verbs/top-k.md) | rank by similarity to a query | `sort \| head`, by meaning |
 | [`reduce`](../verbs/reduce.md) | synthesize many items into one | recursive, automatic |
 | [`join`](../verbs/join.md) | match stdin against a second input | embed-block-judge |
+| [`split`](../verbs/split.md) | break oversized items into chunk items | free — no model calls |
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing | exit 0 = ready |
@@ -55,6 +56,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT`, `--stream` (live leaderboard) |
 | `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
 | `join` | `--right FILE` (required), `--k N` (default 5), `--threshold FLOAT`, `--embed-model` |
+| `split` | `--max-tokens N` (default 2000) |
 
 ## `config`
 
@@ -133,6 +135,8 @@ Tab completion for bash, zsh, and fish — including live model-name suggestions
 | `SEMPIPE_MAX_CALLS` | Default call ceiling (see `--max-calls`). |
 | `SEMPIPE_OPENAI_BASE_URL` | Point the OpenAI-compatible adapter at any endpoint. |
 | `SEMPIPE_MISTRAL_BASE_URL` / `SEMPIPE_GEMINI_BASE_URL` / `SEMPIPE_OPENROUTER_BASE_URL` | Point a provider's wire elsewhere (proxies, gateways). |
+| `SEMPIPE_CONTEXT_TOKENS` | Assert your model's context window (beats the table and the probe; the fix for OpenAI/Anthropic deployments the table underestimates). |
+| `SEMPIPE_WHISPER_MODEL` | Local transcription size: `tiny` (default), `base`, `small`, `medium`, `large-v3`. |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY` | Cloud credentials (read, never stored). |
 | `OLLAMA_HOST` | Ollama endpoint (default `http://localhost:11434`). |
 | `NO_COLOR` | Disable color. |

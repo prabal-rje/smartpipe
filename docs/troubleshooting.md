@@ -117,6 +117,14 @@ fallback) transcribe it locally with Whisper (`SEMPIPE_WHISPER_MODEL` picks
 the size; tiny is the default). Details:
 [File inputs → audio](inputs/files.md#audio-heard-natively-or-transcribed).
 
+## "~N tokens is past MODEL's ~W-token budget" (per-item skip)
+
+The item is bigger than the model's context window. The message carries the
+fix: `sempipe split --in FILE | sempipe map "..." | sempipe reduce "..."` —
+[split](verbs/split.md) chunks it for free, map transforms the chunks, reduce
+recombines. If you know your deployment's window is actually bigger, assert it:
+`SEMPIPE_CONTEXT_TOKENS=200000`.
+
 ## "prompt file not found: X" (exit 64)
 
 A prompt starting with `@` names a file (`sempipe map @prompt.md`). If the

@@ -5,6 +5,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Added
+- **The oversize stack (D26): probe, bisect, split.** Context windows are now
+  *probed* when an input looks too big (Ollama, Mistral, Gemini, and OpenRouter
+  publish theirs — live, Gemini's probe widens the budget 8x past the table
+  floor; `SEMPIPE_CONTEXT_TOKENS` overrides everything). `reduce` self-corrects
+  when every estimate lies: a chunk the wire rejects splits in half and
+  retries, so the token estimator is a hint, not a correctness dependency. And
+  the new **`split` verb** turns one oversized item into provenance-carrying
+  chunk items (`{"text", "source": "report.pdf §3/12"}`) for free — chunks
+  reassemble to the exact original text, property-tested. Per-verb ladders on
+  top: `map` refuses an over-window item with the split|map|reduce recipe
+  (before spending), `filter` judges chunks (any match keeps the whole item),
+  `embed`/`top_k` mean-pool chunk vectors into one document vector.
+
 ### Fixed
 - **CI on Python 3.11 and macOS runners.** The signals-test harness closed the
   child's stdin and later called `communicate()`, which 3.11 rejects

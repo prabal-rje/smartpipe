@@ -71,6 +71,7 @@ class AppContainer:
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     color_mode: ColorMode = ColorMode.AUTO
     budget: CallBudget | None = None  # --max-calls (D18); None = uncapped
+    window_cache: dict[str, int | None] = field(default_factory=dict[str, "int | None"])
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
         resolved = await resolve_chat_ref(flag, self.env, self.config, self.probe_ollama)
@@ -78,6 +79,26 @@ class AppContainer:
             diagnostics.note(resolved.notice)
         model = self._build_chat(resolved.ref)
         return model if self.budget is None else budgeted_chat(model, self.budget)
+
+    async def context_window(self, ref: ModelRef) -> int | None:
+        """The model's context window: env override > one cached live probe > None
+        (D26 layer 1). Called lazily — only when chunking math needs it."""
+        override = self.env.get("SEMPIPE_CONTEXT_TOKENS", "").strip()
+        if override:
+            if not override.isdigit():
+                raise SetupFault(
+                    f"error: SEMPIPE_CONTEXT_TOKENS must be a token count, got {override!r}\n"
+                    "  Example: SEMPIPE_CONTEXT_TOKENS=32000"
+                )
+            return int(override)
+        key = f"{ref.provider}/{ref.name}"
+        if key not in self.window_cache:
+            from sempipe.models.windows import probe_context_window
+
+            self.window_cache[key] = await probe_context_window(
+                ref, client=self.http_client, env=self.env
+            )
+        return self.window_cache[key]
 
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel:
         model = self._build_embed(resolve_embed_ref(flag, self.env, self.config))

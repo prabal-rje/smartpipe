@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 __all__ = ["parse_sem"]
 
-_VERB_NAMES = "map, filter, embed, top_k, reduce, join"
+_VERB_NAMES = "map, filter, embed, top_k, reduce, join, split"
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +172,11 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
         ("fields", _list_key(_fields_arg)),
         ("stream", _bool_key(_switch("--stream"))),
         *_COMMON_TAIL,
+    ),
+    "split": (  # no model and no concurrency — split never calls one
+        ("max-tokens", _int_key(_flag("--max-tokens"))),
+        ("in", _list_key(_globs)),
+        ("from-files", _bool_key(_switch("--from-files"))),
     ),
     "join": (
         ("prompt", _str_key(_positional)),

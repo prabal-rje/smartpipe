@@ -141,7 +141,7 @@ def test_missing_verb(tmp_path: Path) -> None:
     with pytest.raises(UsageFault) as excinfo:
         parse_sem(path)
     assert str(excinfo.value).startswith(
-        f"{path}: 'verb' is required (map, filter, embed, top_k, reduce, join)"
+        f"{path}: 'verb' is required (map, filter, embed, top_k, reduce, join, split)"
     )
 
 

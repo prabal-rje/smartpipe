@@ -9,11 +9,13 @@ is a valid result.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from sempipe.cli import screens
 from sempipe.core.errors import ExitCode, ItemError, UsageFault
+from sempipe.engine.chunking import split_text
 from sempipe.engine.prompts import (
     JUDGE_SCHEMA,
     build_filter_request,
@@ -31,6 +33,7 @@ from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import OutputFormat
 from sempipe.verbs.common import (
+    WindowGate,
     ensure_text,
     interrupted_exit_code,
     outcome_exit_code,
@@ -44,9 +47,11 @@ if TYPE_CHECKING:
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import ResultWriter
-    from sempipe.models.base import ChatModel
+    from sempipe.models.base import ChatModel, ModelRef
 
 __all__ = ["FilterContext", "FilterRequest", "run_filter"]
+
+_PROMPT_OVERHEAD_TOKENS = 500  # condition + judge wrapper headroom
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +65,7 @@ class FilterRequest:
 
 class FilterContext(Protocol):
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
+    async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
     def writer(
         self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO
@@ -97,8 +103,22 @@ async def run_filter(
     spinner = make_stderr_spinner()
     spinner.start(total=total)
 
+    gate = WindowGate(
+        provider=model.ref.provider,
+        model_name=model.ref.name,
+        overhead=_PROMPT_OVERHEAD_TOKENS,
+        window=partial(context.context_window, model.ref),
+    )
+
     async def worker(item: Item) -> tuple[Item, bool]:
-        return item, await _judge(model, tokens, item)
+        budget = await gate.budget_for_oversized(item.text)
+        if budget is None:
+            return item, await _judge(model, tokens, item)
+        # D26: judge the chunks — any match keeps the whole item (--not inverts after)
+        for chunk in split_text(item.text, budget):
+            if await _judge(model, tokens, replace(item, text=chunk)):
+                return item, True
+        return item, False
 
     judged = 0
     matches = 0

@@ -53,6 +53,13 @@ wired providers' embedding endpoints do today — this is a recorded gate, not a
 oversight). To rank audio by content deliberately: transcribe first with
 `map "transcribe this" --in 'calls/*.wav'`, then embed the transcripts.
 
+## Items bigger than the embedding window
+
+An oversized text is embedded in chunks and the vectors are **mean-pooled**
+into one whole-document vector (the standard practice). `top_k` inherits this.
+The budget is conservative per provider (Gemini's embedding model caps input
+much lower than the others).
+
 ## Notes
 
 - **Embeddings are transient by design.** sempipe has no vector database — the
