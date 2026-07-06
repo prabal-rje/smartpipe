@@ -29,6 +29,21 @@ count as the same thing. Corpora genuinely differ: short alert strings sit
 closer together than long reviews. If the default folds too eagerly, raise
 it (0.95); too timidly, lower it (0.85) — and check with `--show-groups`.
 
+## Image corpora, natively
+
+With a media-native embedder, image items are compared as IMAGES, not as
+captions of images:
+
+```console
+$ export JINA_API_KEY=…
+$ cat images.jsonl | sempipe distinct --embed-model jina/jina-clip-v2
+note: media embedded natively (jina/jina-clip-v2) — no captions
+```
+
+Mentioning the media embedder is the whole switch — there is no second
+flag. Without it, images dedupe through the caption pivot (weaker, and the
+note says which path ran). Audio and video still pivot either way.
+
 ## Why bother
 
 - **Training data (the big one):** near-duplicate contamination measurably

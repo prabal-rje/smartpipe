@@ -15,7 +15,7 @@ from sempipe.engine.runner import (
     should_halt_consecutive,
 )
 from sempipe.io import diagnostics
-from sempipe.models.base import AudioData, ImageData, VideoData
+from sempipe.models.base import AudioData, ImageData, MediaEmbeddingModel, VideoData
 from sempipe.verbs.convert import AUDIO_NEEDS_TEXT, Converter
 
 if TYPE_CHECKING:
@@ -277,6 +277,26 @@ def batched(items: Sequence[T], size: int) -> Iterator[tuple[T, ...]]:
     return (tuple(items[start : start + size]) for start in range(0, len(items), size))
 
 
+_native_noted = False  # one disclosure per process, not per item  # noqa: N816-ish (module state)
+
+
+def _native_route(item: Item, model: object) -> tuple[MediaEmbeddingModel, ImageData] | None:
+    """The native-path test (D39/04): a media-capable embedder + an
+    image-ONLY item (no meaningful text). Text-bearing items keep embedding
+    their text; audio/video keep the pivot ladder. Returns the narrowed
+    model alongside the image so the caller's ``model`` binding stays put."""
+    from sempipe.models.base import supports_media_embedding
+
+    if not supports_media_embedding(model):
+        return None
+    if item.text.strip():
+        return None
+    images = [part for part in item.media if isinstance(part, ImageData)]
+    if len(images) != 1 or len(item.media) != 1:
+        return None
+    return model, images[0]
+
+
 async def embed_in_batches(
     model: EmbeddingModel,
     items: Sequence[Item],
@@ -377,6 +397,31 @@ async def embed_in_batches(
         if stop is not None and stop.is_set():
             return
         if item.media:
+            native = _native_route(item, model)
+            if native is not None:
+                media_model, image = native
+                # D39/04: the embedder takes images natively — no captions
+                for outcome in await _drain(embed_batch(pending)):
+                    yield outcome
+                pending = []
+                global _native_noted
+                if not _native_noted:
+                    _native_noted = True
+                    diagnostics.note(
+                        f"media embedded natively ({model.ref.provider}/{model.ref.name})"
+                        " — no captions"
+                    )
+                try:
+                    vectors = await media_model.embed_parts([image])
+                except ItemError as exc:
+                    skip = Skipped(item.source.index, str(exc), item.source)
+                    account(skip)
+                    yield skip
+                    continue
+                done = Done(item.source.index, (item, vectors[0]))
+                account(done)
+                yield done
+                continue
             video = next((part for part in item.media if isinstance(part, VideoData)), None)
             if video is not None and converter is not None and converter.chat is not None:
                 from sempipe.verbs.convert import embed_video_halves

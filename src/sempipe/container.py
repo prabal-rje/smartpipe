@@ -207,6 +207,11 @@ class AppContainer:
                 return build_anthropic_chat_model(ref)
             case "mistral":  # the parametrized OpenAI wire (workstream 10)
                 return self._wire_chat(ref, MISTRAL_WIRE)
+            case "jina":
+                raise SetupFault(
+                    f"error: '{ref.name}' is an embedding model, not a chat model\n"
+                    "  Jina models embed; pick a chat model: sempipe config model …"
+                )
             case "gemini":  # D34: chat rides the NATIVE wire — the one that watches video
                 from sempipe.models.gemini_native import GeminiNativeChatModel, native_base_url
                 from sempipe.models.openai_compat import require_api_key
@@ -266,6 +271,22 @@ class AppContainer:
                 return self._wire_embed(ref, GEMINI_WIRE)
             case "openrouter":
                 return self._wire_embed(ref, OPENROUTER_WIRE)
+            case "jina":  # D39/04: the media-native space (text + images)
+                key = self.env.get("JINA_API_KEY", "").strip()
+                if not key:
+                    raise SetupFault(
+                        "error: Jina needs an API key\n  export JINA_API_KEY=…   (https://jina.ai)"
+                    )
+                from sempipe.models.jina import JINA_BASE_URL, JinaClipEmbeddingModel
+
+                base = self.env.get("SEMPIPE_JINA_BASE_URL", "").strip().rstrip("/")
+                return JinaClipEmbeddingModel(
+                    ref=ref,
+                    client=self.http_client,
+                    api_key=key,
+                    base_url=base or JINA_BASE_URL,
+                    retry=self.retry,
+                )
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)
 

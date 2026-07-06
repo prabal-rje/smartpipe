@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, TypeGuard, runtime_checkable
 
 from sempipe.core.errors import UsageFault
 
@@ -28,13 +28,15 @@ __all__ = [
     "EmbeddingModel",
     "ImageData",
     "MediaData",
+    "MediaEmbeddingModel",
     "ModelRef",
     "Provider",
     "VideoData",
     "parse_model_ref",
+    "supports_media_embedding",
 ]
 
-Provider = Literal["ollama", "openai", "anthropic", "mistral", "gemini", "openrouter"]
+Provider = Literal["ollama", "openai", "anthropic", "mistral", "gemini", "openrouter", "jina"]
 
 _OPENAI_PREFIXES = ("gpt-", "chatgpt-", "text-embedding-")
 _OPENAI_O_SERIES = re.compile(r"o\d")
@@ -107,6 +109,23 @@ class ChatModel(Protocol):
     async def complete(self, request: CompletionRequest) -> str: ...
 
 
+@runtime_checkable
+class MediaEmbeddingModel(Protocol):
+    """An embedder that takes text AND images in one space (D39/04) — the
+    mention of such a model is the switch away from the caption pivot."""
+
+    @property
+    def ref(self) -> ModelRef: ...
+
+    async def embed_parts(
+        self, parts: Sequence[str | ImageData]
+    ) -> tuple[tuple[float, ...], ...]: ...
+
+
+def supports_media_embedding(model: object) -> TypeGuard[MediaEmbeddingModel]:
+    return isinstance(model, MediaEmbeddingModel)
+
+
 class EmbeddingModel(Protocol):
     @property
     def ref(self) -> ModelRef: ...
@@ -121,7 +140,7 @@ def parse_model_ref(text: str) -> ModelRef:
     prefix, slash, rest = cleaned.partition("/")
     if slash:
         match prefix:
-            case "ollama" | "openai" | "anthropic" | "mistral" | "gemini" | "openrouter":
+            case "ollama" | "openai" | "anthropic" | "mistral" | "gemini" | "openrouter" | "jina":
                 if not rest:
                     raise UsageFault(f"model '{cleaned}' is missing a name after '{prefix}/'")
                 return ModelRef(provider=prefix, name=rest)

@@ -108,3 +108,64 @@ async def test_bad_threshold_is_a_usage_fault() -> None:
 
     with pytest.raises(UsageFault, match="between 0 and 1"):
         await _run("x\n", threshold=1.5)
+
+
+# --- native media embeddings (D39/04) ----------------------------------------------
+
+
+async def test_image_only_items_route_natively_no_captions() -> None:
+    import base64
+    import contextlib
+    import io as io_module
+    import json
+
+    from sempipe.core.errors import ExitCode
+    from sempipe.models.base import ImageData
+    from sempipe.models.base import ImageData as ImagePart
+
+    class MediaEmbedder:
+        """jina-shaped: embed_parts marks it media-capable."""
+
+        def __init__(self) -> None:
+            self.ref = ModelRef("jina", "jina-clip-v2")
+            self.part_calls: list[str | ImagePart] = []
+
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            raise AssertionError("image-only items must not reach the text path")
+
+        async def embed_parts(
+            self, parts: Sequence[str | ImagePart]
+        ) -> tuple[tuple[float, ...], ...]:
+            self.part_calls.extend(parts)
+            return tuple((1.0, 0.0) for _part in parts)
+
+    class MediaContext:
+        def __init__(self) -> None:
+            self.media_embedder = MediaEmbedder()
+
+        async def chat_model(self, flag: str | None = None) -> ChatModel:
+            raise RuntimeError("no chat configured")
+
+        async def embedding_model(self, flag: str | None = None) -> MediaEmbedder:
+            return self.media_embedder
+
+        def concurrency(self, flag: int | None = None) -> int:
+            return 2
+
+    line = json.dumps(
+        {"image_b64": base64.b64encode(b"pixels").decode(), "mime": "image/png", "source": "a.png"}
+    )
+    context = MediaContext()
+    out = io_module.StringIO()
+    err = io_module.StringIO()
+    with contextlib.redirect_stderr(err):
+        code = await run_distinct(
+            DistinctRequest(),
+            context,  # type: ignore[arg-type]
+            stdin=io_module.StringIO(line + "\n"),
+            stdout=out,
+        )
+    assert code is ExitCode.OK
+    assert len(context.media_embedder.part_calls) == 1
+    assert isinstance(context.media_embedder.part_calls[0], ImageData)  # bytes, not a caption
+    assert "media embedded natively (jina/jina-clip-v2)" in err.getvalue()

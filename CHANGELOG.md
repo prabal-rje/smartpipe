@@ -40,6 +40,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **Native media embeddings — the model mention is the switch (D39/04).**
+  `--embed-model jina/jina-clip-v2` (JINA_API_KEY) embeds text and images
+  in one space: image-only items go to the embedder as pixels, skipping the
+  caption pivot entirely (`note: media embedded natively — no captions`),
+  which is the fix for caption-quality dedupe/cluster on image corpora.
+  Text-bearing items keep embedding their text; audio/video keep the
+  ladder; non-media embedders behave exactly as before. New `jina`
+  provider (embeddings only; picking it for chat is a helpful fault).
 - **Scanned documents route to vision, disclosed (D39/03).** A PDF with a
   thin text layer and embedded page images no longer looks like silent
   emptiness: the note names the situation ("thin text layer (11 chars) —
