@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from sempipe.core.errors import ExitCode, ItemError, UsageFault
+from sempipe.io.items import item_from_line
 from sempipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
 from sempipe.models.base import CompletionRequest, ModelRef
 from sempipe.verbs.join import JoinRequest, run_join
@@ -287,3 +288,96 @@ async def test_dotted_fields_project_the_nested_record(tmp_path: Path) -> None:
     assert code is ExitCode.OK
     assert list(records[0]) == ["right.name", "_score"]
     assert records[0]["right.name"] == "LaserJet 9"
+
+
+async def test_judge_repair_recovers_an_invalid_verdict(tmp_path: Path) -> None:
+    class FlakyJudge:
+        def __init__(self) -> None:
+            self.ref = ModelRef("ollama", "flaky")
+            self.calls = 0
+
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls += 1
+            if self.calls == 1:
+                return "hmm, probably yes?"  # invalid → one repair re-ask
+            return '{"match": true}'
+
+    embed = FakeEmbed(TABLE)
+    judge = FlakyJudge()
+    out = io.StringIO()
+    code = await run_join(
+        _request(_right_file(tmp_path, RIGHT_LINES)),
+        FakeContext(embed, judge),  # type: ignore[arg-type]
+        stdin=io.StringIO("printer smoking\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert judge.calls == 2  # the single repair, exactly like filter/map
+    assert '"LaserJet 9"' in out.getvalue()
+
+
+async def test_five_consecutive_pair_failures_halt_the_doomed_join(tmp_path: Path) -> None:
+    from sempipe.core.errors import TooManyFailures
+
+    embed = FakeEmbed(TABLE)
+    judge = FakeJudge(matches=[], poison="Statement")  # poison hits EVERY judge call
+    with pytest.raises(TooManyFailures):
+        await _run(
+            _request(_right_file(tmp_path, RIGHT_LINES * 3), k=2),
+            "printer smoking\ncoffee is cold\nprinter smoking\n",
+            embed,
+            judge,
+        )
+    assert len(judge.calls) == 5  # D18: stopped paying at the fifth consecutive
+
+
+def test_preview_lines(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from sempipe.io import tty
+    from sempipe.verbs.join import preview_cost
+
+    monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
+    preview_cost(total=1204, k=5, index_size=400)
+    preview_cost(total=10, k=5, index_size=400)  # under the threshold: silent
+    preview_cost(total=None, k=5, index_size=400)  # streaming left: the rate line
+    err = capsys.readouterr().err
+    assert "1,204 left items · up to 5 candidates each = at most 6,020 model calls" in err
+    assert "up to 5 model calls per input line" in err
+    assert err.count("join:") == 2
+
+
+async def test_ratio_halt_covers_the_pair_book() -> None:
+    from sempipe.core.errors import TooManyFailures
+    from sempipe.engine.runner import FailurePolicy
+    from sempipe.verbs.join import PairBook
+
+    book = PairBook(
+        policy=FailurePolicy(halt_ratio=0.5, min_sample=2, consecutive_limit=99),
+        right_name="r.jsonl",
+    )
+    left = item_from_line("x\n", 0)
+    book.ok()
+    book.skip(left, 0, "bad")
+    with pytest.raises(TooManyFailures):
+        book.skip(left, 1, "bad")  # 2 of 3 judged failed — past the ratio
+
+
+async def test_left_image_item_skips_whole(tmp_path: Path) -> None:
+    png = tmp_path / "photo.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    from sempipe.io.inputs import InputSpec
+
+    embed = FakeEmbed(TABLE)
+    judge = FakeJudge(matches=[])
+    out = io.StringIO()
+    request = _request(
+        _right_file(tmp_path, RIGHT_LINES),
+        input=InputSpec(patterns=(str(png),), from_files=False),
+    )
+
+    class _Tty(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    code = await run_join(request, FakeContext(embed, judge), stdin=_Tty(), stdout=out)
+    assert code is ExitCode.ALL_FAILED  # the one left item skipped (image needs map)
+    assert out.getvalue() == ""

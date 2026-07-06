@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from sempipe.io.writers import OutputFormat, ResultWriter
     from sempipe.models.base import ChatModel, EmbeddingModel
 
-__all__ = ["JoinContext", "JoinRequest", "run_join"]
+__all__ = ["JoinContext", "JoinRequest", "PairBook", "run_join"]
 
 _PREVIEW_THRESHOLD = 200  # estimated judge calls before the cost line appears (D21)
 
@@ -89,7 +89,7 @@ class JoinContext(Protocol):
 
 
 @dataclass(slots=True)
-class _PairBook:
+class PairBook:
     """Judge-call accounting (D21: the halt policies count judge calls)."""
 
     policy: FailurePolicy
@@ -138,9 +138,9 @@ async def run_join(
     concurrency = context.concurrency(request.concurrency_flag)
     writer = context.writer(request.output, structured=True, stdout=stdout, fields=request.fields)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
-    _preview(total, request.k, len(index))
+    preview_cost(total, request.k, len(index))
 
-    book = _PairBook(policy=FailurePolicy(), right_name=request.right.name)
+    book = PairBook(policy=FailurePolicy(), right_name=request.right.name)
     spinner = make_stderr_spinner()
     spinner.start(total=total)
 
@@ -198,7 +198,7 @@ async def _join_one(
     index: RightIndex,
     kept_right: list[Item],
     request: JoinRequest,
-    book: _PairBook,
+    book: PairBook,
     stop: asyncio.Event | None,
 ) -> tuple[tuple[int, float], ...]:
     item = await ensure_text(item)  # image skips; audio transcribes (D20 rung 2)
@@ -279,7 +279,7 @@ async def _index_right(
     return kept, build_index(vectors)
 
 
-def _preview(total: int | None, k: int, index_size: int) -> None:
+def preview_cost(total: int | None, k: int, index_size: int) -> None:
     per_item = min(k, index_size)
     if total is None:
         diagnostics.preview(

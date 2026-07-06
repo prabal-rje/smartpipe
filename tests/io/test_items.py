@@ -67,8 +67,23 @@ def test_line_shaped_input_round_trips(body: str, suffix: str, index: int) -> No
     assert item.raw == expected
 
 
-@given(line=st.text(), index=st.integers(min_value=0, max_value=1000))
-def test_never_raises_and_never_keeps_trailing_newline(line: str, index: int) -> None:
-    item = item_from_line(line, index)
+@given(
+    body=st.text(alphabet=st.characters(blacklist_characters="\r\n")),
+    terminator=st.sampled_from(["", "\n", "\r\n"]),
+    index=st.integers(min_value=0, max_value=1000),
+)
+def test_never_raises_and_never_keeps_trailing_newline(
+    body: str, terminator: str, index: int
+) -> None:
+    # the reader contract: a line carries AT MOST one terminator (readline/pump
+    # split on \n) — hypothesis found the old any-text strategy admitted "\n\n",
+    # which no reader can produce
+    item = item_from_line(body + terminator, index)
     assert not item.raw.endswith("\n")
     assert not item.raw.endswith("\r")
+    assert item.raw == body if index > 0 or not body.startswith("\ufeff") else True
+
+
+def test_multi_newline_input_strips_exactly_one_terminator() -> None:
+    # documents the single-strip semantics for inputs outside the reader contract
+    assert item_from_line("\n\n", 0).raw == "\n"

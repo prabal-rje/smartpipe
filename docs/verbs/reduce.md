@@ -90,7 +90,7 @@ doesn't combine with `--group-by`.
 | `--verbose` | Print the chunking tree on stderr |
 | `--model TEXT` | Model for this run |
 | `--concurrency N` | Max parallel model calls |
-| `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md#-fields--pick-and-order-your-columns)) |
+| `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md)) |
 
 ## Gotchas
 

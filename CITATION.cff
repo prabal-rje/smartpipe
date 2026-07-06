@@ -1,4 +1,4 @@
-cff-version: 1.2.0
+cff-version: 1.1.0
 message: "If you use sempipe in your research, please cite it as below."
 title: "sempipe: semantic pipes for your terminal"
 type: software
@@ -8,4 +8,4 @@ authors:
 repository-code: "https://github.com/prabal-rje/sempipe"
 license: Apache-2.0
 version: 1.0.0
-date-released: "2026-07-05"
+date-released: '2026-07-05'

@@ -175,3 +175,11 @@ async def test_deaf_model_without_extra_skips_with_both_fixes(
     assert code is ExitCode.ALL_FAILED  # the one item skipped
     assert out.getvalue() == ""
     assert "can't hear audio" in capsys.readouterr().err  # the adapter's two-fix line
+
+
+async def test_default_transcriber_end_to_end_on_junk_audio() -> None:
+    # no monkeypatch: the real [audio] extra chews junk bytes — an empty
+    # transcript, never a crash (the ensure_text audio rung, fully real)
+    spoken = await ensure_text(_audio_item())
+    assert spoken.media is None
+    assert isinstance(spoken.text, str)

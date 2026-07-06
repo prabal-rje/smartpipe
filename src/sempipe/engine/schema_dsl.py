@@ -22,7 +22,6 @@ from sempipe.core.errors import UsageFault
 __all__ = ["dsl_to_schema"]
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
-_ENUM = re.compile(r"enum\(([^)]*)\)\Z")
 _HELP = (
     "\n  Types: string · number · integer · boolean · enum(a, b, …) · string[] · number[]"
     "\n  Constraints: >= N · <= N · minLength=N · maxLength=N · optional"
@@ -76,7 +75,6 @@ def _parse_field(field: str) -> tuple[str, dict[str, object], bool]:
 
 
 def _parse_type(name: str, rest: str) -> tuple[dict[str, object], str]:
-    enum_match = _ENUM.match(rest.split(" ", 1)[0]) if rest.startswith("enum(") else None
     if rest.startswith("enum("):
         close = rest.find(")")
         if close == -1:
@@ -85,7 +83,6 @@ def _parse_type(name: str, rest: str) -> tuple[dict[str, object], str]:
         values = [value for value in values if value]
         if not values:
             raise UsageFault(f"--schema-from: enum needs at least one value for {name!r}{_HELP}")
-        del enum_match
         return {"enum": values}, rest[close + 1 :].strip()
     head, _space, tail = rest.partition(" ")
     simple = _SIMPLE_TYPES.get(head)

@@ -13,7 +13,7 @@ That's the whole install. `sempipe` is now a command:
 
 ```console
 $ sempipe --version
-sempipe 1.0.0
+sempipe 1.1.0
 ```
 
 ## Recommended: pipx

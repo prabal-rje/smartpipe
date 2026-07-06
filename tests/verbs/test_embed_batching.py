@@ -210,3 +210,23 @@ def test_batched_chunks_and_orders() -> None:
 def test_batched_rejects_a_zero_size() -> None:
     with pytest.raises(ValueError, match="batch size"):
         list(batched([1, 2], 0))
+
+
+async def test_pre_set_stop_reports_interrupted(tmp_path: Path) -> None:
+    import asyncio
+
+    stop = asyncio.Event()
+    stop.set()  # the drain fired before the batch began
+    model = BatchFake()
+    out = io.StringIO()
+    from sempipe.verbs.embed import EmbedRequest as _Req
+
+    code = await run_embed(
+        _Req(model_flag=None, concurrency_flag=None, input=_corpus(tmp_path, ["a", "b"])),
+        FakeContext(model),
+        stdin=_TtyStdin(),
+        stdout=out,
+        stop=stop,
+    )
+    assert code is ExitCode.INTERRUPTED  # nothing finished at all (ux.md §12)
+    assert out.getvalue() == ""

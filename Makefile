@@ -3,7 +3,7 @@
 # `tail` silently swallows non-zero exit codes — don't reintroduce it).
 
 .DEFAULT_GOAL := help
-.PHONY: help install test cov lint fmt fmt-check types gates smoke golden startup join-eval live-smoke clean
+.PHONY: help install test cov lint fmt fmt-check types gates smoke golden startup join-eval live-smoke docs-check clean
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -36,6 +36,10 @@ gates: lint fmt-check types cov ## The full PR gate: lint + format + types + cov
 
 golden: ## Refresh golden files (review the diff before committing)
 	UPDATE_GOLDEN=1 uv run pytest -q
+
+docs-check: ## Internal link scan + strict site build (nav/anchor rot fails it)
+	uv run python scripts/check_doc_links.py
+	uv run --group docs mkdocs build --strict --site-dir /tmp/sempipe-site
 
 live-smoke: ## Owner-run live validity matrix (needs SEMPIPE_LIVE_SMOKE=yes; spends pennies)
 	./scripts/live_smoke.sh

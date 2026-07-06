@@ -23,6 +23,11 @@ theme:
     - content.code.copy
     - toc.integrate
 
+validation:
+  links:
+    not_found: warn
+    anchors: warn  # anchor rot fails --strict (release matrix row 4)
+
 nav:
   - Home: index.md
   - Getting started:

@@ -3,7 +3,14 @@
 All notable changes to sempipe are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: [SemVer](https://semver.org).
 
-## [Unreleased]
+## [1.1.0] — 2026-07-05
+
+**The everything release.** Two design-and-build trains shipped as one: the
+post-1.0 plan (streaming, resilience, inputs, ergonomics, `.sem` files) and the
+post-1.1 plan (cost guardrails, the `join` verb, multimodality under the D20
+constitution, the schema ladder, five providers). Every bullet below was
+validated by gates AND — where a wire exists — by live calls against real
+endpoints, which caught and fixed four real bugs along the way.
 
 ### Added
 - **Prompts from files (D23).** `sempipe map @prompt.md` reads the prompt from
@@ -147,6 +154,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   the terminal width.
 
 ### Changed
+- **Process, promoted to artifacts.** `RELEASING.md` (machine gate + a
+  ten-command human UX walkthrough), `MAINTENANCE.md` (weekly live-Ollama CI
+  smoke — scheduled, allowed-failure — monthly dependency/security pass,
+  quarterly comparison re-read, and the live-smoke log), `make docs-check`
+  (internal link scan + strict site build, now in CI), `make live-smoke`
+  (owner-run, env-gated, cost-capped provider matrix — first full run: 10/10
+  cells green), and `make join-eval` (the recall table behind join's default).
 - **License: Apache-2.0** (from MIT), with a `NOTICE` file — matching the published
   repository. The `v1.0.0` tag points at the relicensed tree.
 - **Embeddings travel in batches.** `embed` over a file corpus and `top_k`'s

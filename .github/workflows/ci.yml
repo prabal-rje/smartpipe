@@ -21,6 +21,7 @@ jobs:
       - run: uv run ruff format --check
       - run: uv run pyright
       - run: uv build && uvx twine check dist/*
+      - run: make docs-check
   tests:
     strategy:
       fail-fast: false

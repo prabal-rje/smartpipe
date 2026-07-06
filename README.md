@@ -25,12 +25,14 @@ a live leaderboard.
 | `embed` | turn items into vectors | plumbing for `top_k` | ✅ shipped |
 | `top_k` | rank items by similarity to a query | `sort \| head`, by meaning | ✅ shipped |
 | `reduce` | synthesize many items into one | `awk` END block, but literate | ✅ shipped |
-| `join` | match stdin against a second input | SQL join, but semantic | ✅ shipped (main) |
+| `join` | match stdin against a second input | SQL join, but semantic | ✅ shipped |
 | `config` | one-minute interactive setup | — | ✅ shipped |
 
-> **Stable surface** (SemVer since 1.0). All five verbs plus `config`, file inputs
-> (`--in 'reports/*.pdf'`, parsed automatically), CSV/TSV output — and, new on main:
-> true streaming (`tail -f`, `--window`, the live leaderboard). See [CHANGELOG.md](CHANGELOG.md).
+> **Stable surface** (SemVer since 1.0). v1.1 adds the `join` verb, true
+> streaming (`tail -f`, `--window`, the live leaderboard), native audio, vision,
+> `.sem` stage files, `sempipe doctor`, cost guardrails (`--max-calls`,
+> fail-before-the-spend), the schema ladder, `@file` prompts, and five cloud
+> providers + ChatGPT login. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Sixty seconds
 

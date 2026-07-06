@@ -28,7 +28,6 @@ __all__ = [
     "AUDIO_NEEDS_TEXT",
     "EMBED_BATCH_SIZE",
     "IMAGE_NEEDS_MAP",
-    "aiter_items",
     "batched",
     "embed_in_batches",
     "ensure_text",
@@ -59,11 +58,6 @@ def interrupted_exit_code(*, done: int, skipped: int) -> ExitCode:
     if done == 0 and skipped == 0:
         return ExitCode.INTERRUPTED
     return outcome_exit_code(done=done, skipped=skipped)
-
-
-async def aiter_items(items: Sequence[Item]) -> AsyncIterator[Item]:
-    for item in items:
-        yield item
 
 
 async def prepend(first: Item, rest: AsyncIterator[Item]) -> AsyncIterator[Item]:

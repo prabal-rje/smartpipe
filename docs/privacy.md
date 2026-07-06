@@ -19,7 +19,8 @@ or Anthropic (or whatever endpoint you configured). That's the deal you're optin
 ## API keys are never stored
 
 API keys are read from environment variables (`OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`) at runtime and **never written** to the config file or logged
+`ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`)
+at runtime and **never written** to the config file or logged
 (ChatGPT *login tokens* are the one disclosed exception below).
 `sempipe config show` displays your model settings — never a key.
 
@@ -29,6 +30,13 @@ API keys are read from environment variables (`OPENAI_API_KEY`,
 `~/.config/sempipe/auth.json` with `0600` permissions, because a login that can't
 refresh itself is useless. Delete them any time with `sempipe auth logout`. If you
 never log in, the file never exists.
+
+## Transient temp files, disclosed
+
+Two features spool bytes to a private temp file for the length of one operation,
+then delete it: a binary document redirected to stdin (`sempipe map … <
+report.pdf`), and local audio transcription (the `[audio]` extra). Nothing
+outlives the run; nothing is written into your project.
 
 ## No telemetry, ever
 

@@ -117,3 +117,14 @@ def test_audio_names_the_audio_extra(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     with pytest.raises(MissingExtra) as excinfo:
         extract(f, FileKind.AUDIO)
     assert excinfo.value.extra == "audio"
+
+
+def test_transcribe_audio_runs_the_real_pipeline_on_junk_bytes() -> None:
+    # the [audio] extra is installed in dev: junk bytes exercise the real
+    # temp-file path end to end — markitdown yields an empty transcript for
+    # unparseable audio (a finding, pinned: empty, never a crash)
+    from sempipe.models.base import AudioData
+    from sempipe.parsing.extract import transcribe_audio
+
+    transcript = transcribe_audio(AudioData(data=b"not really audio", mime="audio/wav"))
+    assert isinstance(transcript, str)
