@@ -40,6 +40,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`sempipe diff` — what distinguishes two sets (D38/06).** KQL's
+  diffpatterns for meaning: embed both sides, cluster the union (adaptive
+  threshold), keep the lopsided themes with BOTH shares as evidence and
+  examples from the dominant side; balanced themes fold into a counted
+  note (`--all` shows them). Left is stdin, right is `--right FILE`
+  (join's shape). The post-incident "what changed", the eval regression
+  story, and dataset drift before the GPU bill.
 - **`sempipe cluster` — themes with sizes and quotes (D38/05).** KQL's
   autocluster done semantically: leader clustering over embeddings, one
   temperature-0 label call per cluster (N embeddings + K labels, never N

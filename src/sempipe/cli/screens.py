@@ -74,6 +74,7 @@ Verbs (call a model):
   reduce   Synthesize many items into one
   join     Match stdin against a second input, semantically
   cluster  Group items by meaning; label each group
+  diff     What distinguishes two sets of items
   distinct Fold near-duplicate items (embeddings only)
   outliers Rank the items least like the rest (embeddings only)
 

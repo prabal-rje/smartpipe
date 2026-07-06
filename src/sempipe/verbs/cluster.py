@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from sempipe.io.items import Item
     from sempipe.models.base import EmbeddingModel
 
-__all__ = ["ClusterRequest", "run_cluster"]
+__all__ = ["ClusterRequest", "label_cluster", "run_cluster"]
 
 _EXAMPLES = 3
 
@@ -183,23 +183,29 @@ async def _label_clusters(
         return [f"cluster {number}" for number in range(1, len(clusters) + 1)]
     labels: list[str] = []
     for number, members in enumerate(clusters, start=1):
-        quotes = "\n".join(f"- {items[member].text[:200]}" for member in members[:8])
-        try:
-            reply = await chat.complete(
-                CompletionRequest(
-                    system=_LABEL_SYSTEM,
-                    user=f"Items in this cluster:\n{quotes}",
-                    json_schema=_LABEL_SCHEMA,
-                    max_tokens=64,
-                )
-            )
-            verdict = validate_and_coerce(reply, _LABEL_SCHEMA)
-            label = str(verdict["label"]).strip() or f"cluster {number}"
-        except ItemError as exc:
-            diagnostics.warn(f"cluster {number} label failed ({exc}) — kept numbered")
-            label = f"cluster {number}"
-        labels.append(label)
+        texts = [items[member].text for member in members[:8]]
+        labels.append(await label_cluster(chat, texts, fallback=f"cluster {number}"))
     return labels
+
+
+async def label_cluster(chat: ChatModel, texts: list[str], *, fallback: str) -> str:
+    """One temperature-0 label call for a group of similar texts (shared by
+    cluster and diff). Failures keep the fallback, disclosed."""
+    quotes = "\n".join(f"- {text[:200]}" for text in texts)
+    try:
+        reply = await chat.complete(
+            CompletionRequest(
+                system=_LABEL_SYSTEM,
+                user=f"Items in this cluster:\n{quotes}",
+                json_schema=_LABEL_SCHEMA,
+                max_tokens=64,
+            )
+        )
+        verdict = validate_and_coerce(reply, _LABEL_SCHEMA)
+        return str(verdict["label"]).strip() or fallback
+    except ItemError as exc:
+        diagnostics.warn(f"{fallback} label failed ({exc}) — kept numbered")
+        return fallback
 
 
 def _examples(members: list[int], items: list[Item], vectors: list[tuple[float, ...]]) -> list[str]:
