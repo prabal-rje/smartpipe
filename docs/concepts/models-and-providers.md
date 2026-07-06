@@ -108,6 +108,27 @@ wrong anyway, `reduce` self-corrects: a chunk the wire rejects as too big is
 split in half and retried (you'll see one note: `splitting further and
 retrying`).
 
+## Profiles: named setups you can switch between (D30)
+
+A profile bundles the existing config keys (model, embed-model, concurrency,
+output) under a name. Three ship built in:
+
+| Profile | Chat | Embeddings | For |
+|---|---|---|---|
+| `openai` | gpt-4o-mini | text-embedding-3-small | the fast cloud default |
+| `gemini` | gemini-2.5-flash | gemini/gemini-embedding-001 | the most multimodal wire |
+| `local` | ollama/gemma-4-e2b | (your Ollama default) | multimodal, nothing leaves the machine |
+
+```console
+$ sempipe config profile              # list (the active one marked)
+$ sempipe config profile local        # switch
+$ SEMPIPE_PROFILE=gemini sempipe map …  # one-off, no file change (D24: env is the override)
+```
+
+Create your own as a `[profiles.NAME]` table in the config file. Direct keys
+beat the active profile (a direct set is the most recent intent); flags and
+env vars beat both. Profiles never hold API keys.
+
 ## Setting a default
 
 ```console

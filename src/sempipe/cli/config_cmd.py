@@ -20,6 +20,7 @@ from sempipe.config.display import render_show, settings_with_origin
 from sempipe.config.paths import config_path, human_path
 from sempipe.config.store import Config, load_config, save_config
 from sempipe.core.errors import SetupFault
+from sempipe.io import diagnostics
 from sempipe.models.base import parse_model_ref
 
 if TYPE_CHECKING:
@@ -49,12 +50,55 @@ def config_command(ctx: click.Context) -> None:
     asyncio.run(_interactive_entry())
 
 
+@config_command.command(name="profile")
+@click.argument("name", required=False)
+@click.option("--unset", is_flag=True, help="Clear the active profile.")
+def config_profile(name: str | None, unset: bool) -> None:
+    """Show, switch, or clear the active profile.
+
+    \b
+      sempipe config profile           list profiles (the active one marked)
+      sempipe config profile local     switch — local runs ollama/gemma-4-e2b
+      SEMPIPE_PROFILE=gemini sempipe … one-off, no file change
+    """
+    from sempipe.config.store import profile_names, set_active_profile
+
+    path = config_path(os.environ)
+    if unset:
+        set_active_profile(path, None)
+        diagnostics.note("profile cleared — flat config keys stand alone")
+        return
+    if name is None:
+        config = load_config(path, os.environ)
+        for known in profile_names(path):
+            marker = "* " if known == config.profile else "  "
+            click.echo(f"{marker}{known}")
+        return
+    known = profile_names(path)
+    if name not in known:
+        raise SetupFault(
+            f"error: profile {name!r} doesn't exist\n  Known profiles: {', '.join(known)}\n"
+            f"  Define [profiles.{name}] in {human_path(path)} to create it."
+        )
+    set_active_profile(path, name)
+    effective = load_config(path)
+    summary = ", ".join(
+        f"{label} {value}"
+        for label, value in (("model:", effective.model), ("embed:", effective.embed_model))
+        if value is not None
+    )
+    diagnostics.note(f"profile '{name}' active — {summary}")
+
+
 @config_command.command(name="show")
 def config_show() -> None:
     """Show the effective settings and where each comes from."""
     env = os.environ
     path = config_path(env)
-    config = load_config(path)
+    config = load_config(path, env)
+    if config.profile is not None:
+        origin = "SEMPIPE_PROFILE" if env.get("SEMPIPE_PROFILE", "").strip() else "config file"
+        click.echo(f"profile      {config.profile}  ({origin})")
     click.echo(render_show(settings_with_origin(env, config), human_path(path)))
 
 
@@ -106,6 +150,23 @@ async def run_interactive_setup(
     save: Callable[[Config], None],
 ) -> Config:
     say("sempipe setup — one minute, three questions\n")
+    if current.profile is None and current.model is None:
+        say("Pick a starting profile (a named bundle you can switch any time):")
+        say("  1. openai — gpt-4o-mini + text-embedding-3-small (needs OPENAI_API_KEY)")
+        say("  2. gemini — gemini-2.5-flash, the most multimodal wire (needs GEMINI_API_KEY)")
+        say("  3. local  — ollama/gemma-4-e2b, multimodal, nothing leaves this machine")
+        say("  4. custom — answer the questions instead")
+        choice = ask("Profile [1-4]?", "4").strip()
+        picked = {"1": "openai", "2": "gemini", "3": "local"}.get(choice)
+        if picked is not None:
+            from sempipe.config.store import BUILTIN_PROFILES
+
+            chosen = replace(current, profile=picked)
+            save(chosen)  # a fresh setup has no flat keys to materialize
+            bundle = ", ".join(f"{k} = {v}" for k, v in BUILTIN_PROFILES[picked].items())
+            say(f"\n  ✓ profile '{picked}' active ({bundle})")
+            say("  Check the setup end to end:  sempipe doctor\n")
+            return chosen
     names = await probe() or ()
     chat = _first_chat(names)
     if chat is not None:

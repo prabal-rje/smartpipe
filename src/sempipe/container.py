@@ -282,7 +282,7 @@ async def build_container(
     intake through it. Whole-set verbs pass no stop — exhaustion there is fatal.
     """
     limit = _resolve_max_calls(environ, max_calls)
-    config = load_config(config_path(environ))
+    config = load_config(config_path(environ), environ)
     client = make_client()
     try:
         yield AppContainer(

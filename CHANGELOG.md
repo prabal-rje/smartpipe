@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Config profiles (D30).** Named bundles of the existing config keys, three
+  shipped presets (`openai`, `gemini`, `local` — the local one on
+  `ollama/gemma-4-e2b`, the multimodal 2.3B-effective model), user tables via
+  `[profiles.NAME]`, `sempipe config profile [NAME]` to list/switch,
+  `SEMPIPE_PROFILE` for one-offs, and the interactive `sempipe config` now
+  opens with a pick-a-profile question on fresh setups. Direct keys beat the
+  profile; profiles never hold secrets (a key inside one is rejected loudly).
 - **`join` handles oversized sides (W3).** No more skipping: an oversized left
   or right item is chunk-embedded once, mean-pooled for blocking, and the
   judge reads only the most-relevant chunk of that side (argmax similarity

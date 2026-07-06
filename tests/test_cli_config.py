@@ -203,3 +203,49 @@ def test_set_embed_model_mistral(run_cli: RunCli, config_home: Path) -> None:
     assert code == 0
     assert out.strip() == "embed-model set to mistral/mistral-embed"
     assert load_config(config_home).embed_model == "mistral/mistral-embed"
+
+
+def test_profile_switch_and_list(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    code, _out, err = run_cli(["config", "profile", "local"])
+    assert code == 0
+    assert "profile 'local' active — model: ollama/gemma-4-e2b" in err
+    code, out, _err = run_cli(["config", "profile"])
+    assert code == 0
+    assert "* local" in out
+    assert "  openai" in out
+
+
+def test_profile_unknown_name_lists_known(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    code, _out, err = run_cli(["config", "profile", "yolo"])
+    assert code == 2
+    assert "profile 'yolo' doesn't exist" in err
+
+
+async def test_wizard_offers_profiles_first_on_a_fresh_setup(tmp_path: Path) -> None:
+    from sempipe.cli.config_cmd import run_interactive_setup
+    from sempipe.config.store import Config
+
+    said: list[str] = []
+    saved: list[Config] = []
+
+    async def probe() -> tuple[str, ...] | None:
+        raise AssertionError("picking a preset must not probe anything")
+
+    result = await run_interactive_setup(
+        current=Config(),
+        probe=probe,
+        ask=lambda question, default: "3",  # local
+        confirm=lambda question: True,
+        say=said.append,
+        save=saved.append,
+    )
+    assert result.profile == "local"
+    assert saved and saved[0].profile == "local"
+    assert any("gemma-4-e2b" in line for line in said)
+    assert any("sempipe doctor" in line for line in said)

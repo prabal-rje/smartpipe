@@ -135,6 +135,7 @@ Tab completion for bash, zsh, and fish — including live model-name suggestions
 | `SEMPIPE_MAX_CALLS` | Default call ceiling (see `--max-calls`). |
 | `SEMPIPE_OPENAI_BASE_URL` | Point the OpenAI-compatible adapter at any endpoint. |
 | `SEMPIPE_MISTRAL_BASE_URL` / `SEMPIPE_GEMINI_BASE_URL` / `SEMPIPE_OPENROUTER_BASE_URL` | Point a provider's wire elsewhere (proxies, gateways). |
+| `SEMPIPE_PROFILE` | One-off profile pick for this invocation ([profiles](../concepts/models-and-providers.md)). |
 | `SEMPIPE_CONTEXT_TOKENS` | Assert your model's context window (beats the table and the probe; the fix for OpenAI/Anthropic deployments the table underestimates). |
 | `SEMPIPE_WHISPER_MODEL` | Local transcription size: `tiny` (default), `base`, `small`, `medium`, `large-v3`. |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY` | Cloud credentials (read, never stored). |

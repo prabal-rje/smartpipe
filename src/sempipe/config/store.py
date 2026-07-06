@@ -24,12 +24,20 @@ import tomli_w
 
 from sempipe.config.paths import human_path
 from sempipe.core.errors import SetupFault
+from sempipe.core.jsontools import as_record
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-__all__ = ["Config", "load_config", "save_config"]
+__all__ = [
+    "BUILTIN_PROFILES",
+    "Config",
+    "load_config",
+    "profile_names",
+    "save_config",
+    "set_active_profile",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,16 +46,92 @@ class Config:
     embed_model: str | None = None
     concurrency: int | None = None
     output: str | None = None
+    profile: str | None = None  # the active profile's name (D30)
 
 
-def load_config(path: Path) -> Config:
+_EMPTY_PROFILE: Mapping[str, object] = {}
+
+# D30: shipped presets, generated here so they can't rot in user files. A
+# profile is ONLY a bundle of existing config keys — that's the fence.
+BUILTIN_PROFILES: Mapping[str, Mapping[str, object]] = {
+    "openai": {"model": "gpt-4o-mini", "embed-model": "text-embedding-3-small"},
+    "gemini": {"model": "gemini-2.5-flash", "embed-model": "gemini/gemini-embedding-001"},
+    "local": {"model": "ollama/gemma-4-e2b"},  # multimodal 2.3B-effective, 128k
+}
+
+
+def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Config:
+    """Flat keys win over the active profile (a direct set is the most recent
+    intent); the active profile is SEMPIPE_PROFILE > the file's `profile` key."""
     data = _read_raw(path)
+    active = _active_profile(data, environ or {}, path)
+    base: Mapping[str, object] = _profile_values(data, active, path) if active is not None else {}
+    merged = {**base, **{k: v for k, v in data.items() if k != "profiles"}}
     return Config(
-        model=_string(data, "model", path),
-        embed_model=_string(data, "embed-model", path),
-        concurrency=_positive_int(data, "concurrency", path),
-        output=_string(data, "output", path),
+        model=_string(merged, "model", path),
+        embed_model=_string(merged, "embed-model", path),
+        concurrency=_positive_int(merged, "concurrency", path),
+        output=_string(merged, "output", path),
+        profile=active,
     )
+
+
+def set_active_profile(path: Path, name: str | None) -> None:
+    """Flip ONLY the profile key — never the flat keys, so resolved profile
+    values are not materialized into the file (they'd shadow every later
+    profile switch)."""
+    merged = dict(_read_raw(path))
+    if name is None:
+        merged.pop("profile", None)
+    else:
+        merged["profile"] = name
+    _write_raw(path, merged)
+
+
+def profile_names(path: Path) -> tuple[str, ...]:
+    """Every selectable profile: user-defined tables plus the shipped presets."""
+    defined = as_record(_read_raw(path).get("profiles"))
+    names = set(BUILTIN_PROFILES)
+    if defined is not None:
+        names.update(defined)
+    return tuple(sorted(names))
+
+
+def _active_profile(
+    data: Mapping[str, object], environ: Mapping[str, str], path: Path
+) -> str | None:
+    from_env = environ.get("SEMPIPE_PROFILE", "").strip()
+    name = from_env or _string(data, "profile", path)
+    if not name:
+        return None
+    defined = as_record(data.get("profiles"))
+    known: set[str] = set(BUILTIN_PROFILES)
+    if defined is not None:
+        known |= set(defined)
+    if name not in known:
+        raise SetupFault(
+            f"error: profile {name!r} doesn't exist\n"
+            f"  Known profiles: {', '.join(sorted(known))}\n"
+            "  Pick one: sempipe config profile NAME — or define [profiles."
+            f"{name}] in {human_path(path)}"
+        )
+    return name
+
+
+def _profile_values(data: Mapping[str, object], name: str, path: Path) -> Mapping[str, object]:
+    del path  # errors here don't need the file location — the key names suffice
+    defined = as_record(data.get("profiles"))
+    table = as_record(defined.get(name)) if defined is not None else None
+    if table is not None:
+        allowed = {"model", "embed-model", "concurrency", "output"}
+        unknown = set(table) - allowed
+        if unknown:
+            raise SetupFault(
+                f"error: profile {name!r} has unknown key {sorted(unknown)[0]!r}\n"
+                f"  A profile bundles: {', '.join(sorted(allowed))}"
+            )
+        return table
+    return BUILTIN_PROFILES.get(name, _EMPTY_PROFILE)
 
 
 def save_config(path: Path, config: Config) -> None:
@@ -57,12 +141,17 @@ def save_config(path: Path, config: Config) -> None:
         "embed-model": config.embed_model,
         "concurrency": config.concurrency,
         "output": config.output,
+        "profile": config.profile,
     }
     for key, value in ours.items():
         if value is None:
             merged.pop(key, None)  # None = unset (pinned semantics)
         else:
             merged[key] = value
+    _write_raw(path, merged)
+
+
+def _write_raw(path: Path, merged: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
