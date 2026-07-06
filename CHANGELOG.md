@@ -40,6 +40,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`sempipe sample` — seeded random subsets, free (D38/08).** Reservoir
+  sampling, input order preserved, and deterministic BY DEFAULT (seed 0):
+  the same input gives the same sample with no flags, so prompt iterations
+  compare prompts and the sample is citable; `--seed` varies it,
+  reproducibly. The receipt always names the seed. The representative
+  counterpart to `--max-calls`' head-truncating belt.
 - **`sempipe summarize` — deterministic aggregation, free (D38/07).**
   KQL's grammar verbatim: `'count(), avg(total), p95(total) by region'` →
   one record per group, largest first, KQL output naming (`avg_total`).

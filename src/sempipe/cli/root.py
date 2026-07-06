@@ -33,6 +33,7 @@ from sempipe.cli.map_cmd import map_command
 from sempipe.cli.outliers_cmd import outliers_command
 from sempipe.cli.reduce_cmd import reduce_command
 from sempipe.cli.run_cmd import run_command
+from sempipe.cli.sample_cmd import sample_command
 from sempipe.cli.schema_cmd import schema_command
 from sempipe.cli.screens import WELCOME
 from sempipe.cli.split_cmd import split_command
@@ -87,6 +88,7 @@ cli.add_command(split_command)
 cli.add_command(chart_command)
 cli.add_command(where_command)
 cli.add_command(summarize_command)
+cli.add_command(sample_command)
 cli.add_command(auth_command)
 cli.add_command(cite_command)
 cli.add_command(echo_command)
