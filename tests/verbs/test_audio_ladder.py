@@ -155,7 +155,7 @@ async def test_deaf_model_falls_back_to_transcription(
     assert len(model.calls) == 2  # native attempt, then the transcript retry
     assert model.calls[1].media == ()
     err = capsys.readouterr().err
-    assert err.count("transcribing audio with the [audio] extra") == 1  # the once-per-run note
+    assert err.count("transcribing with local whisper") == 1  # the once-per-run note
 
 
 async def test_deaf_model_without_extra_skips_with_both_fixes(
@@ -178,8 +178,7 @@ async def test_deaf_model_without_extra_skips_with_both_fixes(
 
 
 async def test_default_transcriber_end_to_end_on_junk_audio() -> None:
-    # no monkeypatch: the real [audio] extra chews junk bytes — an empty
-    # transcript, never a crash (the ensure_text audio rung, fully real)
-    spoken = await ensure_text(_audio_item())
-    assert spoken.media is None
-    assert isinstance(spoken.text, str)
+    # no monkeypatch: real faster-whisper rejects junk bytes as a per-item
+    # error (the two-fix skip), never a crash (the ensure_text rung, fully real)
+    with pytest.raises(ItemError):
+        await ensure_text(_audio_item())

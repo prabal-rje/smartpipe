@@ -17,9 +17,10 @@ from sempipe.models.base import AudioData, ImageData
 from sempipe.parsing.detect import FileKind, route
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
-__all__ = ["Extracted", "ImageData", "MissingExtra", "extract", "transcribe_audio"]
+__all__ = ["Extracted", "ImageData", "MissingExtra", "extract", "transcribe_audio", "whisper_size"]
 
 _IMAGE_MIME: dict[str, str] = {
     ".png": "image/png",
@@ -75,38 +76,47 @@ def _read_image(path: Path) -> ImageData:
     return ImageData(data=path.read_bytes(), mime=mime)
 
 
-_SUFFIX_BY_MIME = {
-    "audio/mpeg": ".mp3",
-    "audio/mp3": ".mp3",
-    "audio/wav": ".wav",
-    "audio/x-wav": ".wav",
-    "audio/mp4": ".m4a",
-    "audio/ogg": ".ogg",
-    "audio/flac": ".flac",
-}
+def whisper_size(environ: Mapping[str, str]) -> str:
+    """The local whisper variant: ``SEMPIPE_WHISPER_MODEL`` or the tiny default."""
+    return environ.get("SEMPIPE_WHISPER_MODEL", "tiny")
+
+
+_WHISPER_CACHE: dict[str, object] = {}  # one loaded model per size, per process
 
 
 def transcribe_audio(audio: AudioData) -> str:
-    """In-memory audio → transcript via the ``[audio]`` extra (D20 rung 2).
+    """In-memory audio → transcript, locally, via faster-whisper (D20 rung 2).
 
-    Blocking (markitdown is sync) — callers run it in a thread. ``MissingExtra``
-    propagates so the verb layer can name both fixes.
+    The audio bytes never leave the machine; the first use of a model size
+    downloads its weights once (~75 MB for tiny). Blocking — callers run it in
+    a thread. ``MissingExtra`` propagates so the verb layer can name both fixes.
     """
-    import contextlib
+    import io
     import os
-    import tempfile
 
-    suffix = _SUFFIX_BY_MIME.get(audio.mime, ".mp3")
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
-        handle.write(audio.data)
-        name = handle.name
     try:
-        from pathlib import Path
+        from faster_whisper import WhisperModel
+    except ImportError as exc:
+        raise MissingExtra(
+            "audio", "transcribing audio needs: pip install 'sempipe[audio]'"
+        ) from exc
 
-        return _via_markitdown(Path(name), extra="audio", noun="audio")
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(name)
+    size = whisper_size(os.environ)
+    model = _WHISPER_CACHE.get(size)
+    if model is None:
+        from sempipe.io import diagnostics
+
+        diagnostics.note(f"loading local whisper ({size}) — first use downloads the model")
+        model = WhisperModel(size, device="cpu", compute_type="int8")
+        _WHISPER_CACHE[size] = model
+    assert isinstance(model, WhisperModel)
+    try:
+        segments, _info = model.transcribe(io.BytesIO(audio.data))
+        return " ".join(segment.text.strip() for segment in segments).strip()
+    except MissingExtra:  # pragma: no cover — nothing below raises it
+        raise
+    except Exception as exc:
+        raise ItemError(f"audio couldn't be transcribed ({exc})") from exc
 
 
 def _via_markitdown(path: Path, *, extra: str, noun: str) -> str:

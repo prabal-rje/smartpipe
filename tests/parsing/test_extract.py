@@ -121,10 +121,17 @@ def test_audio_names_the_audio_extra(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 
 def test_transcribe_audio_runs_the_real_pipeline_on_junk_bytes() -> None:
     # the [audio] extra is installed in dev: junk bytes exercise the real
-    # temp-file path end to end — markitdown yields an empty transcript for
-    # unparseable audio (a finding, pinned: empty, never a crash)
+    # faster-whisper decode path and fail as a per-item error, never a crash
+    from sempipe.core.errors import ItemError
     from sempipe.models.base import AudioData
     from sempipe.parsing.extract import transcribe_audio
 
-    transcript = transcribe_audio(AudioData(data=b"not really audio", mime="audio/wav"))
-    assert isinstance(transcript, str)
+    with pytest.raises(ItemError, match="audio couldn't be transcribed"):
+        transcribe_audio(AudioData(data=b"not really audio", mime="audio/wav"))
+
+
+def test_whisper_size_env_override() -> None:
+    from sempipe.parsing.extract import whisper_size
+
+    assert whisper_size({}) == "tiny"
+    assert whisper_size({"SEMPIPE_WHISPER_MODEL": "small"}) == "small"

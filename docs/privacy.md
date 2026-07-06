@@ -38,21 +38,22 @@ then delete it: a binary document redirected to stdin (`sempipe map … <
 report.pdf`), and audio transcription (the `[audio]` extra). Nothing
 outlives the run; nothing is written into your project.
 
-## A second exception, disclosed: the `[audio]` transcriber
+## Audio transcription is local
 
-The optional `[audio]` extra transcribes speech via markitdown, whose
-transcriber (the SpeechRecognition library) **sends the audio to Google's Web
-Speech API** — a third-party endpoint, not the model you configured. This only
-happens when the extra is installed AND an audio item needs text (a deaf model
-in `map`, or any text verb). Audio-capable models (`gpt-4o-audio-preview`,
-`voxtral-*`) hear natively over your configured endpoint instead, and without
-the extra sempipe skips the item rather than transcribing. If audio must never
-leave your machine, don't install the extra.
+The optional `[audio]` extra transcribes speech **on your machine** with a
+local Whisper model (faster-whisper, `tiny` by default,
+`SEMPIPE_WHISPER_MODEL` to change it). The audio bytes never leave your
+computer. One disclosure: the *first* use of a model size downloads its
+weights (~75 MB for tiny) from Hugging Face — a one-time fetch of model files,
+with no audio or text in it. Audio-capable models (`gpt-4o-audio-preview`,
+`voxtral-*`) are the other path: they hear natively, over the endpoint you
+configured.
 
 ## No telemetry, ever
 
 sempipe makes **no network calls except to the model endpoint you configured**
-(and the disclosed `[audio]` transcription above, only if you opted in). There
+(and the one-time whisper weights download above, if you use the `[audio]`
+extra). There
 is no analytics, no phone-home, no update check. The test suite enforces this: it runs
 with strict HTTP mocking, so any unexpected outbound request fails the build.
 

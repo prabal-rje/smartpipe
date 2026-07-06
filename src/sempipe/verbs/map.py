@@ -145,8 +145,12 @@ async def _map_one(
         transcript = await asyncio.to_thread(_transcribe_or_skip, item.media, native_failure)
         if not fallback_noted[0]:
             fallback_noted[0] = True
+            import os
+
+            from sempipe.parsing.extract import whisper_size
+
             diagnostics.note(
-                "transcribing audio with the [audio] extra (Google's Web Speech API)"
+                f"transcribing with local whisper ({whisper_size(os.environ)})"
                 " — the model can't hear it natively"
             )
         spoken = replace(item, text=transcript, media=None)

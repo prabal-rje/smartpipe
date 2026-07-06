@@ -13,6 +13,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   server now use the explicit v4 loopback.
 
 ### Changed
+- **Audio transcription is now local (faster-whisper).** The `[audio]` extra
+  swaps Google's Web Speech API for a local Whisper model (`tiny` by default,
+  `SEMPIPE_WHISPER_MODEL=small|medium|large-v3` to trade speed for accuracy;
+  first use downloads the weights once). Audio bytes never leave the machine
+  on the fallback path. Verified end to end on synthesized speech.
 - **Honest audio-transcription disclosure.** The `[audio]` extra's transcriber
   (markitdown → SpeechRecognition) sends audio to **Google's Web Speech API**,
   not a local model — the one-time note, `docs/inputs/files.md`,
