@@ -48,6 +48,7 @@ class Config:
     output: str | None = None
     profile: str | None = None  # the active profile's name (D30)
     allow_captions: bool | None = None  # cloud conversions consent (D35; flag wins)
+    cache: bool | None = None  # result caching (D38/15) — account-level posture
 
 
 _EMPTY_PROFILE: Mapping[str, object] = {}
@@ -91,6 +92,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Config:
         output=_string(merged, "output", path),
         profile=active,
         allow_captions=_boolean(merged, "allow-captions", path),
+        cache=_boolean(merged, "cache", path),
     )
 
 
@@ -161,6 +163,7 @@ def save_config(path: Path, config: Config) -> None:
         "output": config.output,
         "profile": config.profile,
         "allow-captions": config.allow_captions,
+        "cache": config.cache,
     }
     for key, value in ours.items():
         if value is None:

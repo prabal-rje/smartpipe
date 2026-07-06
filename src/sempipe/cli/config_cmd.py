@@ -120,6 +120,14 @@ def config_set_embed_model(model_string: str) -> None:
     click.echo(f"embed-model set to {ref}")
 
 
+@config_command.command(name="cache")
+@click.argument("state", type=click.Choice(["on", "off"]))
+def config_set_cache(state: str) -> None:
+    """Turn result caching on or off (identical calls reuse stored replies)."""
+    _update(lambda c: replace(c, cache=state == "on"))
+    click.echo(f"cache {state} — stored replies live in ~/.cache/sempipe (sempipe cache clear)")
+
+
 def _update(change: Callable[[Config], Config]) -> None:
     path = config_path(os.environ)
     save_config(path, change(load_config(path)))

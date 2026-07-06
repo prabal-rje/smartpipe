@@ -85,3 +85,13 @@ your input files. Output goes to stdout; where it lands is up to your shell.
 ## See also
 
 - [Models & providers](concepts/models-and-providers.md) — local vs cloud in detail
+
+
+## The result cache
+
+With caching on (`sempipe config cache on` or `SEMPIPE_CACHE=1`), model
+REPLIES are stored on disk under `~/.cache/sempipe/results` (or
+`$XDG_CACHE_HOME/sempipe/results`), keyed by a hash of the full request.
+That means model outputs about your data persist locally between runs.
+`sempipe cache clear` deletes all of it and reports the size. Caching is
+off by default.

@@ -17,6 +17,7 @@ import click
 
 from sempipe import __version__
 from sempipe.cli.auth_cmd import auth_command
+from sempipe.cli.cache_cmd import cache_command
 from sempipe.cli.chart_cmd import chart_command
 from sempipe.cli.cite_cmd import cite_command
 from sempipe.cli.cluster_cmd import cluster_command
@@ -94,6 +95,7 @@ cli.add_command(sample_command)
 cli.add_command(getschema_command)
 cli.add_command(sort_command)
 cli.add_command(auth_command)
+cli.add_command(cache_command)
 cli.add_command(cite_command)
 cli.add_command(echo_command)
 

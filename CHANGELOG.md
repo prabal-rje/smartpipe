@@ -40,6 +40,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **Result caching (D38/15, KQL `materialize`).** Opt-in
+  (`sempipe config cache on` or `SEMPIPE_CACHE=1`): identical chat calls
+  reuse stored replies, so editing stage 4 of a pipeline stops re-paying
+  stages 1-3. Sound because of D36's temperature-0 contract; the key hashes
+  everything that could change a reply (model, prompts, schema, sampling,
+  media bytes). The cache wraps OUTSIDE the call budget — hits never count
+  against `--max-calls` (the belt caps spend, not answers). Closing receipt
+  (`cache: 9,412 hits · 588 calls`), atomic writes, corrupt entries read as
+  misses, `sempipe cache clear` reports the space freed, privacy page
+  discloses the storage. This deliberately reverses the old "no caching"
+  parking — determinism changed the calculus.
 - **Multi-stage `.sem` pipelines (D38/14).** `[stage.NAME]` tables run in
   order, each stage feeding the next (`input = "name"` picks any earlier
   stage); first reads stdin, last writes stdout; stage receipts are

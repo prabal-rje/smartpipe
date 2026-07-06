@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, assert_never
 
 from sempipe.cli import screens
@@ -71,6 +72,7 @@ class AppContainer:
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     color_mode: ColorMode = ColorMode.AUTO
     budget: CallBudget | None = None  # --max-calls (D18); None = uncapped
+    caches: list[object] = field(default_factory=list[object])  # CachingChatModel wrappers (D38/15)
     window_cache: dict[str, int | None] = field(default_factory=dict[str, "int | None"])
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
@@ -78,7 +80,16 @@ class AppContainer:
         if resolved.notice is not None:
             diagnostics.note(resolved.notice)
         model = self._build_chat(resolved.ref)
-        return model if self.budget is None else budgeted_chat(model, self.budget)
+        wired = model if self.budget is None else budgeted_chat(model, self.budget)
+        if not _cache_enabled(self.env, self.config):
+            return wired
+        # cache OUTERMOST: a hit short-circuits before the budget counts it —
+        # the belt caps SPEND, not answers (D38/15)
+        from sempipe.models.cache import CachingChatModel
+
+        wrapper = CachingChatModel(wired, _cache_dir(self.env))
+        self.caches.append(wrapper)
+        return wrapper
 
     async def context_window(self, ref: ModelRef) -> int | None:
         """The model's context window: env override > one cached live probe > None
@@ -277,6 +288,21 @@ def _resolve_max_calls(environ: Mapping[str, str], flag: int | None) -> int | No
     return int(env_value)
 
 
+def _cache_enabled(env: Mapping[str, str], config: Config) -> bool:
+    flag = env.get("SEMPIPE_CACHE", "").strip().lower()
+    if flag in ("1", "true", "on", "yes"):
+        return True
+    if flag in ("0", "false", "off", "no"):
+        return False
+    return bool(config.cache)
+
+
+def _cache_dir(env: Mapping[str, str]) -> Path:
+    base = env.get("XDG_CACHE_HOME", "").strip()
+    root = Path(base) if base else Path.home() / ".cache"
+    return root / "sempipe" / "results"
+
+
 @asynccontextmanager
 async def build_container(
     environ: Mapping[str, str],
@@ -293,13 +319,24 @@ async def build_container(
     limit = _resolve_max_calls(environ, max_calls)
     config = load_config(config_path(environ), environ)
     client = make_client()
+    container = AppContainer(
+        env=dict(environ),
+        config=config,
+        http_client=client,
+        color_mode=color_mode,
+        budget=None if limit is None else CallBudget(limit=limit, stop=stop),
+    )
     try:
-        yield AppContainer(
-            env=dict(environ),
-            config=config,
-            http_client=client,
-            color_mode=color_mode,
-            budget=None if limit is None else CallBudget(limit=limit, stop=stop),
-        )
+        yield container
     finally:
         await client.aclose()
+        _cache_receipt(container)
+
+
+def _cache_receipt(container: AppContainer) -> None:
+    from sempipe.models.cache import CachingChatModel
+
+    hits = sum(w.hits for w in container.caches if isinstance(w, CachingChatModel))
+    misses = sum(w.misses for w in container.caches if isinstance(w, CachingChatModel))
+    if hits or misses:
+        diagnostics.note(f"cache: {hits:,} hits · {misses:,} calls")

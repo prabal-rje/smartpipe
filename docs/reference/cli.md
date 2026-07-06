@@ -77,6 +77,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `summarize` | `'AGG[, AGG…] [by FIELD,…]'` (count/sum/avg/min/max/p50-p99/dcount) |
 | `sample` | `N`, `--seed K` (default 0 — reproducible by default) |
 | `getschema` | `--all` (scan past the first 10,000 rows) |
+| `cache` | `clear` (result cache; enable with `sempipe config cache on` / `SEMPIPE_CACHE=1`) |
 | `sort` | `--by FIELD` (required), `--desc` |
 | `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
 | `chart` | `FIELD` (or whole lines), `--facet f1,f2,…`, `--by-time FIELD:BUCKET`, `--top N`, `--save FILE.svg`, `--title` |
