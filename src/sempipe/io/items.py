@@ -59,23 +59,27 @@ def _named_source(data: Mapping[str, object] | None, index: int) -> ItemSource:
 
 
 def _sniff_media(data: Mapping[str, object] | None) -> MediaData | None:
-    """``split --by minutes`` ships audio slices as base64 NDJSON — rebuild the
-    bytes so the next verb can hear them (D27)."""
+    """``split`` ships media as base64 NDJSON (audio slices, embedded images) —
+    rebuild the bytes so the next verb can hear or see them (D27/D29)."""
     if data is None:
         return None
-    encoded = data.get("audio_b64")
     mime = data.get("mime")
-    if not isinstance(encoded, str) or not isinstance(mime, str):
+    if not isinstance(mime, str):
         return None
     import base64
     import binascii
 
-    from sempipe.models.base import AudioData  # runtime: isinstance-free construction
+    from sempipe.models.base import AudioData, ImageData  # runtime construction
 
-    try:
-        return AudioData(data=base64.b64decode(encoded, validate=True), mime=mime)
-    except (binascii.Error, ValueError):
-        return None  # not ours — treat as a plain JSON line
+    for key, build in (("audio_b64", AudioData), ("image_b64", ImageData)):
+        encoded = data.get(key)
+        if not isinstance(encoded, str):
+            continue
+        try:
+            return build(base64.b64decode(encoded, validate=True), mime)
+        except (binascii.Error, ValueError):
+            return None  # not ours — treat as a plain JSON line
+    return None
 
 
 def item_from_file(text: str, path: str, index: int) -> Item:

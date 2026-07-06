@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, assert_never
 
 from sempipe.core.errors import ItemError
+from sempipe.core.jsontools import as_items, as_record
 from sempipe.models.base import AudioData, ImageData
 from sempipe.parsing.detect import FileKind, route
 
@@ -21,9 +22,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 __all__ = [
+    "EmbeddedImage",
+    "EmbeddedMedia",
     "Extracted",
     "ImageData",
     "MissingExtra",
+    "embedded_images",
     "extract",
     "pdf_page_texts",
     "slice_audio",
@@ -194,6 +198,134 @@ def _slice_via_ffmpeg(audio: AudioData, *, seconds: int) -> list[AudioData]:
     finally:
         with contextlib.suppress(OSError):
             shutil.rmtree(workdir)
+
+
+_MEDIA_FLOOR_BYTES = 4_096  # icons, bullets, rules — decoration, not content
+_OFFICE_MEDIA_DIRS = {".docx": "word/media/", ".pptx": "ppt/media/", ".xlsx": "xl/media/"}
+_IMAGE_MIME_BY_NAME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddedImage:
+    image: ImageData
+    where: str  # "p.7 img.2" (PDF) / "img.3" (office zip)
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddedMedia:
+    images: tuple[EmbeddedImage, ...]
+    dropped_small: int  # under the floor — counted, disclosed once
+
+
+def embedded_images(path: Path) -> EmbeddedMedia:
+    """Images embedded inside a document (D29): office zips via the stdlib,
+    PDFs by walking XObjects for JPEG (DCTDecode) streams — passed through
+    byte-identical, never re-encoded."""
+    suffix = path.suffix.lower()
+    if suffix in _OFFICE_MEDIA_DIRS:
+        return _office_zip_images(path, _OFFICE_MEDIA_DIRS[suffix])
+    if suffix == ".pdf":
+        return _pdf_images(path)
+    raise ItemError(f"{path.name} isn't a document with embedded media (pdf/docx/pptx/xlsx)")
+
+
+def _office_zip_images(path: Path, media_dir: str) -> EmbeddedMedia:
+    import zipfile
+    from pathlib import Path
+
+    images: list[EmbeddedImage] = []
+    dropped = 0
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = sorted(n for n in archive.namelist() if n.startswith(media_dir))
+            for position, name in enumerate(names, start=1):
+                mime = _IMAGE_MIME_BY_NAME.get(Path(name).suffix.lower())
+                if mime is None:
+                    continue  # emf/wmf and friends — no model reads them
+                payload = archive.read(name)
+                if len(payload) < _MEDIA_FLOOR_BYTES:
+                    dropped += 1
+                    continue
+                images.append(EmbeddedImage(ImageData(payload, mime), f"img.{position}"))
+    except ItemError:  # pragma: no cover — nothing above raises it
+        raise
+    except Exception as exc:
+        raise ItemError(f"{path.name} couldn't be opened as an office document ({exc})") from exc
+    return EmbeddedMedia(tuple(images), dropped)
+
+
+def _pdf_images(path: Path) -> EmbeddedMedia:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise MissingExtra(
+            "files",
+            "error: parsing documents needs an optional dependency\n"
+            "  install it with:  pip install 'sempipe[files]'",
+        ) from exc
+    images: list[EmbeddedImage] = []
+    dropped = 0
+    try:
+        reader = PdfReader(str(path))
+        for page_number, page in enumerate(reader.pages, start=1):
+            xobjects = as_record(_pdf_lookup(_pdf_lookup(page, "/Resources"), "/XObject"))
+            if xobjects is None:
+                continue
+            position = 0
+            for key in sorted(xobjects):
+                stream = _pdf_resolve(xobjects.get(key))
+                if _pdf_lookup(stream, "/Subtype") != "/Image":
+                    continue
+                filters = as_items(_pdf_lookup(stream, "/Filter"))
+                names = (
+                    [str(entry) for entry in filters]
+                    if filters is not None
+                    else [str(_pdf_lookup(stream, "/Filter"))]
+                )
+                if "/DCTDecode" not in names:
+                    continue  # only JPEG streams pass through without re-encoding
+                position += 1
+                payload = getattr(stream, "_data", b"")
+                if not isinstance(payload, bytes):
+                    continue
+                if len(payload) < _MEDIA_FLOOR_BYTES:
+                    dropped += 1
+                    continue
+                images.append(
+                    EmbeddedImage(
+                        ImageData(payload, "image/jpeg"), f"p.{page_number} img.{position}"
+                    )
+                )
+    except MissingExtra:
+        raise
+    except Exception as exc:
+        raise ItemError(f"{path.name} couldn't be scanned for images ({exc})") from exc
+    return EmbeddedMedia(tuple(images), dropped)
+
+
+def _pdf_resolve(value: object) -> object:
+    """Follow an IndirectObject reference; anything else passes through."""
+    resolver = getattr(value, "get_object", None)
+    return resolver() if callable(resolver) else value
+
+
+def _pdf_lookup(mapping: object, key: str) -> object:
+    """Duck lookup on pypdf's dict-like objects, reference-chased, None-safe."""
+    resolved = _pdf_resolve(mapping)
+    record = as_record(resolved)
+    if record is not None:
+        return _pdf_resolve(record.get(key))
+    getter = getattr(resolved, "get", None)
+    if not callable(getter):
+        return None
+    looked: object = getter(key)
+    return _pdf_resolve(looked)
 
 
 def whisper_size(environ: Mapping[str, str]) -> str:

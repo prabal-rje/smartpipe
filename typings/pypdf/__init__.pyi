@@ -1,0 +1,6 @@
+"""Minimal local stub: sempipe walks PDF XObjects itself with duck narrowing."""
+
+class PdfReader:
+    def __init__(self, stream: str) -> None: ...
+    @property
+    def pages(self) -> list[object]: ...

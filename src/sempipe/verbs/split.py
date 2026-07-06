@@ -37,6 +37,7 @@ _DEFAULT_BUDGET_TOKENS = 2_000  # comfortable for every wired window, ~8k chars
 class SplitRequest:
     max_tokens_flag: int | None = None
     by_flag: str | None = None  # --by UNIT[:N] (D26 rich units)
+    media: bool = False  # --media: embedded images become items (D29)
     input: InputSpec = STDIN
 
 
@@ -101,6 +102,54 @@ def _clock(seconds: int) -> str:
     return f"{seconds // 60:02d}:{seconds % 60:02d}"
 
 
+async def _run_media(request: SplitRequest, context: SplitContext, *, stdout: TextIO) -> ExitCode:
+    """--media (D29): embedded images become items; icons under the floor drop, once-noted."""
+    import base64
+    from pathlib import Path
+
+    from sempipe.io.inputs import expand_globs
+    from sempipe.io.writers import OutputFormat
+    from sempipe.parsing.extract import embedded_images
+
+    if not request.input.patterns:
+        raise UsageFault(
+            "--media reads document files — give it some: sempipe split --media --in 'docs/*.pdf'"
+        )
+    writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
+    produced = 0
+    skipped = 0
+    dropped_total = 0
+    try:
+        for path in expand_globs(request.input.patterns):
+            name = Path(path).name
+            try:
+                media = embedded_images(Path(path))
+            except ItemError as exc:
+                diagnostics.warn(f"skipped: {name} ({exc})")
+                skipped += 1
+                continue
+            dropped_total += media.dropped_small
+            if not media.images:
+                diagnostics.note(f"{name} has no embedded images")
+            for found in media.images:
+                writer.write_record(
+                    {
+                        "image_b64": base64.b64encode(found.image.data).decode("ascii"),
+                        "mime": found.image.mime,
+                        "source": f"{name} {found.where}",
+                    }
+                )
+            produced += 1
+    finally:
+        writer.flush()
+    if dropped_total:
+        plural = "s" if dropped_total != 1 else ""
+        diagnostics.note(
+            f"skipped {dropped_total} embedded image{plural} under 4 KB (icons/decorations)"
+        )
+    return outcome_exit_code(done=produced, skipped=skipped)
+
+
 async def _run_pages(
     request: SplitRequest, context: SplitContext, *, by: SplitBy, stdout: TextIO
 ) -> ExitCode:
@@ -157,6 +206,10 @@ async def run_split(
 ) -> ExitCode:
     from sempipe.io.writers import OutputFormat
 
+    if request.media:
+        if request.by_flag is not None or request.max_tokens_flag is not None:
+            raise UsageFault("--media extracts embedded images — it doesn't combine with --by")
+        return await _run_media(request, context, stdout=stdout)
     by = _resolve_by(request)
     if by.unit == "pages":
         return await _run_pages(request, context, by=by, stdout=stdout)

@@ -24,6 +24,12 @@ __all__ = ["split_command"]
     help="Split unit: tokens, pages, minutes, seconds. e.g. --by pages, --by minutes:10",
 )
 @click.option(
+    "--media",
+    "media",
+    is_flag=True,
+    help="Extract images embedded in PDFs/DOCX/PPTX/XLSX as items (icons dropped).",
+)
+@click.option(
     "--max-tokens",
     "max_tokens",
     type=int,
@@ -32,6 +38,7 @@ __all__ = ["split_command"]
 @input_options
 def split_command(
     by_flag: str | None,
+    media: bool,
     max_tokens: int | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
@@ -51,6 +58,7 @@ def split_command(
     request = SplitRequest(
         max_tokens_flag=max_tokens,
         by_flag=by_flag,
+        media=media,
         input=input_spec(in_patterns, from_files=from_files),
     )
     code = asyncio.run(_run(request))

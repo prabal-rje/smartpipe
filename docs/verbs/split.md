@@ -47,11 +47,22 @@ wav; other formats need `ffmpeg` on PATH. Audio slices travel as base64 inside
 the NDJSON records, so segment lines are large; that's the cost of a pipe that
 carries sound.
 
+## `--media`: the images inside documents
+
+`--media` extracts figures embedded in PDFs/DOCX/PPTX/XLSX as image items with
+provenance (`report.pdf p.7 img.2`), byte-identical, icon-floor applied. Feed
+them straight to a vision model:
+
+```console
+$ sempipe split --media --in 'decks/*.pptx' | sempipe map "what does this chart claim? {claim}"
+```
+
 ## Options
 
 | Flag | Meaning |
 |---|---|
 | `--by UNIT[:N]` | the split unit (table above) |
+| `--media` | extract embedded images as items instead (doesn't combine with `--by`) |
 | `--max-tokens N` | shorthand for `--by tokens:N` |
 | `--in GLOB`, `--from-files` | the usual [file inputs](../inputs/files.md) |
 

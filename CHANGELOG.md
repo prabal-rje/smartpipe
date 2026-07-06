@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`split --media`: the images inside your documents (D29).** Figures
+  embedded in PDFs/DOCX/PPTX/XLSX become image items with page provenance
+  (`report.pdf p.7 img.2`), byte-identical (office zips via the stdlib; PDF
+  JPEG streams passed through, never re-encoded), 4 KB icon floor with a
+  counted note, riding the pipe as base64 NDJSON that the next verb *sees*.
+  Live-proven end to end: a photo embedded in a PDF, extracted and correctly
+  described by a vision model. Explicit by design — decks full of decorative
+  logos become items only when you ask (D29: extract as items, never fuse).
 - **`split` learned real units (D26/D27).** `--by pages[:N]` groups PDF pages
   with true page provenance (`report.pdf p.6-10`); `--by minutes:N` /
   `--by seconds:N` slices audio into segments that **stay audio** through the

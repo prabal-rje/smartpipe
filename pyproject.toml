@@ -33,7 +33,7 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40"]
-files = ["markitdown[pdf,docx,pptx,xlsx]>=0.1.6"]
+files = ["markitdown[pdf,docx,pptx,xlsx]>=0.1.6", "pypdf>=5.0"]
 audio = ["faster-whisper>=1.0"]  # local STT: audio never leaves the machine
 all = ["sempipe[anthropic,files,audio]"]
 

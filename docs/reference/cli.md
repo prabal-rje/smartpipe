@@ -56,7 +56,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT`, `--stream` (live leaderboard) |
 | `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
 | `join` | `--right FILE` (required), `--k N` (default 5), `--threshold FLOAT`, `--unmatched FILE`, `--embed-model` |
-| `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--max-tokens N` (= `--by tokens:N`) |
+| `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
 
 ## `config`
 

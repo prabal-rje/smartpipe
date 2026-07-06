@@ -109,14 +109,22 @@ stdin lines, one run:
 $ cat extra-notes.txt | sempipe map "Summarize" --in 'reports/*.pdf'
 ```
 
-## Images inside PDFs and DOCX: currently dropped
+## Images inside PDFs and DOCX: extract them with `split --media`
 
-Honest disclosure: document parsing extracts **text**; figures and photos
-embedded in a PDF or DOCX contribute nothing today — they are silently dropped
-by the extractor. Standalone image files are first-class (`--in '*.png'` →
-vision models). Embedded-image extraction is planned as an explicit `split`
-option, so a 100-page deck's 300 decorative images become items only when you
-ask.
+Document parsing extracts **text**; figures embedded in a PDF/DOCX/PPTX/XLSX
+don't ride along implicitly (a 100-page deck can carry 300 decorative logos —
+an item explosion you should choose, not inherit). When you want them:
+
+```console
+$ sempipe split --media --in report.pdf | sempipe map "describe this figure"
+{"image_b64": "…", "mime": "image/jpeg", "source": "report.pdf p.7 img.2"}
+```
+
+Each embedded image becomes an item with page provenance, byte-identical
+(never re-encoded), and the next verb *sees* it. Icons under 4 KB are dropped
+and counted once on stderr. Office formats yield every embedded PNG/JPEG/GIF/WebP;
+PDFs yield JPEG-compressed images (the overwhelming majority of real photos in
+PDFs — other encodings would need re-encoding and are skipped for now).
 
 ## Audio: heard natively, or transcribed
 
