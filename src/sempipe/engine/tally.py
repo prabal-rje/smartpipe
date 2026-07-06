@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-__all__ = ["Tally", "render_tally"]
+__all__ = ["Tally", "explode_record", "render_tally"]
 
 _MISSING = "(missing)"
 _TOP_LIVE = 3  # the status line shows the leaders; the final line shows everything
@@ -38,3 +38,16 @@ def render_tally(counts: Counter[str], *, limit: int | None) -> str:
     if limit is not None and len(counts) > limit:
         rendered += " · …"
     return rendered
+
+
+def explode_record(record: Mapping[str, object], field: str) -> list[dict[str, object]]:
+    """``--explode``: one row per element of a list-valued field, sibling fields
+    copied. Non-lists (including a missing field) pass through as one row."""
+    from sempipe.core.jsontools import as_items
+
+    value = as_items(record.get(field))
+    if value is None:
+        return [dict(record)]
+    if not value:
+        return []  # an empty list is zero rows — nothing to say, honestly
+    return [{**record, field: element} for element in value]

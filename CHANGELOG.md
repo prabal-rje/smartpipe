@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`map --explode FIELD`.** One row per element of a list-valued field,
+  sibling fields copied (`{"vendor":"Acme","risks":[…]}` becomes one row per
+  risk). Empty list = zero rows; non-lists pass through. Composes with
+  `--tally` (counts per exploded row) and `--fields`.
 - **`split --media`: the images inside your documents (D29).** Figures
   embedded in PDFs/DOCX/PPTX/XLSX become image items with page provenance
   (`report.pdf p.7 img.2`), byte-identical (office zips via the stdlib; PDF

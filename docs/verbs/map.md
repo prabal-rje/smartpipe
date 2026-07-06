@@ -59,6 +59,20 @@ $ tail -f app.log | sempipe map "Classify: {severity, category}" | tee incidents
 | `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md)) |
 | `--verbose` / `--debug` | More detail on stderr / full tracebacks |
 
+## Lists into rows: `--explode`
+
+When a field is a list, `--explode FIELD` emits one row per element with the
+sibling fields copied — `jq -c '.risks[]'`, but provenance-aware and schema-checked:
+
+```console
+$ cat filings.txt | sempipe map "Extract {vendor, risks}" --explode risks
+{"vendor":"Acme","risks":"late delivery"}
+{"vendor":"Acme","risks":"currency exposure"}
+```
+
+An empty list is zero rows; a non-list value passes through unchanged.
+Composes with `--tally` (counted per exploded row) and `--fields`.
+
 ## Items bigger than the window
 
 `map` refuses an item the model can't hold, before spending anything:

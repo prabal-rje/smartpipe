@@ -218,3 +218,42 @@ def test_tally_without_structure_is_a_usage_error(run_cli: RunCli) -> None:
     code, _out, err = run_cli(["map", "summarize", "--tally", "label"], stdin="x\n")
     assert code == 64
     assert "--tally needs structured output" in err
+
+
+def test_explode_emits_one_row_per_list_element(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.post(CHAT).mock(
+        return_value=httpx.Response(
+            200,
+            json={"message": {"content": '{"vendor": "Acme", "risks": ["late", "fx", "supply"]}'}},
+        )
+    )
+    code, out, _err = run_cli(
+        ["map", "Extract {vendor, risks}", "--explode", "risks"], stdin="doc\n"
+    )
+    assert code == 0
+    assert out.splitlines() == [
+        '{"vendor":"Acme","risks":"late"}',
+        '{"vendor":"Acme","risks":"fx"}',
+        '{"vendor":"Acme","risks":"supply"}',
+    ]
+
+
+def test_explode_composes_with_tally(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
+    respx_mock.post(CHAT).mock(
+        return_value=httpx.Response(
+            200, json={"message": {"content": '{"risks": ["late", "late", "fx"]}'}}
+        )
+    )
+    code, _out, err = run_cli(
+        ["map", "Extract {risks}", "--explode", "risks", "--tally", "risks"], stdin="doc\n"
+    )
+    assert code == 0
+    assert "tally: late 2 · fx 1" in err  # counted per exploded row
+
+
+def test_explode_without_structure_is_a_usage_error(run_cli: RunCli) -> None:
+    code, _out, err = run_cli(["map", "summarize", "--explode", "risks"], stdin="x\n")
+    assert code == 64
+    assert "--explode needs structured output" in err

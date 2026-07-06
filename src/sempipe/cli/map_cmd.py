@@ -33,6 +33,12 @@ __all__ = ["map_command"]
     help="Read the prompt from a file (the @file shorthand does the same).",
 )
 @click.option(
+    "--explode",
+    "explode_field",
+    metavar="FIELD",
+    help="Emit one row per element of a list-valued FIELD (sibling fields copied).",
+)
+@click.option(
     "--tally",
     "tally_field",
     metavar="FIELD",
@@ -73,6 +79,7 @@ def map_command(
     schema_path: Path | None,
     schema_dsl: str | None,
     tally_field: str | None,
+    explode_field: str | None,
     model_flag: str | None,
     output: str,
     concurrency_flag: int | None,
@@ -97,6 +104,7 @@ def map_command(
         schema_path=schema_path,
         schema_dsl=schema_dsl,
         tally_field=tally_field,
+        explode_field=explode_field,
         model_flag=model_flag,
         output=OutputFormat(output),
         concurrency_flag=concurrency_flag,

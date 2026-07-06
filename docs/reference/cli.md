@@ -51,7 +51,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 
 | Verb | Options |
 |---|---|
-| `map` | `--schema FILE`, `--schema-from DSL`, `--tally FIELD`, `--output {auto,text,json,csv,tsv}` |
+| `map` | `--schema FILE`, `--schema-from DSL`, `--tally FIELD`, `--explode FIELD`, `--output {auto,text,json,csv,tsv}` |
 | `filter` | `--not` (invert, like `grep -v`) |
 | `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT`, `--stream` (live leaderboard) |
 | `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |

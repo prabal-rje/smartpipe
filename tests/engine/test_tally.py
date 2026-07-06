@@ -33,3 +33,26 @@ def test_non_string_values_stringify() -> None:
     tally.add({"priority": 1})
     tally.add({"priority": 1})
     assert tally.final_line() == "tally: 1 2"
+
+
+def test_explode_makes_one_row_per_element() -> None:
+    from sempipe.engine.tally import explode_record
+
+    rows = explode_record({"vendor": "Acme", "risks": ["late", "fx"]}, "risks")
+    assert rows == [
+        {"vendor": "Acme", "risks": "late"},
+        {"vendor": "Acme", "risks": "fx"},
+    ]
+
+
+def test_explode_passes_non_lists_through() -> None:
+    from sempipe.engine.tally import explode_record
+
+    assert explode_record({"risks": "single"}, "risks") == [{"risks": "single"}]
+    assert explode_record({"other": 1}, "risks") == [{"other": 1}]
+
+
+def test_explode_empty_list_is_zero_rows() -> None:
+    from sempipe.engine.tally import explode_record
+
+    assert explode_record({"risks": []}, "risks") == []

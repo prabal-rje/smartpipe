@@ -63,6 +63,7 @@ class MapRequest:
     fields: tuple[str, ...] | None = None  # --fields: project structured output
     schema_dsl: str | None = None  # --schema-from (rung 3, D22)
     tally_field: str | None = None  # --tally FIELD: live distribution on stderr
+    explode_field: str | None = None  # --explode FIELD: one row per list element
 
 
 class MapContext(Protocol):
@@ -111,6 +112,11 @@ async def run_map(
         from sempipe.engine.tally import Tally
 
         tally = Tally(request.tally_field)
+    if request.explode_field is not None and not structured:
+        raise UsageFault(
+            "--explode needs structured output — name fields in braces or pass --schema\n"
+            '  Example: sempipe map "Extract {risks}" --explode risks'
+        )
 
     spinner = make_stderr_spinner()
     spinner.start(total=total)
@@ -142,10 +148,11 @@ async def run_map(
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):
-                _write(writer, structured=structured, value=outcome.value)
-                if tally is not None and isinstance(outcome.value, Mapping):
-                    tally.add(outcome.value)
-                    spinner.extra = tally.live_segment()
+                for row in _rows(outcome.value, request.explode_field):
+                    _write(writer, structured=structured, value=row)
+                    if tally is not None and isinstance(row, Mapping):
+                        tally.add(row)
+                        spinner.extra = tally.live_segment()
                 done += 1
             else:  # Skipped — the union has no third case
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
@@ -208,6 +215,16 @@ def _transcribe_or_skip(audio: AudioData, native_failure: ItemError) -> str:
         return transcribe_audio(audio)
     except MissingExtra:
         raise native_failure from None  # the adapter's message already names both fixes
+
+
+def _rows(
+    value: str | Mapping[str, object], explode_field: str | None
+) -> list[str | Mapping[str, object]]:
+    if explode_field is None or not isinstance(value, Mapping):
+        return [value]
+    from sempipe.engine.tally import explode_record
+
+    return list(explode_record(value, explode_field))
 
 
 def _write(writer: ResultWriter, *, structured: bool, value: str | Mapping[str, object]) -> None:
