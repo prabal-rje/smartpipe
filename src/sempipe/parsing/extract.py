@@ -376,8 +376,9 @@ class VideoParts:
     track: AudioData | None  # None when the video is silent
 
 
-def video_to_parts(video: VideoData, *, frames: int = 6) -> VideoParts:
-    """The poor man's video (D27): N frames sampled evenly + the audio track.
+def video_to_parts(video: VideoData, *, max_frames: int = 24) -> VideoParts:
+    """The poor man's video (D27/D36): 1 frame per second up to ``max_frames``,
+    evenly spread past the cap, plus the audio track.
 
     Free and local (ffmpeg). Blocking — callers run it in a thread.
     """
@@ -395,7 +396,8 @@ def video_to_parts(video: VideoData, *, frames: int = 6) -> VideoParts:
         with open(source, "wb") as handle:
             handle.write(video.data)
         duration = _ffprobe_duration(exe, source)
-        rate = frames / duration if duration > 0 else 1.0
+        # 1 fps for clips up to the cap; longer clips spread the cap evenly (D36)
+        rate = 1.0 if 0 < duration <= max_frames else max(max_frames / duration, 0.01)
         subprocess.run(
             [
                 exe,
@@ -406,8 +408,8 @@ def video_to_parts(video: VideoData, *, frames: int = 6) -> VideoParts:
                 "-vf",
                 f"fps={rate}",
                 "-frames:v",
-                str(frames),
-                os.path.join(workdir, "frame-%02d.jpg"),
+                str(max_frames),
+                os.path.join(workdir, "frame-%03d.jpg"),
             ],
             check=True,
             capture_output=True,

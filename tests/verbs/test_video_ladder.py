@@ -57,8 +57,8 @@ def clip(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def test_video_to_parts_yields_frames_and_track(clip: Path) -> None:
     from sempipe.parsing.extract import video_to_parts
 
-    parts = video_to_parts(VideoData(clip.read_bytes(), "video/mp4"), frames=4)
-    assert 1 <= len(parts.frames) <= 4
+    parts = video_to_parts(VideoData(clip.read_bytes(), "video/mp4"), max_frames=4)
+    assert 1 <= len(parts.frames) <= 4  # 2s clip at 1 fps → ~2 frames
     assert all(frame.mime == "image/jpeg" for frame in parts.frames)
     assert all(frame.data.startswith(b"\xff\xd8") for frame in parts.frames)  # real JPEGs
     assert parts.track is not None

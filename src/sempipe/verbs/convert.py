@@ -11,13 +11,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sempipe.core.errors import ItemError
+from sempipe.engine.schema import validate_and_coerce
 from sempipe.models.base import AudioData, CompletionRequest, ImageData, VideoData
 
 if TYPE_CHECKING:
     from sempipe.io.diagnostics import DegradationLog
-    from sempipe.models.base import ChatModel
+    from sempipe.io.items import Item
+    from sempipe.models.base import ChatModel, EmbeddingModel
 
-__all__ = ["IMAGE_NEEDS_CAPTION", "Converter", "make_converter"]
+__all__ = ["IMAGE_NEEDS_CAPTION", "Converter", "embed_video_halves", "make_converter"]
 
 AUDIO_TO_TEXT_SYSTEM = (
     "You convert audio to text for search indexing. If the audio contains "
@@ -43,6 +45,17 @@ IMAGE_NEEDS_CAPTION = (
 )
 
 _CONVERT_MAX_TOKENS = 512
+_CAPTION_FRAMES = 4  # the fallback captions a handful, not a filmstrip
+
+_VIDEO_HALVES_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "visual": {"type": "string", "description": "what is shown, 2-3 sentences"},
+        "transcript": {"type": "string", "description": "all speech verbatim; empty if none"},
+    },
+    "required": ["visual", "transcript"],
+    "additionalProperties": False,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,41 +96,66 @@ class Converter:
                 self.log.note(where, "audio → text", f"heard by {self._rung_name()}")
                 return text.strip()
         import asyncio
-
-        from sempipe.verbs.common import transcribe
-
-        transcript = await asyncio.to_thread(transcribe, audio)
         import os
 
         from sempipe.parsing.extract import whisper_size
 
+        transcript = await asyncio.to_thread(_whisper_or_skip, audio)
+
         self.log.note(where, "audio → text", f"whisper {whisper_size(os.environ)}")
         return transcript
 
-    async def video_to_text(self, video: VideoData, where: str) -> str | None:
-        """Rung 0 (D35): the WHOLE video to a model that watches — gemini native
-        accepts; every other wire refuses pre-send, free. None = fall back to
-        the caller's track-only path."""
-        if not self._model_may_convert():
-            return None
-        assert self.chat is not None
-        try:
-            text = await self.chat.complete(
-                CompletionRequest(
-                    system=VIDEO_TO_TEXT_SYSTEM,
-                    user="Convert this video to text.",
-                    media=(video,),
-                    max_tokens=_CONVERT_MAX_TOKENS,
-                    presence_penalty=0.5,
-                    frequency_penalty=0.5,
+    async def video_halves(self, video: VideoData, where: str) -> tuple[str | None, str | None]:
+        """(visual, speech) — the two halves of a video's meaning (D36).
+
+        Rung 0: ONE watching call returns both via a response schema (gemini
+        native accepts; every other wire refuses pre-send, free). Rung 1: frame
+        captions + the track through the audio ladder. Rung 2: track only."""
+        if self._model_may_convert():
+            assert self.chat is not None
+            try:
+                reply = await self.chat.complete(
+                    CompletionRequest(
+                        system=VIDEO_TO_TEXT_SYSTEM,
+                        user="Convert this video to text.",
+                        media=(video,),
+                        json_schema=_VIDEO_HALVES_SCHEMA,
+                        max_tokens=_CONVERT_MAX_TOKENS,
+                    )
                 )
+                halves = validate_and_coerce(reply, _VIDEO_HALVES_SCHEMA)
+                visual = str(halves.get("visual") or "").strip() or None
+                speech = str(halves.get("transcript") or "").strip() or None
+                if visual or speech:
+                    self.log.note(where, "video → text", f"watched by {self._rung_name()}")
+                    return visual, speech
+            except ItemError:
+                pass  # this wire can't watch — the refusal cost nothing
+        import asyncio
+
+        from sempipe.parsing.extract import video_to_parts
+
+        parts = await asyncio.to_thread(video_to_parts, video, max_frames=_CAPTION_FRAMES)
+        visual = None
+        if self._model_may_convert() and parts.frames:
+            captions = [await self.image_to_text(frame, where) for frame in parts.frames]
+            visual = "\n".join(
+                f"[scene {position}] {caption}"
+                for position, caption in enumerate(captions, start=1)
             )
-        except ItemError:
-            return None  # this wire can't watch — the refusal cost nothing
-        if not text.strip():
-            return None
-        self.log.note(where, "video → text", f"watched by {self._rung_name()}")
-        return text.strip()
+        speech = None
+        if parts.track is not None:
+            speech = await self.audio_to_text(parts.track, where)
+        if visual is None and speech is None:
+            raise ItemError(
+                "this video has no audio track and no model can describe its "
+                "frames — map can still see them"
+            )
+        if visual is None:
+            self.log.note(
+                where, "video → text", "audio track only; frames dropped — map sees frames"
+            )
+        return visual, speech
 
     async def image_to_text(self, image: ImageData, where: str) -> str:
         """LLM rung or nothing — there is no free non-LLM rung for images."""
@@ -136,6 +174,45 @@ class Converter:
         )
         self.log.note(where, "image → text", f"described by {self._rung_name()}")
         return text.strip()
+
+
+async def embed_video_halves(
+    model: EmbeddingModel,
+    item: Item,
+    video: VideoData,
+    converter: Converter,
+) -> tuple[Item, tuple[float, ...]]:
+    """D36: a video's vector is the FAIR AVERAGE of its two halves — the visual
+    description and the speech transcript embedded separately and mean-pooled
+    50/50, so neither drowns the other. Returns (converted item, vector)."""
+    from dataclasses import replace
+
+    from sempipe.engine.chunking import mean_pool
+    from sempipe.io.items import describe_source
+
+    visual, speech = await converter.video_halves(video, describe_source(item.source))
+    texts = [part for part in (visual, speech) if part]
+    vectors = await model.embed(texts)
+    vector = mean_pool(vectors)
+    converted = replace(item, text="\n\n".join(texts), media=())
+    return converted, vector
+
+
+AUDIO_NEEDS_TEXT = (
+    "audio items need text here — install 'sempipe[audio]' to transcribe, "
+    "or use map with an audio model"
+)
+
+
+def _whisper_or_skip(audio: AudioData) -> str:
+    """Whisper with the pinned two-fix skip (self-contained: no common import —
+    verbs.common imports THIS module, and a cycle turns types Unknown)."""
+    from sempipe.parsing.extract import MissingExtra, transcribe_audio
+
+    try:
+        return transcribe_audio(audio)
+    except MissingExtra as exc:
+        raise ItemError(AUDIO_NEEDS_TEXT) from exc
 
 
 def make_converter(chat: ChatModel | None, *, allow_paid: bool, log: DegradationLog) -> Converter:

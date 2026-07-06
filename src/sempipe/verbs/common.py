@@ -16,7 +16,7 @@ from sempipe.engine.runner import (
 )
 from sempipe.io import diagnostics
 from sempipe.models.base import AudioData, ImageData, VideoData
-from sempipe.verbs.convert import Converter
+from sempipe.verbs.convert import AUDIO_NEEDS_TEXT, Converter
 
 if TYPE_CHECKING:
     import asyncio
@@ -72,10 +72,6 @@ async def prepend(first: Item, rest: AsyncIterator[Item]) -> AsyncIterator[Item]
 
 
 IMAGE_NEEDS_MAP = "image items need map — this verb reads text"  # stage-7 wording, pinned
-AUDIO_NEEDS_TEXT = (
-    "audio items need text here — install 'sempipe[audio]' to transcribe, "
-    "or use map with an audio model"
-)
 
 
 def transcribe(audio: AudioData) -> str:
@@ -106,24 +102,26 @@ async def ensure_text(
     from sempipe.io.items import describe_source
 
     where = describe_source(item.source)
-    text = item.text
+    text: str = item.text
     figures: list[ImageData] = []
     for part in item.media:
         match part:
             case AudioData() as audio:
+                spoken: str
                 if converter is not None:
-                    transcript = await converter.audio_to_text(audio, where)
+                    spoken = await converter.audio_to_text(audio, where)
                 else:
-                    transcript = await asyncio.to_thread(transcriber, audio)
+                    spoken = await asyncio.to_thread(transcriber, audio)
                     if log is not None:
                         log.note(where, "audio → text", _whisper_detail())
-                text = f"{text}\n\n{transcript}".strip() if text else transcript
+                text = _merge(text, spoken)
             case VideoData() as video:
                 if converter is not None:
-                    watched = await converter.video_to_text(video, where)
-                    if watched is not None:
-                        text = f"{text}\n\n{watched}".strip() if text else watched
-                        continue
+                    visual, speech = await converter.video_halves(video, where)
+                    halves: list[str] = [half for half in (visual, speech) if half]
+                    watched: str = "\n\n".join(halves)
+                    text = _merge(text, watched)
+                    continue
                 from sempipe.parsing.extract import video_to_parts
 
                 parts = await asyncio.to_thread(video_to_parts, video)
@@ -132,17 +130,16 @@ async def ensure_text(
                         "this video has no audio track — text verbs read text; "
                         "map can see its frames"
                     )
-                if converter is not None:
-                    transcript = await converter.audio_to_text(parts.track, where)
-                else:
-                    transcript = await asyncio.to_thread(transcriber, parts.track)
+                # converter is provably None here — the halves branch above
+                # consumed every converter path and `continue`d
+                track_text: str = await asyncio.to_thread(transcriber, parts.track)
                 if log is not None:
                     log.note(
                         where,
                         "video → text",
                         "audio track converted; frames dropped — map sees frames",
                     )
-                text = f"{text}\n\n{transcript}".strip() if text else transcript
+                text = _merge(text, track_text)
             case ImageData() as image:
                 figures.append(image)
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
@@ -186,6 +183,11 @@ async def _figures_to_text(
             "(free with a local vision model, --allow-captions for cloud)",
         )
     return text
+
+
+def _merge(text: str, addition: str) -> str:
+    """Append a converted part to an item's text (empty-safe)."""
+    return f"{text}\n\n{addition}".strip() if text else addition
 
 
 def _whisper_detail() -> str:
@@ -365,11 +367,35 @@ async def embed_in_batches(
         else:
             account_skip(outcome.reason)
 
+    async def _drain(
+        outcomes: AsyncIterator[ItemOutcome[tuple[Item, tuple[float, ...]]]],
+    ) -> list[ItemOutcome[tuple[Item, tuple[float, ...]]]]:
+        return [outcome async for outcome in outcomes]
+
     pending: list[Item] = []
     for item in items:
         if stop is not None and stop.is_set():
             return
         if item.media:
+            video = next((part for part in item.media if isinstance(part, VideoData)), None)
+            if video is not None and converter is not None and converter.chat is not None:
+                from sempipe.verbs.convert import embed_video_halves
+
+                # flush first so stdout order stays input order, then the halves
+                for outcome in await _drain(embed_batch(pending)):
+                    yield outcome
+                pending = []
+                try:
+                    converted, vector = await embed_video_halves(model, item, video, converter)
+                except ItemError as exc:
+                    skip = Skipped(item.source.index, str(exc), item.source)
+                    account(skip)
+                    yield skip
+                    continue
+                done = Done(item.source.index, (converted, vector))
+                account(done)
+                yield done
+                continue
             try:
                 item = await ensure_text(
                     item, transcriber=transcriber, log=log, converter=converter

@@ -23,13 +23,14 @@ from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
+from sempipe.models.base import VideoData
 from sempipe.verbs.common import (
     embed_in_batches,
     ensure_text,
     interrupted_exit_code,
     outcome_exit_code,
 )
-from sempipe.verbs.convert import Converter, make_converter
+from sempipe.verbs.convert import Converter, embed_video_halves, make_converter
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -151,6 +152,9 @@ async def _embed_one(
     log: diagnostics.DegradationLog,
     converter: Converter,
 ) -> tuple[Item, tuple[float, ...]]:
+    video = next((part for part in item.media if isinstance(part, VideoData)), None)
+    if video is not None and converter.chat is not None:
+        return await embed_video_halves(model, item, video, converter)  # 50/50 (D36)
     item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
     vectors = await model.embed([item.text])
     return item, vectors[0]  # the CONVERTED item — its text is what the vector means

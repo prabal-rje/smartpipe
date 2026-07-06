@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Changed
+- **Video sampling grew up, and video vectors are the fair average (D36).**
+  Frame sampling is now 1 frame/second capped at 24 (was six per video
+  regardless of length); a video's embedding is the 50/50 mean of its two
+  halves — the visual description and the speech transcript embedded
+  separately — so a long transcript can't drown the picture. On a watching
+  wire (gemini) both halves come from ONE call via a response schema; the
+  fallback composes frame captions (4) plus the track. Text verbs concatenate
+  the same halves.
 - **The OpenAI default is now `gpt-5.4-mini`** (preset, screens, wizard,
   docs): `gpt-4o-mini` is rejected by ChatGPT-login (Codex) accounts — "The
   'gpt-4o-mini' model is not supported when using Codex with a ChatGPT
