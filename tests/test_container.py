@@ -269,3 +269,22 @@ def test_stt_without_key_names_it(client: httpx.AsyncClient) -> None:
     container = _container(client, config=Config(stt_model="openai/whisper-1"))
     with pytest.raises(SetupFault, match="OPENAI_API_KEY"):
         container.remote_transcriber()
+
+
+def test_stt_auto_matrix(client: httpx.AsyncClient) -> None:
+    """The owner's matrix: key → whisper-1; OAuth-only/gemini/ollama → None."""
+    from sempipe.models.base import parse_model_ref
+
+    openai_ref = parse_model_ref("gpt-5.4-mini")
+    gemini_ref = parse_model_ref("gemini-2.5-flash")
+    ollama_ref = parse_model_ref("ollama/qwen3:8b")
+
+    keyed = _container(client, env={"OPENAI_API_KEY": "sk-x"})
+    auto = keyed.remote_transcriber(openai_ref)
+    assert auto is not None and auto.ref.name == "whisper-1"  # the API supports it
+
+    assert keyed.remote_transcriber(gemini_ref) is None  # gemini hears natively
+    assert keyed.remote_transcriber(ollama_ref) is None  # no STT — local whisper
+
+    oauth_only = _container(client)  # no key: the ChatGPT login can't transcribe
+    assert oauth_only.remote_transcriber(openai_ref) is None

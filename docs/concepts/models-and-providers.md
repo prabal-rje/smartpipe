@@ -192,6 +192,15 @@ transcriber. When set, it runs FIRST in the audio ladder (a configured
 transcriber signals wanting verbatim text — LLM hearing paraphrases),
 falling back to the LLM rung and local whisper on failure. It is a paid
 cloud conversion, so the `allow-captions` consent gates it like every other
-one. Unset, nothing changes. `SEMPIPE_STT_MODEL` overrides per run. Only
-the openai wire exists today; the key accepts `provider/model` so more can
-land behind the same seam.
+one. Unset, sempipe picks the sensible strategy automatically:
+
+| Your situation | Transcription |
+|---|---|
+| OpenAI **API key** | `whisper-1` via the API (it supports it) |
+| OpenAI **ChatGPT login** only | local whisper (the login wire has no STT) |
+| Gemini | the model hears audio natively |
+| Ollama | local whisper (no STT endpoint) |
+
+`SEMPIPE_STT_MODEL` / `stt-model` override the matrix per run or per
+account. Only the openai wire exists today; the key accepts
+`provider/model` so more can land behind the same seam.

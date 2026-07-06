@@ -60,11 +60,12 @@ async def run_outliers(
         raise UsageFault("outliers needs at least 3 items to know what normal looks like")
 
     log = diagnostics.DegradationLog()
+    converter_chat = await optional_chat(context)
     converter = make_converter(
-        await optional_chat(context),
+        converter_chat,
         allow_paid=request.allow_captions,
         log=log,
-        stt=context.remote_transcriber(),
+        stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
     )
     scored_items: list[Item] = []
     vectors: list[tuple[float, ...]] = []

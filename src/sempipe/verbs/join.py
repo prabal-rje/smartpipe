@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import OutputFormat, ResultWriter
-    from sempipe.models.base import ChatModel, EmbeddingModel
+    from sempipe.models.base import ChatModel, EmbeddingModel, ModelRef
     from sempipe.models.stt import RemoteTranscriber
 
 __all__ = ["JoinContext", "JoinRequest", "PairBook", "run_join"]
@@ -81,7 +81,7 @@ class JoinRequest:
 
 
 class JoinContext(Protocol):
-    def remote_transcriber(self) -> RemoteTranscriber | None: ...
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
 
     """The first verb that needs BOTH models — the container already has both."""
 
@@ -165,7 +165,7 @@ async def run_join(
     preview_cost(total, request.k, len(index))
 
     converter = make_converter(
-        chat, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber()
+        chat, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber(chat.ref)
     )
     book = PairBook(policy=FailurePolicy(), right_name=request.right.name)
     spinner = make_stderr_spinner()

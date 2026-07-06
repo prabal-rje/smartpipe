@@ -79,7 +79,7 @@ class ReduceRequest:
 
 
 class ReduceContext(Protocol):
-    def remote_transcriber(self) -> RemoteTranscriber | None: ...
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
@@ -124,7 +124,7 @@ async def run_reduce(
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     model = await context.chat_model(request.model_flag)
     converter = make_converter(
-        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber()
+        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber(model.ref)
     )
     for candidate in collected:
         try:
@@ -218,7 +218,7 @@ async def _run_windowed(
     )
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     converter = make_converter(
-        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber()
+        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber(model.ref)
     )
     buffer: WindowBuffer[str] = WindowBuffer(policy)
     produced = 0

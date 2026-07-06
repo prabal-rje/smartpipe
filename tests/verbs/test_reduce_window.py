@@ -48,7 +48,7 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 4
 
-    def remote_transcriber(self) -> None:
+    def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
     def writer(

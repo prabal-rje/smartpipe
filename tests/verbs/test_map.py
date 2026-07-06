@@ -55,7 +55,7 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return self.concurrency_value
 
-    def remote_transcriber(self) -> None:
+    def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
     async def context_window(self, ref: object) -> int | None:

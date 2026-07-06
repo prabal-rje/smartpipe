@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import ResultWriter
-    from sempipe.models.base import ChatModel, EmbeddingModel
+    from sempipe.models.base import ChatModel, EmbeddingModel, ModelRef
     from sempipe.models.stt import RemoteTranscriber
 
 __all__ = ["TopKContext", "TopKRequest", "run_top_k"]
@@ -56,7 +56,7 @@ class TopKRequest:
 
 
 class TopKContext(Protocol):
-    def remote_transcriber(self) -> RemoteTranscriber | None: ...
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
     def concurrency(self, flag: int | None = None) -> int: ...
@@ -85,11 +85,12 @@ async def run_top_k(
 
     query_vector = (await model.embed([request.near]))[0]
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    converter_chat = await _optional_chat(context)
     converter = make_converter(
-        await _optional_chat(context),
+        converter_chat,
         allow_paid=request.allow_captions,
         log=log,
-        stt=context.remote_transcriber(),
+        stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
     )
     vectors, skipped = await _collect_vectors(model, items, log, converter)
     log.finish()
@@ -144,11 +145,12 @@ async def _run_stream(
     concurrency = context.concurrency(request.concurrency_flag)
     query_vector = (await model.embed([request.near]))[0]
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    converter_chat = await _optional_chat(context)
     converter = make_converter(
-        await _optional_chat(context),
+        converter_chat,
         allow_paid=request.allow_captions,
         log=log,
-        stt=context.remote_transcriber(),
+        stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
     )
 
     async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:

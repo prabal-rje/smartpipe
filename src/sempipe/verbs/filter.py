@@ -67,7 +67,7 @@ class FilterRequest:
 
 
 class FilterContext(Protocol):
-    def remote_transcriber(self) -> RemoteTranscriber | None: ...
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
@@ -109,7 +109,7 @@ async def run_filter(
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     converter = make_converter(
-        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber()
+        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber(model.ref)
     )
     gate = WindowGate(
         provider=model.ref.provider,

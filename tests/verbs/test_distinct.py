@@ -47,7 +47,7 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
-    def remote_transcriber(self) -> None:
+    def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
 
@@ -155,7 +155,7 @@ async def test_image_only_items_route_natively_no_captions() -> None:
         def concurrency(self, flag: int | None = None) -> int:
             return 2
 
-        def remote_transcriber(self) -> None:
+        def remote_transcriber(self, chat_ref: object | None = None) -> None:
             return None
 
     line = json.dumps(

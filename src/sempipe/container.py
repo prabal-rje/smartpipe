@@ -116,11 +116,21 @@ class AppContainer:
         model = self._build_embed(resolve_embed_ref(flag, self.env, self.config))
         return model if self.budget is None else budgeted_embed(model, self.budget)
 
-    def remote_transcriber(self) -> RemoteTranscriber | None:
-        """The stt-model role (D39/05): env > config > None (today's ladder)."""
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None:
+        """The stt-model role (D39/05): explicit env/config wins; otherwise the
+        owner's auto-matrix — an openai KEY means whisper-1 (the API supports
+        it; ChatGPT-login does not, so OAuth-only stays local); gemini hears
+        natively (no preemption); ollama has no STT (local whisper)."""
         raw = self.env.get("SEMPIPE_STT_MODEL", "").strip() or (self.config.stt_model or "")
         if not raw:
-            return None
+            if (
+                chat_ref is not None
+                and chat_ref.provider == "openai"
+                and self.env.get("OPENAI_API_KEY", "").strip()
+            ):
+                raw = "openai/whisper-1"  # the key wire supports transcriptions
+            else:
+                return None
         ref = parse_model_ref(raw)
         if ref.provider != "openai":
             raise SetupFault(
