@@ -21,6 +21,12 @@ __all__ = ["reduce_command"]
 @click.command(name="reduce")
 @click.argument("prompt")
 @click.option(
+    "--schema-from",
+    "schema_dsl",
+    metavar="DSL",
+    help='Build the schema from a short DSL: "vendor string; total number >= 0".',
+)
+@click.option(
     "--schema",
     "schema_path",
     type=click.Path(path_type=Path),
@@ -40,6 +46,7 @@ __all__ = ["reduce_command"]
 def reduce_command(
     prompt: str,
     schema_path: Path | None,
+    schema_dsl: str | None,
     group_by: str | None,
     model_flag: str | None,
     concurrency_flag: int | None,
@@ -65,6 +72,7 @@ def reduce_command(
     request = ReduceRequest(
         prompt=prompt,
         schema_path=schema_path,
+        schema_dsl=schema_dsl,
         group_by=group_by,
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,

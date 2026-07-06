@@ -176,14 +176,17 @@ def test_never_raises_other_than_item_error(text: str) -> None:
 # --- strict-mode compatibility (workstream 10 Task 1) -------------------------------
 
 
-def test_shorthand_schema_is_strict_compatible() -> None:
-    assert is_strict_compatible(shorthand_to_schema(["vendor", "total"])) is True
+def test_shorthand_schema_is_not_strict_untyped_properties() -> None:
+    # live-caught: strict mode demands a 'type' per property; the brace
+    # shorthand's permissive {} therefore rides non-strict (the client-side
+    # validator stays the guarantee either way)
+    assert is_strict_compatible(shorthand_to_schema(["vendor", "total"])) is False
 
 
 def test_optional_field_is_not_strict_compatible() -> None:
     schema: dict[str, object] = {
         "type": "object",
-        "properties": {"a": {}, "b": {}},
+        "properties": {"a": {"type": "string"}, "b": {"type": "string"}},
         "required": ["a"],  # b is optional — strict mode 400s on this
         "additionalProperties": False,
     }
@@ -200,7 +203,7 @@ def test_nested_optional_is_not_strict_compatible() -> None:
         "properties": {
             "inner": {
                 "type": "object",
-                "properties": {"x": {}, "y": {}},
+                "properties": {"x": {"type": "string"}, "y": {"type": "string"}},
                 "required": ["x"],
                 "additionalProperties": False,
             }
@@ -234,7 +237,11 @@ def test_array_items_recurse_for_strictness() -> None:
         "properties": {
             "rows": {
                 "type": "array",
-                "items": {"type": "object", "properties": {"a": {}}, "required": []},
+                "items": {
+                    "type": "object",
+                    "properties": {"a": {"type": "string"}},
+                    "required": [],
+                },
             }
         },
         "required": ["rows"],

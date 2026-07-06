@@ -21,6 +21,34 @@ A single field works too: `map "Extract {total}"`. Types are inferred by the mod
 — good enough for exploration. To put a literal brace in a prompt, double it:
 `{{` and `}}`.
 
+## The ladder, top to bottom
+
+Five rungs; each teaches the next. Climb only as far as your task needs:
+
+| Rung | You write | You get |
+|---|---|---|
+| 1 | `map "Extract {vendor, total}"` | fields, model-inferred types |
+| 2 | `{vendor: the supplier name, total}` | + plain-English guidance per field |
+| 3 | `--schema-from "vendor string; total number >= 0; status enum(paid, unpaid)"` | + real types and constraints — parsed deterministically, **no model call, typos fail free** |
+| 4 | `sempipe schema "an invoice with …" > invoice.json` | a drafted schema **file** (one model call, meta-validated; a failed draft exits 3 with empty stdout) |
+| 5 | `--schema invoice.json` | full JSON Schema control |
+
+Descriptions stay in braces; types and constraints stay in the DSL or the file —
+braces never grow type syntax (that's where byzantine begins).
+
+## `--schema-from` — the deterministic DSL
+
+`field type constraints; field type …` — semicolon-separated:
+
+- Types: `string` · `number` · `integer` · `boolean` · `enum(a, b, …)` ·
+  `string[]` · `number[]`
+- Constraints: `>= N` · `<= N` (numbers) · `minLength=N` · `maxLength=N`
+  (strings) · `optional`
+
+Everything is required unless marked `optional` (which also, correctly, stops
+sempipe claiming the provider's strict mode). Any typo is a usage error naming
+the exact fragment — before a single model call.
+
 ## `--schema` file — for production
 
 When you need the output to *strictly* conform — exact types, no surprise fields —

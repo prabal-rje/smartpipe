@@ -30,7 +30,12 @@ from sempipe.io import diagnostics, readers
 from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.writers import OutputFormat
-from sempipe.verbs.common import ensure_text, interrupted_exit_code, outcome_exit_code
+from sempipe.verbs.common import (
+    ensure_text,
+    interrupted_exit_code,
+    outcome_exit_code,
+    resolve_schema,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -60,6 +65,7 @@ class ReduceRequest:
     window: int | None = None  # --window N: stream mode, one reduce per window
     every: int | None = None  # --every M: sliding stride (default: tumbling)
     fields: tuple[str, ...] | None = None  # --fields: project structured output
+    schema_dsl: str | None = None  # --schema-from (rung 3, D22)
 
 
 class ReduceContext(Protocol):
@@ -90,7 +96,7 @@ async def run_reduce(
             "field references like {x} in reduce only work with --group-by "
             "(where {field} means the group's value)"
         )
-    schema = load_schema(request.schema_path) if request.schema_path is not None else None
+    schema = resolve_schema(request.schema_path, request.schema_dsl, loader=load_schema)
     if request.every is not None and request.window is None:
         raise UsageFault(
             "--every only makes sense with --window\n"

@@ -143,6 +143,7 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
         ("output", _str_key(_flag("--output"))),
         ("fields", _list_key(_fields_arg)),
         ("schema-file", _str_key(_schema)),
+        ("schema-from", _str_key(_flag("--schema-from"))),
         *_COMMON_TAIL,
     ),
     "filter": (
@@ -184,6 +185,7 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
         ("every", _int_key(_flag("--every"))),
         ("verbose", _bool_key(_switch("--verbose"))),
         ("schema-file", _str_key(_schema)),
+        ("schema-from", _str_key(_flag("--schema-from"))),
         ("fields", _list_key(_fields_arg)),
         *_COMMON_TAIL,
     ),

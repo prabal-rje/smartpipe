@@ -19,17 +19,30 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-__all__ = ["is_strict_compatible", "load_schema", "shorthand_to_schema", "validate_and_coerce"]
+__all__ = [
+    "is_strict_compatible",
+    "load_schema",
+    "parse_schema_draft",
+    "shorthand_to_schema",
+    "validate_and_coerce",
+]
 
 _FENCE = re.compile(r"^```[A-Za-z0-9]*\n?|\n?```$")
 
 
-def shorthand_to_schema(fields: Sequence[str]) -> dict[str, object]:
-    """Turn ``{vendor, total}`` fields into a strict JSON Schema; the model
-    infers value types (permissive ``{}`` per property)."""
+def shorthand_to_schema(
+    fields: Sequence[str], *, descriptions: Mapping[str, str] | None = None
+) -> dict[str, object]:
+    """Turn ``{vendor, total}`` fields into a strict JSON Schema; the model infers
+    value types (permissive ``{}`` per property). Rung-2 descriptions (D22) ride
+    each property as guidance — they never affect strict-compatibility."""
+    notes = descriptions or {}
+    properties: dict[str, object] = {
+        field: ({"description": notes[field]} if field in notes else {}) for field in fields
+    }
     return {
         "type": "object",
-        "properties": {field: {} for field in fields},
+        "properties": properties,
         "required": list(fields),
         "additionalProperties": False,
     }
@@ -51,9 +64,14 @@ def is_strict_compatible(schema: Mapping[str, object]) -> bool:
         required_names = {name for name in required if isinstance(name, str)}
         if not set(properties) <= required_names:
             return False
-        children = (as_record(value) for value in properties.values())
-        if not all(child is None or is_strict_compatible(child) for child in children):
-            return False
+        for value in properties.values():
+            child = as_record(value)
+            # live-caught (2026-07-05): strict mode also demands a 'type' per
+            # property — an untyped {} (the brace shorthand) draws the same 400
+            if child is None or ("type" not in child and "enum" not in child):
+                return False
+            if not is_strict_compatible(child):
+                return False
     items = as_record(schema.get("items"))
     return items is None or is_strict_compatible(items)
 
@@ -79,6 +97,23 @@ def load_schema(path: Path) -> dict[str, object]:
             f"error: {path} isn't a JSON Schema\n  The top level must be a JSON object."
         )
     return dict(record)
+
+
+def parse_schema_draft(reply: str) -> dict[str, object]:
+    """Rung 4 (D22): a model-drafted schema, validated against the JSON-Schema
+    meta-schema AND our loader rules — ``ItemError`` names what's wrong (repair
+    context). An invalid draft must never reach stdout."""
+    import jsonschema
+
+    record = as_record(_extract_json(reply))  # ItemError when there's no JSON at all
+    if record is None:
+        raise ItemError("the draft isn't a JSON object")
+    candidate = dict(record)
+    try:
+        jsonschema.Draft202012Validator.check_schema(candidate)
+    except jsonschema.SchemaError as exc:
+        raise ItemError(f"not a valid JSON Schema: {exc.message}") from exc
+    return candidate
 
 
 def validate_and_coerce(reply: str, schema: Mapping[str, object]) -> dict[str, object]:

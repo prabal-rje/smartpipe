@@ -71,7 +71,7 @@ def _model(client: httpx.AsyncClient, store: Path, *, expires_ms: int = FRESH_MS
 def test_payload_shape_is_pinned() -> None:
     schema: dict[str, object] = {
         "type": "object",
-        "properties": {"verdict": {}},
+        "properties": {"verdict": {"type": "boolean"}},
         "required": ["verdict"],
         "additionalProperties": False,
     }

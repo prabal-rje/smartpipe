@@ -28,6 +28,7 @@ to **stderr**.
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing | exit 0 = ready |
+| `schema` | draft a JSON Schema from English (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
 
 ## Common options
 
@@ -48,10 +49,10 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 
 | Verb | Options |
 |---|---|
-| `map` | `--schema FILE`, `--output {auto,text,json,csv,tsv}` |
+| `map` | `--schema FILE`, `--schema-from DSL`, `--output {auto,text,json,csv,tsv}` |
 | `filter` | `--not` (invert, like `grep -v`) |
 | `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT`, `--stream` (live leaderboard) |
-| `reduce` | `--schema FILE`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
+| `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
 | `join` | `--right FILE` (required), `--k N` (default 5), `--threshold FLOAT`, `--embed-model` |
 
 ## `config`

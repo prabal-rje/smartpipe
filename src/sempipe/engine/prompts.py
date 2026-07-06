@@ -42,17 +42,20 @@ __all__ = [
     "REDUCE_FINAL_JSON_SYSTEM",
     "REDUCE_FINAL_SYSTEM",
     "REDUCE_INTERMEDIATE_SYSTEM",
+    "SCHEMA_DRAFT_SYSTEM",
     "BraceToken",
     "MapPlan",
     "TextToken",
     "Token",
     "brace_fields",
+    "brace_notes",
     "build_filter_request",
     "build_judge_request",
     "build_map_request",
     "build_reduce_final",
     "build_reduce_intermediate",
     "build_repair_request",
+    "build_schema_request",
     "has_brace",
     "interpolate_fields",
     "interpolate_join",
@@ -117,12 +120,18 @@ class TextToken:
 class BraceToken:
     fields: tuple[str, ...]
     raw: str  # the original "{a, b}" text, kept for error messages and round-trips
+    notes: tuple[str | None, ...] = ()  # rung-2 descriptions, aligned with fields (D22)
+
+    def note_for(self, position: int) -> str | None:
+        return self.notes[position] if position < len(self.notes) else None
 
 
 Token = TextToken | BraceToken
 
 
-def parse_prompt(text: str, *, ident: re.Pattern[str] = _IDENT) -> tuple[Token, ...]:
+def parse_prompt(
+    text: str, *, ident: re.Pattern[str] = _IDENT, allow_descriptions: bool = False
+) -> tuple[Token, ...]:
     tokens: list[Token] = []
     literal: list[str] = []
     index = 0
@@ -144,7 +153,7 @@ def parse_prompt(text: str, *, ident: re.Pattern[str] = _IDENT) -> tuple[Token, 
             index += 2
         elif char == "{":
             flush()
-            token, index = _parse_group(text, index, ident)
+            token, index = _parse_group(text, index, ident, allow_descriptions=allow_descriptions)
             tokens.append(token)
         elif char == "}":
             raise UsageFault("unexpected '}' in prompt — use '}}' for a literal brace")
@@ -165,6 +174,18 @@ def brace_fields(tokens: tuple[Token, ...]) -> tuple[str, ...]:
     return tuple(seen)
 
 
+def brace_notes(tokens: tuple[Token, ...]) -> dict[str, str]:
+    """field → rung-2 description, for every described field across all groups."""
+    notes: dict[str, str] = {}
+    for token in tokens:
+        if isinstance(token, BraceToken):
+            for position, name in enumerate(token.fields):
+                described = token.note_for(position)
+                if described is not None:
+                    notes[name] = described
+    return notes
+
+
 def has_brace(tokens: tuple[Token, ...]) -> bool:
     return any(isinstance(token, BraceToken) for token in tokens)
 
@@ -182,10 +203,17 @@ def render(tokens: tuple[Token, ...]) -> str:
 
 def to_instruction(tokens: tuple[Token, ...]) -> str:
     """The model-facing instruction: literal text as-is, brace groups as their
-    comma-joined field names (``Extract {a, b}`` → ``Extract a, b``)."""
-    parts = [
-        token.text if isinstance(token, TextToken) else ", ".join(token.fields) for token in tokens
-    ]
+    comma-joined field names (``Extract {a, b}`` → ``Extract a, b``); a rung-2
+    description rides its field as guidance (``vendor (the supplier name)``)."""
+
+    def group(token: BraceToken) -> str:
+        rendered = (
+            f"{name} ({note})" if (note := token.note_for(position)) is not None else name
+            for position, name in enumerate(token.fields)
+        )
+        return ", ".join(rendered)
+
+    parts = [token.text if isinstance(token, TextToken) else group(token) for token in tokens]
     return "".join(parts)
 
 
@@ -202,7 +230,8 @@ def plan_map(tokens: tuple[Token, ...], *, schema: Mapping[str, object] | None) 
     if schema is not None:
         return MapPlan("structured", schema, MAP_JSON_SYSTEM)
     if has_brace(tokens):
-        return MapPlan("structured", shorthand_to_schema(brace_fields(tokens)), MAP_JSON_SYSTEM)
+        synthesized = shorthand_to_schema(brace_fields(tokens), descriptions=brace_notes(tokens))
+        return MapPlan("structured", synthesized, MAP_JSON_SYSTEM)
     return MapPlan("plain", None, MAP_PLAIN_SYSTEM)
 
 
@@ -274,6 +303,27 @@ def build_filter_request(condition: str, item_text: str) -> CompletionRequest:
         user=f"Condition: {condition}\n\nItem:\n{item_text}",
         json_schema=JUDGE_SCHEMA,
         max_tokens=_JUDGE_MAX_TOKENS,
+    )
+
+
+SCHEMA_DRAFT_SYSTEM = (
+    "You design JSON Schemas (draft 2020-12). Reply with ONLY the JSON Schema "
+    "object — no preamble, no code fences. The top level must be an object schema "
+    'with "type": "object", "properties", "required", and '
+    '"additionalProperties": false. Mark a field optional only when the request '
+    "implies it. Prefer precise types, enums for closed sets, and short "
+    '"description" strings.'
+)
+_SCHEMA_DRAFT_MAX_TOKENS = 2048
+
+
+def build_schema_request(description: str) -> CompletionRequest:
+    """Rung 4 (D22): exactly one drafting call; the reply is meta-validated
+    before stdout ever sees a byte."""
+    return CompletionRequest(
+        system=SCHEMA_DRAFT_SYSTEM,
+        user=f"Design a JSON Schema for: {description}",
+        max_tokens=_SCHEMA_DRAFT_MAX_TOKENS,
     )
 
 
@@ -386,16 +436,37 @@ def _render_value(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def _parse_group(text: str, start: int, ident: re.Pattern[str]) -> tuple[BraceToken, int]:
+def _parse_group(
+    text: str, start: int, ident: re.Pattern[str], *, allow_descriptions: bool = False
+) -> tuple[BraceToken, int]:
     close = text.find("}", start + 1)
     if close == -1:
         raise UsageFault("unclosed '{' in prompt — did you mean '{{' for a literal brace?")
     raw = text[start : close + 1]
     inner = text[start + 1 : close]
-    fields = tuple(part.strip() for part in inner.split(","))
-    if any(not ident.match(field) for field in fields):
+    parts = tuple(part.strip() for part in inner.split(","))
+    names: list[str] = []
+    notes: list[str | None] = []
+    for part in parts:
+        name, colon, description = part.partition(":")
+        name = name.strip()
+        if colon and allow_descriptions:
+            # rung 2 (D22): the text after ':' is ALWAYS a description, never a type
+            description = description.strip()
+            if not description:
+                raise UsageFault(
+                    f"{{{part}}} names field {name!r} with an empty description\n"
+                    f"  Write a description after the colon, or drop the colon: {{{name}}}"
+                )
+            names.append(name)
+            notes.append(description)
+        else:
+            names.append(part)
+            notes.append(None)
+    if any(not ident.match(name) for name in names):
         raise UsageFault(
             f"invalid field group: {raw}\n"
             "  field names must be identifiers (letters, digits, underscores), comma-separated"
         )
-    return BraceToken(fields, raw), close + 1
+    described = tuple(notes) if any(note is not None for note in notes) else ()
+    return BraceToken(tuple(names), raw, described), close + 1

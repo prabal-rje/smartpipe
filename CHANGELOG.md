@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **The schema-authoring ladder (D22).** Three new rungs between braces and a
+  hand-written file: `{vendor: the supplier name}` brace *descriptions* (plain
+  English guidance riding the synthesized schema, map only);
+  `--schema-from "vendor string; total number >= 0; status enum(paid, unpaid)"`
+  — a deterministic DSL parsed with zero model calls, typos fail free at argv
+  time; and `sempipe schema "an invoice with …" > invoice.json` — a drafted
+  schema file (one call + one repair, meta-validated; a failed draft exits 3
+  with **empty stdout**, so a broken schema can never slip into a pipe).
+  Braces never grow type syntax — descriptions in braces, types in the DSL.
 - **Native audio Q&A (D20).** `sempipe map "what does the caller want?" --in
   'calls/*.wav'` sends the *sound itself* to models that can hear
   (`gpt-4o-audio-preview`-family, Voxtral — wav/mp3 as `input_audio` parts,

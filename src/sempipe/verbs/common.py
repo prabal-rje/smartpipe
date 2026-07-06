@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING, TypeVar, assert_never
 
-from sempipe.core.errors import ExitCode, ItemError, TooManyFailures
+from sempipe.core.errors import ExitCode, ItemError, TooManyFailures, UsageFault
 from sempipe.engine.runner import (
     Done,
     FailurePolicy,
@@ -19,6 +19,7 @@ from sempipe.models.base import AudioData, ImageData
 if TYPE_CHECKING:
     import asyncio
     from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+    from pathlib import Path
 
     from sempipe.io.items import Item
     from sempipe.models.base import EmbeddingModel
@@ -34,6 +35,7 @@ __all__ = [
     "interrupted_exit_code",
     "outcome_exit_code",
     "prepend",
+    "resolve_schema",
     "transcribe",
 ]
 
@@ -103,6 +105,27 @@ async def ensure_text(item: Item, *, transcriber: Callable[[AudioData], str] = t
             return replace(item, text=transcript, media=None)
         case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
             assert_never(unreachable)
+
+
+def resolve_schema(
+    path: Path | None,
+    dsl: str | None,
+    *,
+    loader: Callable[[Path], dict[str, object]],
+) -> dict[str, object] | None:
+    """Rungs 3/5 of the schema ladder (D22): mutually exclusive, resolved before
+    any model call. The loader is the verb's own ``load_schema`` so its test seam
+    keeps working."""
+    if path is not None and dsl is not None:
+        raise UsageFault(
+            "--schema-from and --schema both shape the output — use one\n"
+            "  --schema-from builds the schema from a short description; --schema loads a file."
+        )
+    if dsl is not None:
+        from sempipe.engine.schema_dsl import dsl_to_schema
+
+        return dsl_to_schema(dsl)
+    return loader(path) if path is not None else None
 
 
 def batched(items: Sequence[T], size: int) -> Iterator[tuple[T, ...]]:

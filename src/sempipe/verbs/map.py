@@ -28,7 +28,7 @@ from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.models.base import AudioData
-from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code
+from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code, resolve_schema
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -53,6 +53,7 @@ class MapRequest:
     concurrency_flag: int | None
     input: InputSpec = STDIN
     fields: tuple[str, ...] | None = None  # --fields: project structured output
+    schema_dsl: str | None = None  # --schema-from (rung 3, D22)
 
 
 class MapContext(Protocol):
@@ -78,8 +79,8 @@ async def run_map(
     stdout: TextIO,
     stop: asyncio.Event | None = None,
 ) -> ExitCode:
-    tokens = parse_prompt(request.prompt)  # UsageFault on bad grammar
-    schema = load_schema(request.schema_path) if request.schema_path is not None else None
+    tokens = parse_prompt(request.prompt, allow_descriptions=True)  # rung 2 (D22)
+    schema = resolve_schema(request.schema_path, request.schema_dsl, loader=load_schema)
     plan = plan_map(tokens, schema=schema)
     instruction = to_instruction(tokens)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)

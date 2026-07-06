@@ -27,6 +27,7 @@ __all__ = [
     "interrupted_summary",
     "note",
     "preview",
+    "report_error",
     "warn",
 ]
 
@@ -68,6 +69,12 @@ def _emit_error(text: str) -> None:
         text = f"{_RED}error:{_RESET}{text.removeprefix('error:')}"
     sys.stderr.write(f"{text}\n")
     sys.stderr.flush()
+
+
+def report_error(screen: str) -> None:
+    """Emit a full error screen without exiting — for commands that own their
+    exit code after cleanup (e.g. ``sempipe schema``'s empty-stdout guarantee)."""
+    _emit_error(screen if screen.startswith("error:") else f"error: {screen}")
 
 
 def die(fault: SempipeError, *, debug: bool = False) -> NoReturn:

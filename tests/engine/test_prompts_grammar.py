@@ -127,3 +127,53 @@ def test_parse_is_idempotent_through_render(text: str) -> None:
     except UsageFault:
         return
     assert parse_prompt(render(tokens)) == tokens
+
+
+# --- rung 2: brace descriptions (D22, map only) -------------------------------------
+
+
+def test_description_parses_and_keeps_the_name() -> None:
+    tokens = parse_prompt("Extract {vendor: the supplier name, total}", allow_descriptions=True)
+    brace = next(t for t in tokens if isinstance(t, BraceToken))
+    assert brace.fields == ("vendor", "total")
+    assert brace.notes == ("the supplier name", None)
+
+
+def test_description_reaches_the_schema() -> None:
+    from sempipe.engine.prompts import plan_map
+
+    tokens = parse_prompt("Extract {vendor: who sent it, total}", allow_descriptions=True)
+    plan = plan_map(tokens, schema=None)
+    assert plan.schema is not None
+    properties = plan.schema["properties"]
+    assert properties == {"vendor": {"description": "who sent it"}, "total": {}}
+
+
+def test_descriptions_do_not_change_strictness() -> None:
+    # shorthand schemas are honestly non-strict either way (untyped properties —
+    # live-caught); a description must not flip that verdict in either direction
+    from sempipe.engine.prompts import plan_map
+    from sempipe.engine.schema import is_strict_compatible
+
+    described = plan_map(parse_prompt("Extract {a: x, b}", allow_descriptions=True), schema=None)
+    bare = plan_map(parse_prompt("Extract {a, b}"), schema=None)
+    assert described.schema is not None and bare.schema is not None
+    assert is_strict_compatible(described.schema) == is_strict_compatible(bare.schema)
+
+
+def test_description_stays_in_the_instruction_text() -> None:
+    from sempipe.engine.prompts import to_instruction
+
+    tokens = parse_prompt("Extract {vendor: the supplier name}", allow_descriptions=True)
+    assert "the supplier name" in to_instruction(tokens)  # guidance reaches the model
+
+
+def test_empty_description_is_the_pinned_error() -> None:
+    with pytest.raises(UsageFault, match="names field 'vendor' with an empty description"):
+        parse_prompt("Extract {vendor: }", allow_descriptions=True)
+
+
+def test_colon_stays_invalid_without_the_map_flag() -> None:
+    # filter/reduce/join input references never grow descriptions (ux.md, D22)
+    with pytest.raises(UsageFault, match="invalid field group"):
+        parse_prompt("keep {priority: high}")

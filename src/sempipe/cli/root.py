@@ -27,6 +27,7 @@ from sempipe.cli.join_cmd import join_command
 from sempipe.cli.map_cmd import map_command
 from sempipe.cli.reduce_cmd import reduce_command
 from sempipe.cli.run_cmd import run_command
+from sempipe.cli.schema_cmd import schema_command
 from sempipe.cli.screens import WELCOME
 from sempipe.cli.top_k_cmd import top_k_command
 from sempipe.core.errors import ExitCode, SempipeError, UsageFault
@@ -67,6 +68,7 @@ cli.add_command(join_command)
 cli.add_command(run_command)
 cli.add_command(config_command)
 cli.add_command(doctor_command)
+cli.add_command(schema_command)
 cli.add_command(auth_command)
 cli.add_command(cite_command)
 cli.add_command(echo_command)

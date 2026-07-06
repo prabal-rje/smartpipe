@@ -22,6 +22,12 @@ __all__ = ["map_command"]
 @click.command(name="map")
 @click.argument("prompt")
 @click.option(
+    "--schema-from",
+    "schema_dsl",
+    metavar="DSL",
+    help='Build the schema from a short DSL: "vendor string; total number >= 0".',
+)
+@click.option(
     "--schema",
     "schema_path",
     type=click.Path(path_type=Path),
@@ -47,6 +53,7 @@ __all__ = ["map_command"]
 def map_command(
     prompt: str,
     schema_path: Path | None,
+    schema_dsl: str | None,
     model_flag: str | None,
     output: str,
     concurrency_flag: int | None,
@@ -69,6 +76,7 @@ def map_command(
     request = MapRequest(
         prompt=prompt,
         schema_path=schema_path,
+        schema_dsl=schema_dsl,
         model_flag=model_flag,
         output=OutputFormat(output),
         concurrency_flag=concurrency_flag,

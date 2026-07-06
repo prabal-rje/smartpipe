@@ -160,3 +160,42 @@ def test_max_calls_env_fallback_is_validated(
     code, _out, err = run_cli(["map", "x"], stdin="hi\n")
     assert code == 64
     assert "SEMPIPE_MAX_CALLS must be a whole number >= 1" in err
+
+
+def test_schema_from_builds_and_enforces_the_schema(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post(CHAT).mock(
+        return_value=httpx.Response(
+            200, json={"message": {"content": '{"vendor": "Acme", "total": 12.5}'}}
+        )
+    )
+    code, out, _err = run_cli(
+        ["map", "Extract the fields", "--schema-from", "vendor string; total number >= 0"],
+        stdin="invoice text\n",
+    )
+    assert code == 0
+    assert out == '{"vendor":"Acme","total":12.5}\n'
+    body = json.loads(route.calls.last.request.content)
+    sent = body["format"]  # the ollama wire carries the synthesized schema
+    assert sent["properties"]["total"] == {"type": "number", "minimum": 0}
+
+
+def test_schema_from_typo_fails_free(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
+    route = respx_mock.post(CHAT).mock(return_value=httpx.Response(200, json={}))
+    code, _out, err = run_cli(
+        ["map", "Extract", "--schema-from", "priority enun(low,high)"], stdin="x\n"
+    )
+    assert code == 64
+    assert "unexpected 'enun(low,high)' for field 'priority'" in err
+    assert route.call_count == 0  # deterministic: failed before any spend
+
+
+def test_schema_from_with_schema_is_a_usage_error(run_cli: RunCli, tmp_path: Path) -> None:
+    schema = tmp_path / "s.json"
+    schema.write_text("{}", encoding="utf-8")
+    code, _out, err = run_cli(
+        ["map", "x", "--schema", str(schema), "--schema-from", "a string"], stdin="x\n"
+    )
+    assert code == 64
+    assert "both shape the output — use one" in err

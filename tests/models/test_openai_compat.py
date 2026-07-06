@@ -91,7 +91,7 @@ async def test_response_format_present_iff_schema(
     )
     strict_schema: dict[str, object] = {
         "type": "object",
-        "properties": {"a": {}},
+        "properties": {"a": {"type": "string"}},
         "required": ["a"],
         "additionalProperties": False,
     }
@@ -107,7 +107,7 @@ async def test_response_format_present_iff_schema(
     # a schema strict mode would 400 on (optional field) must NOT claim strict
     open_schema: dict[str, object] = {
         "type": "object",
-        "properties": {"a": {}, "b": {}},
+        "properties": {"a": {"type": "string"}, "b": {"type": "string"}},
         "required": ["a"],
         "additionalProperties": False,
     }
@@ -245,7 +245,7 @@ async def test_mistral_structured_output_carries_the_strictness_logic(
     )
     open_schema: dict[str, object] = {
         "type": "object",
-        "properties": {"a": {}, "b": {}},
+        "properties": {"a": {"type": "string"}, "b": {"type": "string"}},
         "required": ["a"],
         "additionalProperties": False,
     }
