@@ -25,9 +25,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from pathlib import Path
 
-__all__ = ["parse_sem"]
+__all__ = ["Stage", "parse_pipeline", "parse_sem"]
 
-_VERB_NAMES = "map, filter, embed, top_k, reduce, join, split"
+_VERB_NAMES = (
+    "map, extend, filter, where, embed, top_k, reduce, join, split, "
+    "distinct, outliers, cluster, diff, summarize, sample, getschema, sort, chart"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,9 +215,79 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
         ("fields", _list_key(_fields_arg)),
         *_COMMON_TAIL,
     ),
+    "where": (("predicate", _str_key(_positional)),),
+    "extend": (
+        ("prompt", _str_key(_positional)),
+        ("prompt-file", _str_key(_prompt_file)),
+        ("model", _str_key(_flag("--model"))),
+        ("output", _str_key(_flag("--output"))),
+        ("fields", _list_key(_fields_arg)),
+        ("schema-file", _str_key(_schema)),
+        ("schema-from", _str_key(_flag("--schema-from"))),
+        ("tally", _str_key(_flag("--tally"))),
+        ("explode", _str_key(_flag("--explode"))),
+        *_COMMON_TAIL,
+    ),
+    "distinct": (
+        ("show-groups", _bool_key(_switch("--show-groups"))),
+        ("threshold", _num_key(_flag("--threshold"))),
+        ("allow-captions", _bool_key(_switch("--allow-captions"))),
+        ("embed-model", _str_key(_flag("--embed-model"))),
+        *_COMMON_TAIL,
+    ),
+    "outliers": (
+        ("count", _int_key(_positional)),
+        ("allow-captions", _bool_key(_switch("--allow-captions"))),
+        ("embed-model", _str_key(_flag("--embed-model"))),
+        *_COMMON_TAIL,
+    ),
+    "cluster": (
+        ("k", _int_key(_flag("--k"))),
+        ("top", _int_key(_flag("--top"))),
+        ("explode", _str_key(_flag("--explode"))),
+        ("model", _str_key(_flag("--model"))),
+        ("embed-model", _str_key(_flag("--embed-model"))),
+        ("allow-captions", _bool_key(_switch("--allow-captions"))),
+        *_COMMON_TAIL,
+    ),
+    "diff": (
+        ("right", _str_key(_right)),
+        ("top", _int_key(_flag("--top"))),
+        ("all", _bool_key(_switch("--all"))),
+        ("model", _str_key(_flag("--model"))),
+        ("embed-model", _str_key(_flag("--embed-model"))),
+        ("allow-captions", _bool_key(_switch("--allow-captions"))),
+        ("concurrency", _int_key(_flag("--concurrency"))),
+        ("max-calls", _int_key(_flag("--max-calls"))),
+    ),
+    "summarize": (("expression", _str_key(_positional)),),
+    "sample": (
+        ("count", _int_key(_positional)),
+        ("seed", _int_key(_flag("--seed"))),
+    ),
+    "getschema": (("all", _bool_key(_switch("--all"))),),
+    "sort": (
+        ("by", _str_key(_flag("--by"))),
+        ("desc", _bool_key(_switch("--desc"))),
+    ),
+    "chart": (
+        ("field", _str_key(_positional)),
+        ("facet", _str_key(_flag("--facet"))),
+        ("by-time", _str_key(_flag("--by-time"))),
+        ("top", _int_key(_flag("--top"))),
+        ("save", _str_key(_flag("--save"))),
+        ("title", _str_key(_flag("--title"))),
+    ),
 }
 
-_REQUIRES_PROMPT = ("map", "filter", "reduce", "join")
+_REQUIRES_PROMPT = ("map", "extend", "filter", "reduce", "join")
+_REQUIRED_KEY: Mapping[str, str] = {
+    "where": "predicate",
+    "summarize": "expression",
+    "sample": "count",
+    "sort": "by",
+    "diff": "right",
+}
 
 
 def parse_sem(path: Path) -> list[str]:
@@ -235,6 +308,9 @@ def parse_sem(path: Path) -> list[str]:
         )
     if verb in _REQUIRES_PROMPT and "prompt" not in document and "prompt-file" not in document:
         raise UsageFault(f'{path}: {verb} needs a prompt\n  Add one: prompt = "..."')
+    needed = _REQUIRED_KEY.get(verb)
+    if needed is not None and needed not in document:
+        raise UsageFault(f'{path}: {verb} needs {needed!r}\n  Add one: {needed} = "..."')
     argv = [verb]
     for key, spec in table:
         if key not in document:
@@ -288,3 +364,90 @@ def _syntax_screen(path: Path, exc: tomllib.TOMLDecodeError) -> str:
         f"  {path}{location}: {detail}\n"
         f"  Fix the line, then: sempipe run {path}"
     )
+
+
+# --- multi-stage pipelines (D38/14) ---------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Stage:
+    name: str
+    argv: tuple[str, ...]
+    input_name: str | None  # None: the previous stage (or real stdin for the first)
+
+
+def parse_pipeline(path: Path) -> tuple[Stage, ...] | None:
+    """The stages a multi-stage ``.sem`` stands for; None for single-stage
+    files (the original format is the degenerate case and stays untouched)."""
+    try:
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise UsageFault(_syntax_screen(path, exc)) from exc
+    from sempipe.core.jsontools import as_record
+
+    raw_stages = document.get("stage")
+    if raw_stages is None:
+        return None
+    stages_table = as_record(raw_stages)
+    if stages_table is None:
+        raise UsageFault(f"{path}: [stage.NAME] tables expected under 'stage'")
+    others = [key for key in document if key != "stage"]
+    if others:
+        raise UsageFault(
+            f"{path}: a pipeline file holds only [stage.NAME] tables — "
+            f"found top-level {others[0]!r}\n"
+            "  Single-stage files use top-level keys; pick one shape."
+        )
+    stages: list[Stage] = []
+    seen: list[str] = []
+    for name, raw_body in stages_table.items():
+        body = as_record(raw_body)
+        if body is None:
+            raise UsageFault(f"{path}: [stage.{name}] must be a table of keys")
+        upstream_value = body.get("input")
+        upstream: str | None = None
+        if upstream_value is not None:
+            if not isinstance(upstream_value, str):
+                raise UsageFault(
+                    _wrong_type_screen(path, f"stage.{name}.input", "a string", upstream_value)
+                )
+            upstream = upstream_value
+            if upstream not in seen:
+                raise UsageFault(
+                    f"{path}: stage {name!r} reads input = {upstream!r}, "
+                    "which isn't an EARLIER stage\n"
+                    "  Stages run in file order; input names one above."
+                )
+        stage_doc = {key: value for key, value in body.items() if key != "input"}
+        argv = _stage_argv(path, name, stage_doc)
+        stages.append(Stage(name=name, argv=tuple(argv), input_name=upstream))
+        seen.append(name)
+    if not stages:
+        raise UsageFault(f"{path}: a pipeline needs at least one [stage.NAME]")
+    return tuple(stages)
+
+
+def _stage_argv(path: Path, name: str, document: dict[str, object]) -> list[str]:
+    verb = _checked_verb(path, document)
+    table = _VERB_KEYS[verb]
+    valid = tuple(key for key, _spec in table)
+    unknown = next((key for key in document if key != "verb" and key not in valid), None)
+    if unknown is not None:
+        raise UsageFault(
+            f"{path}: [stage.{name}] unknown key {unknown!r} — "
+            f"valid keys for {verb}: {', '.join(sorted(valid))}"
+        )
+    if verb in _REQUIRES_PROMPT and "prompt" not in document and "prompt-file" not in document:
+        raise UsageFault(f"{path}: [stage.{name}] {verb} needs a prompt")
+    needed = _REQUIRED_KEY.get(verb)
+    if needed is not None and needed not in document:
+        raise UsageFault(f"{path}: [stage.{name}] {verb} needs {needed!r}")
+    argv = [verb]
+    for key, spec in table:
+        if key not in document:
+            continue
+        value = document[key]
+        if not spec.accepts(value):
+            raise UsageFault(_wrong_type_screen(path, f"stage.{name}.{key}", spec.expected, value))
+        argv.extend(spec.render(value, path.parent))
+    return argv

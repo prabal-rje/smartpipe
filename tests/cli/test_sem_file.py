@@ -141,7 +141,8 @@ def test_missing_verb(tmp_path: Path) -> None:
     with pytest.raises(UsageFault) as excinfo:
         parse_sem(path)
     assert str(excinfo.value).startswith(
-        f"{path}: 'verb' is required (map, filter, embed, top_k, reduce, join, split)"
+        f"{path}: 'verb' is required (map, extend, filter, where, embed, top_k, reduce, join, "
+        "split, distinct, outliers, cluster, diff, summarize, sample, getschema, sort, chart)"
     )
 
 
@@ -159,7 +160,7 @@ def test_verb_config_is_rejected(tmp_path: Path) -> None:
 
 def test_unknown_verb_is_rejected(tmp_path: Path) -> None:
     path = _write(tmp_path, 'verb = "mapp"\n')
-    with pytest.raises(UsageFault, match="'mapp' isn't one of map, filter, embed"):
+    with pytest.raises(UsageFault, match="'mapp' isn't one of map, extend, filter"):
         parse_sem(path)
 
 
@@ -260,3 +261,64 @@ def test_prompt_file_key_translates_beside_the_script(tmp_path: Path) -> None:
         "--prompt-file",
         str((tmp_path / "prompt.md").resolve()),
     ]
+
+
+# --- pipelines (D38/14) ------------------------------------------------------------
+
+
+def _pipeline_file(tmp_path: Path, body: str) -> Path:
+    path = tmp_path / "pipe.sem"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+PIPELINE = """\
+[stage.hot]
+verb = "where"
+predicate = 'text has "ERROR"'
+
+[stage.numbers]
+verb = "summarize"
+expression = "count()"
+"""
+
+
+def test_pipeline_parses_stages_in_order(tmp_path: Path) -> None:
+    from sempipe.cli.sem_file import parse_pipeline
+
+    stages = parse_pipeline(_pipeline_file(tmp_path, PIPELINE))
+    assert stages is not None
+    assert [stage.name for stage in stages] == ["hot", "numbers"]
+    assert stages[0].argv == ("where", 'text has "ERROR"')
+    assert stages[1].input_name is None  # default: the previous stage
+
+
+def test_single_stage_files_return_none(tmp_path: Path) -> None:
+    from sempipe.cli.sem_file import parse_pipeline
+
+    path = tmp_path / "one.sem"
+    path.write_text('verb = "where"\npredicate = "total > 1"\n', encoding="utf-8")
+    assert parse_pipeline(path) is None
+
+
+def test_input_must_name_an_earlier_stage(tmp_path: Path) -> None:
+    body = PIPELINE.replace('expression = "count()"', 'expression = "count()"\ninput = "later"')
+    with pytest.raises(UsageFault, match="EARLIER stage"):
+        from sempipe.cli.sem_file import parse_pipeline
+
+        parse_pipeline(_pipeline_file(tmp_path, body))
+
+
+def test_mixing_top_level_keys_with_stages_is_a_fault(tmp_path: Path) -> None:
+    from sempipe.cli.sem_file import parse_pipeline
+
+    with pytest.raises(UsageFault, match="pick one shape"):
+        parse_pipeline(_pipeline_file(tmp_path, 'verb = "map"\nprompt = "x"\n' + PIPELINE))
+
+
+def test_stage_keys_are_checked_like_single_stage(tmp_path: Path) -> None:
+    from sempipe.cli.sem_file import parse_pipeline
+
+    body = PIPELINE.replace("predicate = ", "typo = 1\npredicate = ")
+    with pytest.raises(UsageFault, match="unknown key 'typo'"):
+        parse_pipeline(_pipeline_file(tmp_path, body))

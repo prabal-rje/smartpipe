@@ -40,6 +40,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **Multi-stage `.sem` pipelines (D38/14).** `[stage.NAME]` tables run in
+  order, each stage feeding the next (`input = "name"` picks any earlier
+  stage); first reads stdin, last writes stdout; stage receipts are
+  name-prefixed; `sempipe run triage.sem --dry-run` prints the graph with
+  per-stage cost posture (free / embeddings / model calls) and runs
+  nothing — D18 at pipeline scale. Stage keys validate as loudly as
+  single-stage files, and every D38 verb is now scriptable in both shapes.
 - **Time bucketing (D38/13, KQL `bin()`).** `chart --by-time ts:1h` draws
   chronological, zero-filled buckets (gaps are signal); `summarize '… by
   bin(ts, 1h)'` groups by the same UTC bucket labels. The fence is hard:

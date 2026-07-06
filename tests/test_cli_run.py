@@ -147,3 +147,45 @@ def test_shebang_executes_the_stage_directly(tmp_path: Path) -> None:
         )
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == "MATCHES\n"
+
+
+# --- pipelines (D38/14) ------------------------------------------------------------
+
+
+def test_pipeline_runs_stage_into_stage(tmp_path: Path, run_cli: RunCli) -> None:
+    script = tmp_path / "triage.sem"
+    script.write_text(
+        """\
+[stage.hot]
+verb = "where"
+predicate = 'text has "ERROR"'
+
+[stage.numbers]
+verb = "summarize"
+expression = "count()"
+""",
+        encoding="utf-8",
+    )
+    code, out, err = run_cli(["run", str(script)], stdin="ERROR one\nfine\nERROR two\n")
+    assert code == 0
+    assert out.strip() == '{"count":2}'
+    assert "[hot]" in err  # stage receipts carry their stage name
+
+
+def test_pipeline_dry_run_prints_postures_and_runs_nothing(tmp_path: Path, run_cli: RunCli) -> None:
+    script = tmp_path / "triage.sem"
+    script.write_text(
+        """\
+[stage.hot]
+verb = "where"
+predicate = 'text has "x"'
+
+[stage.themes]
+verb = "cluster"
+""",
+        encoding="utf-8",
+    )
+    code, out, _err = run_cli(["run", str(script), "--dry-run"], stdin="")
+    assert code == 0
+    assert "stage hot" in out and "[free]" in out
+    assert "stage themes" in out and "[model calls]" in out

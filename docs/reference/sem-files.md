@@ -103,3 +103,43 @@ Multi-stage pipeline files were considered and rejected: they would re-implement
 `|` — ordering, buffering, and error propagation the shell already does better.
 One file = one stage keeps every `.sem` composable with everything else on your
 system, which is the whole point of sempipe.
+
+
+## Pipelines: several stages in one file
+
+A `.sem` file can hold a whole pipeline as `[stage.NAME]` tables, run in
+order — the team's weekly triage as one reviewable, versionable artifact:
+
+```toml
+[stage.hot]
+verb = "where"
+predicate = 'text has "ERROR"'
+
+[stage.themes]
+verb = "cluster"
+top = 8
+
+[stage.picture]
+verb = "chart"
+field = "cluster"
+save = "themes.svg"
+```
+
+```console
+$ cat week.log | sempipe run triage.sem
+$ sempipe run triage.sem --dry-run      # the graph + cost posture, zero calls
+stage hot          where 'text has "ERROR"'   [free]
+stage themes       cluster --top 8            [model calls]
+stage picture      chart cluster --save …     [free]
+```
+
+Each stage reads the previous stage's output (`input = "name"` picks any
+EARLIER stage instead); the first stage reads stdin, the last writes stdout.
+Stage receipts on stderr carry their stage name (`[hot] where: 214 of 9,102
+matched`). Stage keys are validated exactly like single-stage files — a typo
+is a loud error, never silently ignored. Single-stage files are unchanged;
+extra CLI flags apply to them only.
+
+All verbs are scriptable now — including the D38 additions (where, extend,
+distinct, outliers, cluster, diff, summarize, sample, getschema, sort,
+chart).
