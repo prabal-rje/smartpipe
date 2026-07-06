@@ -40,6 +40,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`sempipe outliers` — novelty, surfaced (D38/04).** top_k's mirror:
+  the N items farthest from everything, scored by mean cosine distance to
+  their nearest neighbors (honest on multi-cluster corpora), anchored
+  against the corpus median on stderr so the number means something.
+  Embeddings only. Record shape mirrors top_k (`_distance`, original
+  fields survive). For novel failure shapes, label noise, and the alert
+  that isn't like the others.
 - **`sempipe distinct` — near-duplicate folding (D38/03).** Exact duplicates
   fold free before any embedding; the rest embed once and leader-cluster
   (hand-rolled, deterministic, order-stable — no sklearn). First occurrence

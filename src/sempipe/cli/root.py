@@ -28,6 +28,7 @@ from sempipe.cli.extend_cmd import extend_command
 from sempipe.cli.filter_cmd import filter_command
 from sempipe.cli.join_cmd import join_command
 from sempipe.cli.map_cmd import map_command
+from sempipe.cli.outliers_cmd import outliers_command
 from sempipe.cli.reduce_cmd import reduce_command
 from sempipe.cli.run_cmd import run_command
 from sempipe.cli.schema_cmd import schema_command
@@ -72,6 +73,7 @@ cli.add_command(top_k_command)
 cli.add_command(reduce_command)
 cli.add_command(join_command)
 cli.add_command(distinct_command)
+cli.add_command(outliers_command)
 cli.add_command(run_command)
 cli.add_command(config_command)
 cli.add_command(doctor_command)
