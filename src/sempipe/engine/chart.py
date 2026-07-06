@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = ["CHARTS_EXTRA_SCREEN", "render_bars", "render_svg"]
+__all__ = ["CHARTS_EXTRA_SCREEN", "render_bars", "render_svg", "render_svg_panels"]
 
 _BLOCK = "▇"
 _BAR_WIDTH = 40  # cells for the longest bar; the rest scale
@@ -80,4 +80,64 @@ def render_svg(counts: Sequence[tuple[str, int]], *, title: str | None = None) -
         drawing.add(
             drawing.text(f"{count:,}", insert=(_LABEL_SPACE + bar + 6, y + 18), **text_style)
         )
+    return drawing.tostring()
+
+
+def render_svg_panels(
+    panels: Sequence[tuple[str, Sequence[tuple[str, int]]]], *, title: str | None = None
+) -> str:
+    """Several bar panels stacked in one SVG (chart --facet). Same dependency
+    rules as render_svg: svgwrite behind the [charts] extra."""
+    try:
+        import svgwrite
+    except ImportError as exc:
+        from sempipe.core.errors import SetupFault
+
+        raise SetupFault(CHARTS_EXTRA_SCREEN) from exc
+
+    header = 36 if title else 8
+    heights = [24 + max(1, len(counts)) * _ROW_HEIGHT + 8 for _name, counts in panels]
+    total_height = header + sum(heights)
+    drawing = svgwrite.Drawing(size=(_CHART_WIDTH, total_height))
+    drawing.add(drawing.rect(insert=(0, 0), size=(_CHART_WIDTH, total_height), fill="white"))
+    text_style = {"font_family": "system-ui, sans-serif", "font_size": "13px"}
+    if title:
+        drawing.add(
+            drawing.text(
+                title,
+                insert=(12, 24),
+                font_weight="bold",
+                font_size="16px",
+                font_family="system-ui, sans-serif",
+            )
+        )
+    offset = header
+    bar_space = _CHART_WIDTH - _LABEL_SPACE - 80
+    for (name, counts), panel_height in zip(panels, heights, strict=True):
+        drawing.add(
+            drawing.text(
+                name,
+                insert=(12, offset + 16),
+                font_weight="bold",
+                font_size="13px",
+                font_family="system-ui, sans-serif",
+            )
+        )
+        rows = list(counts) or [("(nothing)", 0)]
+        top = max(count for _label, count in rows) or 1
+        for row, (label, count) in enumerate(rows):
+            y = offset + 24 + row * _ROW_HEIGHT
+            bar = max(2, round(count / top * bar_space)) if count else 0
+            drawing.add(
+                drawing.text(
+                    label, insert=(_LABEL_SPACE - 8, y + 18), text_anchor="end", **text_style
+                )
+            )
+            drawing.add(
+                drawing.rect(insert=(_LABEL_SPACE, y + 6), size=(bar, 16), fill="#4477aa", rx=2)
+            )
+            drawing.add(
+                drawing.text(f"{count:,}", insert=(_LABEL_SPACE + bar + 6, y + 18), **text_style)
+            )
+        offset += panel_height
     return drawing.tostring()

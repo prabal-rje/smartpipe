@@ -66,3 +66,48 @@ def test_svg_escapes_labels() -> None:
 
 def test_bars_render_empty_input_honestly() -> None:
     assert render_bars([]) == "(nothing to chart)"
+
+
+# --- facets (D38/12) ---------------------------------------------------------------
+
+
+def test_facets_stack_sections_in_one_pass() -> None:
+    out = io.StringIO()
+    ndjson = (
+        '{"label": "bug", "sev": "high"}\n{"label": "bug", "sev": "low"}\n{"label": "feature"}\n'
+    )
+    code = run_chart(ChartRequest(facets=("label", "sev")), stdin=io.StringIO(ndjson), stdout=out)
+    assert code is ExitCode.OK
+    text = out.getvalue()
+    assert "── label " in text and "── sev " in text
+    assert text.index("── label") < text.index("── sev")
+    assert "(missing)" in text  # the feature row has no sev — honest gap
+
+
+def test_facet_with_field_is_a_usage_fault() -> None:
+    import pytest
+
+    from sempipe.core.errors import UsageFault
+
+    with pytest.raises(UsageFault, match="--facet replaces"):
+        run_chart(
+            ChartRequest(field="label", facets=("sev",)),
+            stdin=io.StringIO(""),
+            stdout=io.StringIO(),
+        )
+
+
+def test_facet_svg_has_both_panels(tmp_path: object) -> None:
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    out = io.StringIO()
+    target = tmp_path / "facets.svg"
+    run_chart(
+        ChartRequest(facets=("label", "sev"), save=target, title="Tickets"),
+        stdin=io.StringIO('{"label": "bug", "sev": "high"}\n'),
+        stdout=out,
+    )
+    svg = target.read_text(encoding="utf-8")
+    assert svg.count("label") >= 1 and svg.count("sev") >= 1
+    assert "Tickets" in svg

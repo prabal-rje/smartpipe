@@ -40,6 +40,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`chart --facet label,severity,region` (D38/12).** Several distributions
+  in one pass: stacked sections in the terminal, one multi-panel SVG with
+  `--save`, per-facet honest `(missing)` bars and dropped-tail notes.
+  The analyst's first-look ritual in one command.
 - **`join --kind anti|leftouter` (D38/11).** Reconciliation's set shapes,
   first-class: `anti` emits only the UNMATCHED left rows, verbatim on
   stdout (the mismatch list IS the deliverable — orders with no invoice,

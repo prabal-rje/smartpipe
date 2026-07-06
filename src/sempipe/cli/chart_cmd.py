@@ -22,7 +22,14 @@ __all__ = ["chart_command"]
     help="Also write the chart as an SVG file (no extra dependencies).",
 )
 @click.option("--title", help="Title for the saved SVG.")
-def chart_command(field: str | None, top: int | None, save: Path | None, title: str | None) -> None:
+@click.option("--facet", "facet", help="Several distributions in one pass: --facet label,severity.")
+def chart_command(
+    field: str | None,
+    top: int | None,
+    save: Path | None,
+    title: str | None,
+    facet: str | None,
+) -> None:
     """Draw a bar chart of a field's values (or of whole lines). Free.
 
     \b
@@ -30,12 +37,14 @@ def chart_command(field: str | None, top: int | None, save: Path | None, title: 
       cat tickets.txt | sempipe map "Extract {label}" | sempipe chart label
       jq -r .status data.jsonl | sempipe chart
       … | sempipe chart label --save labels.svg --title "Ticket labels"
+      cat tickets.jsonl | sempipe chart --facet label,severity,region
 
     Reads NDJSON records (counts FIELD) or plain lines (counts each line).
     The chart is the result — it goes to stdout; --save adds an SVG.
     """
+    facets = tuple(name.strip() for name in facet.split(",") if name.strip()) if facet else ()
     code = run_chart(
-        ChartRequest(field=field, top=top, save=save, title=title),
+        ChartRequest(field=field, top=top, save=save, title=title, facets=facets),
         stdin=sys.stdin,
         stdout=sys.stdout,
     )

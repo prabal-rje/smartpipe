@@ -16,6 +16,17 @@ feature  ▇▇▇▇▇▇▇▇▇▇▇▇▇▇ 7
 question ▇▇▇▇▇▇ 3
 ```
 
+Several distributions in one pass — the analyst's first look:
+
+```console
+$ cat tickets.jsonl | sempipe chart --facet label,severity,region --save tickets.svg
+── label ──────────────────────────────────
+bug      ▇▇▇▇▇▇▇▇▇▇▇▇▇▇ 41
+feature  ▇▇▇▇▇▇ 17
+── severity ───────────────────────────────
+…
+```
+
 And `--tally` counts any extracted field live on the status line and as one
 final stderr line, without touching stdout:
 
