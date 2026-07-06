@@ -60,20 +60,15 @@ docs = [
   "mkdocs-material>=9.5",
 ]
 
-[tool.hatch.build.targets.sdist]
-# belt over the untracking: private working docs can never ride a release
-exclude = ["plan/", "CLAUDE.md", "TODO.md", "idea.md", "context/", ".claude/"]
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/sempipe"]
 
 [tool.hatch.build.targets.sdist]
-# Ship the package, docs, and plan — not local-only reference material, venvs,
-# or build junk (context/ is a gitignored copy of another project).
+# Ship the package and docs — never the private working documents
+# (plan/, CLAUDE.md, TODO.md, idea.md, context/), and no venvs or build junk.
 include = [
   "src",
   "docs",
-  "plan",
   "README.md",
   "CHANGELOG.md",
   "CONTRIBUTING.md",
