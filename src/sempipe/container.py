@@ -340,3 +340,33 @@ def _cache_receipt(container: AppContainer) -> None:
     misses = sum(w.misses for w in container.caches if isinstance(w, CachingChatModel))
     if hits or misses:
         diagnostics.note(f"cache: {hits:,} hits · {misses:,} calls")
+    if container.caches:
+        _maybe_sweep(container)
+
+
+def _maybe_sweep(container: AppContainer) -> None:
+    """TTL + LRU sweep at exit, at most daily — the cache is never the user's
+    problem (D39/02). Any filesystem trouble is swallowed: a broken cache dir
+    must never fail a run."""
+    import time
+
+    from sempipe.models.cache import sweep
+
+    directory = _cache_dir(container.env)
+    marker = directory / "last-sweep"
+    try:
+        now = time.time()
+        if marker.exists() and now - marker.stat().st_mtime < 86_400:
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        marker.write_text("", encoding="utf-8")
+        removed, freed = sweep(
+            directory,
+            ttl_days=container.config.cache_days or 30,
+            max_mb=container.config.cache_max_mb or 500,
+            now=now,
+        )
+        if removed:
+            diagnostics.note(f"cache: swept {removed:,} entries ({freed / 1_048_576:.1f} MB)")
+    except OSError:
+        return

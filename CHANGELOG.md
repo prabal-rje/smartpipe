@@ -40,6 +40,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **The cache maintains itself (D39/02).** 30-day TTL plus a 500 MB
+  size-bounded LRU (hits refresh recency), swept automatically at exit at
+  most once a day — never at startup, never the user's problem; tunable via
+  `cache-days`/`cache-max-mb`; `sempipe cache stats` inspects entries, size,
+  and age.
 - **Result caching (D38/15, KQL `materialize`).** Opt-in
   (`sempipe config cache on` or `SEMPIPE_CACHE=1`): identical chat calls
   reuse stored replies, so editing stage 4 of a pipeline stops re-paying

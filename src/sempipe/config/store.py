@@ -49,6 +49,8 @@ class Config:
     profile: str | None = None  # the active profile's name (D30)
     allow_captions: bool | None = None  # cloud conversions consent (D35; flag wins)
     cache: bool | None = None  # result caching (D38/15) — account-level posture
+    cache_days: int | None = None  # sweep TTL (D39/02); default 30
+    cache_max_mb: int | None = None  # LRU size cap (D39/02); default 500
 
 
 _EMPTY_PROFILE: Mapping[str, object] = {}
@@ -93,6 +95,8 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Config:
         profile=active,
         allow_captions=_boolean(merged, "allow-captions", path),
         cache=_boolean(merged, "cache", path),
+        cache_days=_positive_int(merged, "cache-days", path),
+        cache_max_mb=_positive_int(merged, "cache-max-mb", path),
     )
 
 
@@ -164,6 +168,8 @@ def save_config(path: Path, config: Config) -> None:
         "profile": config.profile,
         "allow-captions": config.allow_captions,
         "cache": config.cache,
+        "cache-days": config.cache_days,
+        "cache-max-mb": config.cache_max_mb,
     }
     for key, value in ours.items():
         if value is None:

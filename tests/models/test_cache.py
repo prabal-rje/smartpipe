@@ -69,3 +69,47 @@ async def test_corrupt_entry_is_a_miss_not_a_crash(tmp_path: Path) -> None:
     reply = await cached.complete(_request())
     assert reply == "reply-1"  # re-fetched and re-stored
     assert await cached.complete(_request()) == "reply-1"  # now a clean hit
+
+
+# --- sweep: TTL + LRU (D39/02) -----------------------------------------------------
+
+
+def _entry(tmp_path: Path, name: str, *, age_days: float, size: int) -> Path:
+    import os
+    import time
+
+    path = tmp_path / name[:2] / f"{name}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"reply": "' + "x" * size + '"}', encoding="utf-8")
+    stamp = time.time() - age_days * 86_400
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_sweep_expires_ttl_then_lru_evicts_to_cap(tmp_path: Path) -> None:
+    import time
+
+    from sempipe.models.cache import sweep
+
+    ancient = _entry(tmp_path, "aa" * 32, age_days=40, size=10)
+    old_big = _entry(tmp_path, "bb" * 32, age_days=10, size=2_000_000)
+    fresh = _entry(tmp_path, "cc" * 32, age_days=0.1, size=10)
+    removed, freed = sweep(tmp_path, ttl_days=30, max_mb=1, now=time.time())
+    assert removed == 2 and freed > 2_000_000
+    assert not ancient.exists()  # past the TTL
+    assert not old_big.exists()  # LRU-evicted to get under the cap
+    assert fresh.exists()
+
+
+async def test_hits_refresh_recency(tmp_path: Path) -> None:
+    import os
+
+    inner = CountingModel()
+    cached = CachingChatModel(inner, tmp_path)
+    await cached.complete(_request())
+    key = cache_key(REF, _request())
+    path = tmp_path / key[:2] / f"{key}.json"
+    stale = path.stat().st_mtime - 86_400
+    os.utime(path, (stale, stale))
+    await cached.complete(_request())  # the hit
+    assert path.stat().st_mtime > stale + 3600  # touched — LRU sees recent use

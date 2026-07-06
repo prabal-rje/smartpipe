@@ -93,5 +93,7 @@ With caching on (`sempipe config cache on` or `SEMPIPE_CACHE=1`), model
 REPLIES are stored on disk under `~/.cache/sempipe/results` (or
 `$XDG_CACHE_HOME/sempipe/results`), keyed by a hash of the full request.
 That means model outputs about your data persist locally between runs.
-`sempipe cache clear` deletes all of it and reports the size. Caching is
-off by default.
+`sempipe cache clear` deletes all of it and reports the size; `sempipe
+cache stats` inspects it. The cache also maintains itself: entries expire
+after 30 days and the store LRU-evicts past 500 MB (tunable via the
+`cache-days` and `cache-max-mb` config keys). Caching is off by default.

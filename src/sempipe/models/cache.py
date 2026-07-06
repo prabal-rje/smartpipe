@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from sempipe.models.base import ChatModel, CompletionRequest, ModelRef
 
-__all__ = ["CachingChatModel", "cache_key"]
+__all__ = ["CachingChatModel", "cache_key", "sweep"]
 
 
 def cache_key(ref: ModelRef, request: CompletionRequest) -> str:
@@ -68,6 +68,7 @@ class CachingChatModel:
 def _read(path: Path) -> str | None:
     try:
         parsed: object = json.loads(path.read_text(encoding="utf-8"))
+        os.utime(path)  # a hit refreshes recency — the LRU truth (D39/02)
     except (OSError, json.JSONDecodeError):
         return None  # missing or corrupt — a miss, never a crash
     from sempipe.core.jsontools import as_record
@@ -85,3 +86,47 @@ def _write(path: Path, reply: str) -> None:
     scratch = path.with_suffix(".tmp")
     scratch.write_text(json.dumps({"reply": reply}, ensure_ascii=False), encoding="utf-8")
     os.replace(scratch, path)  # atomic on POSIX — never a half-written entry
+
+
+_DAY_SECONDS = 86_400
+
+
+def sweep(directory: Path, *, ttl_days: int, max_mb: int, now: float) -> tuple[int, int]:
+    """Expire entries past the TTL, then LRU-evict (oldest mtime first) until
+    under the size cap. Returns (entries removed, bytes removed). Pure walk —
+    the caller owns the once-a-day gating and error tolerance."""
+    entries: list[tuple[float, int, Path]] = []
+    for path in directory.rglob("*.json"):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        entries.append((stat.st_mtime, stat.st_size, path))
+    removed = 0
+    freed = 0
+    survivors: list[tuple[float, int, Path]] = []
+    horizon = now - ttl_days * _DAY_SECONDS
+    for mtime, size, path in entries:
+        if mtime < horizon:
+            try:
+                path.unlink()
+                removed += 1
+                freed += size
+            except OSError:
+                survivors.append((mtime, size, path))
+        else:
+            survivors.append((mtime, size, path))
+    survivors.sort()  # oldest first
+    total = sum(size for _mtime, size, _path in survivors)
+    cap = max_mb * 1_048_576
+    for _mtime, size, path in survivors:
+        if total <= cap:
+            break
+        try:
+            path.unlink()
+            removed += 1
+            freed += size
+            total -= size
+        except OSError:
+            continue
+    return removed, freed
