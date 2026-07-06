@@ -48,10 +48,10 @@ def test_merge_to_k_folds_smallest_into_most_similar() -> None:
 
 
 def test_adaptive_threshold_lands_in_the_gap() -> None:
-    from sempipe.engine.clustering import adaptive_threshold
-
     # measured gemini-like geometry: same-theme ~0.62-0.75, background ~0.47-0.55
     import math
+
+    from sempipe.engine.clustering import adaptive_threshold
 
     def vec(angle: float) -> tuple[float, float]:
         return (math.cos(angle), math.sin(angle))
