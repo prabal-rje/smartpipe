@@ -40,6 +40,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`sempipe getschema` — the stream's field/type/coverage table, free
+  (D38/09).** A table on a terminal, NDJSON when piped; mixed types union
+  visibly (`integer|string` is the dirt worth seeing); first 10k rows by
+  default with `--all` to scan everything; plain-text input gets a one-line
+  answer; the footer suggests the next move (`chart`/`where` on the
+  best-covered field).
 - **`sempipe sample` — seeded random subsets, free (D38/08).** Reservoir
   sampling, input order preserved, and deterministic BY DEFAULT (seed 0):
   the same input gives the same sample with no flags, so prompt iterations

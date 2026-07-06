@@ -28,6 +28,7 @@ from sempipe.cli.echo_cmd import echo_command
 from sempipe.cli.embed_cmd import embed_command
 from sempipe.cli.extend_cmd import extend_command
 from sempipe.cli.filter_cmd import filter_command
+from sempipe.cli.getschema_cmd import getschema_command
 from sempipe.cli.join_cmd import join_command
 from sempipe.cli.map_cmd import map_command
 from sempipe.cli.outliers_cmd import outliers_command
@@ -89,6 +90,7 @@ cli.add_command(chart_command)
 cli.add_command(where_command)
 cli.add_command(summarize_command)
 cli.add_command(sample_command)
+cli.add_command(getschema_command)
 cli.add_command(auth_command)
 cli.add_command(cite_command)
 cli.add_command(echo_command)

@@ -33,6 +33,7 @@ to **stderr**.
 | [`where`](../verbs/where.md) | keep rows matching a deterministic predicate | free — no model calls |
 | [`summarize`](../verbs/summarize.md) | count/avg/percentiles by field (KQL grammar) | free — no model calls |
 | [`sample`](../verbs/sample.md) | keep N random rows, seeded + reproducible | free — no model calls |
+| [`getschema`](../verbs/getschema.md) | report the stream's fields, types, coverage | free — no model calls |
 | [`split`](../verbs/split.md) | break oversized items into chunk items | free — no model calls |
 | `chart` | bar-chart a field's values; `--save` writes SVG | free — no model calls |
 | [`config`](#config) | view and set defaults | interactive setup |
@@ -74,6 +75,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `where` | `'PREDICATE'` (has, contains, matches /re/, == != > >= < <=, and/or/not) |
 | `summarize` | `'AGG[, AGG…] [by FIELD,…]'` (count/sum/avg/min/max/p50-p99/dcount) |
 | `sample` | `N`, `--seed K` (default 0 — reproducible by default) |
+| `getschema` | `--all` (scan past the first 10,000 rows) |
 | `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
 | `chart` | `FIELD` (or whole lines), `--top N`, `--save FILE.svg`, `--title` |
 

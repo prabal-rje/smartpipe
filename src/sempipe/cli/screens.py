@@ -82,6 +82,7 @@ Utilities (free — no model calls):
   where    Keep rows matching a deterministic predicate
   summarize Aggregate records: count/avg/percentiles by field
   sample   Keep N random rows (seeded, reproducible)
+  getschema Report the stream's fields, types, coverage
   split    Break oversized items into chunks
   chart    Draw a bar chart of results (--save writes SVG)
   config   Configure models and settings
