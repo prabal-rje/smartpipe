@@ -36,6 +36,7 @@ from sempipe.cli.run_cmd import run_command
 from sempipe.cli.schema_cmd import schema_command
 from sempipe.cli.screens import WELCOME
 from sempipe.cli.split_cmd import split_command
+from sempipe.cli.summarize_cmd import summarize_command
 from sempipe.cli.top_k_cmd import top_k_command
 from sempipe.cli.where_cmd import where_command
 from sempipe.core.errors import ExitCode, SempipeError, UsageFault
@@ -85,6 +86,7 @@ cli.add_command(schema_command)
 cli.add_command(split_command)
 cli.add_command(chart_command)
 cli.add_command(where_command)
+cli.add_command(summarize_command)
 cli.add_command(auth_command)
 cli.add_command(cite_command)
 cli.add_command(echo_command)

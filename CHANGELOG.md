@@ -40,6 +40,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`sempipe summarize` — deterministic aggregation, free (D38/07).**
+  KQL's grammar verbatim: `'count(), avg(total), p95(total) by region'` →
+  one record per group, largest first, KQL output naming (`avg_total`).
+  Missing group fields group under null visibly; non-numeric values skip
+  with a counted stderr note; empty numeric groups report null, not zero.
+  count/sum/avg/min/max/p50-p99/dcount; the error screen prints the menu.
 - **`sempipe diff` — what distinguishes two sets (D38/06).** KQL's
   diffpatterns for meaning: embed both sides, cluster the union (adaptive
   threshold), keep the lopsided themes with BOTH shares as evidence and
