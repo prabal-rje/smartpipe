@@ -40,6 +40,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **Custom verbs — the contract (D39/06).** Two legs: any `.sem` file
+  (stage or pipeline) in `~/.config/sempipe/verbs/` becomes `sempipe NAME`
+  (validated, shareable, listed in --help), and Python packages can expose
+  a `click.Command` via an entry point in group `sempipe.verbs`. Built-ins
+  always win; broken plugins warn and skip (a third-party bug never takes
+  down the CLI); discovery is lazy so built-in startup pays nothing.
 - **Remote transcription — the `stt-model` role (D39/05).**
   `sempipe config stt-model openai/whisper-1` (or `SEMPIPE_STT_MODEL`)
   puts a verbatim transcriber at rung 0 of the audio ladder, ahead of the

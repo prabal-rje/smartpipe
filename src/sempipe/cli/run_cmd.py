@@ -22,7 +22,7 @@ from sempipe.cli.sem_file import parse_pipeline, parse_sem
 if TYPE_CHECKING:
     from sempipe.cli.sem_file import Stage
 
-__all__ = ["run_command"]
+__all__ = ["execute_script", "run_command"]
 
 _FREE_VERBS = frozenset({"where", "split", "chart", "sort", "sample", "summarize", "getschema"})
 _EMBED_VERBS = frozenset({"embed", "distinct", "outliers"})
@@ -78,6 +78,12 @@ def run_command(script: Path, dry_run: bool, extra: tuple[str, ...]) -> None:
     reads stdin, the last writes stdout. Extra flags apply to single-stage
     files only.
     """
+    execute_script(script, extra=extra, dry_run=dry_run)
+
+
+def execute_script(script: Path, *, extra: tuple[str, ...] = (), dry_run: bool = False) -> None:
+    """Run a .sem file (single stage or pipeline) — shared by ``sempipe run``
+    and user-named custom verbs (D39/06)."""
     stages = parse_pipeline(script)
     if stages is None:
         if dry_run:

@@ -12,6 +12,7 @@ import contextlib
 import os
 import signal
 import sys
+from typing import TYPE_CHECKING
 
 import click
 
@@ -46,6 +47,9 @@ from sempipe.cli.where_cmd import where_command
 from sempipe.core.errors import ExitCode, SempipeError, UsageFault
 from sempipe.io import diagnostics
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 __all__ = ["cli", "main"]
 
 
@@ -63,7 +67,75 @@ class _RootGroup(click.Group):
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
         # Muscle-memory forgiveness for top_k's spelling; not shown in help.
-        return super().get_command(ctx, _ALIASES.get(cmd_name, cmd_name))
+        built_in = super().get_command(ctx, _ALIASES.get(cmd_name, cmd_name))
+        if built_in is not None:
+            return built_in  # built-ins always win — custom verbs never shadow
+        return _user_sem_command(cmd_name) or _entry_point_command(cmd_name)
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        names = set(super().list_commands(ctx))
+        names.update(_user_sem_names())
+        names.update(_entry_point_names())
+        return sorted(names)
+
+
+def _verbs_dir() -> Path:
+    from sempipe.config.paths import config_path
+
+    return config_path(os.environ).parent / "verbs"
+
+
+def _user_sem_names() -> list[str]:
+    try:
+        return [path.stem for path in _verbs_dir().glob("*.sem")]
+    except OSError:
+        return []
+
+
+def _user_sem_command(name: str) -> click.Command | None:
+    """Leg 1 of the custom-verb contract (D39/06): ~/.config/sempipe/verbs/
+    NAME.sem becomes `sempipe NAME` — full key validation, zero machinery."""
+    script = _verbs_dir() / f"{name}.sem"
+    if not script.is_file():
+        return None
+
+    @click.command(name=name, help=f"Custom verb from {script} (.sem file).")
+    def sem_verb() -> None:
+        from sempipe.cli.run_cmd import execute_script
+
+        execute_script(script)
+
+    return sem_verb
+
+
+def _entry_point_names() -> list[str]:
+    from importlib.metadata import entry_points
+
+    try:
+        return [point.name for point in entry_points(group="sempipe.verbs")]
+    except Exception:
+        return []
+
+
+def _entry_point_command(name: str) -> click.Command | None:
+    """Leg 2 (D39/06): a package's entry point in group `sempipe.verbs` naming
+    a click.Command. Broken plugins warn once and are skipped."""
+    from importlib.metadata import entry_points
+
+    try:
+        matches = [point for point in entry_points(group="sempipe.verbs") if point.name == name]
+    except Exception:
+        return None
+    for point in matches:
+        try:
+            loaded: object = point.load()
+        except Exception as exc:
+            diagnostics.warn(f"custom verb {name!r} failed to load ({exc}) — skipped")
+            return None
+        if isinstance(loaded, click.Command):
+            return loaded
+        diagnostics.warn(f"custom verb {name!r} is not a click.Command — skipped")
+    return None
 
 
 @click.group(cls=_RootGroup)
