@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 import click
 
-from sempipe.cli.input_options import input_options, input_spec
+from sempipe.cli.input_options import input_options, input_spec, resolve_prompt
 from sempipe.cli.interrupts import graceful_interrupts, settle_budget
 from sempipe.core.errors import ExitCode
 from sempipe.verbs.filter import FilterRequest, run_filter
@@ -17,14 +18,21 @@ __all__ = ["filter_command"]
 
 
 @click.command(name="filter")
-@click.argument("condition")
+@click.argument("condition", required=False)
+@click.option(
+    "--prompt-file",
+    "prompt_file",
+    type=click.Path(path_type=Path),
+    help="Read the condition from a file (the @file shorthand does the same).",
+)
 @click.option("--not", "invert", is_flag=True, help="Keep items that do NOT match (like grep -v).")
 @click.option("--model", "model_flag", help="Model for this run.")
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @input_options
 def filter_command(
-    condition: str,
+    condition: str | None,
+    prompt_file: Path | None,
     invert: bool,
     model_flag: str | None,
     concurrency_flag: int | None,
@@ -44,7 +52,7 @@ def filter_command(
     matching filenames). Zero matches is a successful (exit 0) empty result.
     """
     request = FilterRequest(
-        condition=condition,
+        condition=resolve_prompt(condition, prompt_file),
         invert=invert,
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,

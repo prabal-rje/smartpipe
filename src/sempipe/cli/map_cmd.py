@@ -10,7 +10,12 @@ from pathlib import Path
 import click
 
 from sempipe.cli.completions import complete_chat_models
-from sempipe.cli.input_options import fields_option, input_options, input_spec
+from sempipe.cli.input_options import (
+    fields_option,
+    input_options,
+    input_spec,
+    resolve_prompt,
+)
 from sempipe.cli.interrupts import graceful_interrupts, settle_budget
 from sempipe.core.errors import ExitCode
 from sempipe.io.writers import OutputFormat
@@ -20,7 +25,13 @@ __all__ = ["map_command"]
 
 
 @click.command(name="map")
-@click.argument("prompt")
+@click.argument("prompt", required=False)
+@click.option(
+    "--prompt-file",
+    "prompt_file",
+    type=click.Path(path_type=Path),
+    help="Read the prompt from a file (the @file shorthand does the same).",
+)
 @click.option(
     "--schema-from",
     "schema_dsl",
@@ -51,7 +62,8 @@ __all__ = ["map_command"]
 @fields_option
 @input_options
 def map_command(
-    prompt: str,
+    prompt: str | None,
+    prompt_file: Path | None,
     schema_path: Path | None,
     schema_dsl: str | None,
     model_flag: str | None,
@@ -74,7 +86,7 @@ def map_command(
     Plain prompts return plain text, one line per item.
     """
     request = MapRequest(
-        prompt=prompt,
+        prompt=resolve_prompt(prompt, prompt_file),
         schema_path=schema_path,
         schema_dsl=schema_dsl,
         model_flag=model_flag,

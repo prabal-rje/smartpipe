@@ -41,7 +41,8 @@ command it stands for — stdin in, stdout out, same exit codes, same everything
 
 | Key | Type | Verbs | Becomes |
 |---|---|---|---|
-| `prompt` | string | map, filter, reduce | the positional prompt |
+| `prompt` | string | map, filter, reduce, join | the positional prompt |
+| `prompt-file` | string | map, filter, reduce, join | `--prompt-file`, resolved **relative to the `.sem` file** |
 | `near` | string | top_k | `--near` |
 | `k` | integer | top_k | the positional K |
 | `threshold` | number | top_k | `--threshold` |

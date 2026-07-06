@@ -124,8 +124,8 @@ def test_unknown_key_names_it_and_lists_valid_keys(tmp_path: Path) -> None:
     message = str(excinfo.value)
     assert message.startswith(f"{path}: unknown key 'promt' — valid keys for map: ")
     assert (
-        "concurrency, fields, from-files, in, max-calls, model, output, prompt, schema-file"
-        in message
+        "concurrency, fields, from-files, in, max-calls, model, output, prompt, "
+        "prompt-file, schema-file, schema-from" in message
     )
     assert "unattended" in message  # the why
 
@@ -249,4 +249,14 @@ def test_join_sem_translates_with_sibling_right(tmp_path: Path) -> None:
         str((tmp_path / "catalog.jsonl").resolve()),
         "--k",
         "3",
+    ]
+
+
+def test_prompt_file_key_translates_beside_the_script(tmp_path: Path) -> None:
+    (tmp_path / "prompt.md").write_text("do the thing\n", encoding="utf-8")
+    path = _write(tmp_path, 'verb = "map"\nprompt-file = "prompt.md"\n')
+    assert parse_sem(path) == [
+        "map",
+        "--prompt-file",
+        str((tmp_path / "prompt.md").resolve()),
     ]

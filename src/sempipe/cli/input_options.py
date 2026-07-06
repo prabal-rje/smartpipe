@@ -11,8 +11,9 @@ from sempipe.io.inputs import InputSpec
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
-__all__ = ["fields_option", "input_options", "input_spec", "parse_fields"]
+__all__ = ["fields_option", "input_options", "input_spec", "parse_fields", "resolve_prompt"]
 
 _Command = TypeVar("_Command", bound="Callable[..., object]")
 
@@ -73,3 +74,40 @@ def _fields_callback(
 ) -> tuple[str, ...] | None:
     del ctx, param  # click's callback signature; the parse needs neither
     return None if value is None else parse_fields(value)
+
+
+def resolve_prompt(argument: str | None, file_flag: Path | None) -> str:
+    """D23: ``@file`` shorthand + ``--prompt-file`` — both spellings, one resolver.
+
+    Only a LEADING ``@`` is special; ``@@x`` escapes a literal ``@``. Missing and
+    empty files fail free at argv time (D18), before anything could cost money.
+    """
+    if argument is not None and file_flag is not None:
+        raise UsageFault("a prompt argument and --prompt-file both given — use one")
+    if file_flag is not None:
+        return _read_prompt_file(file_flag)
+    if argument is None:
+        raise UsageFault("no prompt given — write one, or point at a file: --prompt-file FILE")
+    if argument.startswith("@@"):
+        return argument[1:]  # the escape: a literal leading @
+    if argument.startswith("@"):
+        from pathlib import Path as _Path
+
+        return _read_prompt_file(_Path(argument[1:]))
+    return argument
+
+
+def _read_prompt_file(path: Path) -> str:
+    if not path.exists():
+        raise UsageFault(
+            f"prompt file not found: {path}\n"
+            "  @file reads the prompt from a file; --prompt-file FILE is the explicit form.\n"
+            "  A literal leading @ escapes as @@."
+        )
+    text = path.read_text(encoding="utf-8").removesuffix("\n")
+    if not text.strip():
+        raise UsageFault(
+            f"prompt file is empty: {path}\n"
+            "  An empty prompt is never intended — write the prompt, or drop the @."
+        )
+    return text

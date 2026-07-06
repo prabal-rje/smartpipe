@@ -10,7 +10,12 @@ from pathlib import Path
 import click
 
 from sempipe.cli.completions import complete_chat_models, complete_embed_models
-from sempipe.cli.input_options import fields_option, input_options, input_spec
+from sempipe.cli.input_options import (
+    fields_option,
+    input_options,
+    input_spec,
+    resolve_prompt,
+)
 from sempipe.cli.interrupts import graceful_interrupts, settle_budget
 from sempipe.core.errors import ExitCode
 from sempipe.io.writers import OutputFormat
@@ -20,7 +25,13 @@ __all__ = ["join_command"]
 
 
 @click.command(name="join")
-@click.argument("predicate")
+@click.argument("predicate", required=False)
+@click.option(
+    "--prompt-file",
+    "prompt_file",
+    type=click.Path(path_type=Path),
+    help="Read the predicate from a file (the @file shorthand does the same).",
+)
 @click.option(
     "--right",
     "right",
@@ -65,7 +76,8 @@ __all__ = ["join_command"]
 @fields_option
 @input_options
 def join_command(
-    predicate: str,
+    predicate: str | None,
+    prompt_file: Path | None,
     right: Path,
     k: int,
     threshold: float | None,
@@ -92,7 +104,7 @@ def join_command(
     Output: {"left": {...}, "right": {...}, "_score": ...} per matched pair.
     """
     request = JoinRequest(
-        predicate=predicate,
+        predicate=resolve_prompt(predicate, prompt_file),
         right=right,
         k=k,
         threshold=threshold,

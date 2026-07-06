@@ -102,6 +102,11 @@ def _schema(value: object, sem_dir: Path) -> tuple[str, ...]:
     return ("--schema", str((sem_dir / value).resolve()))
 
 
+def _prompt_file(value: object, sem_dir: Path) -> tuple[str, ...]:
+    assert isinstance(value, str)  # a script and its prompt travel together (D23)
+    return ("--prompt-file", str((sem_dir / value).resolve()))
+
+
 def _right(value: object, sem_dir: Path) -> tuple[str, ...]:
     assert isinstance(value, str)  # a script and its right side travel together (D21)
     return ("--right", str((sem_dir / value).resolve()))
@@ -139,6 +144,7 @@ _COMMON_TAIL: tuple[tuple[str, _KeySpec], ...] = (
 _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
     "map": (
         ("prompt", _str_key(_positional)),
+        ("prompt-file", _str_key(_prompt_file)),
         ("model", _str_key(_flag("--model"))),
         ("output", _str_key(_flag("--output"))),
         ("fields", _list_key(_fields_arg)),
@@ -148,6 +154,7 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
     ),
     "filter": (
         ("prompt", _str_key(_positional)),
+        ("prompt-file", _str_key(_prompt_file)),
         ("model", _str_key(_flag("--model"))),
         ("not", _bool_key(_switch("--not"))),
         *_COMMON_TAIL,
@@ -168,6 +175,7 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
     ),
     "join": (
         ("prompt", _str_key(_positional)),
+        ("prompt-file", _str_key(_prompt_file)),
         ("right", _str_key(_right)),
         ("k", _int_key(_flag("--k"))),
         ("threshold", _num_key(_flag("--threshold"))),
@@ -179,6 +187,7 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
     ),
     "reduce": (
         ("prompt", _str_key(_positional)),
+        ("prompt-file", _str_key(_prompt_file)),
         ("model", _str_key(_flag("--model"))),
         ("group-by", _str_key(_flag("--group-by"))),
         ("window", _int_key(_flag("--window"))),
@@ -210,7 +219,7 @@ def parse_sem(path: Path) -> list[str]:
             "  A .sem script runs unattended — a typo silently ignored would be a disaster.\n"
             f"  Fix the key, then: sempipe run {path}"
         )
-    if verb in _REQUIRES_PROMPT and "prompt" not in document:
+    if verb in _REQUIRES_PROMPT and "prompt" not in document and "prompt-file" not in document:
         raise UsageFault(f'{path}: {verb} needs a prompt\n  Add one: prompt = "..."')
     argv = [verb]
     for key, spec in table:

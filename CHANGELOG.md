@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Prompts from files (D23).** `sempipe map @prompt.md` reads the prompt from
+  a file (`--prompt-file FILE` is the explicit form; the `.sem` key
+  `prompt-file` resolves beside the script). Only a *leading* `@` is special
+  (`@@` escapes it; `$file` was rejected — the shell eats it silently, the
+  exact failure class this release hunts). A missing file is a loud exit 64:
+  `error: prompt file not found: prompt.md`. Braces inside the file are live
+  grammar — version your prompts in git.
 - **Gemini and OpenRouter, first-class.** `--model gemini-2.5-flash` (bare
   `gemini-*` routes; Google's OpenAI-compat endpoint, live-verified) and
   `--model openrouter/vendor/model` (explicit-only — OpenRouter names are other
