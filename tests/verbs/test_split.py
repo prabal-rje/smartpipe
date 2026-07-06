@@ -378,7 +378,8 @@ async def test_doc_items_carry_figures_by_default(
     from sempipe.parsing.extract import Extracted
 
     def fake_extract(path: object, kind: object) -> Extracted:
-        return Extracted(text="the deck text")  # isolate figure wiring from markitdown
+        # 64+ chars: a REAL text layer — the plain figure note, not the scan route
+        return Extracted(text="the deck text " * 8)
 
     monkeypatch.setattr(readers, "extract", fake_extract)
     items_iter, _total = resolve_items(

@@ -185,6 +185,8 @@ async def run_interactive_setup(
             return chosen
     names = await probe() or ()
     chat = _first_chat(names)
+    say("  Tip: pick a model that can SEE images (gpt-5.4-mini, gemini-2.5-flash,")
+    say("  ollama/llava) — sempipe is multimodal; text-only models refuse image rows.")
     if chat is not None:
         say(f"  ✓ found Ollama ({len(names)} models)\n")
         model_answer = ask("Default model?", f"ollama/{chat}")

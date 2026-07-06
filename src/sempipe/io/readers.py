@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ensure_not_a_tty",
+    "figure_note",
     "file_items",
     "from_files_items",
     "resolve_items",
@@ -393,7 +394,7 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
     item = item_from_file(extracted.text, str(path), index)
     if extracted.image is not None:
         return replace(item, media=(extracted.image,))  # map sends it to a vision model
-    figures = _document_figures(path, kind)
+    figures = _document_figures(path, kind, extracted.text)
     if figures:
         return replace(item, media=figures)
     return item
@@ -403,9 +404,14 @@ _FIGURE_CAP = 8  # request-size and cost sanity per document item (D32)
 _FIGURE_KINDS = {FileKind.PDF, FileKind.DOCX, FileKind.PPTX, FileKind.XLSX}
 
 
-def _document_figures(path: Path, kind: FileKind) -> tuple[ImageData, ...]:
+_THIN_TEXT = 64  # under this many chars, a figure-bearing document reads as a scan
+
+
+def _document_figures(path: Path, kind: FileKind, text: str) -> tuple[ImageData, ...]:
     """D32: a document item carries its embedded figures by default — capped,
-    icon-floored, and announced once per file."""
+    icon-floored, announced once per file. D39/03: when the text layer is
+    THIN, the announcement says so — a scanned document routed to the vision
+    path must never look like silent emptiness."""
     if kind not in _FIGURE_KINDS:
         return ()
     from sempipe.parsing.extract import MissingExtra, embedded_images
@@ -419,10 +425,24 @@ def _document_figures(path: Path, kind: FileKind) -> tuple[ImageData, ...]:
         return ()
     kept = media.images[:_FIGURE_CAP]
     capped = total - len(kept)
-    suffix = f" ({capped} more capped)" if capped else ""
-    plural = "s" if total != 1 else ""
-    diagnostics.note(f"{path.name}: {len(kept)} figure{plural} attached{suffix}")
+    diagnostics.note(figure_note(path.name, len(text.strip()), len(kept), capped))
     return tuple(found.image for found in kept)
+
+
+def figure_note(name: str, text_length: int, kept: int, capped: int) -> str:
+    if text_length < _THIN_TEXT:
+        hint = (
+            f" ({capped} more capped — split --by pages --media processes every page)"
+            if capped
+            else ""
+        )
+        return (
+            f"{name}: thin text layer ({text_length} chars) — scanned? "
+            f"routed {kept} page image(s) to the vision path{hint}"
+        )
+    suffix = f" ({capped} more capped)" if capped else ""
+    plural = "s" if kept != 1 else ""
+    return f"{name}: {kept} figure{plural} attached{suffix}"
 
 
 def ensure_not_a_tty(stdin: TextIO) -> None:

@@ -40,6 +40,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **Scanned documents route to vision, disclosed (D39/03).** A PDF with a
+  thin text layer and embedded page images no longer looks like silent
+  emptiness: the note names the situation ("thin text layer (11 chars) —
+  scanned? routed 8 page image(s) to the vision path") and the past-the-cap
+  fix (`split --by pages --media`). The LLM is the OCR — no tesseract. The
+  setup wizard now nudges toward image+text-capable models (guides, never
+  restricts).
 - **The cache maintains itself (D39/02).** 30-day TTL plus a 500 MB
   size-bounded LRU (hits refresh recency), swept automatically at exit at
   most once a day — never at startup, never the user's problem; tunable via

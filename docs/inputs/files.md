@@ -175,3 +175,21 @@ its **bytes**, not an eager transcript:
 
 - [Pipes & items](../concepts/pipes-and-items.md) — the item model
 - [Install](../install.md) — the optional extras in full
+
+
+## Scanned documents
+
+Scanned PDFs have no text layer. sempipe detects the thin layer, keeps the
+page images on the item, and says so:
+
+```
+note: contract.pdf: thin text layer (11 chars) — scanned? routed 8 page image(s)
+      to the vision path (22 more capped — split --by pages --media processes every page)
+```
+
+`map` then reads the pages with a vision model directly (the LLM **is** the
+OCR); text verbs caption them through the conversion ladder (consent rules
+apply). For long scans, `split --by pages --media` processes every page —
+the whole-document item caps at 8 images for request-size sanity. Pick a
+model that can see (`gpt-5.4-mini`, `gemini-2.5-flash`, `ollama/llava`);
+`sempipe doctor --probe` verifies actual ability.

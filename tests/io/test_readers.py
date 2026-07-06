@@ -51,3 +51,23 @@ def test_tty_stdin_is_a_usage_fault() -> None:
 
 def test_piped_stdin_passes_the_guard() -> None:
     ensure_not_a_tty(io.StringIO("data\n"))  # must not raise
+
+
+# --- scan routing disclosure (D39/03) ----------------------------------------------
+
+
+def test_thin_text_with_figures_reads_as_a_scan() -> None:
+    from sempipe.io.readers import figure_note
+
+    note = figure_note("contract.pdf", 11, 8, 22)
+    assert "thin text layer (11 chars)" in note
+    assert "scanned?" in note
+    assert "split --by pages --media" in note  # the actionable past-the-cap hint
+
+
+def test_real_text_keeps_the_plainfigure_note() -> None:
+    from sempipe.io.readers import figure_note
+
+    note = figure_note("report.pdf", 5_000, 3, 0)
+    assert note == "report.pdf: 3 figures attached"
+    assert "scanned" not in note
