@@ -36,3 +36,32 @@ def test_knn_ranks_the_planted_outlier_highest() -> None:
 
 def test_knn_on_tiny_corpus_is_zero() -> None:
     assert knn_mean_distance([RIGHT], k=5) == [0.0]
+
+
+def test_merge_to_k_folds_smallest_into_most_similar() -> None:
+    from sempipe.engine.clustering import merge_to_k
+
+    vectors = [RIGHT, NEARLY_RIGHT, UP, (0.01, 1.0)]
+    clusters = [[0], [1], [2, 3]]  # three clusters, want two
+    merged = merge_to_k(vectors, clusters, k=2)
+    assert sorted(sorted(m) for m in merged) == [[0, 1], [2, 3]]  # [1] joined [0], its twin
+
+
+def test_adaptive_threshold_lands_in_the_gap() -> None:
+    from sempipe.engine.clustering import adaptive_threshold
+
+    # measured gemini-like geometry: same-theme ~0.62-0.75, background ~0.47-0.55
+    import math
+
+    def vec(angle: float) -> tuple[float, float]:
+        return (math.cos(angle), math.sin(angle))
+
+    corpus = [vec(0.0), vec(0.55), vec(0.72), vec(1.5), vec(1.35), vec(2.6)]
+    threshold = adaptive_threshold(corpus)
+    assert 0.4 < threshold < 0.9  # between background and same-theme tail
+
+
+def test_adaptive_threshold_on_tiny_corpus_only_folds_identity() -> None:
+    from sempipe.engine.clustering import adaptive_threshold
+
+    assert adaptive_threshold([RIGHT, UP]) == 0.99

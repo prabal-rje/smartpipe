@@ -40,6 +40,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`sempipe cluster` — themes with sizes and quotes (D38/05).** KQL's
+  autocluster done semantically: leader clustering over embeddings, one
+  temperature-0 label call per cluster (N embeddings + K labels, never N
+  chat calls — the preview line prints before spend). One row per cluster,
+  largest first, with share and nearest-centroid example quotes; `--top`
+  folds the tail into `(other)`; `--k` forces a count; `--explode members`
+  labels every input row for spreadsheets and training files. Degrades to
+  numbered clusters without a chat model.
 - **`sempipe outliers` — novelty, surfaced (D38/04).** top_k's mirror:
   the N items farthest from everything, scored by mean cosine distance to
   their nearest neighbors (honest on multi-cluster corpora), anchored

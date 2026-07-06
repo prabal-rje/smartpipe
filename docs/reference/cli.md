@@ -28,6 +28,7 @@ to **stderr**.
 | [`extend`](../verbs/extend.md) | add extracted fields to each record (map that merges) | 1 call per item |
 | [`distinct`](../verbs/distinct.md) | fold near-duplicate items, first occurrence wins | embeddings only |
 | [`outliers`](../verbs/outliers.md) | rank the N items least like the rest | embeddings only |
+| [`cluster`](../verbs/cluster.md) | group items by meaning; label each group | embeddings + 1 call per cluster |
 | [`where`](../verbs/where.md) | keep rows matching a deterministic predicate | free — no model calls |
 | [`split`](../verbs/split.md) | break oversized items into chunk items | free — no model calls |
 | `chart` | bar-chart a field's values; `--save` writes SVG | free — no model calls |
@@ -65,6 +66,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `extend` | map's flags (braces/--schema/--schema-from/--tally/--explode/--fields) |
 | `distinct` | `--show-groups`, `--threshold F` (cosine, default 0.90), `--embed-model` |
 | `outliers` | `N` (default 5), `--embed-model` |
+| `cluster` | `--k N`, `--top N`, `--explode members`, `--model` (labels), `--embed-model` |
 | `where` | `'PREDICATE'` (has, contains, matches /re/, == != > >= < <=, and/or/not) |
 | `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
 | `chart` | `FIELD` (or whole lines), `--top N`, `--save FILE.svg`, `--title` |

@@ -73,6 +73,7 @@ Verbs (call a model):
   top_k    Rank items by similarity to a query
   reduce   Synthesize many items into one
   join     Match stdin against a second input, semantically
+  cluster  Group items by meaning; label each group
   distinct Fold near-duplicate items (embeddings only)
   outliers Rank the items least like the rest (embeddings only)
 
