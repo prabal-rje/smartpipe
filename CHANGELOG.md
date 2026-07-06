@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Documents are multimodal items (D32).** `Item.media` grew from one value
+  to a tuple of parts, and with it: `map --in report.pdf` now sends the text
+  AND the embedded figures (up to 8, icon floor, counted on stderr);
+  `split --by pages --media` emits one item per page carrying that page's
+  text and figures together (live-proven: a 3-page PDF summarized per page,
+  each summary naming its own figure's content); text verbs use the text and
+  drop figure parts with a per-row note; token-mode `split` passes figures
+  through as standalone figure records. Multi-part items ride NDJSON as a
+  `parts` list and rebuild downstream.
 - **Video input, the poor man's way (D27).** `.mp4/.mov/.mkv/.webm` files (and
   video on stdin) become items carrying their bytes; `map` converts each to
   N evenly-sampled frames + the audio track (ffmpeg via the `[video]` extra's

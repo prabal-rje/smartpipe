@@ -136,8 +136,8 @@ async def test_image_on_stdin_becomes_an_image_item(pipe: _BytePipe) -> None:
     pipe.close_write()
     items = [item async for item in stdin_items(pipe.reader)]
     assert len(items) == 1
-    assert items[0].media is not None and items[0].media.mime == "image/png"
-    assert items[0].media.data == png
+    assert len(items[0].media) == 1 and items[0].media[0].mime == "image/png"
+    assert items[0].media[0].data == png
 
 
 @settings(max_examples=30, deadline=None)

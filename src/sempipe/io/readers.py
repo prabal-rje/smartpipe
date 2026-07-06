@@ -290,15 +290,15 @@ async def stdin_items(stdin: TextIO, *, stop: asyncio.Event | None = None) -> As
         elif tag == "image":
             assert isinstance(payload, ImageData)
             item = item_from_file("", "<stdin>", 0)
-            yield replace(item, media=payload)
+            yield replace(item, media=(payload,))
         elif tag == "audio":
             assert isinstance(payload, AudioData)
             item = item_from_file("", "<stdin>", 0)
-            yield replace(item, media=payload)
+            yield replace(item, media=(payload,))
         elif tag == "video":
             assert isinstance(payload, VideoData)
             item = item_from_file("", "<stdin>", 0)
-            yield replace(item, media=payload)
+            yield replace(item, media=(payload,))
         else:  # "fatal"
             assert isinstance(payload, str)
             raise SetupFault(payload)
@@ -377,7 +377,7 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
             if route(kind) == "audio"
             else VideoData(data=data, mime=video_mime(path))
         )
-        return replace(item, media=media)
+        return replace(item, media=(media,))
     try:
         extracted = extract(path, kind)
     except MissingExtra as exc:
@@ -392,8 +392,37 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
         diagnostics.warn(f"{path}: {extracted.warning}")
     item = item_from_file(extracted.text, str(path), index)
     if extracted.image is not None:
-        item = replace(item, media=extracted.image)  # map sends it to a vision model
+        return replace(item, media=(extracted.image,))  # map sends it to a vision model
+    figures = _document_figures(path, kind)
+    if figures:
+        return replace(item, media=figures)
     return item
+
+
+_FIGURE_CAP = 8  # request-size and cost sanity per document item (D32)
+_FIGURE_KINDS = {FileKind.PDF, FileKind.DOCX, FileKind.PPTX, FileKind.XLSX}
+
+
+def _document_figures(path: Path, kind: FileKind) -> tuple[ImageData, ...]:
+    """D32: a document item carries its embedded figures by default — capped,
+    icon-floored, and announced once per file."""
+    if kind not in _FIGURE_KINDS:
+        return ()
+    from sempipe.parsing.extract import MissingExtra, embedded_images
+
+    try:
+        media = embedded_images(path)
+    except (MissingExtra, ItemError):
+        return ()  # text still flows; --media names scan problems loudly
+    total = len(media.images)
+    if total == 0:
+        return ()
+    kept = media.images[:_FIGURE_CAP]
+    capped = total - len(kept)
+    suffix = f" ({capped} more capped)" if capped else ""
+    plural = "s" if total != 1 else ""
+    diagnostics.note(f"{path.name}: {len(kept)} figure{plural} attached{suffix}")
+    return tuple(found.image for found in kept)
 
 
 def ensure_not_a_tty(stdin: TextIO) -> None:

@@ -213,9 +213,9 @@ async def test_sliced_audio_round_trips_into_hearable_items() -> None:
         '{"audio_b64": "' + payload + '", "mime": "audio/wav", "source": "call.wav §00:00-00:02"}\n'
     )
     item = item_from_line(line, 0)
-    assert isinstance(item.media, AudioData)
-    assert item.media.data == b"RIFFfakewav"
-    assert item.media.mime == "audio/wav"
+    assert len(item.media) == 1 and isinstance(item.media[0], AudioData)
+    assert item.media[0].data == b"RIFFfakewav"
+    assert item.media[0].mime == "audio/wav"
     from sempipe.io.items import describe_source
 
     assert describe_source(item.source) == "call.wav §00:00-00:02"
@@ -326,5 +326,66 @@ async def test_media_image_items_round_trip_into_vision_items() -> None:
         + '", "mime": "image/png", "source": "deck.docx img.1"}\n'
     )
     item = item_from_line(line, 0)
-    assert isinstance(item.media, ImageData)
-    assert item.media.data == b"\x89PNGfake"
+    assert len(item.media) == 1 and isinstance(item.media[0], ImageData)
+    assert item.media[0].data == b"\x89PNGfake"
+
+
+async def test_pages_media_fuses_text_and_figures_per_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import base64
+
+    from sempipe.io.inputs import InputSpec
+    from sempipe.io.items import item_from_line
+    from sempipe.models.base import ImageData
+
+    monkeypatch.chdir(tmp_path)
+    jpeg = b"\xff\xd8\xff\xe0" + b"j" * 8_000 + b"\xff\xd9"
+    _pdf_with_jpeg(tmp_path / "r.pdf", jpeg)  # one page, one figure, page text absent
+    out = io.StringIO()
+    code = await run_split(
+        SplitRequest(
+            by_flag="pages", media=True, input=InputSpec(patterns=("*.pdf",), from_files=False)
+        ),
+        FakeContext(),
+        stdin=_TtyStdin(),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    records = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert len(records) == 1
+    record = records[0]
+    assert record["source"] == "r.pdf"
+    assert len(record["parts"]) == 1
+    assert base64.b64decode(record["parts"][0]["image_b64"]) == jpeg
+    # and the record round-trips into ONE multimodal item downstream
+    item = item_from_line(json.dumps(record) + "\n", 0)
+    assert len(item.media) == 1 and isinstance(item.media[0], ImageData)
+    assert item.media[0].data == jpeg
+
+
+async def test_doc_items_carry_figures_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from sempipe.io.inputs import InputSpec
+    from sempipe.io.readers import resolve_items
+    from sempipe.models.base import ImageData
+
+    monkeypatch.chdir(tmp_path)
+    real = b"\x89PNG\r\n\x1a\n" + b"x" * 9_000
+    _docx_with_media(tmp_path / "deck.docx", {"image1.png": real})
+    from sempipe.io import readers
+    from sempipe.parsing.extract import Extracted
+
+    def fake_extract(path: object, kind: object) -> Extracted:
+        return Extracted(text="the deck text")  # isolate figure wiring from markitdown
+
+    monkeypatch.setattr(readers, "extract", fake_extract)
+    items_iter, _total = resolve_items(
+        InputSpec(patterns=("*.docx",), from_files=False), _TtyStdin()
+    )
+    items = [item async for item in items_iter]
+    assert len(items) == 1
+    figures = [part for part in items[0].media if isinstance(part, ImageData)]
+    assert len(figures) == 1 and figures[0].data == real  # D32: attached by default
+    assert "deck.docx: 1 figure attached" in capsys.readouterr().err

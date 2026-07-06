@@ -119,7 +119,24 @@ transcript as the fallback rung. Every conversion is announced on its row
 transcribe the track and say the frames were dropped. `split --by seconds:N`
 slices video losslessly (keyframe-aligned) into segments that stay video.
 
-## Images inside PDFs and DOCX: extract them with `split --media`
+## Documents carry their figures (D32)
+
+`map "summarize" --in report.pdf` sends the text **and** the embedded images —
+up to 8 figures per document (a stderr note counts them:
+`report.pdf: 5 figures attached (3 more capped)`), icons under 4 KB dropped.
+Per page, fused:
+
+```console
+$ sempipe split --by pages --media --in report.pdf \
+    | sempipe map "summarize this page, including what each figure shows"
+```
+
+One item per page with that page's text and figures together. Text verbs
+(`filter`, `reduce`, …) use the text and drop figure parts with a per-row
+`⚠ degraded:` note. DOCX has no fixed pages, so figures attach at document
+level there.
+
+## Standalone figure extraction: `split --media`
 
 Document parsing extracts **text**; figures embedded in a PDF/DOCX/PPTX/XLSX
 don't ride along implicitly (a 100-page deck can carry 300 decorative logos —

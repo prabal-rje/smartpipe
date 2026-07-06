@@ -9,12 +9,11 @@ passthrough-fidelity guarantee; ``data`` is set only when the line is a JSON
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, TypeGuard
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from sempipe.models.base import MediaData
 
 __all__ = ["Item", "ItemSource", "describe_source", "item_from_file", "item_from_line"]
@@ -35,7 +34,7 @@ class Item:
     text: str  # model-facing content (== raw for lines; extracted text for files)
     data: Mapping[str, object] | None  # parsed object if the line was a JSON object
     source: ItemSource
-    media: MediaData | None = None  # image/audio bytes (D20 union) — map consumes natively
+    media: tuple[MediaData, ...] = ()  # media parts (D32) — text plus any number of figures/clips
 
 
 def item_from_line(line: str, index: int) -> Item:
@@ -43,12 +42,29 @@ def item_from_line(line: str, index: int) -> Item:
     if index == 0:
         raw = raw.removeprefix(_BOM)
     data = _sniff_json_object(raw)
+    media = _sniff_media(data)
+    text = raw
+    if media and data is not None:
+        # a media-carrying record's text is its "text" field, not the raw JSON
+        carried = data.get("text")
+        text = carried if isinstance(carried, str) else ""
     return Item(
         raw=raw,
-        text=raw,
+        text=text,
         data=data,
         source=_named_source(data, index),
-        media=_sniff_media(data),
+        media=media,
+    )
+
+
+def item_from_file(text: str, path: str, index: int) -> Item:
+    """A whole file is one item: its extracted text, with no JSON sniffing (a
+    document's text isn't an NDJSON line). ``filter``/``top_k`` emit its path."""
+    return Item(
+        raw=text,
+        text=text,
+        data=None,
+        source=ItemSource(kind="file", name=path, index=index),
     )
 
 
@@ -58,9 +74,24 @@ def _named_source(data: Mapping[str, object] | None, index: int) -> ItemSource:
     return ItemSource(kind="stdin", name=name if isinstance(name, str) else "-", index=index)
 
 
-def _sniff_media(data: Mapping[str, object] | None) -> MediaData | None:
-    """``split`` ships media as base64 NDJSON (audio slices, embedded images) —
-    rebuild the bytes so the next verb can hear or see them (D27/D29)."""
+def _sniff_media(data: Mapping[str, object] | None) -> tuple[MediaData, ...]:
+    """``split`` ships media as base64 NDJSON (audio/video slices, figures, and
+    multi-part page items) — rebuild the bytes so the next verb can hear or see
+    them (D27/D32)."""
+    if data is None:
+        return ()
+    from sempipe.core.jsontools import as_items, as_record
+
+    entries = as_items(data.get("parts"))
+    if entries is not None:
+        return tuple(
+            part for entry in entries if (part := _one_media(as_record(entry))) is not None
+        )
+    single = _one_media(data)
+    return (single,) if single is not None else ()
+
+
+def _one_media(data: Mapping[str, object] | None) -> MediaData | None:
     if data is None:
         return None
     mime = data.get("mime")
@@ -88,17 +119,6 @@ def _sniff_media(data: Mapping[str, object] | None) -> MediaData | None:
         except (binascii.Error, ValueError):
             return None  # not ours — treat as a plain JSON line
     return None
-
-
-def item_from_file(text: str, path: str, index: int) -> Item:
-    """A whole file is one item: its extracted text, with no JSON sniffing (a
-    document's text isn't an NDJSON line). ``filter``/``top_k`` emit its path."""
-    return Item(
-        raw=text,
-        text=text,
-        data=None,
-        source=ItemSource(kind="file", name=path, index=index),
-    )
 
 
 def describe_source(source: ItemSource) -> str:

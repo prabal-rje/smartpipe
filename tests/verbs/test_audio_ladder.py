@@ -23,14 +23,14 @@ AUDIO = AudioData(data=b"RIFFfake", mime="audio/wav")
 
 
 def _audio_item(name: str = "call.wav"):
-    return replace(item_from_file("", name, 0), media=AUDIO)
+    return replace(item_from_file("", name, 0), media=(AUDIO,))
 
 
 # --- ensure_text (the non-map rung) ------------------------------------------------
 
 
 async def test_image_message_is_byte_identical_to_stage_7() -> None:
-    item = replace(item_from_file("", "x.png", 0), media=ImageData(b"png", "image/png"))
+    item = replace(item_from_file("", "x.png", 0), media=(ImageData(b"png", "image/png"),))
     with pytest.raises(ItemError, match="image items need map — this verb reads text"):
         await ensure_text(item)
 
@@ -42,7 +42,7 @@ async def test_audio_transcribes_via_the_injected_transcriber() -> None:
 
     spoken = await ensure_text(_audio_item(), transcriber=fake_transcriber)
     assert spoken.text == "the caller wants a refund"
-    assert spoken.media is None
+    assert spoken.media == ()
 
 
 async def test_missing_extra_maps_to_the_two_fix_skip(

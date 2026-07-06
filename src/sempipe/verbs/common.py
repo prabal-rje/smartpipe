@@ -93,45 +93,55 @@ async def ensure_text(
     transcriber: Callable[[AudioData], str] = transcribe,
     log: diagnostics.DegradationLog | None = None,
 ) -> Item:
-    """Non-map verbs read text (D20 rung 2): images skip with the stage-7 pointer,
-    audio transcribes when the extra is installed (else the two-fix skip), video
-    yields its transcribed track (frames dropped) — each conversion row-noted (D27)."""
-    match item.media:
-        case None:
-            return item
-        case ImageData():
-            raise ItemError(IMAGE_NEEDS_MAP)
-        case AudioData() as audio:
-            import asyncio
+    """Non-map verbs read text (D20/D32): audio/video parts transcribe (row-noted),
+    figure parts drop when text exists (row-noted), and image-ONLY items keep the
+    needs-map skip."""
+    if not item.media:
+        return item
+    import asyncio
 
-            transcript = await asyncio.to_thread(transcriber, audio)
-            if log is not None:
-                from sempipe.io.items import describe_source
+    from sempipe.io.items import describe_source
 
-                log.note(describe_source(item.source), "audio → text", _whisper_detail())
-            return replace(item, text=transcript, media=None)
-        case VideoData() as video:
-            import asyncio
+    text = item.text
+    for part in item.media:
+        match part:
+            case AudioData() as audio:
+                transcript = await asyncio.to_thread(transcriber, audio)
+                text = f"{text}\n\n{transcript}".strip() if text else transcript
+                if log is not None:
+                    log.note(describe_source(item.source), "audio → text", _whisper_detail())
+            case VideoData() as video:
+                from sempipe.parsing.extract import video_to_parts
 
-            from sempipe.parsing.extract import video_to_parts
-
-            parts = await asyncio.to_thread(video_to_parts, video)
-            if parts.track is None:
-                raise ItemError(
-                    "this video has no audio track — text verbs read text; map can see its frames"
-                )
-            transcript = await asyncio.to_thread(transcriber, parts.track)
-            if log is not None:
-                from sempipe.io.items import describe_source
-
-                log.note(
-                    describe_source(item.source),
-                    "video → text",
-                    "audio track transcribed; frames dropped — map sees frames",
-                )
-            return replace(item, text=transcript, media=None)
-        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
-            assert_never(unreachable)
+                parts = await asyncio.to_thread(video_to_parts, video)
+                if parts.track is None:
+                    raise ItemError(
+                        "this video has no audio track — text verbs read text; "
+                        "map can see its frames"
+                    )
+                transcript = await asyncio.to_thread(transcriber, parts.track)
+                text = f"{text}\n\n{transcript}".strip() if text else transcript
+                if log is not None:
+                    log.note(
+                        describe_source(item.source),
+                        "video → text",
+                        "audio track transcribed; frames dropped — map sees frames",
+                    )
+            case ImageData():
+                pass  # handled below, once, so the count is per item
+            case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                assert_never(unreachable)
+    figures = sum(1 for part in item.media if isinstance(part, ImageData))
+    if figures and not text:
+        raise ItemError(IMAGE_NEEDS_MAP)
+    if figures and log is not None:
+        plural = "s" if figures != 1 else ""
+        log.note(
+            describe_source(item.source),
+            "figures dropped",
+            f"{figures} image{plural} — this verb reads text; map sees figures",
+        )
+    return replace(item, text=text, media=())
 
 
 def _whisper_detail() -> str:
@@ -314,7 +324,7 @@ async def embed_in_batches(
     for item in items:
         if stop is not None and stop.is_set():
             return
-        if item.media is not None:
+        if item.media:
             try:
                 item = await ensure_text(item, transcriber=transcriber, log=log)
             except ItemError as exc:

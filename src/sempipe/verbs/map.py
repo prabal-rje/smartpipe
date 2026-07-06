@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import OutputFormat, ResultWriter
-    from sempipe.models.base import ChatModel, ImageData, ModelRef
+    from sempipe.models.base import ChatModel, MediaData, ModelRef
 
 __all__ = ["MapContext", "MapRequest", "run_map"]
 
@@ -177,19 +177,22 @@ async def _map_one(
     item: Item,
     log: diagnostics.DegradationLog,
 ) -> str | Mapping[str, object]:
-    if isinstance(item.media, VideoData):
-        return await _map_video(model, plan, instruction, item, item.media, log)
-    media = (item.media,) if item.media is not None else ()
+    video = next((part for part in item.media if isinstance(part, VideoData)), None)
+    if video is not None:
+        return await _map_video(model, plan, instruction, item, video, log)
     try:
-        return await _attempt(model, plan, instruction, item.text, media)
+        return await _attempt(model, plan, instruction, item.text, item.media)
     except ItemError as native_failure:
-        if not isinstance(item.media, AudioData):
+        audio = next((part for part in item.media if isinstance(part, AudioData)), None)
+        if audio is None:
             raise
         # the ladder's middle rung (D20 §5): the model can't hear it — transcribe
         # if the extra is there (MissingExtra keeps the two-fix skip), retry as text
-        transcript = await asyncio.to_thread(_transcribe_or_skip, item.media, native_failure)
+        transcript = await asyncio.to_thread(_transcribe_or_skip, audio, native_failure)
         log.note(describe_source(item.source), "audio → text", _whisper_note())
-        return await _attempt(model, plan, instruction, transcript, ())
+        spoken = f"{item.text}\n\n{transcript}".strip() if item.text else transcript
+        remaining = tuple(part for part in item.media if not isinstance(part, AudioData))
+        return await _attempt(model, plan, instruction, spoken, remaining)
 
 
 async def _map_video(
@@ -207,9 +210,7 @@ async def _map_video(
     track = parts.track
     detail = f"{len(parts.frames)} frames" + (" + audio" if track is not None else ", silent")
     log.note(describe_source(item.source), "video → frames+audio", detail)
-    media: tuple[ImageData | AudioData, ...] = (
-        (*parts.frames, track) if track is not None else parts.frames
-    )
+    media: tuple[MediaData, ...] = (*parts.frames, track) if track is not None else parts.frames
     try:
         return await _attempt(model, plan, instruction, item.text, media)
     except ItemError as native_failure:
@@ -235,7 +236,7 @@ async def _attempt(
     plan: MapPlan,
     instruction: str,
     text: str,
-    media: tuple[ImageData | AudioData, ...],
+    media: tuple[MediaData, ...],
 ) -> str | Mapping[str, object]:
     request = build_map_request(plan, instruction, text, media=media)
     reply = await model.complete(request)

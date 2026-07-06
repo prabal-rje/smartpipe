@@ -231,7 +231,7 @@ async def _run_windowed(
     items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
     try:
         async for item in items_iter:
-            if item.media is not None:
+            if item.media:
                 try:
                     item = await ensure_text(item, log=log)  # converts, row-noted
                 except ItemError as exc:

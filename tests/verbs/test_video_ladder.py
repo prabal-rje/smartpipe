@@ -91,7 +91,7 @@ async def test_ensure_text_transcribes_the_track_with_a_row_note(
     from sempipe.io.items import item_from_file
 
     item = replace(
-        item_from_file("", str(clip), 0), media=VideoData(clip.read_bytes(), "video/mp4")
+        item_from_file("", str(clip), 0), media=(VideoData(clip.read_bytes(), "video/mp4"),)
     )
 
     def fake_transcriber(audio: AudioData) -> str:
@@ -102,7 +102,7 @@ async def test_ensure_text_transcribes_the_track_with_a_row_note(
     spoken = await ensure_text(item, transcriber=fake_transcriber, log=log)
     log.finish()
     assert spoken.text == "a steady tone plays"
-    assert spoken.media is None
+    assert spoken.media == ()
     err = capsys.readouterr().err
     assert "degraded:" in err and "video → text" in err
     assert "frames dropped" in err

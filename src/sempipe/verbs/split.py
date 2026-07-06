@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from sempipe.core.errors import ExitCode, ItemError, UsageFault
 from sempipe.engine.chunking import split_text
@@ -18,10 +18,11 @@ from sempipe.engine.units import SplitBy, parse_by
 from sempipe.io import diagnostics, readers
 from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
-from sempipe.models.base import AudioData, VideoData
+from sempipe.models.base import AudioData, ImageData, VideoData
 from sempipe.verbs.common import ensure_text, interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
+    from pathlib import Path as PathType
     from typing import TextIO
 
     from sempipe.io.inputs import InputSpec
@@ -29,6 +30,8 @@ if TYPE_CHECKING:
     from sempipe.io.writers import OutputFormat, ResultWriter
 
 __all__ = ["SplitContext", "SplitRequest", "run_split"]
+
+_M = TypeVar("_M", AudioData, VideoData)
 
 _DEFAULT_BUDGET_TOKENS = 2_000  # comfortable for every wired window, ~8k chars
 
@@ -68,13 +71,13 @@ def _resolve_by(request: SplitRequest) -> SplitBy:
 
 def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
     origin = describe_source(item.source)  # "report.pdf" / "line 12"
-    if by.unit in ("minutes", "seconds") and isinstance(item.media, VideoData):
+    if by.unit in ("minutes", "seconds") and (video := _single(item, VideoData)) is not None:
         import base64
 
         from sempipe.parsing.extract import slice_video
 
         step = by.slice_seconds
-        slices = slice_video(item.media, seconds=step)
+        slices = slice_video(video, seconds=step)
         total = len(slices)
         for position, part in enumerate(slices):
             marker = (
@@ -90,13 +93,13 @@ def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
                 }
             )
         return
-    if by.unit in ("minutes", "seconds") and isinstance(item.media, AudioData):
+    if by.unit in ("minutes", "seconds") and (audio := _single(item, AudioData)) is not None:
         import base64
 
         from sempipe.parsing.extract import slice_audio
 
         step = by.slice_seconds
-        slices = slice_audio(item.media, seconds=step)
+        slices = slice_audio(audio, seconds=step)
         total = len(slices)
         for position, part in enumerate(slices):
             marker = (
@@ -118,10 +121,45 @@ def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
     for position, chunk in enumerate(chunks, start=1):
         marker = origin if total == 1 else f"{origin} §{position}/{total}"
         writer.write_record({"text": chunk, "source": marker})
+    figures = [part for part in item.media if isinstance(part, ImageData)]
+    if figures:
+        import base64
+
+        for position, figure in enumerate(figures, start=1):
+            writer.write_record(
+                {
+                    "image_b64": base64.b64encode(figure.data).decode("ascii"),
+                    "mime": figure.mime,
+                    "source": f"{origin} img.{position}",
+                }
+            )
+
+
+def _single(item: Item, kind: type[_M]) -> _M | None:
+    for part in item.media:
+        if isinstance(part, kind):
+            return part
+    return None
 
 
 def _clock(seconds: int) -> str:
     return f"{seconds // 60:02d}:{seconds % 60:02d}"
+
+
+def _page_figures(path: PathType) -> dict[int, list[ImageData]]:
+    """Figures grouped by 1-based page number (PDF only; the where marker is 'p.N img.M')."""
+    from sempipe.parsing.extract import embedded_images
+
+    grouped: dict[int, list[ImageData]] = {}
+    try:
+        media = embedded_images(path)
+    except ItemError:
+        return {}
+    for found in media.images:
+        head = found.where.split(" ", 1)[0]  # "p.7"
+        if head.startswith("p.") and head[2:].isdigit():
+            grouped.setdefault(int(head[2:]), []).append(found.image)
+    return grouped
 
 
 async def _run_media(request: SplitRequest, context: SplitContext, *, stdout: TextIO) -> ExitCode:
@@ -173,9 +211,16 @@ async def _run_media(request: SplitRequest, context: SplitContext, *, stdout: Te
 
 
 async def _run_pages(
-    request: SplitRequest, context: SplitContext, *, by: SplitBy, stdout: TextIO
+    request: SplitRequest,
+    context: SplitContext,
+    *,
+    by: SplitBy,
+    stdout: TextIO,
+    media: bool = False,
 ) -> ExitCode:
-    """--by pages reads PDF FILES directly (page structure dies in extraction)."""
+    """--by pages reads PDF FILES directly (page structure dies in extraction);
+    with --media, each page item carries that page's figures too (D32)."""
+    import base64
     from pathlib import Path
 
     from sempipe.io.inputs import expand_globs
@@ -205,13 +250,28 @@ async def _run_pages(
                 diagnostics.warn(f"skipped: {name} ({exc})")
                 skipped += 1
                 continue
+            figures_by_page = _page_figures(Path(path)) if media else {}
             groups = [pages[i : i + by.amount] for i in range(0, len(pages), by.amount)]
             for index, group in enumerate(groups):
                 first = index * by.amount + 1
                 last = min(first + by.amount - 1, len(pages))
                 span = f"p.{first}" if first == last else f"p.{first}-{last}"
                 marker = name if len(groups) == 1 else f"{name} {span}"
-                writer.write_record({"text": "\n\n".join(group).strip(), "source": marker})
+                record: dict[str, object] = {
+                    "text": "\n\n".join(group).strip(),
+                    "source": marker,
+                }
+                attached = [
+                    {
+                        "image_b64": base64.b64encode(figure.data).decode("ascii"),
+                        "mime": figure.mime,
+                    }
+                    for page in range(first, last + 1)
+                    for figure in figures_by_page.get(page, ())
+                ]
+                if attached:
+                    record["parts"] = attached
+                writer.write_record(record)
             produced += 1
     finally:
         writer.flush()
@@ -228,13 +288,16 @@ async def run_split(
 ) -> ExitCode:
     from sempipe.io.writers import OutputFormat
 
-    if request.media:
-        if request.by_flag is not None or request.max_tokens_flag is not None:
-            raise UsageFault("--media extracts embedded images — it doesn't combine with --by")
-        return await _run_media(request, context, stdout=stdout)
     by = _resolve_by(request)
+    if request.media and by.unit != "pages":
+        if request.by_flag is not None or request.max_tokens_flag is not None:
+            raise UsageFault(
+                "--media combines with --by pages (fused page items) or stands alone — "
+                "not with token/duration units"
+            )
+        return await _run_media(request, context, stdout=stdout)
     if by.unit == "pages":
-        return await _run_pages(request, context, by=by, stdout=stdout)
+        return await _run_pages(request, context, by=by, stdout=stdout, media=request.media)
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
@@ -245,7 +308,8 @@ async def run_split(
             if stop is not None and stop.is_set():
                 break
             duration_slicing = by.unit in ("minutes", "seconds")
-            if not (duration_slicing and isinstance(item.media, AudioData | VideoData)):
+            has_clip = any(isinstance(part, AudioData | VideoData) for part in item.media)
+            if not (duration_slicing and has_clip):
                 try:
                     item = await ensure_text(item, log=log)  # converts, row-noted
                 except ItemError as exc:

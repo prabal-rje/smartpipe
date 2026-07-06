@@ -83,10 +83,10 @@ async def test_image_file_becomes_an_image_item(tmp_path: Path) -> None:
     assert len(items) == 2
     by_name = {item.source.name.rsplit("/", 1)[-1]: item for item in items}
     photo = by_name["photo.png"]
-    assert photo.media is not None  # bytes carried to the vision path
-    assert photo.media.mime == "image/png"
+    assert photo.media  # bytes carried to the vision path
+    assert photo.media[0].mime == "image/png"
     assert photo.text == ""  # nothing to "read" — the model sees the image
-    assert by_name["note.txt"].media is None
+    assert by_name["note.txt"].media == ()
 
 
 async def test_missing_extra_warns_once(
@@ -177,7 +177,8 @@ def test_audio_file_becomes_an_audio_item_with_bytes(tmp_path: Path) -> None:
     assert len(items) == 1
     from sempipe.models.base import AudioData
 
-    media = items[0].media
+    assert len(items[0].media) == 1
+    media = items[0].media[0]
     assert isinstance(media, AudioData)
     assert media.mime == "audio/wav"
     assert media.data == b"RIFF----WAVEfakeaudio"
