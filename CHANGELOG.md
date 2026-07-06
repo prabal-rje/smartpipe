@@ -40,6 +40,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`sempipe sort` — order records by a field, free (D38/10).** Numbers
+  numerically before strings lexically; missing-field rows always last (both
+  directions) with a note; stable ties; byte-faithful passthrough. No `take`
+  verb on purpose — head already counts NDJSON rows.
 - **`sempipe getschema` — the stream's field/type/coverage table, free
   (D38/09).** A table on a terminal, NDJSON when piped; mixed types union
   visibly (`integer|string` is the dirt worth seeing); first 10k rows by
