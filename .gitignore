@@ -20,3 +20,5 @@ context/
 # Private working documents: never tracked, never in the sdist
 /CLAUDE.md
 /plan/
+/TODO.md
+/idea.md
