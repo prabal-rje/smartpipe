@@ -53,10 +53,18 @@ __all__ = ["join_command"]
     help="Similarity floor (0-1) a candidate must clear before judging.",
 )
 @click.option(
+    "--kind",
+    type=click.Choice(["inner", "leftouter", "anti"]),
+    default="inner",
+    show_default=True,
+    help="inner: matched pairs · leftouter: all left rows (null right) · "
+    "anti: only UNMATCHED left rows, verbatim.",
+)
+@click.option(
     "--unmatched",
     "unmatched",
     type=click.Path(path_type=Path),
-    help="Write left items with zero matches to FILE, verbatim (one line each).",
+    help="Write left items with zero matches to FILE, verbatim (inner only).",
 )
 @click.option(
     "--model",
@@ -94,6 +102,7 @@ def join_command(
     k: int,
     threshold: float | None,
     unmatched: Path | None,
+    kind: str,
     model_flag: str | None,
     embed_model_flag: str | None,
     output: str,
@@ -110,6 +119,7 @@ def join_command(
     Examples:
       cat tickets.jsonl | sempipe join "{left.text} concerns {right.name}" --right products.jsonl
       tail -f events.log | sempipe join "{left.text} involves {right.name}" --right people.jsonl
+      cat orders.jsonl | sempipe join "the same purchase" --right invoices.jsonl --kind anti
 
     Each brace names a side's field ({left.x} / {right.x}; .text is the whole
     item). The right side is embedded once and indexed; each left item is
@@ -124,6 +134,7 @@ def join_command(
         k=k,
         threshold=threshold,
         unmatched=unmatched,
+        kind=kind,
         model_flag=model_flag,
         embed_model_flag=embed_model_flag,
         concurrency_flag=concurrency_flag,

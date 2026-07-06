@@ -76,6 +76,7 @@ class JoinRequest:
     fields: tuple[str, ...] | None = None
     unmatched: Path | None = None  # write zero-match left items here, verbatim
     allow_captions: bool = False  # cloud conversions opt-in (D33)
+    kind: str = "inner"  # inner | leftouter | anti (D38/11)
 
 
 class JoinContext(Protocol):
@@ -145,7 +146,18 @@ async def run_join(
     )
     chat = await context.chat_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
-    writer = context.writer(request.output, structured=True, stdout=stdout, fields=request.fields)
+    if request.kind not in ("inner", "leftouter", "anti"):
+        raise UsageFault("--kind takes inner, leftouter, or anti")
+    if request.kind == "anti" and request.unmatched is not None:
+        raise UsageFault(
+            "--unmatched with --kind anti is redundant — anti already puts unmatched rows on stdout"
+        )
+    writer = context.writer(
+        request.output,
+        structured=request.kind != "anti",  # anti emits left rows verbatim
+        stdout=stdout,
+        fields=request.fields,
+    )
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     preview_cost(total, request.k, len(index))
 
@@ -185,19 +197,26 @@ async def run_join(
         async for outcome in outcomes:
             if isinstance(outcome, Done):
                 left, matches = outcome.value
-                for position, score in matches:
-                    writer.write_record(
-                        {
-                            "left": _payload(left),
-                            "right": _payload(kept_right[position]),
-                            "_score": round(score, 4),
-                        }
-                    )
+                if request.kind != "anti":
+                    for position, score in matches:
+                        writer.write_record(
+                            {
+                                "left": _payload(left),
+                                "right": _payload(kept_right[position]),
+                                "_score": round(score, 4),
+                            }
+                        )
                 matched_pairs += len(matches)
                 if not matches:
                     unmatched_count += 1
-                    if unmatched_sink is not None:
-                        unmatched_sink.write(left.raw + "\n")
+                    match request.kind:
+                        case "anti":  # the unmatched row IS the finding — verbatim
+                            writer.write_text(left.raw)
+                        case "leftouter":  # every left row, match or not
+                            writer.write_record({"left": _payload(left), "right": None})
+                        case _:
+                            if unmatched_sink is not None:
+                                unmatched_sink.write(left.raw + "\n")
                 done += 1
             else:  # Skipped — the left item itself failed (image, embed error, …)
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
@@ -214,6 +233,8 @@ async def run_join(
             f"join: {matched_pairs} matched · {unmatched_count} unmatched → "
             f"{request.unmatched.name}"
         )
+    elif request.kind != "inner":
+        diagnostics.note(f"join: {matched_pairs} matched · {unmatched_count} unmatched")
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped + book.skipped)
         return interrupted_exit_code(done=done, skipped=skipped + book.skipped)

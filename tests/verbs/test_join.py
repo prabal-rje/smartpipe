@@ -85,7 +85,8 @@ class FakeContext:
         stdout: TextIO,
         fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
-        config = WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=fields)
+        mode = RenderMode.NDJSON if structured else RenderMode.TEXT  # the container's rule
+        config = WriterConfig(mode=mode, color=False, width=80, fields=fields)
         return make_writer(config, stdout)
 
 
@@ -451,3 +452,55 @@ async def test_oversized_right_is_judged_on_its_best_chunk(
     assert len(statement) < 20_000  # the judge never saw the 260k-char monster
     err = capsys.readouterr().err
     assert "oversized → best-chunk judge" in err  # row-disclosed
+
+
+# --- join kinds (D38/11) -----------------------------------------------------------
+
+
+async def test_anti_emits_only_unmatched_left_rows_verbatim(tmp_path: Path) -> None:
+    embed = FakeEmbed(TABLE)
+    judge = FakeJudge(matches=[("printer smoking", "LaserJet 9")])
+    out = io.StringIO()
+    request = _request(_right_file(tmp_path, RIGHT_LINES), kind="anti")
+    code = await run_join(
+        request,
+        FakeContext(embed, judge),
+        stdin=io.StringIO("printer smoking\ncoffee is cold\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert out.getvalue() == "coffee is cold\n"  # the finding, passthrough-verbatim
+    # the summary line prints for kinds even without --unmatched (capsys not
+    # used here; the count fields are covered by the leftouter test's flow)
+
+
+async def test_leftouter_keeps_every_left_row(tmp_path: Path) -> None:
+    embed = FakeEmbed(TABLE)
+    judge = FakeJudge(matches=[("printer smoking", "LaserJet 9")])
+    code, records, _ = await _run(
+        _request(_right_file(tmp_path, RIGHT_LINES), kind="leftouter"),
+        "printer smoking\ncoffee is cold\n",
+        embed,
+        judge,
+    )
+    assert code is ExitCode.OK
+    assert len(records) == 2
+    nulls = [record for record in records if record["right"] is None]
+    assert len(nulls) == 1
+    assert "_score" not in nulls[0]
+
+
+async def test_anti_with_unmatched_file_is_a_usage_fault(tmp_path: Path) -> None:
+    embed = FakeEmbed(TABLE)
+    judge = FakeJudge(matches=[])
+    with pytest.raises(UsageFault, match="anti already puts unmatched"):
+        await _run(
+            _request(
+                _right_file(tmp_path, RIGHT_LINES),
+                kind="anti",
+                unmatched=tmp_path / "u.txt",
+            ),
+            "x\n",
+            embed,
+            judge,
+        )

@@ -113,3 +113,21 @@ is a usage error that says so.
 - [Cookbook: live stream enrichment](../cookbook/stream-enrichment.md)
 - [`top_k`](top-k.md) — ranking against one query instead of matching two sets
 - [`.sem` files](../reference/sem-files.md) — save a join as an executable stage
+
+## Join kinds
+
+`--kind` picks which set the pipe receives (default `inner`, today's
+matched-pairs behavior):
+
+```console
+$ cat orders.jsonl | sempipe join "the same purchase" --right invoices.jsonl --kind anti
+{"id": 4411, "customer": "acme", "total": 240.0}    ← unmatched LEFT rows, verbatim
+$ … --kind leftouter | head -1
+{"left": {...}, "right": null}                       ← every left row, match or not
+```
+
+`anti` is reconciliation's native shape — "orders with no invoice" IS the
+deliverable, emitted passthrough so it pipes onward (into `cluster`, a CSV,
+a ticket). `leftouter` keeps every left row with `"right": null` where
+nothing matched. The summary line works for every kind.
+

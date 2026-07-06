@@ -40,6 +40,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`join --kind anti|leftouter` (D38/11).** Reconciliation's set shapes,
+  first-class: `anti` emits only the UNMATCHED left rows, verbatim on
+  stdout (the mismatch list IS the deliverable — orders with no invoice,
+  tickets with no KB article); `leftouter` keeps every left row with
+  `"right": null` where nothing matched. `inner` stays the default;
+  `--unmatched FILE` remains for inner (and is a usage error with anti,
+  which already owns stdout).
 - **`sempipe sort` — order records by a field, free (D38/10).** Numbers
   numerically before strings lexically; missing-field rows always last (both
   directions) with a note; stable ties; byte-faithful passthrough. No `take`
