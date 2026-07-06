@@ -16,3 +16,7 @@ htmlcov/
 
 # Local-only reference material (another project's code — never publish with sempipe)
 context/
+
+# Private working documents: never tracked, never in the sdist
+/CLAUDE.md
+/plan/

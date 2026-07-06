@@ -107,5 +107,5 @@ GitHub's "Cite this repository" button (from [CITATION.cff](CITATION.cff)) gives
 ## Development
 
 Built in the open, under **Apache-2.0**. The design docs, staged plan, and progress
-ledger live in [`plan/`](plan/README.md); contributor setup and the quality gates are
+ledger are maintained privately; contributor setup and the quality gates are
 in [CONTRIBUTING.md](CONTRIBUTING.md). As of 1.0 the CLI surface is a SemVer contract.

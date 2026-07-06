@@ -1,8 +1,7 @@
 # Contributing to sempipe
 
 Thanks for looking under the hood. This page gets you from clone to green gates in a few
-minutes. The full design context lives in [`plan/`](plan/README.md) — worth a skim before
-larger changes.
+minutes.
 
 ## Dev setup
 
@@ -40,8 +39,7 @@ Optional but recommended: `uv run pre-commit install` wires ruff into your commi
 - **Docs ship with features.** A user-visible change updates the matching `docs/` page
   and `CHANGELOG.md` in the same PR.
 - **Conventional Commits** (`feat:`, `fix:`, `docs:`, `test:`, `chore:`, `build:`, `ci:`).
-- **Error messages follow the style guide** in [`plan/ux.md`](plan/ux.md#error-message-style)
-  and are pinned by golden tests (`UPDATE_GOLDEN=1 uv run pytest` refreshes them —
+- **Error messages are a pinned contract**, enforced by golden tests (`UPDATE_GOLDEN=1 uv run pytest` refreshes them —
   the diff then shows up in your PR for review).
 
 Release ritual: [RELEASING.md](RELEASING.md) · upkeep: [MAINTENANCE.md](MAINTENANCE.md).

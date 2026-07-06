@@ -60,6 +60,10 @@ docs = [
   "mkdocs-material>=9.5",
 ]
 
+[tool.hatch.build.targets.sdist]
+# belt over the untracking: private working docs can never ride a release
+exclude = ["plan/", "CLAUDE.md", "TODO.md", "idea.md", "context/", ".claude/"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/sempipe"]
 
