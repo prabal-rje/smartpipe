@@ -28,7 +28,7 @@ to **stderr**.
 | [`split`](../verbs/split.md) | break oversized items into chunk items | free — no model calls |
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
-| [`doctor`](#doctor) | check the whole setup, spend nothing | exit 0 = ready |
+| [`doctor`](#doctor) | check the whole setup, spend nothing (`--probe` adds the paid modality matrix) | exit 0 = ready |
 | `schema` | draft a JSON Schema from English (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
 
 ## Common options

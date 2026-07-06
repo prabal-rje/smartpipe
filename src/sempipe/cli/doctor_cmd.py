@@ -31,16 +31,27 @@ _RC_FILES = {"zsh": "~/.zshrc", "bash": "~/.bashrc"}
 
 
 @click.command(name="doctor")
-def doctor_command() -> None:
+@click.option(
+    "--probe",
+    is_flag=True,
+    help="Also send 4 tiny PAID calls to chart which modalities really work.",
+)
+def doctor_command(probe: bool) -> None:
     """Check that sempipe is set up and ready — without spending a model call.
 
     \b
     Verifies: config parses · Ollama reachable · configured models installed ·
     API keys present (never printed) · ChatGPT login · optional extras ·
     shell completions. Exit 0 when everything is green.
+    --probe adds the modality matrix: real (tiny) calls, announced first.
     """
     results = asyncio.run(_gather(os.environ))
     click.echo(render_report(results))
+    if probe:
+        from sempipe.cli.probe_cmd import run_probe
+
+        click.echo("")
+        click.echo(asyncio.run(run_probe(os.environ)))
     code = doctor_exit_code(results)
     if code is not ExitCode.OK:
         raise SystemExit(int(code))

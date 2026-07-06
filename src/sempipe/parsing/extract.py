@@ -30,6 +30,7 @@ __all__ = [
     "VideoParts",
     "embedded_images",
     "extract",
+    "ffmpeg_exe",
     "pdf_page_texts",
     "slice_audio",
     "slice_video",
@@ -342,7 +343,7 @@ _VIDEO_NEEDS_FFMPEG = (
 )
 
 
-def _ffmpeg_exe() -> str:
+def ffmpeg_exe() -> str:
     try:
         from imageio_ffmpeg import get_ffmpeg_exe
 
@@ -387,7 +388,7 @@ def video_to_parts(video: VideoData, *, frames: int = 6) -> VideoParts:
     import tempfile
     from pathlib import Path
 
-    exe = _ffmpeg_exe()
+    exe = ffmpeg_exe()
     workdir = tempfile.mkdtemp(prefix="sempipe-video-")
     source = os.path.join(workdir, "source")
     try:
@@ -465,7 +466,7 @@ def slice_video(video: VideoData, *, seconds: int) -> list[VideoData]:
     import tempfile
     from pathlib import Path
 
-    exe = _ffmpeg_exe()
+    exe = ffmpeg_exe()
     workdir = tempfile.mkdtemp(prefix="sempipe-vslice-")
     source = os.path.join(workdir, "source.mp4")
     pattern = os.path.join(workdir, "slice-%04d.mp4")

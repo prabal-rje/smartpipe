@@ -2,7 +2,9 @@
 
 > **First move: `sempipe doctor`.** It checks config, Ollama, models, keys,
 > login, extras, and completions in one screen — with the fix on each line —
-> and never spends a model call.
+> and never spends a model call. `doctor --probe` adds the modality matrix:
+> which of text/image/audio/video actually reach your configured models, via
+> four tiny paid calls, announced first.
 
 Symptom-indexed. Find your error message; each entry says what it means and the fix.
 Every one of these is also a friendly screen sempipe prints on stderr — you shouldn't

@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`doctor --probe`: the modality matrix (D31).** Four tiny paid calls
+  (announced first; plain `doctor` stays free) chart which modalities actually
+  reach your configured chat and embed models — text, image, audio, video
+  (local ffmpeg check), documents — with per-cell verdicts and reasons. The
+  probe assets (an 8x8 PNG, a 0.25 s beep, one sentence) ship in the wheel.
+  Its first live run immediately earned its keep: Gemini's OpenAI-compat
+  endpoint DOES hear audio ('heard it — Tone'), correcting our own docs.
 - **Config profiles (D30).** Named bundles of the existing config keys, three
   shipped presets (`openai`, `gemini`, `local` — the local one on
   `ollama/gemma-4-e2b`, the multimodal 2.3B-effective model), user tables via
