@@ -1,3 +1,6 @@
+# Maintainer notes: run `make gates` (un-piped) before any push; releases follow
+# RELEASING.md; cadence lives in MAINTENANCE.md. Keys live in .env (ignored below)
+# and are NEVER committed.
 __pycache__/
 *.py[cod]
 .venv/

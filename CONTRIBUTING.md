@@ -44,6 +44,8 @@ Optional but recommended: `uv run pre-commit install` wires ruff into your commi
   and are pinned by golden tests (`UPDATE_GOLDEN=1 uv run pytest` refreshes them —
   the diff then shows up in your PR for review).
 
+Release ritual: [RELEASING.md](RELEASING.md) · upkeep: [MAINTENANCE.md](MAINTENANCE.md).
+
 ## New dependencies
 
 Core install weight is a feature: the runtime dependency list is `click`, `httpx`,

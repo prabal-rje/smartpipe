@@ -44,6 +44,15 @@ up to 64 texts per call — 64× fewer round-trips, and if a chunk fails it is
 retried one item at a time so a single bad item skips alone. Piped input stays
 one item per call: on a live stream, latency beats throughput.
 
+## Media items (images, audio)
+
+`embed` and `top_k` rank **text**. Audio items transcribe on demand when the
+`[audio]` extra is installed; image items skip with a pointer to `map`. True
+multimodal embeddings wait on a provider wire that carries them (none of the
+wired providers' embedding endpoints do today — this is a recorded gate, not an
+oversight). To rank audio by content deliberately: transcribe first with
+`map "transcribe this" --in 'calls/*.wav'`, then embed the transcripts.
+
 ## Notes
 
 - **Embeddings are transient by design.** sempipe has no vector database — the

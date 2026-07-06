@@ -3,7 +3,7 @@
 # `tail` silently swallows non-zero exit codes — don't reintroduce it).
 
 .DEFAULT_GOAL := help
-.PHONY: help install test cov lint fmt fmt-check types gates smoke golden startup join-eval clean
+.PHONY: help install test cov lint fmt fmt-check types gates smoke golden startup join-eval live-smoke clean
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -36,6 +36,9 @@ gates: lint fmt-check types cov ## The full PR gate: lint + format + types + cov
 
 golden: ## Refresh golden files (review the diff before committing)
 	UPDATE_GOLDEN=1 uv run pytest -q
+
+live-smoke: ## Owner-run live validity matrix (needs SEMPIPE_LIVE_SMOKE=yes; spends pennies)
+	./scripts/live_smoke.sh
 
 join-eval: ## Blocking-recall table for join (non-gating; justifies the --k default)
 	uv run python scripts/join_eval.py

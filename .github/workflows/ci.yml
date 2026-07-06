@@ -1,5 +1,7 @@
 name: ci
 on:
+  schedule:
+    - cron: "17 6 * * 1"  # weekly live-Ollama smoke (allowed-failure radar, plan/testing.md)
   push: { branches: [main] }
   pull_request:
 concurrency:
@@ -33,3 +35,21 @@ jobs:
       - run: uv sync --all-extras
       - run: uv run coverage run -m pytest -q
       - run: uv run coverage report
+
+  live-ollama-smoke:
+    # Early-warning radar for Ollama API drift — never a gate (plan/testing.md §5).
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    services:
+      ollama:
+        image: ollama/ollama
+        ports: ["11434:11434"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-extras
+      - run: curl -s http://localhost:11434/api/pull -d '{"name":"qwen3:0.6b"}' > /dev/null
+      - run: |
+          echo "hola" | OLLAMA_HOST=http://localhost:11434 SEMPIPE_MODEL=ollama/qwen3:0.6b \
+            uv run sempipe map "translate to English"
