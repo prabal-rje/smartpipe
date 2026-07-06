@@ -176,7 +176,7 @@ async def test_browser_flow_end_to_end(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter
 ) -> None:
     respx_mock.post(f"{ISSUER}/oauth/token").mock(return_value=httpx.Response(200, json=TOKENS))
-    respx_mock.route(host="localhost").pass_through()  # the callback server is real
+    respx_mock.route(host="127.0.0.1").pass_through()  # the callback server is real
     port = 14550  # off the real port so a parallel test run can't collide
 
     def fake_browser(url: str) -> None:
@@ -185,7 +185,9 @@ async def test_browser_flow_end_to_end(
         async def visit() -> None:  # what the user's browser does after consent
             async with httpx.AsyncClient() as browser_client:
                 await browser_client.get(
-                    f"http://localhost:{port}/auth/callback",
+                    # the v4 loopback, matching the server bind: "localhost" order
+                    # varies by host and a refused ::1 connect would hang the flow
+                    f"http://127.0.0.1:{port}/auth/callback",
                     params={"code": "CODE", "state": query["state"]},
                 )
 

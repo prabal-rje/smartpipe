@@ -68,6 +68,9 @@ def _spawn_filter(
     assert proc.stdin is not None
     proc.stdin.write(stdin)
     proc.stdin.close()
+    # 3.11's communicate() flushes a still-set stdin even when closed (ValueError);
+    # 3.12+ tolerates it. Clearing the handle makes communicate() skip the flush.
+    proc.stdin = None
     return proc
 
 

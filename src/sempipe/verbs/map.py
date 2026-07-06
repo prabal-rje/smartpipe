@@ -145,7 +145,10 @@ async def _map_one(
         transcript = await asyncio.to_thread(_transcribe_or_skip, item.media, native_failure)
         if not fallback_noted[0]:
             fallback_noted[0] = True
-            diagnostics.note("transcribing audio locally — the model can't hear it natively")
+            diagnostics.note(
+                "transcribing audio with the [audio] extra (Google's Web Speech API)"
+                " — the model can't hear it natively"
+            )
         spoken = replace(item, text=transcript, media=None)
         return await _map_one(model, plan, instruction, spoken, fallback_noted)
     if plan.schema is None:

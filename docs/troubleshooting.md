@@ -113,7 +113,8 @@ wrong. Raise the ceiling or narrow the input.
 You sent audio items to a model with no audio input. Two fixes, straight from
 the message: use a model that hears (`gpt-4o-audio-preview`-family,
 `voxtral-*`), or `pip install 'sempipe[audio]'` so text verbs (and `map`, as a
-fallback) transcribe locally. Details:
+fallback) transcribe it. Heads up: the extra's transcriber sends audio to
+Google's Web Speech API (see [privacy](privacy.md)). Details:
 [File inputs → audio](inputs/files.md#audio-heard-natively-or-transcribed).
 
 ## "prompt file not found: X" (exit 64)

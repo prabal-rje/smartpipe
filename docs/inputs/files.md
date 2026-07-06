@@ -116,9 +116,12 @@ its **bytes**, not an eager transcript:
 
 - `map` with an audio-capable model (`gpt-4o-audio-preview`, `voxtral-*`) sends
   the sound itself — tone and speaker changes included.
-- With any other model, sempipe transcribes locally when the `[audio]` extra is
-  installed (you'll see `note: transcribing audio locally` once), then retries
-  as text.
+- With any other model, sempipe transcribes when the `[audio]` extra is
+  installed (a one-time stderr note says so), then retries as text.
+  **Disclosure:** the extra's transcriber (markitdown → SpeechRecognition)
+  sends the audio to **Google's Web Speech API**, a third-party service, not
+  your configured model endpoint. If the audio must not leave your machine,
+  use an audio-capable model you trust, or skip the extra.
 - The text verbs (`filter`, `embed`, `top_k`, `reduce`, `join`) transcribe on
   demand with the extra, or skip with a line naming both fixes.
 

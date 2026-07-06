@@ -155,7 +155,7 @@ async def test_deaf_model_falls_back_to_transcription(
     assert len(model.calls) == 2  # native attempt, then the transcript retry
     assert model.calls[1].media == ()
     err = capsys.readouterr().err
-    assert err.count("transcribing audio locally") == 1  # the once-per-run note
+    assert err.count("transcribing audio with the [audio] extra") == 1  # the once-per-run note
 
 
 async def test_deaf_model_without_extra_skips_with_both_fixes(

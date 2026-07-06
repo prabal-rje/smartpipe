@@ -35,12 +35,24 @@ never log in, the file never exists.
 
 Two features spool bytes to a private temp file for the length of one operation,
 then delete it: a binary document redirected to stdin (`sempipe map … <
-report.pdf`), and local audio transcription (the `[audio]` extra). Nothing
+report.pdf`), and audio transcription (the `[audio]` extra). Nothing
 outlives the run; nothing is written into your project.
+
+## A second exception, disclosed: the `[audio]` transcriber
+
+The optional `[audio]` extra transcribes speech via markitdown, whose
+transcriber (the SpeechRecognition library) **sends the audio to Google's Web
+Speech API** — a third-party endpoint, not the model you configured. This only
+happens when the extra is installed AND an audio item needs text (a deaf model
+in `map`, or any text verb). Audio-capable models (`gpt-4o-audio-preview`,
+`voxtral-*`) hear natively over your configured endpoint instead, and without
+the extra sempipe skips the item rather than transcribing. If audio must never
+leave your machine, don't install the extra.
 
 ## No telemetry, ever
 
-sempipe makes **no network calls except to the model endpoint you configured**. There
+sempipe makes **no network calls except to the model endpoint you configured**
+(and the disclosed `[audio]` transcription above, only if you opted in). There
 is no analytics, no phone-home, no update check. The test suite enforces this: it runs
 with strict HTTP mocking, so any unexpected outbound request fails the build.
 

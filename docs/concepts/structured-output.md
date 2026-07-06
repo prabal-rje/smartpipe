@@ -36,6 +36,33 @@ Five rungs; each teaches the next. Climb only as far as your task needs:
 Descriptions stay in braces; types and constraints stay in the DSL or the file —
 braces never grow type syntax (that's where byzantine begins).
 
+## Already have Pydantic or Zod models? Export them
+
+JSON Schema is the interchange format, and both libraries emit it in one line.
+No sempipe plugin needed:
+
+```console
+$ python -c "import json; from myapp.models import Invoice; \
+    print(json.dumps(Invoice.model_json_schema()))" > invoice.json
+$ sempipe map "Extract the invoice" --schema invoice.json
+```
+
+```console
+$ npx zod-to-json-schema src/schemas.ts InvoiceSchema > invoice.json   # zod v3
+# zod v4 has it built in: z.toJSONSchema(InvoiceSchema)
+$ sempipe map "Extract the invoice" --schema invoice.json
+```
+
+One caveat: providers' strict mode rejects some valid JSON Schema (optional
+fields, missing per-property types, `$ref`s). sempipe detects that and falls
+back to client-side validation automatically, so exported schemas still work;
+they just may not get the server-side guarantee.
+
+(Native `--schema-from-pydantic module:Model` was considered and rejected:
+it would import and execute your application code from a CLI flag and pull
+pydantic into a frozen dependency budget, for something a one-liner already
+does.)
+
 ## `--schema-from` — the deterministic DSL
 
 `field type constraints; field type …` — semicolon-separated:

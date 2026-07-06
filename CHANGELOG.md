@@ -3,6 +3,24 @@
 All notable changes to sempipe are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: [SemVer](https://semver.org).
 
+## [Unreleased]
+
+### Fixed
+- **CI on Python 3.11 and macOS runners.** The signals-test harness closed the
+  child's stdin and later called `communicate()`, which 3.11 rejects
+  (`ValueError`, fixed in 3.12+); the OAuth callback test depended on the
+  host's `localhost` resolution order. Both the harness and the callback
+  server now use the explicit v4 loopback.
+
+### Changed
+- **Honest audio-transcription disclosure.** The `[audio]` extra's transcriber
+  (markitdown → SpeechRecognition) sends audio to **Google's Web Speech API**,
+  not a local model — the one-time note, `docs/inputs/files.md`,
+  troubleshooting, and the privacy page now say exactly that. Native audio
+  models remain the private path (audio rides your configured endpoint only).
+- Docs: recipe for exporting **Pydantic / Zod** models to `--schema` files
+  (JSON Schema is the interchange; no plugin, one line each).
+
 ## [1.1.0] — 2026-07-05
 
 **The everything release.** Two design-and-build trains shipped as one: the

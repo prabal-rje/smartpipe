@@ -294,7 +294,9 @@ async def login_via_browser(
             del format, args  # the CLI narrates; the server stays quiet
 
     try:
-        server = HTTPServer(("localhost", port), Handler)
+        # bind the v4 loopback explicitly: "localhost" resolution order varies by
+        # host (macOS CI resolves ::1 first) while browsers try both families
+        server = HTTPServer(("127.0.0.1", port), Handler)
     except OSError as exc:
         raise SetupFault(
             f"error: couldn't open the login callback port {port} ({exc.strerror or exc})\n"
