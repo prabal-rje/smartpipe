@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sempipe.core.errors import ItemError
-from sempipe.models.base import AudioData, CompletionRequest, ImageData
+from sempipe.models.base import AudioData, CompletionRequest, ImageData, VideoData
 
 if TYPE_CHECKING:
     from sempipe.io.diagnostics import DegradationLog
@@ -29,6 +29,12 @@ IMAGE_TO_TEXT_SYSTEM = (
     "You describe images for search indexing. Describe the image factually in "
     "two or three sentences, including any visible text verbatim. Reply with "
     "only the description."
+)
+
+VIDEO_TO_TEXT_SYSTEM = (
+    "You convert video to text for search indexing. Describe what is shown in "
+    "two or three factual sentences, then transcribe all speech verbatim. "
+    "Reply with only the description and transcript."
 )
 
 IMAGE_NEEDS_CAPTION = (
@@ -67,6 +73,8 @@ class Converter:
                         user="Convert this audio to text.",
                         media=(audio,),
                         max_tokens=_CONVERT_MAX_TOKENS,
+                        presence_penalty=0.5,  # prose call — anti-rambling (D35)
+                        frequency_penalty=0.5,
                     )
                 )
             except ItemError:
@@ -86,6 +94,31 @@ class Converter:
         self.log.note(where, "audio → text", f"whisper {whisper_size(os.environ)}")
         return transcript
 
+    async def video_to_text(self, video: VideoData, where: str) -> str | None:
+        """Rung 0 (D35): the WHOLE video to a model that watches — gemini native
+        accepts; every other wire refuses pre-send, free. None = fall back to
+        the caller's track-only path."""
+        if not self._model_may_convert():
+            return None
+        assert self.chat is not None
+        try:
+            text = await self.chat.complete(
+                CompletionRequest(
+                    system=VIDEO_TO_TEXT_SYSTEM,
+                    user="Convert this video to text.",
+                    media=(video,),
+                    max_tokens=_CONVERT_MAX_TOKENS,
+                    presence_penalty=0.5,
+                    frequency_penalty=0.5,
+                )
+            )
+        except ItemError:
+            return None  # this wire can't watch — the refusal cost nothing
+        if not text.strip():
+            return None
+        self.log.note(where, "video → text", f"watched by {self._rung_name()}")
+        return text.strip()
+
     async def image_to_text(self, image: ImageData, where: str) -> str:
         """LLM rung or nothing — there is no free non-LLM rung for images."""
         if not self._model_may_convert():
@@ -97,6 +130,8 @@ class Converter:
                 user="Describe this image.",
                 media=(image,),
                 max_tokens=_CONVERT_MAX_TOKENS,
+                presence_penalty=0.5,  # prose call — anti-rambling (D35)
+                frequency_penalty=0.5,
             )
         )
         self.log.note(where, "image → text", f"described by {self._rung_name()}")

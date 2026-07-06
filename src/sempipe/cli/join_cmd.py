@@ -143,5 +143,9 @@ async def _run(request: JoinRequest, max_calls: int | None) -> ExitCode:
         graceful_interrupts() as stop,
         build_container(os.environ, max_calls=max_calls, stop=stop) as container,
     ):
+        if not request.allow_captions and container.config.allow_captions:
+            from dataclasses import replace as _replace
+
+            request = _replace(request, allow_captions=True)  # profile consent (D35)
         code = await run_join(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
         return settle_budget(container.budget, code)

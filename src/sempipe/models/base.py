@@ -92,6 +92,8 @@ class CompletionRequest:
     user: str
     json_schema: Mapping[str, object] | None = None  # provider-native structured output
     max_tokens: int = 8192
+    presence_penalty: float | None = None  # anti-rambling; prose-only (D35)
+    frequency_penalty: float | None = None  # never on schema calls — penalties corrupt JSON
     media: tuple[MediaData, ...] = ()  # vision/audio (bytes + mime; D20 union)
 
 

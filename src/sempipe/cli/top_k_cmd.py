@@ -80,10 +80,18 @@ async def _run(request: TopKRequest, max_calls: int | None) -> ExitCode:
 
     if not request.stream:  # whole-set mode: ^C exits immediately; budget is fatal (D18)
         async with build_container(os.environ, max_calls=max_calls) as container:
+            if not request.allow_captions and container.config.allow_captions:
+                from dataclasses import replace as _replace
+
+                request = _replace(request, allow_captions=True)  # profile consent (D35)
             return await run_top_k(request, container, stdin=sys.stdin, stdout=sys.stdout)
     async with (
         graceful_interrupts() as stop,
         build_container(os.environ, max_calls=max_calls, stop=stop) as container,
     ):
+        if not request.allow_captions and container.config.allow_captions:
+            from dataclasses import replace as _replace
+
+            request = _replace(request, allow_captions=True)  # profile consent (D35)
         code = await run_top_k(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
         return settle_budget(container.budget, code)

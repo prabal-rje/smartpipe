@@ -134,9 +134,17 @@ $ sempipe config profile local        # switch
 $ SEMPIPE_PROFILE=gemini sempipe map …  # one-off, no file change (D24: env is the override)
 ```
 
-Create your own as a `[profiles.NAME]` table in the config file. Direct keys
-beat the active profile (a direct set is the most recent intent); flags and
-env vars beat both. Profiles never hold API keys.
+The cloud presets are **multimodal by default**: they set
+`allow-captions = true`, so images and audio convert to text through the
+profile's own model when a run needs it (fractions of a cent each, every
+conversion disclosed per row). Picking the profile is the consent; the wizard
+says so out loud. Bare no-profile setups keep the conservative `--allow-captions`
+opt-in.
+
+Create your own as a `[profiles.NAME]` table in the config file (keys: model,
+embed-model, concurrency, output, allow-captions). Direct keys beat the active
+profile (a direct set is the most recent intent); flags and env vars beat
+both. Profiles never hold API keys.
 
 ## Setting a default
 

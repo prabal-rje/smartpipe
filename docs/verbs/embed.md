@@ -57,7 +57,9 @@ space through a ladder, per item, disclosed per row:
   same fence: local free and automatic, cloud behind `--allow-captions`; no
   free non-LLM rung exists, so without either the item skips, naming both
   fixes.
-- **video** → the audio track through the audio row (frames are map's job).
+- **video** → first the WHOLE video to a model that watches (gemini native:
+  the description covers the visuals too); otherwise the audio track through
+  the audio row (frames dropped, said so).
 
 Swapping embedding models changes none of this: the converter runs before
 embedding and belongs to the *chat* model's capabilities, so the embedder only

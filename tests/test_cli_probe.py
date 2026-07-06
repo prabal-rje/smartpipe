@@ -56,3 +56,14 @@ def test_without_probe_no_model_calls(run_cli: RunCli, respx_mock: respx.MockRou
     )
     run_cli(["doctor"])
     assert chat.call_count == 0  # the D18 pin stands
+
+
+def test_doctor_without_probe_shouts_about_it(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.get("http://localhost:11434/api/tags").mock(
+        return_value=httpx.Response(200, json={"models": [{"name": "qwen3:8b"}]})
+    )
+    _code, out, _err = run_cli(["doctor"])
+    assert "verify SETUP, not ABILITY" in out
+    assert "doctor --probe" in out

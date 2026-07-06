@@ -50,6 +50,8 @@ class GeminiNativeChatModel:
         payload: dict[str, object] = {"contents": [{"role": "user", "parts": _parts(request)}]}
         if request.system is not None:
             payload["systemInstruction"] = {"parts": [{"text": request.system}]}
+        # NB: gemini-2.5 rejects presence/frequency penalties outright
+        # ("Penalty is not enabled") — the anti-rambling fields are ollama-only (D35)
         config: dict[str, object] = {"maxOutputTokens": request.max_tokens}
         if request.json_schema is not None:
             config["responseMimeType"] = "application/json"

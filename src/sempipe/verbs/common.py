@@ -119,6 +119,11 @@ async def ensure_text(
                         log.note(where, "audio → text", _whisper_detail())
                 text = f"{text}\n\n{transcript}".strip() if text else transcript
             case VideoData() as video:
+                if converter is not None:
+                    watched = await converter.video_to_text(video, where)
+                    if watched is not None:
+                        text = f"{text}\n\n{watched}".strip() if text else watched
+                        continue
                 from sempipe.parsing.extract import video_to_parts
 
                 parts = await asyncio.to_thread(video_to_parts, video)

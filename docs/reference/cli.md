@@ -44,7 +44,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `--in GLOB` | Read each matching file as one item (repeatable). |
 | `--from-files` | Treat each stdin line as a filename. |
 | `--fields A,B` | Select + order columns of structured output (`map`, `embed`, `top_k`, `reduce` — never `filter`). |
-| `--allow-captions` | Let a CLOUD model convert images/audio to text for embedding/text verbs (paid; local models convert free, automatically). |
+| `--allow-captions` | Let a CLOUD model convert images/audio/video to text for embedding/text verbs (paid; local models convert free; the `openai`/`gemini` profiles set this by default). |
 | `@file` / `--prompt-file FILE` | Read the prompt from a file (`map`, `filter`, `reduce`, `join`). Missing file = loud exit 64; `@@` escapes a literal leading `@`. |
 | `--max-calls N` | Hard ceiling on model calls (cost cap). Per-item verbs stop intake and drain; whole-set `top_k`/`reduce` treat exhaustion as fatal (nothing usable from a partial collection). A capped run never exits 0. |
 

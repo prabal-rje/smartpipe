@@ -47,6 +47,7 @@ class Config:
     concurrency: int | None = None
     output: str | None = None
     profile: str | None = None  # the active profile's name (D30)
+    allow_captions: bool | None = None  # cloud conversions consent (D35; flag wins)
 
 
 _EMPTY_PROFILE: Mapping[str, object] = {}
@@ -54,8 +55,18 @@ _EMPTY_PROFILE: Mapping[str, object] = {}
 # D30: shipped presets, generated here so they can't rot in user files. A
 # profile is ONLY a bundle of existing config keys — that's the fence.
 BUILTIN_PROFILES: Mapping[str, Mapping[str, object]] = {
-    "openai": {"model": "gpt-4o-mini", "embed-model": "text-embedding-3-small"},
-    "gemini": {"model": "gemini-2.5-flash", "embed-model": "gemini/gemini-embedding-001"},
+    # picking a cloud preset IS the consent for paid image/audio-to-text
+    # conversions (D35) — the wizard says so; per-row disclosures continue
+    "openai": {
+        "model": "gpt-4o-mini",
+        "embed-model": "text-embedding-3-small",
+        "allow-captions": True,
+    },
+    "gemini": {
+        "model": "gemini-2.5-flash",
+        "embed-model": "gemini/gemini-embedding-001",
+        "allow-captions": True,
+    },
     "local": {
         "model": "ollama/gemma-4-e2b",  # multimodal 2.3B-effective, 128k
         "embed-model": "ollama/embeddinggemma",  # the pivot anchor: 308M, multilingual
@@ -76,6 +87,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Config:
         concurrency=_positive_int(merged, "concurrency", path),
         output=_string(merged, "output", path),
         profile=active,
+        allow_captions=_boolean(merged, "allow-captions", path),
     )
 
 
@@ -126,7 +138,7 @@ def _profile_values(data: Mapping[str, object], name: str, path: Path) -> Mappin
     defined = as_record(data.get("profiles"))
     table = as_record(defined.get(name)) if defined is not None else None
     if table is not None:
-        allowed = {"model", "embed-model", "concurrency", "output"}
+        allowed = {"model", "embed-model", "concurrency", "output", "allow-captions"}
         unknown = set(table) - allowed
         if unknown:
             raise SetupFault(
@@ -145,6 +157,7 @@ def save_config(path: Path, config: Config) -> None:
         "concurrency": config.concurrency,
         "output": config.output,
         "profile": config.profile,
+        "allow-captions": config.allow_captions,
     }
     for key, value in ours.items():
         if value is None:
@@ -183,6 +196,15 @@ def _string(data: Mapping[str, object], key: str, path: Path) -> str | None:
         return None
     if not isinstance(value, str):
         raise SetupFault(_wrong_type_screen(path, key, "a string", value))
+    return value
+
+
+def _boolean(data: Mapping[str, object], key: str, path: Path) -> bool | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise SetupFault(_wrong_type_screen(path, key, "true or false", value))
     return value
 
 

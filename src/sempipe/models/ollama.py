@@ -72,10 +72,16 @@ class OllamaChatModel:
         if images:
             user["images"] = [base64.b64encode(image.data).decode() for image in images]
         messages.append(user)
+        options: dict[str, object] = {"num_predict": request.max_tokens}
+        if request.presence_penalty is not None:
+            options["presence_penalty"] = request.presence_penalty
+        if request.frequency_penalty is not None:
+            options["frequency_penalty"] = request.frequency_penalty
         payload: dict[str, object] = {
             "model": self.ref.name,
             "stream": False,
             "messages": messages,
+            "options": options,  # tiny local models ramble unbounded otherwise (D35)
         }
         if request.json_schema is not None:
             payload["format"] = dict(request.json_schema)

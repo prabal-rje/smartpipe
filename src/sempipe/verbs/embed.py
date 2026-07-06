@@ -101,7 +101,7 @@ async def run_embed(
         # live stream: one item per call — latency beats throughput
 
         async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
-            return item, await _embed_one(model, item, log, converter)
+            return await _embed_one(model, item, log, converter)
 
         outcomes = run_ordered(
             items_iter,
@@ -150,7 +150,7 @@ async def _embed_one(
     item: Item,
     log: diagnostics.DegradationLog,
     converter: Converter,
-) -> tuple[float, ...]:
+) -> tuple[Item, tuple[float, ...]]:
     item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
     vectors = await model.embed([item.text])
-    return vectors[0]
+    return item, vectors[0]  # the CONVERTED item — its text is what the vector means

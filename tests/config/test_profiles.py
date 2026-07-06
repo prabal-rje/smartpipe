@@ -65,3 +65,11 @@ def test_profile_names_union_presets_and_defined(tmp_path: Path) -> None:
     path.write_text('[profiles.work]\nmodel = "gpt-4o"\n', encoding="utf-8")
     assert profile_names(path) == ("gemini", "local", "openai", "work")
     assert set(BUILTIN_PROFILES) == {"openai", "gemini", "local"}
+
+
+def test_cloud_presets_carry_caption_consent(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('profile = "openai"\n', encoding="utf-8")
+    assert load_config(path).allow_captions is True  # picking the profile IS consent (D35)
+    path.write_text('profile = "local"\n', encoding="utf-8")
+    assert load_config(path).allow_captions is None  # local converts free anyway

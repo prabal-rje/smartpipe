@@ -47,6 +47,13 @@ def doctor_command(probe: bool) -> None:
     """
     results = asyncio.run(_gather(os.environ))
     click.echo(render_report(results))
+    if not probe:
+        click.secho(
+            "\n⚠ these checks verify SETUP, not ABILITY — run `sempipe doctor --probe`\n"
+            "  to test what your models can actually see and hear (4 tiny paid calls)",
+            fg="yellow",
+            bold=True,
+        )
     if probe:
         from sempipe.cli.probe_cmd import run_probe
 

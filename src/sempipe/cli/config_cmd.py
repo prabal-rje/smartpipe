@@ -165,6 +165,11 @@ async def run_interactive_setup(
             save(chosen)  # a fresh setup has no flat keys to materialize
             bundle = ", ".join(f"{k} = {v}" for k, v in BUILTIN_PROFILES[picked].items())
             say(f"\n  ✓ profile '{picked}' active ({bundle})")
+            if BUILTIN_PROFILES[picked].get("allow-captions"):
+                say(
+                    "  note: this profile converts images/audio to text through its"
+                    " model when needed (fractions of a cent each, disclosed per row)"
+                )
             say("  Check the setup end to end:  sempipe doctor\n")
             return chosen
     names = await probe() or ()

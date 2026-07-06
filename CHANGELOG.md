@@ -6,6 +6,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Cloud profiles are multimodal by default (D35).** The `openai` and
+  `gemini` presets set `allow-captions = true` (now also a config/profile
+  key; the flag still wins): picking the profile is the consent, the wizard
+  says so, and per-row disclosures continue. The converter gained **video
+  rung 0**: the whole video goes to a model that watches (gemini native), so
+  embedded video vectors carry the visuals, not just the soundtrack —
+  live-proven ("watched by gemini/gemini-2.5-flash", pivot text describing
+  the picture). Local models finally get **bounded generation**: the Ollama
+  adapter now passes `num_predict` (it sent nothing before — tiny models
+  could ramble forever) and honors new per-request presence/frequency
+  penalties, which the converter sets on its prose calls (never on schema
+  calls — penalties corrupt JSON; and never on gemini, which rejects them:
+  live-caught). `doctor` now closes with a bold yellow pointer at `--probe`.
+  Also fixed live: streaming `embed` emitted the pre-conversion item text
+  (empty for media), so records now carry the text the vector actually means.
 - **Gemini watches video natively (D34).** Gemini chat moved to Google's
   native `:generateContent` wire — the only wired endpoint with video input.
   `map "what happens?" --in demo.mp4 --model gemini-2.5-flash` sends the

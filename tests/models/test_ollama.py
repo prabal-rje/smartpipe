@@ -59,6 +59,7 @@ async def test_chat_sends_the_exact_payload(
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hello"},
         ],
+        "options": {"num_predict": 8192},  # bounded output — tiny models ramble (D35)
     }
 
 
@@ -206,3 +207,20 @@ async def test_model_names_is_none_when_nothing_listens(
 ) -> None:
     respx_mock.get(f"{HOST}/api/tags").mock(side_effect=httpx.ConnectError("refused"))
     assert await ollama_model_names(client, HOST) is None
+
+
+async def test_penalties_ride_the_options_when_set(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post(f"{HOST}/api/chat").mock(
+        return_value=httpx.Response(200, json={"message": {"content": "ok"}})
+    )
+    await _chat(client).complete(
+        CompletionRequest(system=None, user="describe", presence_penalty=0.5, frequency_penalty=0.5)
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert body["options"] == {
+        "num_predict": 8192,
+        "presence_penalty": 0.5,
+        "frequency_penalty": 0.5,
+    }
