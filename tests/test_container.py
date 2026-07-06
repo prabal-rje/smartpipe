@@ -196,14 +196,15 @@ async def test_mistral_base_url_override(client: httpx.AsyncClient) -> None:
     assert model.base_url == "http://proxy:9999"
 
 
-async def test_builds_gemini_chat_on_the_compat_wire(client: httpx.AsyncClient) -> None:
+async def test_builds_gemini_chat_on_the_native_wire(client: httpx.AsyncClient) -> None:
+    from sempipe.models.gemini_native import GeminiNativeChatModel
+
     container = _container(
         client, env={"GEMINI_API_KEY": "g-x"}, config=Config(model="gemini-2.5-flash")
     )
     model = await container.chat_model()
-    assert isinstance(model, OpenAIChatModel)
-    assert model.base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
-    assert model.wire.key_env == "GEMINI_API_KEY"
+    assert isinstance(model, GeminiNativeChatModel)  # D34: the wire that watches video
+    assert model.base_url == "https://generativelanguage.googleapis.com/v1beta"
 
 
 async def test_gemini_without_key_names_the_env_var(client: httpx.AsyncClient) -> None:

@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Gemini watches video natively (D34).** Gemini chat moved to Google's
+  native `:generateContent` wire — the only wired endpoint with video input.
+  `map "what happens?" --in demo.mp4 --model gemini-2.5-flash` sends the
+  actual video; live-proven: the model described the visuals AND quoted the
+  synthesized narration verbatim, zero conversions. The map video ladder
+  gained rung 0 (attempt the raw video; every other adapter refuses pre-send
+  at zero cost, so capability stays by-attempt). Structured output translates
+  to Gemini's response-schema dialect; embeddings stay on the compat wire;
+  the same retry/Retry-After/D18 taxonomy applies.
 - **One embedding space: everything converts to text (D33).** Images and
   audio now enter `embed`/`top_k`/`filter`/`reduce`/`join` through an LLM
   conversion ladder — a hearing model transcribes speech verbatim or

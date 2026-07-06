@@ -16,7 +16,7 @@ import httpx
 from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
-from sempipe.models.base import AudioData, ImageData
+from sempipe.models.base import AudioData, ImageData, VideoData
 from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.retry import RetryPolicy, with_retries
 
@@ -57,6 +57,11 @@ class OllamaChatModel:
         if request.system is not None:
             messages.append({"role": "system", "content": request.system})
         user: dict[str, object] = {"role": "user", "content": request.user}
+        if any(isinstance(part, VideoData) for part in request.media):
+            raise ItemError(
+                "this model can't watch video — map converts it to frames + audio "
+                "automatically (gemini watches natively)"
+            )
         if any(isinstance(part, AudioData) for part in request.media):
             # ollama's chat API carries images only — fail before any bytes leave (D20 §2)
             raise ItemError(

@@ -96,6 +96,15 @@ $ env -u OPENAI_API_KEY sempipe map …          # force the ChatGPT login path
 $ SEMPIPE_OPENAI_BASE_URL=https://… sempipe …  # point the wire elsewhere
 ```
 
+## Gemini rides its native wire (and watches video)
+
+Gemini chat uses Google's native endpoint, the only wired endpoint that takes
+**video input**: `map "what happens?" --in demo.mp4 --model gemini-2.5-flash`
+sends the actual video (visuals and soundtrack heard together, no conversion).
+On every other model the video ladder converts to frames + audio automatically.
+Structured output translates to Gemini's response-schema dialect; embeddings
+stay on the compat wire. `SEMPIPE_GEMINI_BASE_URL` still points both.
+
 ## Context windows: probed, not guessed
 
 sempipe keeps a conservative window table per provider, and when an input

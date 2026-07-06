@@ -118,7 +118,21 @@ class SeesAndHears:
 
     async def complete(self, request: CompletionRequest) -> str:
         self.calls.append(request)
+        if any(isinstance(part, VideoData) for part in request.media):
+            raise ItemError("this model can't watch video — …")  # rung 0 refused, free
         return "watched it"
+
+
+class Watches:
+    """The gemini-native shape: accepts the raw video (D34 rung 0)."""
+
+    def __init__(self) -> None:
+        self.ref = ModelRef("gemini", "gemini-2.5-flash")
+        self.calls: list[CompletionRequest] = []
+
+    async def complete(self, request: CompletionRequest) -> str:
+        self.calls.append(request)
+        return "watched the actual video"
 
 
 class SeesOnly:
@@ -130,16 +144,18 @@ class SeesOnly:
 
     async def complete(self, request: CompletionRequest) -> str:
         self.calls.append(request)
+        if any(isinstance(part, VideoData) for part in request.media):
+            raise ItemError("this model can't watch video — …")
         if any(isinstance(part, AudioData) for part in request.media):
             raise ItemError("this model can't hear audio — …")
         return "saw frames and read the transcript"
 
 
 class Ctx:
-    def __init__(self, model: SeesAndHears | SeesOnly) -> None:
+    def __init__(self, model: SeesAndHears | SeesOnly | Watches) -> None:
         self.model = model
 
-    async def chat_model(self, flag: str | None = None) -> SeesAndHears | SeesOnly:
+    async def chat_model(self, flag: str | None = None) -> SeesAndHears | SeesOnly | Watches:
         return self.model
 
     async def context_window(self, ref: object) -> int | None:
@@ -185,7 +201,8 @@ async def test_hearing_model_gets_frames_plus_track(
     code = await run_map(_request(clip), Ctx(model), stdin=_TtyStdin(), stdout=out)
     assert code is ExitCode.OK
     assert out.getvalue() == "watched it\n"
-    media = model.calls[0].media
+    assert len(model.calls) == 2  # rung 0 (raw video, refused free), then frames+track
+    media = model.calls[1].media
     assert any(isinstance(part, ImageData) for part in media)  # the frames
     assert any(isinstance(part, AudioData) for part in media)  # the heard track
     err = capsys.readouterr().err
@@ -206,9 +223,20 @@ async def test_deaf_model_falls_to_frames_plus_transcript(
     code = await run_map(_request(clip), Ctx(model), stdin=_TtyStdin(), stdout=out)
     assert code is ExitCode.OK
     assert "saw frames and read the transcript" in out.getvalue()
-    assert len(model.calls) == 2  # heard-attempt, then the transcript retry
-    retry = model.calls[1]
+    assert len(model.calls) == 3  # raw video, frames+track, then frames+transcript
+    retry = model.calls[2]
     assert all(isinstance(part, ImageData) for part in retry.media)  # frames only
     assert "a constant tone hums" in retry.user  # the transcript rode the text
     err = capsys.readouterr().err
     assert "video audio → text" in err  # the second rung, row-noted
+
+
+async def test_watching_wire_gets_the_raw_video(clip: Path) -> None:
+    """D34 rung 0: on a wire that watches (gemini native), the VIDEO itself rides."""
+    model = Watches()
+    out = io.StringIO()
+    code = await run_map(_request(clip), Ctx(model), stdin=_TtyStdin(), stdout=out)
+    assert code is ExitCode.OK
+    assert out.getvalue() == "watched the actual video\n"
+    assert len(model.calls) == 1  # no conversion, no second attempt
+    assert isinstance(model.calls[0].media[0], VideoData)  # the bytes rode whole

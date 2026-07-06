@@ -203,7 +203,13 @@ async def _map_video(
     video: VideoData,
     log: diagnostics.DegradationLog,
 ) -> str | Mapping[str, object]:
-    """The poor man's video (D27): frames + heard track, then frames + transcript."""
+    """Video ladder (D27/D34): the real thing where the wire watches it (gemini
+    native accepts video; every other adapter refuses pre-send at zero cost),
+    then frames + heard track, then frames + transcript."""
+    try:
+        return await _attempt(model, plan, instruction, item.text, (video,))
+    except ItemError:
+        pass  # this wire can't watch — convert (the refusal cost nothing)
     from sempipe.parsing.extract import video_to_parts
 
     parts = await asyncio.to_thread(video_to_parts, video)

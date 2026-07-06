@@ -196,8 +196,17 @@ class AppContainer:
                 return build_anthropic_chat_model(ref)
             case "mistral":  # the parametrized OpenAI wire (workstream 10)
                 return self._wire_chat(ref, MISTRAL_WIRE)
-            case "gemini":  # live-scouted: the compat endpoint speaks our path shape
-                return self._wire_chat(ref, GEMINI_WIRE)
+            case "gemini":  # D34: chat rides the NATIVE wire — the one that watches video
+                from sempipe.models.gemini_native import GeminiNativeChatModel, native_base_url
+                from sempipe.models.openai_compat import require_api_key
+
+                return GeminiNativeChatModel(
+                    ref=ref,
+                    client=self.http_client,
+                    base_url=native_base_url(self.env),
+                    api_key=require_api_key(self.env, ref.name, GEMINI_WIRE),
+                    retry=self.retry,
+                )
             case "openrouter":
                 return self._wire_chat(ref, OPENROUTER_WIRE)
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness

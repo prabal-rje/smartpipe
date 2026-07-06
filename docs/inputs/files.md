@@ -111,7 +111,9 @@ $ cat extra-notes.txt | sempipe map "Summarize" --in 'reports/*.pdf'
 
 ## Video: frames + soundtrack
 
-A video file becomes an item carrying its bytes. `map` converts it locally
+A video file becomes an item carrying its bytes. On `gemini-2.5-*` models the
+video rides the native wire whole — the model watches it, soundtrack included.
+Everywhere else `map` converts it locally
 (ffmpeg, via `pip install 'sempipe[video]'` or PATH): six evenly-sampled frames
 plus the audio track, sent natively when the model can see/hear, with a whisper
 transcript as the fallback rung. Every conversion is announced on its row
