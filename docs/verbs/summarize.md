@@ -22,5 +22,13 @@ aggregations are skipped and counted on stderr (never a crash); a group
 with no numeric values reports `null`, not zero. Percentile aggregations
 hold each group's values in memory — everything else streams.
 
+## Time buckets
+
+`by bin(ts, 1h)` groups by UTC time bucket (buckets: 1m 5m 15m 1h 6h 1d).
+The fence: timestamps parse as **ISO-8601 or epoch seconds/milliseconds
+only** — anything else groups under `null` and any other format is a
+preprocessing job for jq/date. `chart --by-time ts:1h` draws the same
+buckets chronologically, zero-filled (gaps are signal).
+
 The natural pairs: `map "…{label}" | summarize 'count() by label'` for the
 numbers, `| chart label` for the picture.

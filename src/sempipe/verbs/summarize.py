@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sempipe.core.errors import ExitCode
-from sempipe.engine.aggregate import GroupState, finish, fold, parse_summarize
+from sempipe.engine.aggregate import GroupState, finish, fold, group_key, parse_summarize
 from sempipe.io import diagnostics
 from sempipe.io.items import item_from_line
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
@@ -35,7 +35,7 @@ def run_summarize(request: SummarizeRequest, *, stdin: TextIO, stdout: TextIO) -
             continue
         item = item_from_line(line, index)
         record = item.data if item.data is not None else {"text": item.text}
-        key = tuple(record.get(field) for field in plan.by)
+        key = group_key(plan, record)
         state = groups.get(key)
         if state is None:
             state = GroupState()

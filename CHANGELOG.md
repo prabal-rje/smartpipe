@@ -40,6 +40,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **Time bucketing (D38/13, KQL `bin()`).** `chart --by-time ts:1h` draws
+  chronological, zero-filled buckets (gaps are signal); `summarize '… by
+  bin(ts, 1h)'` groups by the same UTC bucket labels. The fence is hard:
+  ISO-8601 or epoch seconds/milliseconds only — unparseable timestamps are
+  counted and disclosed, and every other format is jq/date's job.
 - **`chart --facet label,severity,region` (D38/12).** Several distributions
   in one pass: stacked sections in the terminal, one multi-panel SVG with
   `--save`, per-facet honest `(missing)` bars and dropped-tail notes.

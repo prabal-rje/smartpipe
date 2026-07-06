@@ -18,10 +18,12 @@ if TYPE_CHECKING:
 __all__ = [
     "SUMMARIZE_MENU",
     "Aggregation",
+    "BinKey",
     "GroupState",
     "SummarizePlan",
     "finish",
     "fold",
+    "group_key",
     "parse_summarize",
 ]
 
@@ -45,20 +47,65 @@ class Aggregation:
 
 
 @dataclass(frozen=True, slots=True)
+class BinKey:
+    field: str
+    bucket_seconds: int
+    name: str  # "<field>_bin"
+
+
+@dataclass(frozen=True, slots=True)
 class SummarizePlan:
     aggregations: tuple[Aggregation, ...]
-    by: tuple[str, ...]
+    by: tuple[str | BinKey, ...]
+
+    @property
+    def by_names(self) -> tuple[str, ...]:
+        return tuple(key if isinstance(key, str) else key.name for key in self.by)
 
 
 def parse_summarize(text: str) -> SummarizePlan:
     head, _, tail = text.partition(" by ")
-    by = tuple(name.strip() for name in tail.split(",") if name.strip()) if tail else ()
+    by = (
+        tuple(_parse_by(name.strip()) for name in _split_bins(tail) if name.strip()) if tail else ()
+    )
     if tail and not by:
         raise UsageFault(SUMMARIZE_MENU + "\n  ('by' needs at least one field)")
     aggregations = tuple(_parse_agg(part.strip()) for part in head.split(",") if part.strip())
     if not aggregations:
         raise UsageFault(SUMMARIZE_MENU + "\n  (name at least one aggregation)")
     return SummarizePlan(aggregations, by)
+
+
+def _split_bins(tail: str) -> list[str]:
+    """Split by-keys on commas outside parens — bin(ts, 1h) survives whole."""
+    parts: list[str] = []
+    depth = 0
+    current = ""
+    for char in tail:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    parts.append(current)
+    return parts
+
+
+def _parse_by(token: str) -> str | BinKey:
+    if not token.startswith("bin(") or not token.endswith(")"):
+        return token
+    inner = token[4:-1]
+    field_name, comma, bucket_text = inner.partition(",")
+    field_name = field_name.strip()
+    if not comma or not field_name:
+        raise UsageFault(SUMMARIZE_MENU + "\n  (bin needs bin(field, bucket) — e.g. bin(ts, 1h))")
+    from sempipe.engine.timebin import parse_bucket
+
+    return BinKey(field_name, parse_bucket(bucket_text.strip()), f"{field_name}_bin")
 
 
 def _parse_agg(token: str) -> Aggregation:
@@ -119,7 +166,7 @@ def fold(plan: SummarizePlan, state: GroupState, record: Mapping[str, object]) -
 
 
 def finish(plan: SummarizePlan, key: tuple[object, ...], state: GroupState) -> dict[str, object]:
-    row: dict[str, object] = dict(zip(plan.by, key, strict=True))
+    row: dict[str, object] = dict(zip(plan.by_names, key, strict=True))
     for aggregation in plan.aggregations:
         row[aggregation.name] = _value(aggregation, state)
     return row
@@ -170,3 +217,18 @@ def _numeric(value: object) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
+
+
+def group_key(plan: SummarizePlan, record: Mapping[str, object]) -> tuple[object, ...]:
+    """The record's group key: plain fields pass through; bin() keys become
+    UTC bucket labels (unparseable timestamps group under null, visibly)."""
+    from sempipe.engine.timebin import bucket_label, parse_timestamp
+
+    parts: list[object] = []
+    for key in plan.by:
+        if isinstance(key, str):
+            parts.append(record.get(key))
+            continue
+        epoch = parse_timestamp(record.get(key.field))
+        parts.append(None if epoch is None else bucket_label(epoch, key.bucket_seconds))
+    return tuple(parts)

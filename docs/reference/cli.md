@@ -79,7 +79,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `getschema` | `--all` (scan past the first 10,000 rows) |
 | `sort` | `--by FIELD` (required), `--desc` |
 | `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
-| `chart` | `FIELD` (or whole lines), `--facet f1,f2,…`, `--top N`, `--save FILE.svg`, `--title` |
+| `chart` | `FIELD` (or whole lines), `--facet f1,f2,…`, `--by-time FIELD:BUCKET`, `--top N`, `--save FILE.svg`, `--title` |
 
 ## `config`
 

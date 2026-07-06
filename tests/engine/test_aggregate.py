@@ -5,14 +5,14 @@ from __future__ import annotations
 import pytest
 
 from sempipe.core.errors import UsageFault
-from sempipe.engine.aggregate import GroupState, finish, fold, parse_summarize
+from sempipe.engine.aggregate import GroupState, finish, fold, group_key, parse_summarize
 
 
 def _summarize(expression: str, records: list[dict[str, object]]) -> list[dict[str, object]]:
     plan = parse_summarize(expression)
     groups: dict[tuple[object, ...], GroupState] = {}
     for record in records:
-        key = tuple(record.get(field) for field in plan.by)
+        key = group_key(plan, record)
         state = groups.setdefault(key, GroupState())
         fold(plan, state, record)
     return [finish(plan, key, state) for key, state in groups.items()]
@@ -72,3 +72,11 @@ def test_count_takes_no_field_and_others_need_one() -> None:
 def test_bare_word_is_stuck_at() -> None:
     with pytest.raises(UsageFault, match="stuck at"):
         parse_summarize("count")
+
+
+def test_bin_groups_by_utc_bucket_label() -> None:
+    plan = parse_summarize("count() by bin(ts, 1h)")
+    key = group_key(plan, {"ts": "2025-01-01T14:38:00Z"})
+    assert key == ("14:00",)
+    assert plan.by_names == ("ts_bin",)
+    assert group_key(plan, {"ts": "junk"}) == (None,)  # unparseable groups under null

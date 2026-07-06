@@ -111,3 +111,40 @@ def test_facet_svg_has_both_panels(tmp_path: object) -> None:
     svg = target.read_text(encoding="utf-8")
     assert svg.count("label") >= 1 and svg.count("sev") >= 1
     assert "Tickets" in svg
+
+
+# --- time buckets (D38/13) ---------------------------------------------------------
+
+
+def test_by_time_is_chronological_and_zero_filled() -> None:
+    out = io.StringIO()
+    ndjson = (
+        '{"ts": "2025-01-01T14:05:00Z"}\n'
+        '{"ts": "2025-01-01T16:10:00Z"}\n'
+        '{"ts": "2025-01-01T14:40:00Z"}\n'
+        '{"ts": "not a time"}\n'
+    )
+    import contextlib
+
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        code = run_chart(ChartRequest(by_time="ts:1h"), stdin=io.StringIO(ndjson), stdout=out)
+    assert code is ExitCode.OK
+    lines = out.getvalue().splitlines()
+    assert lines[0].startswith("14:00") and lines[0].rstrip().endswith("2")
+    assert lines[1].startswith("15:00") and lines[1].rstrip().endswith("0")  # the gap is signal
+    assert lines[2].startswith("16:00")
+    assert "unparseable 'ts'" in err.getvalue()
+
+
+def test_by_time_excludes_field_and_facet() -> None:
+    import pytest
+
+    from sempipe.core.errors import UsageFault
+
+    with pytest.raises(UsageFault, match="--by-time replaces"):
+        run_chart(
+            ChartRequest(field="x", by_time="ts:1h"),
+            stdin=io.StringIO(""),
+            stdout=io.StringIO(),
+        )
