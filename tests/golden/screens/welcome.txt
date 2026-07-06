@@ -2,6 +2,7 @@ sempipe — semantic pipes for your terminal
 
 Verbs (call a model):
   map      Transform each item with a prompt
+  extend   Add extracted fields to each record
   filter   Keep items matching a semantic condition
   embed    Convert items to vector embeddings
   top_k    Rank items by similarity to a query

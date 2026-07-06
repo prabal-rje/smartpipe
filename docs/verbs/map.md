@@ -1,5 +1,8 @@
 # `map` — transform each item
 
+> Need your input record's fields to SURVIVE alongside the extraction?
+> That's [`extend`](extend.md) — map that merges.
+
 Applies a prompt to every input item. One item in, one result out.
 
 ## Examples

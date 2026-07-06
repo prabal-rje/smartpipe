@@ -23,6 +23,7 @@ from sempipe.cli.config_cmd import config_command
 from sempipe.cli.doctor_cmd import doctor_command
 from sempipe.cli.echo_cmd import echo_command
 from sempipe.cli.embed_cmd import embed_command
+from sempipe.cli.extend_cmd import extend_command
 from sempipe.cli.filter_cmd import filter_command
 from sempipe.cli.join_cmd import join_command
 from sempipe.cli.map_cmd import map_command
@@ -63,6 +64,7 @@ def cli() -> None:
 
 
 cli.add_command(map_command)
+cli.add_command(extend_command)
 cli.add_command(filter_command)
 cli.add_command(embed_command)
 cli.add_command(top_k_command)

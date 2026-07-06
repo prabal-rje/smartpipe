@@ -40,6 +40,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`sempipe extend` — your record, plus columns (D38/02).** map's machinery
+  with a merge at the emit edge: every input field survives, extracted fields
+  land beside them (collisions overwrite idempotently, disclosed once per
+  field). Plain lines promote to `{"text": …}` records; `--explode` copies
+  the merged fields onto every row; media-transport b64 never re-emits.
+  The verb dataset owners needed to drop sempipe into the MIDDLE of a
+  pipeline instead of the end.
 - **`sempipe where` — the free filter (D38/01, KQL-inspired).** Deterministic
   predicates (`has`, `contains`, `matches /re/`, `==/!=/>/>=/</<=`, and/or/not)
   cut the corpus BEFORE any paid stage: `where 'text has "ERROR"' | filter …`.

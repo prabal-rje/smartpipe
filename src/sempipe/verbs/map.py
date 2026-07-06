@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from sempipe.io.writers import OutputFormat, ResultWriter
     from sempipe.models.base import ChatModel, MediaData, ModelRef
 
-__all__ = ["MapContext", "MapRequest", "run_map"]
+__all__ = ["MapContext", "MapRequest", "map_one", "run_map"]
 
 _PROMPT_OVERHEAD_TOKENS = 500  # instruction + wrapper + reply headroom
 
@@ -134,7 +134,7 @@ async def run_map(
         if budget is not None:
             # D26: silently chunking would change what was asked — teach the pipeline
             raise ItemError(gate.refusal(item.text, budget))
-        return await _map_one(model, plan, instruction, item, log)
+        return await map_one(model, plan, instruction, item, log)
 
     done = 0
     skipped = 0
@@ -170,7 +170,7 @@ async def run_map(
     return outcome_exit_code(done=done, skipped=skipped)
 
 
-async def _map_one(
+async def map_one(
     model: ChatModel,
     plan: MapPlan,
     instruction: str,
