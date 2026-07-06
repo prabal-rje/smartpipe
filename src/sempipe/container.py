@@ -37,9 +37,12 @@ from sempipe.models.ollama import (
     resolve_host,
 )
 from sempipe.models.openai_compat import (
+    GEMINI_WIRE,
     MISTRAL_WIRE,
+    OPENROUTER_WIRE,
     OpenAIChatModel,
     OpenAIEmbeddingModel,
+    WireConfig,
     require_api_key,
     resolve_base_url,
 )
@@ -170,17 +173,34 @@ class AppContainer:
                 return self._build_openai_chat(ref)
             case "anthropic":
                 return build_anthropic_chat_model(ref)
-            case "mistral":  # same wire as OpenAI, parametrized (workstream 10)
-                return OpenAIChatModel(
-                    ref=ref,
-                    client=self.http_client,
-                    base_url=resolve_base_url(self.env, MISTRAL_WIRE),
-                    api_key=require_api_key(self.env, ref.name, MISTRAL_WIRE),
-                    retry=self.retry,
-                    wire=MISTRAL_WIRE,
-                )
+            case "mistral":  # the parametrized OpenAI wire (workstream 10)
+                return self._wire_chat(ref, MISTRAL_WIRE)
+            case "gemini":  # live-scouted: the compat endpoint speaks our path shape
+                return self._wire_chat(ref, GEMINI_WIRE)
+            case "openrouter":
+                return self._wire_chat(ref, OPENROUTER_WIRE)
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)
+
+    def _wire_chat(self, ref: ModelRef, wire: WireConfig) -> ChatModel:
+        return OpenAIChatModel(
+            ref=ref,
+            client=self.http_client,
+            base_url=resolve_base_url(self.env, wire),
+            api_key=require_api_key(self.env, ref.name, wire),
+            retry=self.retry,
+            wire=wire,
+        )
+
+    def _wire_embed(self, ref: ModelRef, wire: WireConfig) -> EmbeddingModel:
+        return OpenAIEmbeddingModel(
+            ref=ref,
+            client=self.http_client,
+            base_url=resolve_base_url(self.env, wire),
+            api_key=require_api_key(self.env, ref.name, wire),
+            retry=self.retry,
+            wire=wire,
+        )
 
     def _build_embed(self, ref: ModelRef) -> EmbeddingModel:
         match ref.provider:
@@ -200,14 +220,11 @@ class AppContainer:
                     "  sempipe config embed-model nomic-embed-text"
                 )
             case "mistral":  # mistral-embed rides the same /v1/embeddings wire
-                return OpenAIEmbeddingModel(
-                    ref=ref,
-                    client=self.http_client,
-                    base_url=resolve_base_url(self.env, MISTRAL_WIRE),
-                    api_key=require_api_key(self.env, ref.name, MISTRAL_WIRE),
-                    retry=self.retry,
-                    wire=MISTRAL_WIRE,
-                )
+                return self._wire_embed(ref, MISTRAL_WIRE)
+            case "gemini":
+                return self._wire_embed(ref, GEMINI_WIRE)
+            case "openrouter":
+                return self._wire_embed(ref, OPENROUTER_WIRE)
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)
 

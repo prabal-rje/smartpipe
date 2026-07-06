@@ -350,3 +350,22 @@ async def test_other_400s_stay_item_errors(
     )
     with pytest.raises(ItemError, match="openai error 400"):
         await _chat(client).complete(CompletionRequest(system=None, user="x"))
+
+
+async def test_embeddings_without_index_fall_back_to_arrival_order(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    # live-caught: Gemini's compat endpoint omits the "index" field
+    respx_mock.post(f"{MISTRAL_BASE}/v1/embeddings").mock(
+        return_value=httpx.Response(
+            200, json={"data": [{"embedding": [0.1, 0.2]}, {"embedding": [0.3, 0.4]}]}
+        )
+    )
+    model = OpenAIEmbeddingModel(
+        ref=parse_model_ref("mistral-embed"),
+        client=client,
+        base_url=MISTRAL_BASE,
+        api_key="k",
+        retry=FAST_RETRY,
+    )
+    assert await model.embed(["a", "b"]) == ((0.1, 0.2), (0.3, 0.4))

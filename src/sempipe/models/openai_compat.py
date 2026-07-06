@@ -28,8 +28,10 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DEFAULT_BASE_URL",
+    "GEMINI_WIRE",
     "MISTRAL_WIRE",
     "OPENAI_WIRE",
+    "OPENROUTER_WIRE",
     "OpenAIChatModel",
     "OpenAIEmbeddingModel",
     "WireConfig",
@@ -69,6 +71,27 @@ MISTRAL_WIRE = WireConfig(
     key_env="MISTRAL_API_KEY",
     key_hint="...",
     key_note="create one at console.mistral.ai",
+)
+
+GEMINI_WIRE = WireConfig(
+    provider="gemini",
+    display="Gemini",
+    # live-scouted: the compat endpoint tolerates our /v1/... path shape
+    default_base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+    base_url_env="SEMPIPE_GEMINI_BASE_URL",
+    key_env="GEMINI_API_KEY",
+    key_hint="...",
+    key_note="create one at aistudio.google.com",
+)
+
+OPENROUTER_WIRE = WireConfig(
+    provider="openrouter",
+    display="OpenRouter",
+    default_base_url="https://openrouter.ai/api",
+    base_url_env="SEMPIPE_OPENROUTER_BASE_URL",
+    key_env="OPENROUTER_API_KEY",
+    key_hint="sk-or-...",
+    key_note="create one at openrouter.ai/keys",
 )
 
 DEFAULT_BASE_URL = OPENAI_WIRE.default_base_url
@@ -147,13 +170,14 @@ class OpenAIEmbeddingModel:
         if rows is None:
             raise ItemError("embedding endpoint returned an unexpected shape")
         indexed: list[tuple[int, tuple[float, ...]]] = []
-        for row in rows:
+        for position, row in enumerate(rows):
             entry = as_record(row)
-            index = entry.get("index") if entry is not None else None
             vector = as_float_vector(entry.get("embedding")) if entry is not None else None
-            if not isinstance(index, int) or vector is None:
+            if entry is None or vector is None:
                 raise ItemError("embedding endpoint returned an unexpected shape")
-            indexed.append((index, vector))
+            index = entry.get("index")
+            # live-caught: Gemini's compat endpoint omits "index" — arrival order then
+            indexed.append((index if isinstance(index, int) else position, vector))
         return tuple(vector for _, vector in sorted(indexed))
 
 

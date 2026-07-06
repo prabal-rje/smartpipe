@@ -25,11 +25,14 @@ Ollama is found, it prints a short setup screen and stops.
 You name a model with a string. Two forms:
 
 - **Explicit provider:** `ollama/qwen3:8b`, `openai/gpt-4o-mini`,
-  `anthropic/claude-opus-4-8`, `mistral/mistral-large-latest`.
+  `anthropic/claude-opus-4-8`, `mistral/mistral-large-latest`,
+  `gemini/gemini-2.5-flash`, `openrouter/deepseek/deepseek-chat`
+  (OpenRouter is explicit-only — its names are other vendors' names).
 - **Bare name:** sempipe routes by shape — `claude-*` → Anthropic, `gpt-*` / `o*` /
   `text-embedding-*` → OpenAI, the Mistral family (`mistral-*`, `ministral-*`,
   `codestral-*`, `magistral-*`, `devstral-*`, `pixtral-*`, `open-mistral-*`,
-  `open-mixtral-*`) → Mistral, anything else → Ollama. So `gpt-4o-mini` and
+  `open-mixtral-*`, `voxtral-*`) → Mistral, `gemini-*` → Gemini, anything else
+  → Ollama. OpenRouter never routes bare. So `gpt-4o-mini` and
   `openai/gpt-4o-mini` mean the same thing.
 
 Namespaced Ollama models keep working as bare names too: `hf.co/org/model` routes to
@@ -44,6 +47,8 @@ Keys are read from the environment and **never stored** in sempipe's config:
 $ export OPENAI_API_KEY=sk-...
 $ export ANTHROPIC_API_KEY=sk-ant-...
 $ export MISTRAL_API_KEY=...            # console.mistral.ai
+$ export GEMINI_API_KEY=...             # aistudio.google.com
+$ export OPENROUTER_API_KEY=sk-or-...   # openrouter.ai/keys
 ```
 
 Claude models also need an optional package: `pip install 'sempipe[anthropic]'`.
@@ -79,6 +84,17 @@ What to know:
   tools. OpenAI's login uses the same public OAuth client the Codex CLI and other
   open-source tools use, and sempipe identifies itself honestly (`originator:
   sempipe`).
+
+## Forcing a path (D24)
+
+There is deliberately no `--auth` knob and no `--api-key`/`--base-url` flags
+(argv leaks into `ps` and shell history). The environment *is* the override:
+
+```console
+$ OPENAI_API_KEY=sk-... sempipe map …          # force the key path
+$ env -u OPENAI_API_KEY sempipe map …          # force the ChatGPT login path
+$ SEMPIPE_OPENAI_BASE_URL=https://… sempipe …  # point the wire elsewhere
+```
 
 ## Setting a default
 

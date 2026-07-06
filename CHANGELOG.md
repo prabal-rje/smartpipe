@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Gemini and OpenRouter, first-class.** `--model gemini-2.5-flash` (bare
+  `gemini-*` routes; Google's OpenAI-compat endpoint, live-verified) and
+  `--model openrouter/vendor/model` (explicit-only — OpenRouter names are other
+  vendors' names, so bare prefixes never hijack) — chat, structured output,
+  embeddings where the endpoint carries them, the same retry/Retry-After
+  resilience, `GEMINI_API_KEY`/`OPENROUTER_API_KEY`, per-wire base-URL env
+  vars. No attribution headers are sent to OpenRouter (telemetry-adjacent,
+  D24). And the auth surface stays small, deliberately: no `--auth` cascade
+  knob, no `--api-key`/`--base-url` argv (leaks into `ps`/history) — the
+  documented override is the environment itself.
 - **The schema-authoring ladder (D22).** Three new rungs between braces and a
   hand-written file: `{vendor: the supplier name}` brace *descriptions* (plain
   English guidance riding the synthesized schema, map only);

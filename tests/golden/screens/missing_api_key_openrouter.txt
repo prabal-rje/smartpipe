@@ -1,0 +1,3 @@
+error: model 'openrouter/deepseek/deepseek-chat' needs an OpenRouter API key
+  sempipe found no OPENROUTER_API_KEY in the environment. Keys are never stored in config.
+  Fix: export OPENROUTER_API_KEY=sk-or-...        (create one at openrouter.ai/keys)

@@ -1,0 +1,3 @@
+error: model 'gemini-2.5-flash' needs a Gemini API key
+  sempipe found no GEMINI_API_KEY in the environment. Keys are never stored in config.
+  Fix: export GEMINI_API_KEY=...        (create one at aistudio.google.com)

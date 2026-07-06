@@ -33,7 +33,7 @@ __all__ = [
     "parse_model_ref",
 ]
 
-Provider = Literal["ollama", "openai", "anthropic", "mistral"]
+Provider = Literal["ollama", "openai", "anthropic", "mistral", "gemini", "openrouter"]
 
 _OPENAI_PREFIXES = ("gpt-", "chatgpt-", "text-embedding-")
 _OPENAI_O_SERIES = re.compile(r"o\d")
@@ -109,7 +109,7 @@ def parse_model_ref(text: str) -> ModelRef:
     prefix, slash, rest = cleaned.partition("/")
     if slash:
         match prefix:
-            case "ollama" | "openai" | "anthropic" | "mistral":
+            case "ollama" | "openai" | "anthropic" | "mistral" | "gemini" | "openrouter":
                 if not rest:
                     raise UsageFault(f"model '{cleaned}' is missing a name after '{prefix}/'")
                 return ModelRef(provider=prefix, name=rest)
@@ -121,4 +121,8 @@ def parse_model_ref(text: str) -> ModelRef:
         return ModelRef(provider="openai", name=cleaned)
     if not slash and cleaned.startswith(_MISTRAL_PREFIXES):
         return ModelRef(provider="mistral", name=cleaned)
+    if not slash and cleaned.startswith("gemini-"):
+        return ModelRef(provider="gemini", name=cleaned)
+    # openrouter is explicit-only: its names ARE other vendors' names — a bare
+    # prefix would hijack every routing rule above (D24 commit)
     return ModelRef(provider="ollama", name=cleaned)

@@ -39,6 +39,14 @@ from sempipe.models.base import parse_model_ref
         ("hf.co/org/model", "ollama", "hf.co/org/model"),
         # a namespaced name must NEVER be hijacked by the bare Mistral prefixes
         ("hf.co/mistralai/Mistral-7B-v0.3", "ollama", "hf.co/mistralai/Mistral-7B-v0.3"),
+        # gemini: explicit + bare prefix (workstream post-1.1/03)
+        ("gemini/gemini-2.5-flash", "gemini", "gemini-2.5-flash"),
+        ("gemini-2.5-flash-lite", "gemini", "gemini-2.5-flash-lite"),
+        # openrouter: EXPLICIT ONLY — its names are other vendors' names (D24)
+        ("openrouter/deepseek/deepseek-chat", "openrouter", "deepseek/deepseek-chat"),
+        ("openrouter/anthropic/claude-3.5-haiku", "openrouter", "anthropic/claude-3.5-haiku"),
+        # a bare vendor-ish name still routes by the OLD rules, never to openrouter
+        ("deepseek-chat", "ollama", "deepseek-chat"),
     ],
 )
 def test_routing(text: str, provider: str, name: str) -> None:

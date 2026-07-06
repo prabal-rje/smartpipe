@@ -44,7 +44,7 @@ $ sempipe config model ollama/qwen3:8b
 
 ### Path B — cloud
 
-If you have an API key (from OpenAI, Anthropic, or Mistral), point sempipe at a cloud model.
+If you have an API key (OpenAI, Anthropic, Mistral, Gemini, or OpenRouter), point sempipe at a cloud model.
 Cloud models are typically faster and stronger, and cost a small amount per use.
 
 ```console

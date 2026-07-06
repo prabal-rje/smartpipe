@@ -194,3 +194,31 @@ async def test_mistral_base_url_override(client: httpx.AsyncClient) -> None:
     model = await container.chat_model()
     assert isinstance(model, OpenAIChatModel)
     assert model.base_url == "http://proxy:9999"
+
+
+async def test_builds_gemini_chat_on_the_compat_wire(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client, env={"GEMINI_API_KEY": "g-x"}, config=Config(model="gemini-2.5-flash")
+    )
+    model = await container.chat_model()
+    assert isinstance(model, OpenAIChatModel)
+    assert model.base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
+    assert model.wire.key_env == "GEMINI_API_KEY"
+
+
+async def test_gemini_without_key_names_the_env_var(client: httpx.AsyncClient) -> None:
+    container = _container(client, config=Config(model="gemini-2.5-flash"))
+    with pytest.raises(SetupFault, match="GEMINI_API_KEY"):
+        await container.chat_model()
+
+
+async def test_builds_openrouter_chat_with_slashed_name(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client,
+        env={"OPENROUTER_API_KEY": "or-x"},
+        config=Config(model="openrouter/deepseek/deepseek-chat"),
+    )
+    model = await container.chat_model()
+    assert isinstance(model, OpenAIChatModel)
+    assert model.ref.name == "deepseek/deepseek-chat"  # the slashed name survives whole
+    assert model.base_url == "https://openrouter.ai/api"

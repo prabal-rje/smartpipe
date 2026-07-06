@@ -27,6 +27,8 @@ _CONTEXT: dict[str, int] = {
     "openai": 128000,
     "anthropic": 200000,
     "mistral": 128000,
+    "gemini": 128000,  # conservative: flash models carry ≥1M, but budget for the floor
+    "openrouter": 32000,  # unknowable per-model — the safe floor for routed models
 }
 _SAFETY = 0.6
 _CHARS_PER_TOKEN = 4
