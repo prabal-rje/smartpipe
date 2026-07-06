@@ -27,11 +27,18 @@ __all__ = ["embed_command"]
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @fields_option
+@click.option(
+    "--allow-captions",
+    "allow_captions",
+    is_flag=True,
+    help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
+)
 @input_options
 def embed_command(
     model_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
+    allow_captions: bool,
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
@@ -47,6 +54,7 @@ def embed_command(
     embedding model, and exists to feed 'top_k'.
     """
     request = EmbedRequest(
+        allow_captions=allow_captions,
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,
         input=input_spec(in_patterns, from_files=from_files),

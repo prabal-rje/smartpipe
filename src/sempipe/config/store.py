@@ -56,7 +56,10 @@ _EMPTY_PROFILE: Mapping[str, object] = {}
 BUILTIN_PROFILES: Mapping[str, Mapping[str, object]] = {
     "openai": {"model": "gpt-4o-mini", "embed-model": "text-embedding-3-small"},
     "gemini": {"model": "gemini-2.5-flash", "embed-model": "gemini/gemini-embedding-001"},
-    "local": {"model": "ollama/gemma-4-e2b"},  # multimodal 2.3B-effective, 128k
+    "local": {
+        "model": "ollama/gemma-4-e2b",  # multimodal 2.3B-effective, 128k
+        "embed-model": "ollama/embeddinggemma",  # the pivot anchor: 308M, multilingual
+    },
 }
 
 

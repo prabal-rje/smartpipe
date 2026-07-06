@@ -6,6 +6,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **One embedding space: everything converts to text (D33).** Images and
+  audio now enter `embed`/`top_k`/`filter`/`reduce`/`join` through an LLM
+  conversion ladder — a hearing model transcribes speech verbatim or
+  *describes non-speech sound* (the gap whisper could never cover); a vision
+  model describes images including their visible text; whisper remains audio's
+  free fallback. The cost fence: a **local** model converts automatically and
+  free; a **cloud** model converts only behind `--allow-captions` (one flag,
+  both modalities). Every conversion is a per-row `⚠ degraded:` line. Swapping
+  embedding models changes nothing — the embedder only ever sees words. The
+  `local` profile anchors the space with `embeddinggemma` (multilingual,
+  308 M). Live-proven: a PDF-embedded figure captioned by a vision model, then
+  ranked first (0.90) for "a noisy gradient from red to blue"; without the
+  flag, the pinned skip line and zero paid conversions. CLIP-class and
+  unified-space models (jina-clip-v2, OmniEmbed, mm-embed-small) are recorded,
+  evidence-gated candidates — none ship.
 - **`doctor --probe`: the modality matrix (D31).** Four tiny paid calls
   (announced first; plain `doctor` stays free) chart which modalities actually
   reach your configured chat and embed models — text, image, audio, video

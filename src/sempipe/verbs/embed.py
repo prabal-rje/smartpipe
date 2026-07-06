@@ -29,13 +29,14 @@ from sempipe.verbs.common import (
     interrupted_exit_code,
     outcome_exit_code,
 )
+from sempipe.verbs.convert import Converter, make_converter
 
 if TYPE_CHECKING:
     from typing import TextIO
 
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
-    from sempipe.models.base import EmbeddingModel
+    from sempipe.models.base import ChatModel, EmbeddingModel
 
 __all__ = ["EmbedContext", "EmbedRequest", "run_embed"]
 
@@ -44,11 +45,13 @@ __all__ = ["EmbedContext", "EmbedRequest", "run_embed"]
 class EmbedRequest:
     model_flag: str | None
     concurrency_flag: int | None
+    allow_captions: bool = False  # cloud conversions opt-in (D33)
     input: InputSpec = STDIN
     fields: tuple[str, ...] | None = None  # --fields: project the {text, vector, source} records
 
 
 class EmbedContext(Protocol):
+    async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
     def concurrency(self, flag: int | None = None) -> int: ...
 
@@ -75,6 +78,9 @@ async def run_embed(
     spinner = make_stderr_spinner()
     spinner.start(total=total)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    converter = make_converter(
+        await _optional_chat(context), allow_paid=request.allow_captions, log=log
+    )
 
     done = 0
     skipped = 0
@@ -84,13 +90,18 @@ async def run_embed(
         # from the per-item fallback inside embed_in_batches)
         collected = [item async for item in items_iter]
         outcomes = embed_in_batches(
-            model, collected, failure_policy=FailurePolicy(), stop=stop, log=log
+            model,
+            collected,
+            failure_policy=FailurePolicy(),
+            stop=stop,
+            log=log,
+            converter=converter,
         )
     else:
         # live stream: one item per call — latency beats throughput
 
         async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
-            return item, await _embed_one(model, item, log)
+            return item, await _embed_one(model, item, log, converter)
 
         outcomes = run_ordered(
             items_iter,
@@ -125,9 +136,21 @@ async def run_embed(
     return outcome_exit_code(done=done, skipped=skipped)
 
 
+async def _optional_chat(context: EmbedContext) -> ChatModel | None:
+    """The converter's LLM rung — absent when no chat model is configured;
+    embedding never fails because chat isn't set up (D33)."""
+    try:
+        return await context.chat_model()
+    except Exception:
+        return None
+
+
 async def _embed_one(
-    model: EmbeddingModel, item: Item, log: diagnostics.DegradationLog
+    model: EmbeddingModel,
+    item: Item,
+    log: diagnostics.DegradationLog,
+    converter: Converter,
 ) -> tuple[float, ...]:
-    item = await ensure_text(item, log=log)  # image skips; audio/video convert, row-noted
+    item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
     vectors = await model.embed([item.text])
     return vectors[0]

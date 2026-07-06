@@ -117,7 +117,7 @@ output) under a name. Three ship built in:
 |---|---|---|---|
 | `openai` | gpt-4o-mini | text-embedding-3-small | the fast cloud default |
 | `gemini` | gemini-2.5-flash | gemini/gemini-embedding-001 | the most multimodal wire |
-| `local` | ollama/gemma-4-e2b | (your Ollama default) | multimodal, nothing leaves the machine |
+| `local` | ollama/gemma-4-e2b | embeddinggemma | multimodal, nothing leaves the machine |
 
 ```console
 $ sempipe config profile              # list (the active one marked)

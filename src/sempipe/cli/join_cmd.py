@@ -80,6 +80,12 @@ __all__ = ["join_command"]
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel left items.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @fields_option
+@click.option(
+    "--allow-captions",
+    "allow_captions",
+    is_flag=True,
+    help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
+)
 @input_options
 def join_command(
     predicate: str | None,
@@ -93,6 +99,7 @@ def join_command(
     output: str,
     concurrency_flag: int | None,
     max_calls: int | None,
+    allow_captions: bool,
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
@@ -111,6 +118,7 @@ def join_command(
     Output: {"left": {...}, "right": {...}, "_score": ...} per matched pair.
     """
     request = JoinRequest(
+        allow_captions=allow_captions,
         predicate=resolve_prompt(predicate, prompt_file),
         right=right,
         k=k,

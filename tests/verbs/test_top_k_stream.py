@@ -14,7 +14,7 @@ from sempipe.core.errors import ExitCode, UsageFault
 from sempipe.engine.ranking import board_insert
 from sempipe.io.inputs import InputSpec
 from sempipe.io.leaderboard import render_frame
-from sempipe.models.base import ModelRef
+from sempipe.models.base import ChatModel, ModelRef
 from sempipe.verbs.top_k import TopKRequest, run_top_k
 
 if TYPE_CHECKING:
@@ -87,6 +87,11 @@ class FakeContext:
 
     async def embedding_model(self, flag: str | None = None) -> FakeEmbed:
         return self.model
+
+    async def chat_model(self, flag: str | None = None) -> ChatModel:
+        from sempipe.core.errors import SetupFault
+
+        raise SetupFault("no chat configured")
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic arrival order for the snapshot transcript

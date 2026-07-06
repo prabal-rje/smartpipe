@@ -154,18 +154,21 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
     ),
     "filter": (
         ("prompt", _str_key(_positional)),
+        ("allow-captions", _bool_key(_switch("--allow-captions"))),
         ("prompt-file", _str_key(_prompt_file)),
         ("model", _str_key(_flag("--model"))),
         ("not", _bool_key(_switch("--not"))),
         *_COMMON_TAIL,
     ),
     "embed": (
+        ("allow-captions", _bool_key(_switch("--allow-captions"))),
         ("embed-model", _str_key(_flag("--embed-model"))),
         ("fields", _list_key(_fields_arg)),
         *_COMMON_TAIL,
     ),
     "top_k": (
         ("k", _int_key(_positional)),
+        ("allow-captions", _bool_key(_switch("--allow-captions"))),
         ("near", _str_key(_flag("--near"))),
         ("threshold", _num_key(_flag("--threshold"))),
         ("embed-model", _str_key(_flag("--embed-model"))),
@@ -182,6 +185,7 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
     ),
     "join": (
         ("prompt", _str_key(_positional)),
+        ("allow-captions", _bool_key(_switch("--allow-captions"))),
         ("prompt-file", _str_key(_prompt_file)),
         ("right", _str_key(_right)),
         ("k", _int_key(_flag("--k"))),
@@ -194,6 +198,7 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
     ),
     "reduce": (
         ("prompt", _str_key(_positional)),
+        ("allow-captions", _bool_key(_switch("--allow-captions"))),
         ("prompt-file", _str_key(_prompt_file)),
         ("model", _str_key(_flag("--model"))),
         ("group-by", _str_key(_flag("--group-by"))),

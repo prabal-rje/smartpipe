@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from sempipe.core.errors import ExitCode, ItemError
-from sempipe.models.base import ModelRef
+from sempipe.models.base import ChatModel, ModelRef
 from sempipe.verbs.embed import EmbedRequest, run_embed
 
 if TYPE_CHECKING:
@@ -38,6 +38,11 @@ class FakeContext:
 
     async def embedding_model(self, flag: str | None = None) -> FakeEmbed:
         return self.model
+
+    async def chat_model(self, flag: str | None = None) -> ChatModel:
+        from sempipe.core.errors import SetupFault
+
+        raise SetupFault("no chat configured — the converter takes the lower rungs")
 
     def concurrency(self, flag: int | None = None) -> int:
         return 2

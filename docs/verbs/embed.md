@@ -44,14 +44,25 @@ up to 64 texts per call — 64× fewer round-trips, and if a chunk fails it is
 retried one item at a time so a single bad item skips alone. Piped input stays
 one item per call: on a live stream, latency beats throughput.
 
-## Media items (images, audio)
+## Media items: one text space, everything converts in (D33)
 
-`embed` and `top_k` rank **text**. Audio items transcribe on demand when the
-`[audio]` extra is installed; image items skip with a pointer to `map`. True
-multimodal embeddings wait on a provider wire that carries them (none of the
-wired providers' embedding endpoints do today — this is a recorded gate, not an
-oversight). To rank audio by content deliberately: transcribe first with
-`map "transcribe this" --in 'calls/*.wav'`, then embed the transcripts.
+`embed` and `top_k` rank **text** — and every other modality converts into that
+space through a ladder, per item, disclosed per row:
+
+- **audio** → a chat model that hears ("transcribe verbatim; if it isn't
+  speech, describe the sound" — this covers non-speech audio) → whisper →
+  skip. A **local** model converts free and automatically; a **cloud** model
+  converts only with `--allow-captions`.
+- **images** → a vision chat model describes them (including visible text) —
+  same fence: local free and automatic, cloud behind `--allow-captions`; no
+  free non-LLM rung exists, so without either the item skips, naming both
+  fixes.
+- **video** → the audio track through the audio row (frames are map's job).
+
+Swapping embedding models changes none of this: the converter runs before
+embedding and belongs to the *chat* model's capabilities, so the embedder only
+ever sees words. The `local` profile anchors the space with `embeddinggemma`
+(multilingual, 2k context, ~20 ms/item).
 
 ## Items bigger than the embedding window
 

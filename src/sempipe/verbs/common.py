@@ -16,6 +16,7 @@ from sempipe.engine.runner import (
 )
 from sempipe.io import diagnostics
 from sempipe.models.base import AudioData, ImageData, VideoData
+from sempipe.verbs.convert import Converter
 
 if TYPE_CHECKING:
     import asyncio
@@ -92,24 +93,31 @@ async def ensure_text(
     *,
     transcriber: Callable[[AudioData], str] = transcribe,
     log: diagnostics.DegradationLog | None = None,
+    converter: Converter | None = None,
 ) -> Item:
-    """Non-map verbs read text (D20/D32): audio/video parts transcribe (row-noted),
-    figure parts drop when text exists (row-noted), and image-ONLY items keep the
-    needs-map skip."""
+    """Non-map verbs read text (D20/D32/D33): media parts convert to text through
+    the ladder — an LLM when the cost fence allows (free local: automatic; cloud:
+    behind --allow-captions), whisper for audio beneath it — every conversion
+    row-noted. Image-ONLY items with no conversion available keep the skip."""
     if not item.media:
         return item
     import asyncio
 
     from sempipe.io.items import describe_source
 
+    where = describe_source(item.source)
     text = item.text
+    figures: list[ImageData] = []
     for part in item.media:
         match part:
             case AudioData() as audio:
-                transcript = await asyncio.to_thread(transcriber, audio)
+                if converter is not None:
+                    transcript = await converter.audio_to_text(audio, where)
+                else:
+                    transcript = await asyncio.to_thread(transcriber, audio)
+                    if log is not None:
+                        log.note(where, "audio → text", _whisper_detail())
                 text = f"{text}\n\n{transcript}".strip() if text else transcript
-                if log is not None:
-                    log.note(describe_source(item.source), "audio → text", _whisper_detail())
             case VideoData() as video:
                 from sempipe.parsing.extract import video_to_parts
 
@@ -119,29 +127,60 @@ async def ensure_text(
                         "this video has no audio track — text verbs read text; "
                         "map can see its frames"
                     )
-                transcript = await asyncio.to_thread(transcriber, parts.track)
-                text = f"{text}\n\n{transcript}".strip() if text else transcript
+                if converter is not None:
+                    transcript = await converter.audio_to_text(parts.track, where)
+                else:
+                    transcript = await asyncio.to_thread(transcriber, parts.track)
                 if log is not None:
                     log.note(
-                        describe_source(item.source),
+                        where,
                         "video → text",
-                        "audio track transcribed; frames dropped — map sees frames",
+                        "audio track converted; frames dropped — map sees frames",
                     )
-            case ImageData():
-                pass  # handled below, once, so the count is per item
+                text = f"{text}\n\n{transcript}".strip() if text else transcript
+            case ImageData() as image:
+                figures.append(image)
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)
-    figures = sum(1 for part in item.media if isinstance(part, ImageData))
-    if figures and not text:
-        raise ItemError(IMAGE_NEEDS_MAP)
-    if figures and log is not None:
-        plural = "s" if figures != 1 else ""
-        log.note(
-            describe_source(item.source),
-            "figures dropped",
-            f"{figures} image{plural} — this verb reads text; map sees figures",
-        )
+    if figures:
+        text = await _figures_to_text(figures, text, where, log=log, converter=converter)
     return replace(item, text=text, media=())
+
+
+async def _figures_to_text(
+    figures: list[ImageData],
+    text: str,
+    where: str,
+    *,
+    log: diagnostics.DegradationLog | None,
+    converter: Converter | None,
+) -> str:
+    """Captions when the fence allows; a mixed item degrades to text-only (noted)
+    when it doesn't; an image-ONLY item skips with the two-fix line (D33)."""
+    if converter is not None:
+        try:
+            captions = [await converter.image_to_text(figure, where) for figure in figures]
+        except ItemError:
+            if not text:
+                raise  # image-only: the converter's message names both fixes
+            captions = None
+        if captions is not None:
+            described = "\n\n".join(
+                f"[figure {position}] {caption}"
+                for position, caption in enumerate(captions, start=1)
+            )
+            return f"{text}\n\n{described}".strip() if text else described
+    if not text:
+        raise ItemError(IMAGE_NEEDS_MAP)
+    if log is not None:
+        plural = "s" if len(figures) != 1 else ""
+        log.note(
+            where,
+            "figures dropped",
+            f"{len(figures)} image{plural} — captions convert them "
+            "(free with a local vision model, --allow-captions for cloud)",
+        )
+    return text
 
 
 def _whisper_detail() -> str:
@@ -240,6 +279,7 @@ async def embed_in_batches(
     stop: asyncio.Event | None = None,
     transcriber: Callable[[AudioData], str] = transcribe,
     log: diagnostics.DegradationLog | None = None,
+    converter: Converter | None = None,
 ) -> AsyncIterator[ItemOutcome[tuple[Item, tuple[float, ...]]]]:
     """Embed a finite corpus in ≤``batch_size`` chunks, sequentially (DEFER-3).
 
@@ -326,7 +366,9 @@ async def embed_in_batches(
             return
         if item.media:
             try:
-                item = await ensure_text(item, transcriber=transcriber, log=log)
+                item = await ensure_text(
+                    item, transcriber=transcriber, log=log, converter=converter
+                )
             except ItemError as exc:
                 skip = Skipped(item.source.index, str(exc), item.source)
                 account(skip)

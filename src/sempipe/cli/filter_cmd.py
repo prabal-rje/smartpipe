@@ -29,6 +29,12 @@ __all__ = ["filter_command"]
 @click.option("--model", "model_flag", help="Model for this run.")
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@click.option(
+    "--allow-captions",
+    "allow_captions",
+    is_flag=True,
+    help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
+)
 @input_options
 def filter_command(
     condition: str | None,
@@ -37,6 +43,7 @@ def filter_command(
     model_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
+    allow_captions: bool,
     in_patterns: tuple[str, ...],
     from_files: bool,
 ) -> None:
@@ -52,6 +59,7 @@ def filter_command(
     matching filenames). Zero matches is a successful (exit 0) empty result.
     """
     request = FilterRequest(
+        allow_captions=allow_captions,
         condition=resolve_prompt(condition, prompt_file),
         invert=invert,
         model_flag=model_flag,

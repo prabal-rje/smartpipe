@@ -20,7 +20,7 @@ from sempipe.core.errors import ExitCode, ItemError, TooManyFailures
 from sempipe.engine.runner import Done, FailurePolicy
 from sempipe.io.inputs import InputSpec
 from sempipe.io.items import item_from_line
-from sempipe.models.base import ModelRef
+from sempipe.models.base import ChatModel, ModelRef
 from sempipe.verbs.common import batched, embed_in_batches
 from sempipe.verbs.embed import EmbedRequest, run_embed
 
@@ -55,6 +55,11 @@ class FakeContext:
 
     async def embedding_model(self, flag: str | None = None) -> BatchFake:
         return self.model
+
+    async def chat_model(self, flag: str | None = None) -> ChatModel:
+        from sempipe.core.errors import SetupFault
+
+        raise SetupFault("no chat configured — the converter takes the lower rungs")
 
     def concurrency(self, flag: int | None = None) -> int:
         return 2

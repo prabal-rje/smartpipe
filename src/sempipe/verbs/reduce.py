@@ -43,6 +43,7 @@ from sempipe.verbs.common import (
     outcome_exit_code,
     resolve_schema,
 )
+from sempipe.verbs.convert import make_converter
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -73,6 +74,7 @@ class ReduceRequest:
     every: int | None = None  # --every M: sliding stride (default: tumbling)
     fields: tuple[str, ...] | None = None  # --fields: project structured output
     schema_dsl: str | None = None  # --schema-from (rung 3, D22)
+    allow_captions: bool = False  # cloud conversions opt-in (D33)
 
 
 class ReduceContext(Protocol):
@@ -118,13 +120,14 @@ async def run_reduce(
     items: list[Item] = []
     media_skipped = 0
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    model = await context.chat_model(request.model_flag)
+    converter = make_converter(model, allow_paid=request.allow_captions, log=log)
     for candidate in collected:
         try:
-            items.append(await ensure_text(candidate, log=log))  # converts, row-noted
+            items.append(await ensure_text(candidate, log=log, converter=converter))
         except ItemError as exc:
             diagnostics.warn(f"skipped: {describe_source(candidate.source)} ({exc})")
             media_skipped += 1
-    model = await context.chat_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
     structured = schema is not None
     writer = context.writer(
@@ -210,6 +213,7 @@ async def _run_windowed(
         window_budget=_window_budget(context, model),
     )
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    converter = make_converter(model, allow_paid=request.allow_captions, log=log)
     buffer: WindowBuffer[str] = WindowBuffer(policy)
     produced = 0
     failed = 0
@@ -233,7 +237,7 @@ async def _run_windowed(
         async for item in items_iter:
             if item.media:
                 try:
-                    item = await ensure_text(item, log=log)  # converts, row-noted
+                    item = await ensure_text(item, log=log, converter=converter)
                 except ItemError as exc:
                     diagnostics.warn(f"skipped: {describe_source(item.source)} ({exc})")
                     failed += 1

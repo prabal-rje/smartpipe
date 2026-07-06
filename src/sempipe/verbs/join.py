@@ -45,6 +45,7 @@ from sempipe.verbs.common import (
     interrupted_exit_code,
     outcome_exit_code,
 )
+from sempipe.verbs.convert import Converter, make_converter
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -74,6 +75,7 @@ class JoinRequest:
     input: InputSpec = STDIN
     fields: tuple[str, ...] | None = None
     unmatched: Path | None = None  # write zero-match left items here, verbatim
+    allow_captions: bool = False  # cloud conversions opt-in (D33)
 
 
 class JoinContext(Protocol):
@@ -147,6 +149,7 @@ async def run_join(
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     preview_cost(total, request.k, len(index))
 
+    converter = make_converter(chat, allow_paid=request.allow_captions, log=log)
     book = PairBook(policy=FailurePolicy(), right_name=request.right.name)
     spinner = make_stderr_spinner()
     spinner.start(total=total)
@@ -155,6 +158,7 @@ async def run_join(
         matches = await _join_one(
             item,
             log=log,
+            converter=converter,
             embed_model=embed_model,
             chat=chat,
             tokens=tokens,
@@ -220,6 +224,7 @@ async def _join_one(
     item: Item,
     *,
     log: diagnostics.DegradationLog,
+    converter: Converter,
     embed_model: EmbeddingModel,
     chat: ChatModel,
     tokens: tuple[Token, ...],
@@ -230,7 +235,7 @@ async def _join_one(
     book: PairBook,
     stop: asyncio.Event | None,
 ) -> tuple[tuple[int, float], ...]:
-    item = await ensure_text(item, log=log)  # image skips; audio/video convert, row-noted
+    item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
     budget = embed_budget(embed_model.ref.provider)
     left_side: ChunkedSide | None = None
     if estimate_tokens(item.text) > budget:

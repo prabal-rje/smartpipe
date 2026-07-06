@@ -28,6 +28,12 @@ __all__ = ["top_k_command"]
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @click.option("--stream", "stream", is_flag=True, help="Live leaderboard over a stream.")
 @fields_option
+@click.option(
+    "--allow-captions",
+    "allow_captions",
+    is_flag=True,
+    help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
+)
 @input_options
 def top_k_command(
     k: int | None,
@@ -36,6 +42,7 @@ def top_k_command(
     model_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
+    allow_captions: bool,
     stream: bool,
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
@@ -53,6 +60,7 @@ def top_k_command(
     In file mode, each result is a filename and its score.
     """
     request = TopKRequest(
+        allow_captions=allow_captions,
         near=near,
         k=k,
         threshold=threshold,

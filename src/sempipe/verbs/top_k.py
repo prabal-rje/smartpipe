@@ -28,6 +28,7 @@ from sempipe.verbs.common import (
     interrupted_exit_code,
     outcome_exit_code,
 )
+from sempipe.verbs.convert import Converter, make_converter
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import ResultWriter
-    from sempipe.models.base import EmbeddingModel
+    from sempipe.models.base import ChatModel, EmbeddingModel
 
 __all__ = ["TopKContext", "TopKRequest", "run_top_k"]
 
@@ -50,9 +51,11 @@ class TopKRequest:
     input: InputSpec = STDIN
     stream: bool = False  # --stream: the live leaderboard (a different output protocol)
     fields: tuple[str, ...] | None = None  # --fields: project structured records
+    allow_captions: bool = False  # cloud conversions opt-in (D33)
 
 
 class TopKContext(Protocol):
+    async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
     def concurrency(self, flag: int | None = None) -> int: ...
 
@@ -80,7 +83,10 @@ async def run_top_k(
 
     query_vector = (await model.embed([request.near]))[0]
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    vectors, skipped = await _collect_vectors(model, items, log)
+    converter = make_converter(
+        await _optional_chat(context), allow_paid=request.allow_captions, log=log
+    )
+    vectors, skipped = await _collect_vectors(model, items, log, converter)
     log.finish()
     _check_dimensions(query_vector, vectors)
 
@@ -133,9 +139,12 @@ async def _run_stream(
     concurrency = context.concurrency(request.concurrency_flag)
     query_vector = (await model.embed([request.near]))[0]
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    converter = make_converter(
+        await _optional_chat(context), allow_paid=request.allow_captions, log=log
+    )
 
     async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
-        item = await ensure_text(item, log=log)  # image skips; audio/video convert, row-noted
+        item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
         vector = _precomputed_vector(item)
         if vector is None:
             vector = (await model.embed([item.text]))[0]
@@ -222,8 +231,19 @@ def _emit_snapshot(
         writer.write_record(record)
 
 
+async def _optional_chat(context: TopKContext) -> ChatModel | None:
+    """The converter's LLM rung — absent when chat isn't configured (D33)."""
+    try:
+        return await context.chat_model()
+    except Exception:
+        return None
+
+
 async def _collect_vectors(
-    model: EmbeddingModel, items: list[Item], log: diagnostics.DegradationLog
+    model: EmbeddingModel,
+    items: list[Item],
+    log: diagnostics.DegradationLog,
+    converter: Converter,
 ) -> tuple[dict[int, tuple[float, ...]], int]:
     """Embed everything that needs embedding — chunked (≤64/call, DEFER-3),
     run_ordered bypassed on purpose: batching ≠ per-item workers (order comes
@@ -240,7 +260,9 @@ async def _collect_vectors(
     spinner = make_stderr_spinner()
     spinner.start(total=len(to_embed))
     skipped = 0
-    outcomes = embed_in_batches(model, to_embed, failure_policy=FailurePolicy(), log=log)
+    outcomes = embed_in_batches(
+        model, to_embed, failure_policy=FailurePolicy(), log=log, converter=converter
+    )
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):

@@ -39,6 +39,7 @@ from sempipe.verbs.common import (
     outcome_exit_code,
     prepend,
 )
+from sempipe.verbs.convert import Converter, make_converter
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -61,6 +62,7 @@ class FilterRequest:
     model_flag: str | None
     concurrency_flag: int | None
     input: InputSpec = STDIN
+    allow_captions: bool = False  # cloud conversions opt-in (D33)
 
 
 class FilterContext(Protocol):
@@ -104,6 +106,7 @@ async def run_filter(
     spinner.start(total=total)
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    converter = make_converter(model, allow_paid=request.allow_captions, log=log)
     gate = WindowGate(
         provider=model.ref.provider,
         model_name=model.ref.name,
@@ -114,10 +117,10 @@ async def run_filter(
     async def worker(item: Item) -> tuple[Item, bool]:
         budget = await gate.budget_for_oversized(item.text)
         if budget is None:
-            return item, await _judge(model, tokens, item, log)
+            return item, await _judge(model, tokens, item, log, converter)
         # D26: judge the chunks — any match keeps the whole item (--not inverts after)
         for chunk in split_text(item.text, budget):
-            if await _judge(model, tokens, replace(item, text=chunk), log):
+            if await _judge(model, tokens, replace(item, text=chunk), log, converter):
                 return item, True
         return item, False
 
@@ -169,8 +172,9 @@ async def _judge(
     tokens: tuple[Token, ...],
     item: Item,
     log: diagnostics.DegradationLog,
+    converter: Converter,
 ) -> bool:
-    item = await ensure_text(item, log=log)  # image skips; audio/video convert, row-noted
+    item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
     condition = interpolate_fields(tokens, item.data)  # ItemError → skip-and-warn
     request = build_filter_request(condition, item.text)
     reply = await model.complete(request)

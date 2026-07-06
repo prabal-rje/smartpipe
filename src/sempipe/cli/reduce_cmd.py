@@ -53,6 +53,12 @@ __all__ = ["reduce_command"]
 @click.option("--window", type=int, help="Stream mode: reduce every N lines (tumbling).")
 @click.option("--every", type=int, help="With --window: slide, reducing after every M lines.")
 @fields_option
+@click.option(
+    "--allow-captions",
+    "allow_captions",
+    is_flag=True,
+    help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
+)
 @input_options
 def reduce_command(
     prompt: str | None,
@@ -63,6 +69,7 @@ def reduce_command(
     model_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
+    allow_captions: bool,
     verbose: bool,
     window: int | None,
     every: int | None,
@@ -82,6 +89,7 @@ def reduce_command(
     summarizes — automatically. Add --verbose to see the chunking tree.
     """
     request = ReduceRequest(
+        allow_captions=allow_captions,
         prompt=resolve_prompt(prompt, prompt_file),
         schema_path=schema_path,
         schema_dsl=schema_dsl,

@@ -131,17 +131,26 @@ def test_map_describes_an_image_via_vision(
     assert system is not None and system.startswith("The item is an image. ")  # pinned prefix
 
 
-def test_filter_skips_image_items_with_a_pointer(
+def test_filter_describes_image_items_via_the_local_model(
     run_cli: RunCli, respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
+    """D33: a LOCAL chat model converts images to text for free — the image is
+    captioned, then judged, instead of skipped."""
     (tmp_path / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 4)
     (tmp_path / "note.txt").write_text("keep me")
-    respx_mock.post(CHAT).mock(
-        return_value=httpx.Response(200, json={"message": {"content": '{"match": true}'}})
-    )
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        import json as jsonlib
+
+        body = jsonlib.loads(request.content)
+        has_images = any("images" in message for message in body["messages"])
+        content = "a plain dark square" if has_images else '{"match": true}'
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    respx_mock.post(CHAT).mock(side_effect=answer)
     code, out, err = run_cli(
         ["filter", "anything", "--in", str(tmp_path / "*"), "--concurrency", "1"]
     )
-    assert code == 1  # the image was skipped; the text judged
-    assert out == f"{tmp_path / 'note.txt'}\n"
-    assert "image items need map" in err
+    assert code == 0  # both judged — the image entered as its description
+    assert out == f"{tmp_path / 'note.txt'}\n{tmp_path / 'photo.png'}\n"
+    assert "image → text (described by ollama/" in err  # the D33 row disclosure
