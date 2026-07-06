@@ -34,3 +34,4 @@ calls total, four real bugs caught and fixed).
 | Date | HEAD | Result |
 |---|---|---|
 | 2026-07-05 | daebe69 | 10/10 pass, 0 skipped — all five providers (incl. Voxtral hearing a generated beep: "Sharp, High, Alert") |
+| 2026-07-06 | 92f42d8 | post-1.1.0 build-out smokes: local whisper on synthesized speech; window probes live (gemini 1M); split\|filter needle-at-85k-tokens; map refusal at zero cost; --tally; join --unmatched |
