@@ -81,6 +81,7 @@ def build_kwargs(name: str, request: CompletionRequest) -> dict[str, object]:
     kwargs: dict[str, object] = {
         "model": name,
         "max_tokens": request.max_tokens,
+        "temperature": request.temperature,  # reproducible by default (D36)
         "messages": [{"role": "user", "content": _user_content(request)}],
     }
     if request.system is not None:
@@ -99,8 +100,8 @@ def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
     if any(isinstance(part, AudioData) for part in request.media):
         # the messages API has no audio input — fail before any bytes leave (D20 §2)
         raise ItemError(
-            "this model can't hear audio — try an audio model (gpt-4o-audio-preview, "
-            "voxtral), or install 'sempipe[audio]' to transcribe"
+            "this model can't hear audio — try an audio model "
+            "(voxtral, gemini), or install 'sempipe[audio]' to transcribe"
         )
     import base64
 

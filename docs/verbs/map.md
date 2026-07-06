@@ -13,7 +13,7 @@ $ cat receipts.txt | sempipe map "Extract {vendor, date, total}"
 {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 
 # Use a cloud model just for this run:
-$ cat data.txt | sempipe map "Classify the sentiment" --model gpt-4o-mini
+$ cat data.txt | sempipe map "Classify the sentiment" --model gpt-5.4-mini
 
 # Compose with the tools you already have:
 $ cat receipts.txt | sempipe map "Extract {vendor, total}" | jq -r '.total' | paste -sd+ | bc
@@ -36,7 +36,7 @@ for the full grammar.)
 `map` is the vision verb: an image item (from `--in 'photos/*.jpg'` or a redirected
 image on stdin) is sent to the model as an image, and your prompt describes what to
 do with it — including structured extraction (`"Extract {brand, color}"`). Needs a
-vision-capable model (`ollama/qwen3-vl`, `gpt-4o-mini`, `claude-opus-4-8`, …);
+vision-capable model (`ollama/qwen3-vl`, `gpt-5.4-mini`, `claude-opus-4-8`, …);
 without one, the item skips with a hint.
 
 ## Streaming
@@ -53,7 +53,7 @@ $ tail -f app.log | sempipe map "Classify: {severity, category}" | tee incidents
 | Option | Meaning |
 |---|---|
 | `--schema FILE` | Enforce a JSON Schema file on the output (production-grade extraction — see below) |
-| `--model TEXT` | Model for this run (e.g. `ollama/qwen3:8b`, `gpt-4o-mini`, `claude-opus-4-8`) |
+| `--model TEXT` | Model for this run (e.g. `ollama/qwen3:8b`, `gpt-5.4-mini`, `claude-opus-4-8`) |
 | `--output FORMAT` | `auto` (default) · `text` · `json`. `auto` = human-readable at a terminal, NDJSON when piped |
 | `--concurrency N` | Max parallel model calls (default 4) |
 | `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md)) |
@@ -78,7 +78,7 @@ Composes with `--tally` (counted per exploded row) and `--fields`.
 `map` refuses an item the model can't hold, before spending anything:
 
 ```
-⚠ skipped: report.pdf (~87,886 tokens is past gpt-4o-mini's ~76,300-token budget —
+⚠ skipped: report.pdf (~87,886 tokens is past gpt-5.4-mini's ~76,300-token budget —
   split it first: sempipe split --in FILE | sempipe map "..." | sempipe reduce "...")
 ```
 

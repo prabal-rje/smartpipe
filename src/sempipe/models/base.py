@@ -92,6 +92,7 @@ class CompletionRequest:
     user: str
     json_schema: Mapping[str, object] | None = None  # provider-native structured output
     max_tokens: int = 8192
+    temperature: float = 0.0  # a pipe is a data tool — reproducible by default (D36)
     presence_penalty: float | None = None  # anti-rambling; prose-only (D35)
     frequency_penalty: float | None = None  # never on schema calls — penalties corrupt JSON
     media: tuple[MediaData, ...] = ()  # vision/audio (bytes + mime; D20 union)

@@ -12,7 +12,7 @@ stops and asks you to set one up.
 
 ## When you use a cloud model, you're sending data to that provider
 
-If you pass `--model gpt-4o-mini` or `claude-opus-4-8`, your item text goes to OpenAI
+If you pass `--model gpt-5.4-mini` or `claude-opus-4-8`, your item text goes to OpenAI
 or Anthropic (or whatever endpoint you configured). That's the deal you're opting into
 — sempipe just makes it explicit. Use a local model for sensitive data.
 

@@ -70,7 +70,9 @@ def test_build_wires_ref_and_client(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- complete() ---------------------------------------------------------------
 
 
-async def test_complete_sends_no_sampling_params(respx_mock: respx.MockRouter) -> None:
+async def test_complete_is_deterministic_and_otherwise_untuned(
+    respx_mock: respx.MockRouter,
+) -> None:
     route = respx_mock.post(ENDPOINT).mock(return_value=_message_response("hola"))
     reply = await _model().complete(CompletionRequest(system="sys", user="hello"))
     assert reply == "hola"
@@ -78,7 +80,8 @@ async def test_complete_sends_no_sampling_params(respx_mock: respx.MockRouter) -
     assert body["model"] == "claude-opus-4-8"
     assert body["messages"] == [{"role": "user", "content": "hello"}]
     assert body["system"] == "sys"
-    for banned in ("temperature", "top_p", "top_k", "thinking"):
+    assert body["temperature"] == 0.0  # a pipe is a data tool (D36)
+    for banned in ("top_p", "top_k", "thinking"):
         assert banned not in body
 
 

@@ -76,6 +76,7 @@ async def test_chat_sends_bearer_and_exact_payload(
     assert request.headers["authorization"] == "Bearer sk-test"
     assert json.loads(request.content) == {
         "model": "gpt-4o-mini",
+        "temperature": 0.0,
         "messages": [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hello"},
@@ -230,6 +231,7 @@ async def test_mistral_chat_golden_shape(
     assert request.headers["authorization"] == "Bearer mk-test"
     assert json.loads(request.content) == {
         "model": "mistral-small-latest",
+        "temperature": 0.0,
         "messages": [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hello"},
@@ -369,3 +371,30 @@ async def test_embeddings_without_index_fall_back_to_arrival_order(
         retry=FAST_RETRY,
     )
     assert await model.embed(["a", "b"]) == ((0.1, 0.2), (0.3, 0.4))
+
+
+async def test_temperature_strips_and_retries_when_rejected(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    """o-series models 400 on explicit temperature — attempt, strip, retry once (D36)."""
+    route = respx_mock.post("https://api.openai.com/v1/chat/completions")
+    route.side_effect = [
+        httpx.Response(
+            400,
+            json={"error": {"message": "Unsupported value: 'temperature' does not support 0.0"}},
+        ),
+        httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}),
+    ]
+    model = OpenAIChatModel(
+        ref=parse_model_ref("o3-mini"),
+        client=client,
+        base_url="https://api.openai.com",
+        api_key="k",
+        retry=FAST_RETRY,
+    )
+    assert await model.complete(CompletionRequest(system=None, user="x")) == "ok"
+    assert route.call_count == 2
+    import json as jsonlib
+
+    retried = jsonlib.loads(route.calls.last.request.content)
+    assert "temperature" not in retried  # stripped on the second attempt

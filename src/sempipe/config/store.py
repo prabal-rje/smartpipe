@@ -57,8 +57,11 @@ _EMPTY_PROFILE: Mapping[str, object] = {}
 BUILTIN_PROFILES: Mapping[str, Mapping[str, object]] = {
     # picking a cloud preset IS the consent for paid image/audio-to-text
     # conversions (D35) — the wizard says so; per-row disclosures continue
+    # gpt-5.4-mini works on BOTH the key wire and the ChatGPT-login (Codex)
+    # wire — 4o-mini is rejected by Codex accounts (owner-hit). Audio input is
+    # assumed UNSUPPORTED on OpenAI: the ladder falls to whisper automatically.
     "openai": {
-        "model": "gpt-4o-mini",
+        "model": "gpt-5.4-mini",
         "embed-model": "text-embedding-3-small",
         "allow-captions": True,
     },

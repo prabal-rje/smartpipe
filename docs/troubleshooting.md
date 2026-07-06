@@ -17,7 +17,7 @@ sempipe has nothing to talk to. Either:
 - **Run a local model (free):** install [Ollama](https://ollama.com), then
   `ollama pull qwen3:8b`. sempipe finds it automatically.
 - **Use a cloud model:** `export OPENAI_API_KEY=…` (or `ANTHROPIC_API_KEY`) and pass
-  `--model gpt-4o-mini` (or set a default with `sempipe config model …`).
+  `--model gpt-5.4-mini` (or set a default with `sempipe config model …`).
 
 See the [quickstart](quickstart.md) for the one-minute version.
 

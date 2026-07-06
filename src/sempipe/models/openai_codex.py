@@ -122,7 +122,7 @@ def build_payload(model: str, request: CompletionRequest) -> dict[str, object]:
         # audio on the ChatGPT login wire is unverified — fail free, name the fixes
         raise ItemError(
             "this model can't hear audio — try an audio model "
-            "(gpt-4o-audio-preview, voxtral), or install 'sempipe[audio]' to transcribe"
+            "(voxtral, gemini), or install 'sempipe[audio]' to transcribe"
         )
     for part in request.media:
         if isinstance(part, ImageData):

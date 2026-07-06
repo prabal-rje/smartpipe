@@ -33,7 +33,11 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 def _container(
     client: httpx.AsyncClient, env: Mapping[str, str] | None = None, config: Config | None = None
 ) -> AppContainer:
-    return AppContainer(env=env or {}, config=config or Config(), http_client=client, retry=FAST)
+    # XDG pinned to nowhere: these tests must never see the developer's real
+    # ~/.config/sempipe (a stored ChatGPT login there satisfies key-or-login
+    # and silently flips the no-key tests)
+    isolated = {"XDG_CONFIG_HOME": "/nonexistent-sempipe-tests", **(env or {})}
+    return AppContainer(env=isolated, config=config or Config(), http_client=client, retry=FAST)
 
 
 # --- chat model construction per provider -------------------------------------

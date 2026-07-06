@@ -33,7 +33,7 @@ _NON_TTY = (
     "error: 'sempipe config' is interactive and needs a terminal\n"
     "  Set a model without prompts:\n"
     "    sempipe config model ollama/qwen3:8b        (local, free)\n"
-    "    sempipe config model gpt-4o-mini            (cloud)"
+    "    sempipe config model gpt-5.4-mini            (cloud)"
 )
 
 
@@ -105,7 +105,7 @@ def config_show() -> None:
 @config_command.command(name="model")
 @click.argument("model_string", shell_complete=complete_chat_models)
 def config_set_model(model_string: str) -> None:
-    """Set the default chat model (e.g. ollama/qwen3:8b, gpt-4o-mini)."""
+    """Set the default chat model (e.g. ollama/qwen3:8b, gpt-5.4-mini)."""
     ref = parse_model_ref(model_string)
     _update(lambda c: replace(c, model=str(ref)))
     click.echo(f"model set to {ref}")
@@ -152,7 +152,10 @@ async def run_interactive_setup(
     say("sempipe setup — one minute, three questions\n")
     if current.profile is None and current.model is None:
         say("Pick a starting profile (a named bundle you can switch any time):")
-        say("  1. openai — gpt-4o-mini + text-embedding-3-small (needs OPENAI_API_KEY)")
+        say(
+            "  1. openai — gpt-5.4-mini + text-embedding-3-small "
+            "(key or ChatGPT login; no audio input)"
+        )
         say("  2. gemini — gemini-2.5-flash, the most multimodal wire (needs GEMINI_API_KEY)")
         say("  3. local  — ollama/gemma-4-e2b, multimodal, nothing leaves this machine")
         say("  4. custom — answer the questions instead")
@@ -183,7 +186,9 @@ async def run_interactive_setup(
             "  no local chat model found — install one at https://ollama.com, "
             "or use a cloud model.\n"
         )
-        model_answer = ask("Default model (e.g. gpt-4o-mini, needs OPENAI_API_KEY)", "gpt-4o-mini")
+        model_answer = ask(
+            "Default model (e.g. gpt-5.4-mini, needs OPENAI_API_KEY)", "gpt-5.4-mini"
+        )
     embed_answer = ask("Embedding model?", f"ollama/{_first_embed(names)}")
 
     updated = replace(

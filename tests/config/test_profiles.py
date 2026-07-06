@@ -17,7 +17,7 @@ def test_active_profile_supplies_the_base(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text('profile = "openai"\n', encoding="utf-8")
     config = load_config(path)
-    assert config.model == "gpt-4o-mini"  # the shipped preset
+    assert config.model == "gpt-5.4-mini"  # the shipped preset (Codex-wire compatible)
     assert config.embed_model == "text-embedding-3-small"
     assert config.profile == "openai"
 

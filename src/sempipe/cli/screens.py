@@ -91,7 +91,7 @@ error: no model configured, and no local Ollama found
 
   Cloud (paid):
     sempipe config model claude-opus-4-8    then: export ANTHROPIC_API_KEY=sk-ant-...
-    sempipe config model gpt-4o-mini        then: export OPENAI_API_KEY=sk-...
+    sempipe config model gpt-5.4-mini        then: export OPENAI_API_KEY=sk-...
 
   Then rerun your command. 'sempipe config' walks you through this interactively."""
 
@@ -132,7 +132,7 @@ def cloud_model_missing(model: str, host: str) -> str:
         f"error: the endpoint doesn't know the model '{model}'\n"
         f"  {host} answered 404 — every item would fail identically, "
         "so sempipe stopped at the first.\n"
-        "  Fix: check the name, or set one that exists: sempipe config model gpt-4o-mini"
+        "  Fix: check the name, or set one that exists: sempipe config model gpt-5.4-mini"
     )
 
 

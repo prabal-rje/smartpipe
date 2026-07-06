@@ -5,6 +5,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Changed
+- **The OpenAI default is now `gpt-5.4-mini`** (preset, screens, wizard,
+  docs): `gpt-4o-mini` is rejected by ChatGPT-login (Codex) accounts — "The
+  'gpt-4o-mini' model is not supported when using Codex with a ChatGPT
+  account" — while 5.4-mini works on both the key and login wires. Audio
+  input is assumed unsupported on OpenAI: the conversion ladder falls to
+  whisper automatically, and the can't-hear suggestions now point at voxtral
+  and gemini. **Determinism (D36):** every request now carries
+  `temperature: 0.0` on every wire — a pipe is a data tool, and judging,
+  extraction, and captions must be reproducible (models that reject explicit
+  temperature, like the o-series, get an automatic strip-and-retry).
+  Penalties remain per-wire opt-in mappings, so swapping models can never
+  make them wrong — at worst unapplied.
+
 ### Added
 - **Cloud profiles are multimodal by default (D35).** The `openai` and
   `gemini` presets set `allow-captions = true` (now also a config/profile

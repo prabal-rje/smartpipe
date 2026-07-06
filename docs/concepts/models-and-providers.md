@@ -24,7 +24,7 @@ Ollama is found, it prints a short setup screen and stops.
 
 You name a model with a string. Two forms:
 
-- **Explicit provider:** `ollama/qwen3:8b`, `openai/gpt-4o-mini`,
+- **Explicit provider:** `ollama/qwen3:8b`, `openai/gpt-5.4-mini`,
   `anthropic/claude-opus-4-8`, `mistral/mistral-large-latest`,
   `gemini/gemini-2.5-flash`, `openrouter/deepseek/deepseek-chat`
   (OpenRouter is explicit-only — its names are other vendors' names).
@@ -32,8 +32,8 @@ You name a model with a string. Two forms:
   `text-embedding-*` → OpenAI, the Mistral family (`mistral-*`, `ministral-*`,
   `codestral-*`, `magistral-*`, `devstral-*`, `pixtral-*`, `open-mistral-*`,
   `open-mixtral-*`, `voxtral-*`) → Mistral, `gemini-*` → Gemini, anything else
-  → Ollama. OpenRouter never routes bare. So `gpt-4o-mini` and
-  `openai/gpt-4o-mini` mean the same thing.
+  → Ollama. OpenRouter never routes bare. So `gpt-5.4-mini` and
+  `openai/gpt-5.4-mini` mean the same thing.
 
 Namespaced Ollama models keep working as bare names too: `hf.co/org/model` routes to
 Ollama whole — including `hf.co/mistralai/...`, which is an Ollama name, not a
@@ -73,7 +73,7 @@ $ echo "hi" | sempipe map "translate to French" --model gpt-5.4
 What to know:
 
 - **Which models:** the ChatGPT wire serves the Codex-era family (`gpt-5.x`,
-  `gpt-*-codex`). Older platform models like `gpt-4o-mini` still need an API key.
+  `gpt-*-codex`). Older platform models like `gpt-5.4-mini` still need an API key.
 - **Precedence:** an exported `OPENAI_API_KEY` always wins over a login — a key is
   an explicit, billable choice. Unset it to use your plan.
 - **No embeddings:** `embed`/`top_k` need an API key or a local model.
@@ -124,7 +124,7 @@ output) under a name. Three ship built in:
 
 | Profile | Chat | Embeddings | For |
 |---|---|---|---|
-| `openai` | gpt-4o-mini | text-embedding-3-small | the fast cloud default |
+| `openai` | gpt-5.4-mini | text-embedding-3-small | the fast cloud default |
 | `gemini` | gemini-2.5-flash | gemini/gemini-embedding-001 | the most multimodal wire |
 | `local` | ollama/gemma-4-e2b | embeddinggemma | multimodal, nothing leaves the machine |
 

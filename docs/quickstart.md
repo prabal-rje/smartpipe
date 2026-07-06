@@ -48,7 +48,7 @@ If you have an API key (OpenAI, Anthropic, Mistral, Gemini, or OpenRouter), poin
 Cloud models are typically faster and stronger, and cost a small amount per use.
 
 ```console
-$ sempipe config model gpt-4o-mini
+$ sempipe config model gpt-5.4-mini
 $ export OPENAI_API_KEY=sk-...           # sempipe never stores your key
 ```
 

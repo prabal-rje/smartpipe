@@ -81,7 +81,7 @@ prompt applied to what it *sees*:
 
 ```console
 $ sempipe map "Describe the product shown" --in 'photos/*.jpg' --model ollama/qwen3-vl
-$ sempipe map "Extract {brand, color}" --in shelf.png --model gpt-4o-mini
+$ sempipe map "Extract {brand, color}" --in shelf.png --model gpt-5.4-mini
 ```
 
 The chat model must be vision-capable; if it isn't, the item is skipped with a

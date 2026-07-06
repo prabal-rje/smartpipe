@@ -66,13 +66,16 @@ class OllamaChatModel:
             # ollama's chat API carries images only — fail before any bytes leave (D20 §2)
             raise ItemError(
                 "this model can't hear audio — try an audio model "
-                "(gpt-4o-audio-preview, voxtral), or install 'sempipe[audio]' to transcribe"
+                "(voxtral, gemini), or install 'sempipe[audio]' to transcribe"
             )
         images = [part for part in request.media if isinstance(part, ImageData)]
         if images:
             user["images"] = [base64.b64encode(image.data).decode() for image in images]
         messages.append(user)
-        options: dict[str, object] = {"num_predict": request.max_tokens}
+        options: dict[str, object] = {
+            "num_predict": request.max_tokens,
+            "temperature": request.temperature,
+        }
         if request.presence_penalty is not None:
             options["presence_penalty"] = request.presence_penalty
         if request.frequency_penalty is not None:

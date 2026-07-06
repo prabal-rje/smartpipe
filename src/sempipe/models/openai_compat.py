@@ -130,7 +130,11 @@ class OpenAIChatModel:
             ),
             {"role": "user", "content": _user_content(request)},
         ]
-        payload: dict[str, object] = {"model": self.ref.name, "messages": messages}
+        payload: dict[str, object] = {
+            "model": self.ref.name,
+            "messages": messages,
+            "temperature": request.temperature,  # reproducible by default (D36)
+        }
         if request.json_schema is not None:
             schema = dict(request.json_schema)
             payload["response_format"] = {
@@ -143,7 +147,15 @@ class OpenAIChatModel:
                     "strict": is_strict_compatible(schema),
                 },
             }
-        data = await _post(self, "/v1/chat/completions", payload)
+        try:
+            data = await _post(self, "/v1/chat/completions", payload)
+        except ItemError as exc:
+            # o-series models reject explicit temperature — strip and retry once
+            # (capability by attempt, D36; no model-name sniffing)
+            if "temperature" not in str(exc) or "temperature" not in payload:
+                raise
+            payload.pop("temperature")
+            data = await _post(self, "/v1/chat/completions", payload)
         record = as_record(data)
         choices = as_items(record.get("choices")) if record is not None else None
         first = record_at(choices[0], "message") if choices else None

@@ -21,10 +21,10 @@ def config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_set_model_writes_canonical_and_confirms(run_cli: RunCli, config_home: Path) -> None:
-    code, out, _err = run_cli(["config", "model", "gpt-4o-mini"])
+    code, out, _err = run_cli(["config", "model", "gpt-5.4-mini"])
     assert code == 0
-    assert out.strip() == "model set to openai/gpt-4o-mini"
-    assert load_config(config_home).model == "openai/gpt-4o-mini"
+    assert out.strip() == "model set to openai/gpt-5.4-mini"
+    assert load_config(config_home).model == "openai/gpt-5.4-mini"
 
 
 def test_set_embed_model(run_cli: RunCli, config_home: Path) -> None:
@@ -72,7 +72,7 @@ def test_show_reflects_a_saved_model(run_cli: RunCli, config_home: Path) -> None
 def test_show_env_origin(
     run_cli: RunCli, config_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("SEMPIPE_MODEL", "gpt-4o-mini")
+    monkeypatch.setenv("SEMPIPE_MODEL", "gpt-5.4-mini")
     _code, out, _err = run_cli(["config", "show"])
     assert "(env)" in out.splitlines()[0]
 
@@ -158,7 +158,7 @@ async def test_interactive_without_ollama_offers_cloud() -> None:
         say=rec.say,
         save=rec.save,
     )
-    assert result.model == "openai/gpt-4o-mini"
+    assert result.model == "openai/gpt-5.4-mini"
     assert any("no local chat model found" in line for line in rec.said)
 
 
@@ -180,7 +180,7 @@ async def test_interactive_with_only_embed_models_does_not_propose_embed_as_chat
         say=rec.say,
         save=rec.save,
     )
-    assert result.model == "openai/gpt-4o-mini"  # not an embedding model
+    assert result.model == "openai/gpt-5.4-mini"  # not an embedding model
     assert seen_defaults["Embedding model?"] == "ollama/nomic-embed-text"
 
 

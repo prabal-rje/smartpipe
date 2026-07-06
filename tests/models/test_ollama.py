@@ -59,7 +59,7 @@ async def test_chat_sends_the_exact_payload(
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hello"},
         ],
-        "options": {"num_predict": 8192},  # bounded output — tiny models ramble (D35)
+        "options": {"num_predict": 8192, "temperature": 0.0},  # bounded + reproducible
     }
 
 
@@ -221,6 +221,7 @@ async def test_penalties_ride_the_options_when_set(
     body = json.loads(route.calls.last.request.content)
     assert body["options"] == {
         "num_predict": 8192,
+        "temperature": 0.0,
         "presence_penalty": 0.5,
         "frequency_penalty": 0.5,
     }

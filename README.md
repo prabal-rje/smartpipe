@@ -64,7 +64,7 @@ including that you know what a "model" is.
 
 Out of the box `sempipe` talks to [Ollama](https://ollama.com) on your machine: free,
 private, no API key. Any invocation can use a cloud model instead
-(`--model claude-opus-4-8`, `--model gpt-4o-mini`, `--model mistral-large-latest`,
+(`--model claude-opus-4-8`, `--model gpt-5.4-mini`, `--model mistral-large-latest`,
 `--model gemini-2.5-flash`, `--model openrouter/vendor/model` — keys via
 environment variables, never stored), and ChatGPT Plus/Pro subscribers can skip keys entirely with
 `sempipe auth login`. Your text goes to the endpoint you configured and nowhere else —
