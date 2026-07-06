@@ -109,6 +109,19 @@ stdin lines, one run:
 $ cat extra-notes.txt | sempipe map "Summarize" --in 'reports/*.pdf'
 ```
 
+## Audio: heard natively, or transcribed
+
+An audio file (`.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`) becomes an item carrying
+its **bytes**, not an eager transcript:
+
+- `map` with an audio-capable model (`gpt-4o-audio-preview`, `voxtral-*`) sends
+  the sound itself — tone and speaker changes included.
+- With any other model, sempipe transcribes locally when the `[audio]` extra is
+  installed (you'll see `note: transcribing audio locally` once), then retries
+  as text.
+- The text verbs (`filter`, `embed`, `top_k`, `reduce`, `join`) transcribe on
+  demand with the extra, or skip with a line naming both fixes.
+
 ## See also
 
 - [Pipes & items](../concepts/pipes-and-items.md) — the item model

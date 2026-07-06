@@ -26,7 +26,7 @@ IMAGE = ImageData(data=PNG_BYTES, mime="image/png")
 
 
 def _vision_request() -> CompletionRequest:
-    return CompletionRequest(system="Describe.", user="Describe this.", images=(IMAGE,))
+    return CompletionRequest(system="Describe.", user="Describe this.", media=(IMAGE,))
 
 
 @pytest.fixture

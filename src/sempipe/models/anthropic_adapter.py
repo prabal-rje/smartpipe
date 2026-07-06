@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_str, record_at
+from sempipe.models.base import AudioData, ImageData
 
 if TYPE_CHECKING:
     from sempipe.models.base import CompletionRequest, ModelRef
@@ -92,9 +93,15 @@ def build_kwargs(name: str, request: CompletionRequest) -> dict[str, object]:
 
 
 def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
-    """Plain string normally; image blocks (image first) when images ride along."""
-    if not request.images:
+    """Plain string normally; image blocks (image first) when media rides along."""
+    if not request.media:
         return request.user
+    if any(isinstance(part, AudioData) for part in request.media):
+        # the messages API has no audio input — fail before any bytes leave (D20 §2)
+        raise ItemError(
+            "this model can't hear audio — try an audio model (gpt-4o-audio-preview, "
+            "voxtral), or install 'sempipe[audio]' to transcribe"
+        )
     import base64
 
     blocks: list[dict[str, object]] = [
@@ -102,11 +109,12 @@ def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": image.mime,
-                "data": base64.b64encode(image.data).decode(),
+                "media_type": part.mime,
+                "data": base64.b64encode(part.data).decode(),
             },
         }
-        for image in request.images
+        for part in request.media
+        if isinstance(part, ImageData)
     ]
     blocks.append({"type": "text", "text": request.user})
     return blocks

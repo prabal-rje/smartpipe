@@ -31,6 +31,7 @@ from sempipe.models.base import parse_model_ref
         ("magistral-medium-latest", "mistral", "magistral-medium-latest"),
         ("devstral-small-latest", "mistral", "devstral-small-latest"),
         ("pixtral-12b-latest", "mistral", "pixtral-12b-latest"),
+        ("voxtral-mini-latest", "mistral", "voxtral-mini-latest"),
         ("open-mistral-7b", "mistral", "open-mistral-7b"),
         ("open-mixtral-8x7b", "mistral", "open-mixtral-8x7b"),
         # namespaced ollama models keep working — unknown prefixes are names, not errors

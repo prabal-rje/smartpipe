@@ -24,7 +24,7 @@ from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import RenderMode, WriterConfig, make_writer
 from sempipe.verbs.common import (
     embed_in_batches,
-    ensure_text_item,
+    ensure_text,
     interrupted_exit_code,
     outcome_exit_code,
 )
@@ -132,7 +132,7 @@ async def _run_stream(
     query_vector = (await model.embed([request.near]))[0]
 
     async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
-        ensure_text_item(item)  # image items need map — ItemError → skip-and-warn
+        item = await ensure_text(item)  # image skips; audio transcribes (D20 rung 2)
         vector = _precomputed_vector(item)
         if vector is None:
             vector = (await model.embed([item.text]))[0]

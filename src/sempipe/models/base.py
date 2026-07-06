@@ -22,10 +22,12 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
 __all__ = [
+    "AudioData",
     "ChatModel",
     "CompletionRequest",
     "EmbeddingModel",
     "ImageData",
+    "MediaData",
     "ModelRef",
     "Provider",
     "parse_model_ref",
@@ -42,6 +44,7 @@ _MISTRAL_PREFIXES = (
     "magistral-",
     "devstral-",
     "pixtral-",
+    "voxtral-",  # the audio family — found missing by the live smoke
     "open-mistral-",
     "open-mixtral-",
 )
@@ -51,6 +54,18 @@ _MISTRAL_PREFIXES = (
 class ImageData:
     data: bytes
     mime: str
+
+
+@dataclass(frozen=True, slots=True)
+class AudioData:
+    data: bytes
+    mime: str  # audio/mpeg · audio/wav · audio/mp4 · audio/ogg · audio/flac
+
+
+# The D20 union: ONE optional media field on Item/CompletionRequest, dispatched
+# with match + assert_never. VideoData is reserved, not added — no wired provider
+# carries video on our wires (capability follows wire).
+MediaData = ImageData | AudioData
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +83,7 @@ class CompletionRequest:
     user: str
     json_schema: Mapping[str, object] | None = None  # provider-native structured output
     max_tokens: int = 8192
-    images: tuple[ImageData, ...] = ()  # vision path (bytes + mime — two providers need the mime)
+    media: tuple[MediaData, ...] = ()  # vision/audio (bytes + mime; D20 union)
 
 
 class ChatModel(Protocol):

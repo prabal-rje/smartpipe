@@ -31,7 +31,7 @@ from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.io.writers import OutputFormat
 from sempipe.verbs.common import (
-    ensure_text_item,
+    ensure_text,
     interrupted_exit_code,
     outcome_exit_code,
     prepend,
@@ -143,7 +143,7 @@ def _emit_match(writer: ResultWriter, item: Item) -> None:
 
 
 async def _judge(model: ChatModel, tokens: tuple[Token, ...], item: Item) -> bool:
-    ensure_text_item(item)  # image items need map — ItemError → skip-and-warn
+    item = await ensure_text(item)  # image skips; audio transcribes (D20 rung 2)
     condition = interpolate_fields(tokens, item.data)  # ItemError → skip-and-warn
     request = build_filter_request(condition, item.text)
     reply = await model.complete(request)

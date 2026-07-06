@@ -10,7 +10,7 @@ validator's complaint before the item is skipped.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
 
 from sempipe.core.errors import ExitCode, ItemError
@@ -27,6 +27,7 @@ from sempipe.io import diagnostics, readers
 from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
+from sempipe.models.base import AudioData
 from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
@@ -92,8 +93,10 @@ async def run_map(
     spinner = make_stderr_spinner()
     spinner.start(total=total)
 
+    fallback_noted = [False]  # the once-per-run transcription note (ux.md pin)
+
     async def worker(item: Item) -> str | Mapping[str, object]:
-        return await _map_one(model, plan, instruction, item)
+        return await _map_one(model, plan, instruction, item, fallback_noted)
 
     done = 0
     skipped = 0
@@ -123,11 +126,27 @@ async def run_map(
 
 
 async def _map_one(
-    model: ChatModel, plan: MapPlan, instruction: str, item: Item
+    model: ChatModel,
+    plan: MapPlan,
+    instruction: str,
+    item: Item,
+    fallback_noted: list[bool],
 ) -> str | Mapping[str, object]:
-    images = (item.image,) if item.image is not None else ()
-    request = build_map_request(plan, instruction, item.text, images=images)
-    reply = await model.complete(request)
+    media = (item.media,) if item.media is not None else ()
+    request = build_map_request(plan, instruction, item.text, media=media)
+    try:
+        reply = await model.complete(request)
+    except ItemError as native_failure:
+        if not isinstance(item.media, AudioData):
+            raise
+        # the ladder's middle rung (D20 §5): the model can't hear it — transcribe
+        # if the extra is there (MissingExtra keeps the two-fix skip), retry as text
+        transcript = await asyncio.to_thread(_transcribe_or_skip, item.media, native_failure)
+        if not fallback_noted[0]:
+            fallback_noted[0] = True
+            diagnostics.note("transcribing audio locally — the model can't hear it natively")
+        spoken = replace(item, text=transcript, media=None)
+        return await _map_one(model, plan, instruction, spoken, fallback_noted)
     if plan.schema is None:
         return reply.rstrip()  # plain mode: keep the reply, only trim trailing whitespace
     try:
@@ -136,6 +155,15 @@ async def _map_one(
         repair = build_repair_request(request, bad_reply=reply, error=str(first_error))
         repaired = await model.complete(repair)
         return validate_and_coerce(repaired, plan.schema)  # a second failure → Skipped
+
+
+def _transcribe_or_skip(audio: AudioData, native_failure: ItemError) -> str:
+    from sempipe.parsing.extract import MissingExtra, transcribe_audio
+
+    try:
+        return transcribe_audio(audio)
+    except MissingExtra:
+        raise native_failure from None  # the adapter's message already names both fixes
 
 
 def _write(writer: ResultWriter, *, structured: bool, value: str | Mapping[str, object]) -> None:

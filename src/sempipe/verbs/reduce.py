@@ -30,7 +30,7 @@ from sempipe.io import diagnostics, readers
 from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.writers import OutputFormat
-from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code
+from sempipe.verbs.common import ensure_text, interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -101,9 +101,14 @@ async def run_reduce(
         return await _run_windowed(request, tokens, schema, context, stdin, stdout, stop)
     items_iter, _total = readers.resolve_items(request.input, stdin)
     collected = [item async for item in items_iter]  # whole-set verbs need everything
-    items = [item for item in collected if item.image is None]
-    for skipped_item in (i for i in collected if i.image is not None):
-        diagnostics.warn(f"skipped: {describe_source(skipped_item.source)} (image items need map)")
+    items: list[Item] = []
+    media_skipped = 0
+    for candidate in collected:
+        try:
+            items.append(await ensure_text(candidate))  # audio transcribes; images skip
+        except ItemError as exc:
+            diagnostics.warn(f"skipped: {describe_source(candidate.source)} ({exc})")
+            media_skipped += 1
     model = await context.chat_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
     structured = schema is not None
@@ -129,7 +134,7 @@ async def run_reduce(
         writer.flush()
     if reducer.produced == 0:
         return ExitCode.ALL_FAILED
-    return ExitCode.PARTIAL if reducer.skipped else ExitCode.OK
+    return ExitCode.PARTIAL if (reducer.skipped or media_skipped) else ExitCode.OK
 
 
 async def _run_single(
@@ -207,10 +212,13 @@ async def _run_windowed(
     items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
     try:
         async for item in items_iter:
-            if item.image is not None:
-                diagnostics.warn(f"skipped: {describe_source(item.source)} (image items need map)")
-                failed += 1
-                continue
+            if item.media is not None:
+                try:
+                    item = await ensure_text(item)  # audio transcribes; images skip
+                except ItemError as exc:
+                    diagnostics.warn(f"skipped: {describe_source(item.source)} ({exc})")
+                    failed += 1
+                    continue
             window = buffer.push(item.text)
             if window is not None:
                 await emit(window)

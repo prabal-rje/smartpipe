@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from sempipe.core.errors import ItemError, SetupFault, UsageFault
 from sempipe.io import diagnostics
 from sempipe.io.items import Item, item_from_file, item_from_line
-from sempipe.models.base import ImageData
+from sempipe.models.base import AudioData, ImageData
 from sempipe.parsing.detect import FileKind, detect_kind, route
 from sempipe.parsing.extract import MissingExtra, extract
 
@@ -155,6 +155,15 @@ async def _messages(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[
         mime = _magic_image_mime(bytes(data[:16]))
         put(("image", ImageData(data=bytes(data), mime=mime)))
 
+    def collect_audio(fd: int, head: bytes, kind: FileKind) -> None:
+        data = bytearray(head)
+        while chunk := os.read(fd, 65536):
+            data += chunk
+        from sempipe.parsing.detect import audio_mime
+
+        suffix = _KIND_SUFFIX.get(kind, ".mp3")
+        put(("audio", AudioData(data=bytes(data), mime=audio_mime(Path(f"x{suffix}")))))
+
     def pump_fd(fd: int) -> None:
         head = os.read(fd, _HEAD_BYTES)  # one read — a live stream must not stall here
         if not head:
@@ -163,8 +172,10 @@ async def _messages(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[
         match route(kind):
             case "text":
                 pump_text_fd(fd, head)
-            case "doc" | "audio":
+            case "doc":
                 spool_document(fd, head, kind)
+            case "audio":
+                collect_audio(fd, head, kind)
             case "image":
                 collect_image(fd, head)
             case "skip":
@@ -271,7 +282,11 @@ async def stdin_items(stdin: TextIO, *, stop: asyncio.Event | None = None) -> As
         elif tag == "image":
             assert isinstance(payload, ImageData)
             item = item_from_file("", "<stdin>", 0)
-            yield replace(item, image=payload)
+            yield replace(item, media=payload)
+        elif tag == "audio":
+            assert isinstance(payload, AudioData)
+            item = item_from_file("", "<stdin>", 0)
+            yield replace(item, media=payload)
         else:  # "fatal"
             assert isinstance(payload, str)
             raise SetupFault(payload)
@@ -334,6 +349,18 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
         diagnostics.warn(f"skipped: {path} (cannot read: {exc.strerror or exc})")
         return None
     kind = detect_kind(path, head)
+    if route(kind) == "audio":
+        # D20/post-1.1-02: audio carries its BYTES — transcription became lazy and
+        # per-verb (map tries native hearing first; text verbs transcribe on demand)
+        from sempipe.parsing.detect import audio_mime
+
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            diagnostics.warn(f"skipped: {path} (cannot read: {exc.strerror or exc})")
+            return None
+        item = item_from_file("", str(path), index)
+        return replace(item, media=AudioData(data=data, mime=audio_mime(path)))
     try:
         extracted = extract(path, kind)
     except MissingExtra as exc:
@@ -348,7 +375,7 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
         diagnostics.warn(f"{path}: {extracted.warning}")
     item = item_from_file(extracted.text, str(path), index)
     if extracted.image is not None:
-        item = replace(item, image=extracted.image)  # map sends it to a vision model
+        item = replace(item, media=extracted.image)  # map sends it to a vision model
     return item
 
 

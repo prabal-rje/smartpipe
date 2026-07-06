@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 import httpx
 
@@ -17,6 +17,7 @@ from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
 from sempipe.engine.schema import is_strict_compatible
+from sempipe.models.base import AudioData, ImageData
 from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.retry import RetryPolicy, with_retries
 
@@ -212,12 +213,38 @@ def _detail(response: httpx.Response) -> str:
     return message if message is not None else response.text[:200].strip() or "no detail"
 
 
+_AUDIO_FORMATS = {  # OpenAI-wire input_audio formats by mime; anything else fails free
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+}
+
+
 def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
-    """Plain string normally; the content-array form when images ride along."""
-    if not request.images:
+    """Plain string normally; the content-array form when media rides along (D20 §3:
+    a modality is one more renderer in this builder, never a new adapter)."""
+    if not request.media:
         return request.user
     parts: list[dict[str, object]] = [{"type": "text", "text": request.user}]
-    for image in request.images:
-        data_uri = f"data:{image.mime};base64,{base64.b64encode(image.data).decode()}"
-        parts.append({"type": "image_url", "image_url": {"url": data_uri}})
+    for part in request.media:
+        match part:
+            case ImageData():
+                data_uri = f"data:{part.mime};base64,{base64.b64encode(part.data).decode()}"
+                parts.append({"type": "image_url", "image_url": {"url": data_uri}})
+            case AudioData():
+                fmt = _AUDIO_FORMATS.get(part.mime)
+                if fmt is None:
+                    # never guess a format at a paid endpoint — fail before the spend
+                    raise ItemError(
+                        f"audio format {part.mime} isn't sendable — "
+                        "wav or mp3 reach audio models natively; "
+                        "install 'sempipe[audio]' to transcribe others"
+                    )
+                encoded = base64.b64encode(part.data).decode()
+                parts.append(
+                    {"type": "input_audio", "input_audio": {"data": encoded, "format": fmt}}
+                )
+            case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                assert_never(unreachable)
     return parts

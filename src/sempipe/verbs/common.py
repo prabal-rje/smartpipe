@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypeVar
+from dataclasses import replace
+from typing import TYPE_CHECKING, TypeVar, assert_never
 
 from sempipe.core.errors import ExitCode, ItemError, TooManyFailures
 from sempipe.engine.runner import (
@@ -13,23 +14,27 @@ from sempipe.engine.runner import (
     should_halt,
     should_halt_consecutive,
 )
+from sempipe.models.base import AudioData, ImageData
 
 if TYPE_CHECKING:
     import asyncio
-    from collections.abc import AsyncIterator, Iterator, Sequence
+    from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 
     from sempipe.io.items import Item
     from sempipe.models.base import EmbeddingModel
 
 __all__ = [
+    "AUDIO_NEEDS_TEXT",
     "EMBED_BATCH_SIZE",
+    "IMAGE_NEEDS_MAP",
     "aiter_items",
     "batched",
     "embed_in_batches",
-    "ensure_text_item",
+    "ensure_text",
     "interrupted_exit_code",
     "outcome_exit_code",
     "prepend",
+    "transcribe",
 ]
 
 T = TypeVar("T")
@@ -66,10 +71,38 @@ async def prepend(first: Item, rest: AsyncIterator[Item]) -> AsyncIterator[Item]
         yield item
 
 
-def ensure_text_item(item: Item) -> None:
-    """Non-map verbs read text; an image item is skipped with a pointer, not a crash."""
-    if item.image is not None:
-        raise ItemError("image items need map — this verb reads text")
+IMAGE_NEEDS_MAP = "image items need map — this verb reads text"  # stage-7 wording, pinned
+AUDIO_NEEDS_TEXT = (
+    "audio items need text here — install 'sempipe[audio]' to transcribe, "
+    "or use map with an audio model"
+)
+
+
+def transcribe(audio: AudioData) -> str:
+    """The default transcriber (the ``[audio]`` extra) with the pinned two-fix skip."""
+    from sempipe.parsing.extract import MissingExtra, transcribe_audio
+
+    try:
+        return transcribe_audio(audio)
+    except MissingExtra as exc:
+        raise ItemError(AUDIO_NEEDS_TEXT) from exc
+
+
+async def ensure_text(item: Item, *, transcriber: Callable[[AudioData], str] = transcribe) -> Item:
+    """Non-map verbs read text (D20 rung 2): images skip with the stage-7 pointer,
+    audio transcribes when the extra is installed (else the two-fix skip)."""
+    match item.media:
+        case None:
+            return item
+        case ImageData():
+            raise ItemError(IMAGE_NEEDS_MAP)
+        case AudioData() as audio:
+            import asyncio
+
+            transcript = await asyncio.to_thread(transcriber, audio)
+            return replace(item, text=transcript, media=None)
+        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+            assert_never(unreachable)
 
 
 def batched(items: Sequence[T], size: int) -> Iterator[tuple[T, ...]]:
@@ -86,6 +119,7 @@ async def embed_in_batches(
     failure_policy: FailurePolicy,
     batch_size: int = EMBED_BATCH_SIZE,
     stop: asyncio.Event | None = None,
+    transcriber: Callable[[AudioData], str] = transcribe,
 ) -> AsyncIterator[ItemOutcome[tuple[Item, tuple[float, ...]]]]:
     """Embed a finite corpus in ≤``batch_size`` chunks, sequentially (DEFER-3).
 
@@ -119,13 +153,15 @@ async def embed_in_batches(
             return
         text_items: list[Item] = []
         for item in chunk:
-            if item.image is not None:
-                processed += 1
-                reason = "image items need map — this verb reads text"
-                yield Skipped(item.source.index, reason, item.source)
-                account_skip(reason)
-            else:
+            if item.media is None:
                 text_items.append(item)
+                continue
+            try:
+                text_items.append(await ensure_text(item, transcriber=transcriber))
+            except ItemError as exc:
+                processed += 1
+                yield Skipped(item.source.index, str(exc), item.source)
+                account_skip(str(exc))
         if not text_items:
             continue
         try:

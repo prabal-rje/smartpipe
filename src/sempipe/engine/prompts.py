@@ -24,6 +24,7 @@ from sempipe.engine.schema import shorthand_to_schema
 from sempipe.models.base import (  # shared request value types, not behavior
     CompletionRequest,
     ImageData,
+    MediaData,
 )
 
 if TYPE_CHECKING:
@@ -210,16 +211,17 @@ def build_map_request(
     instruction: str,
     item_text: str,
     *,
-    images: tuple[ImageData, ...] = (),
+    media: tuple[MediaData, ...] = (),
 ) -> CompletionRequest:
     max_tokens = _STRUCTURED_MAX_TOKENS if plan.mode == "structured" else _PLAIN_MAX_TOKENS
-    system = f"{IMAGE_ITEM_PREFIX}{plan.system}" if images else plan.system
+    prefixed = any(isinstance(part, ImageData) for part in media)
+    system = f"{IMAGE_ITEM_PREFIX}{plan.system}" if prefixed else plan.system
     return CompletionRequest(
         system=system,
         user=f"{instruction}\n\n{item_text}" if item_text else instruction,
         json_schema=plan.schema,
         max_tokens=max_tokens,
-        images=images,
+        media=media,
     )
 
 

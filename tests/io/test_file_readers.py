@@ -7,7 +7,7 @@ import pytest
 
 from sempipe.core.errors import UsageFault
 from sempipe.io.inputs import InputSpec
-from sempipe.io.readers import resolve_items
+from sempipe.io.readers import file_items, resolve_items
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -83,10 +83,10 @@ async def test_image_file_becomes_an_image_item(tmp_path: Path) -> None:
     assert len(items) == 2
     by_name = {item.source.name.rsplit("/", 1)[-1]: item for item in items}
     photo = by_name["photo.png"]
-    assert photo.image is not None  # bytes carried to the vision path
-    assert photo.image.mime == "image/png"
+    assert photo.media is not None  # bytes carried to the vision path
+    assert photo.media.mime == "image/png"
     assert photo.text == ""  # nothing to "read" — the model sees the image
-    assert by_name["note.txt"].image is None
+    assert by_name["note.txt"].media is None
 
 
 async def test_missing_extra_warns_once(
@@ -167,3 +167,18 @@ async def test_in_plus_from_files_is_a_usage_error(tmp_path: Path) -> None:
     spec = InputSpec(patterns=(str(tmp_path / "*.txt"),), from_files=True)
     with pytest.raises(UsageFault, match="both file sources"):
         resolve_items(spec, io.StringIO(""))
+
+
+def test_audio_file_becomes_an_audio_item_with_bytes(tmp_path: Path) -> None:
+    # D20/post-1.1-02: no eager transcription — the bytes ride the item
+    wav = tmp_path / "call.wav"
+    wav.write_bytes(b"RIFF----WAVEfakeaudio")
+    items = file_items([wav])
+    assert len(items) == 1
+    from sempipe.models.base import AudioData
+
+    media = items[0].media
+    assert isinstance(media, AudioData)
+    assert media.mime == "audio/wav"
+    assert media.data == b"RIFF----WAVEfakeaudio"
+    assert items[0].text == ""  # text arrives lazily, per verb

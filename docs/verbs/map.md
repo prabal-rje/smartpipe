@@ -59,6 +59,13 @@ $ tail -f app.log | sempipe map "Classify: {severity, category}" | tee incidents
 | `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md#-fields--pick-and-order-your-columns)) |
 | `--verbose` / `--debug` | More detail on stderr / full tracebacks |
 
+## Audio and images
+
+`map` is the multimodal verb: image items reach vision models as images, audio
+items reach audio models as sound (`--in 'calls/*.wav'`). A model that can't
+hear falls back to local transcription when `pip install 'sempipe[audio]'` is
+present; details in [File inputs](../inputs/files.md#audio-heard-natively-or-transcribed).
+
 ## Inline braces vs. `--schema`
 
 - **Inline** `{vendor, total}` is quick and great for exploration — the model

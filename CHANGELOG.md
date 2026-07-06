@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Native audio Q&A (D20).** `sempipe map "what does the caller want?" --in
+  'calls/*.wav'` sends the *sound itself* to models that can hear
+  (`gpt-4o-audio-preview`-family, Voxtral — wav/mp3 as `input_audio` parts,
+  byte-verified); models that can't trigger a transcription fallback when the
+  `[audio]` extra is installed (with a one-time note), else a skip naming both
+  fixes. Text verbs (`filter`, `embed`, `top_k`, `reduce`, `join`) transcribe
+  on demand instead of eagerly at read time. All of it lands on the one media
+  union (`Item.media`), so vision behavior is byte-identical — and the whole
+  audio diff came in *smaller* than vision's, as the constitution demands.
 - **`sempipe join` — the sixth semantic verb (D21).** Match stdin against a
   second input wherever a plain-English predicate holds:
   `join "{left.text} concerns {right.name}" --right products.jsonl`. Embed →

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from pathlib import Path
 
-__all__ = ["FileKind", "Route", "detect_kind", "route"]
+__all__ = ["FileKind", "Route", "audio_mime", "detect_kind", "route"]
 
 Route = Literal["text", "doc", "audio", "image", "skip"]
 
@@ -78,6 +78,20 @@ _ROUTES: dict[FileKind, Route] = {
     FileKind.IMAGE: "image",
     FileKind.UNKNOWN_BINARY: "skip",
 }
+
+
+_AUDIO_MIME_BY_SUFFIX = {
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".ogg": "audio/ogg",
+}
+
+
+def audio_mime(path: Path) -> str:
+    """The wire mime for an audio file — suffix-driven, mp3 as the safe default."""
+    return _AUDIO_MIME_BY_SUFFIX.get(path.suffix.lower(), "audio/mpeg")
 
 
 def route(kind: FileKind) -> Route:

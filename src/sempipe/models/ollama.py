@@ -16,6 +16,7 @@ import httpx
 from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
+from sempipe.models.base import AudioData, ImageData
 from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.retry import RetryPolicy, with_retries
 
@@ -56,8 +57,15 @@ class OllamaChatModel:
         if request.system is not None:
             messages.append({"role": "system", "content": request.system})
         user: dict[str, object] = {"role": "user", "content": request.user}
-        if request.images:
-            user["images"] = [base64.b64encode(image.data).decode() for image in request.images]
+        if any(isinstance(part, AudioData) for part in request.media):
+            # ollama's chat API carries images only — fail before any bytes leave (D20 §2)
+            raise ItemError(
+                "this model can't hear audio — try an audio model "
+                "(gpt-4o-audio-preview, voxtral), or install 'sempipe[audio]' to transcribe"
+            )
+        images = [part for part in request.media if isinstance(part, ImageData)]
+        if images:
+            user["images"] = [base64.b64encode(image.data).decode() for image in images]
         messages.append(user)
         payload: dict[str, object] = {
             "model": self.ref.name,
@@ -71,7 +79,7 @@ class OllamaChatModel:
         except ItemError as exc:
             # _post maps a 400 to ItemError; with images in flight that almost
             # always means "this model has no vision" — say so, name a fix.
-            if request.images and "error 400" in str(exc):
+            if request.media and "error 400" in str(exc):
                 raise ItemError(_NO_VISION) from exc
             raise
         message = record_at(data, "message")

@@ -38,7 +38,7 @@ from sempipe.io.items import ItemSource, describe_source, item_from_line
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.verbs.common import (
     embed_in_batches,
-    ensure_text_item,
+    ensure_text,
     interrupted_exit_code,
     outcome_exit_code,
 )
@@ -201,7 +201,7 @@ async def _join_one(
     book: _PairBook,
     stop: asyncio.Event | None,
 ) -> tuple[tuple[int, float], ...]:
-    ensure_text_item(item)  # image items skip with the pointer
+    item = await ensure_text(item)  # image skips; audio transcribes (D20 rung 2)
     vector = (await embed_model.embed([item.text]))[0]
     matches: list[tuple[int, float]] = []
     for position, score in candidates(vector, index, k=request.k, threshold=request.threshold):

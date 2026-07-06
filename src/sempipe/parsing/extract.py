@@ -13,13 +13,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, assert_never
 
 from sempipe.core.errors import ItemError
-from sempipe.models.base import ImageData
+from sempipe.models.base import AudioData, ImageData
 from sempipe.parsing.detect import FileKind, route
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-__all__ = ["Extracted", "ImageData", "MissingExtra", "extract"]
+__all__ = ["Extracted", "ImageData", "MissingExtra", "extract", "transcribe_audio"]
 
 _IMAGE_MIME: dict[str, str] = {
     ".png": "image/png",
@@ -73,6 +73,40 @@ def _read_text(path: Path) -> Extracted:
 def _read_image(path: Path) -> ImageData:
     mime = _IMAGE_MIME.get(path.suffix.lower(), "image/png")
     return ImageData(data=path.read_bytes(), mime=mime)
+
+
+_SUFFIX_BY_MIME = {
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/mp4": ".m4a",
+    "audio/ogg": ".ogg",
+    "audio/flac": ".flac",
+}
+
+
+def transcribe_audio(audio: AudioData) -> str:
+    """In-memory audio → transcript via the ``[audio]`` extra (D20 rung 2).
+
+    Blocking (markitdown is sync) — callers run it in a thread. ``MissingExtra``
+    propagates so the verb layer can name both fixes.
+    """
+    import contextlib
+    import os
+    import tempfile
+
+    suffix = _SUFFIX_BY_MIME.get(audio.mime, ".mp3")
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+        handle.write(audio.data)
+        name = handle.name
+    try:
+        from pathlib import Path
+
+        return _via_markitdown(Path(name), extra="audio", noun="audio")
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(name)
 
 
 def _via_markitdown(path: Path, *, extra: str, noun: str) -> str:

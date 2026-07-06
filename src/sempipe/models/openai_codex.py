@@ -116,9 +116,18 @@ class CodexChatModel:
 
 def build_payload(model: str, request: CompletionRequest) -> dict[str, object]:
     content: list[dict[str, object]] = [{"type": "input_text", "text": request.user}]
-    for image in request.images:
-        data_uri = f"data:{image.mime};base64,{base64.b64encode(image.data).decode()}"
-        content.append({"type": "input_image", "image_url": data_uri})
+    from sempipe.models.base import AudioData, ImageData
+
+    if any(isinstance(part, AudioData) for part in request.media):
+        # audio on the ChatGPT login wire is unverified — fail free, name the fixes
+        raise ItemError(
+            "this model can't hear audio — try an audio model "
+            "(gpt-4o-audio-preview, voxtral), or install 'sempipe[audio]' to transcribe"
+        )
+    for part in request.media:
+        if isinstance(part, ImageData):
+            data_uri = f"data:{part.mime};base64,{base64.b64encode(part.data).decode()}"
+            content.append({"type": "input_image", "image_url": data_uri})
     payload: dict[str, object] = {
         "model": model,
         "input": [{"role": "user", "content": content}],

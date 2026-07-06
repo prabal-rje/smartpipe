@@ -102,7 +102,7 @@ def test_payload_never_claims_strict_for_an_open_schema() -> None:
 
 def test_payload_carries_images_as_data_uris() -> None:
     request = CompletionRequest(
-        system=None, user="describe", images=(ImageData(b"PNG", "image/png"),)
+        system=None, user="describe", media=(ImageData(b"PNG", "image/png"),)
     )
     from sempipe.core.jsontools import as_items, as_record
 
