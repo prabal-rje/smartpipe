@@ -117,9 +117,10 @@ async def run_reduce(
     collected = [item async for item in items_iter]  # whole-set verbs need everything
     items: list[Item] = []
     media_skipped = 0
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     for candidate in collected:
         try:
-            items.append(await ensure_text(candidate))  # audio transcribes; images skip
+            items.append(await ensure_text(candidate, log=log))  # converts, row-noted
         except ItemError as exc:
             diagnostics.warn(f"skipped: {describe_source(candidate.source)} ({exc})")
             media_skipped += 1
@@ -147,6 +148,7 @@ async def run_reduce(
             await _run_single(reducer, tokens, schema, items, writer)
     finally:
         writer.flush()
+        log.finish()
     if reducer.produced == 0:
         return ExitCode.ALL_FAILED
     return ExitCode.PARTIAL if (reducer.skipped or media_skipped) else ExitCode.OK
@@ -207,6 +209,7 @@ async def _run_windowed(
         verbose=request.verbose,
         window_budget=_window_budget(context, model),
     )
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     buffer: WindowBuffer[str] = WindowBuffer(policy)
     produced = 0
     failed = 0
@@ -230,7 +233,7 @@ async def _run_windowed(
         async for item in items_iter:
             if item.media is not None:
                 try:
-                    item = await ensure_text(item)  # audio transcribes; images skip
+                    item = await ensure_text(item, log=log)  # converts, row-noted
                 except ItemError as exc:
                     diagnostics.warn(f"skipped: {describe_source(item.source)} ({exc})")
                     failed += 1
@@ -243,6 +246,7 @@ async def _run_windowed(
             await emit(tail)
     finally:
         writer.flush()
+        log.finish()
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=produced, skipped=failed)
         return interrupted_exit_code(done=produced, skipped=failed)

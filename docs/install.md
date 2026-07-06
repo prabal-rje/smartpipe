@@ -46,6 +46,7 @@ libraries are opt-in, so you only install what you use:
 | `anthropic` | Claude models (`claude-*`) | `pip install 'sempipe[anthropic]'` |
 | `files` | reading PDF, DOCX, PPTX, XLSX, HTML, EPUB via [`--in`](inputs/files.md) | `pip install 'sempipe[files]'` |
 | `audio` | local Whisper transcription of audio files (never leaves your machine) | `pip install 'sempipe[audio]'` |
+| `video` | frames + soundtrack from video files (bundled ffmpeg) | `pip install 'sempipe[video]'` |
 | `all` | everything above | `pip install 'sempipe[all]'` |
 
 If you run a command that needs an extra you haven't installed, sempipe tells you

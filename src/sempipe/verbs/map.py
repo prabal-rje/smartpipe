@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
@@ -29,7 +29,7 @@ from sempipe.io import diagnostics, readers
 from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
 from sempipe.io.progress import make_stderr_spinner
-from sempipe.models.base import AudioData
+from sempipe.models.base import AudioData, VideoData
 from sempipe.verbs.common import (
     WindowGate,
     interrupted_exit_code,
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.io.writers import OutputFormat, ResultWriter
-    from sempipe.models.base import ChatModel, ModelRef
+    from sempipe.models.base import ChatModel, ImageData, ModelRef
 
 __all__ = ["MapContext", "MapRequest", "run_map"]
 
@@ -121,7 +121,7 @@ async def run_map(
     spinner = make_stderr_spinner()
     spinner.start(total=total)
 
-    fallback_noted = [False]  # the once-per-run transcription note (ux.md pin)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     gate = WindowGate(
         provider=model.ref.provider,
         model_name=model.ref.name,
@@ -134,7 +134,7 @@ async def run_map(
         if budget is not None:
             # D26: silently chunking would change what was asked — teach the pipeline
             raise ItemError(gate.refusal(item.text, budget))
-        return await _map_one(model, plan, instruction, item, fallback_noted)
+        return await _map_one(model, plan, instruction, item, log)
 
     done = 0
     skipped = 0
@@ -161,6 +161,7 @@ async def run_map(
     finally:
         spinner.finish()
         writer.flush()
+        log.finish()
     if tally is not None and tally.counts:
         diagnostics.note(tally.final_line())
     if stop is not None and stop.is_set():
@@ -174,30 +175,70 @@ async def _map_one(
     plan: MapPlan,
     instruction: str,
     item: Item,
-    fallback_noted: list[bool],
+    log: diagnostics.DegradationLog,
 ) -> str | Mapping[str, object]:
+    if isinstance(item.media, VideoData):
+        return await _map_video(model, plan, instruction, item, item.media, log)
     media = (item.media,) if item.media is not None else ()
-    request = build_map_request(plan, instruction, item.text, media=media)
     try:
-        reply = await model.complete(request)
+        return await _attempt(model, plan, instruction, item.text, media)
     except ItemError as native_failure:
         if not isinstance(item.media, AudioData):
             raise
         # the ladder's middle rung (D20 §5): the model can't hear it — transcribe
         # if the extra is there (MissingExtra keeps the two-fix skip), retry as text
         transcript = await asyncio.to_thread(_transcribe_or_skip, item.media, native_failure)
-        if not fallback_noted[0]:
-            fallback_noted[0] = True
-            import os
+        log.note(describe_source(item.source), "audio → text", _whisper_note())
+        return await _attempt(model, plan, instruction, transcript, ())
 
-            from sempipe.parsing.extract import whisper_size
 
-            diagnostics.note(
-                f"transcribing with local whisper ({whisper_size(os.environ)})"
-                " — the model can't hear it natively"
-            )
-        spoken = replace(item, text=transcript, media=None)
-        return await _map_one(model, plan, instruction, spoken, fallback_noted)
+async def _map_video(
+    model: ChatModel,
+    plan: MapPlan,
+    instruction: str,
+    item: Item,
+    video: VideoData,
+    log: diagnostics.DegradationLog,
+) -> str | Mapping[str, object]:
+    """The poor man's video (D27): frames + heard track, then frames + transcript."""
+    from sempipe.parsing.extract import video_to_parts
+
+    parts = await asyncio.to_thread(video_to_parts, video)
+    track = parts.track
+    detail = f"{len(parts.frames)} frames" + (" + audio" if track is not None else ", silent")
+    log.note(describe_source(item.source), "video → frames+audio", detail)
+    media: tuple[ImageData | AudioData, ...] = (
+        (*parts.frames, track) if track is not None else parts.frames
+    )
+    try:
+        return await _attempt(model, plan, instruction, item.text, media)
+    except ItemError as native_failure:
+        if track is None:
+            raise
+        # the model saw frames but couldn't hear — transcribe the track, retry
+        transcript = await asyncio.to_thread(_transcribe_or_skip, track, native_failure)
+        log.note(describe_source(item.source), "video audio → text", _whisper_note())
+        spoken = f"{item.text}\n\n[audio track transcript]\n{transcript}".strip()
+        return await _attempt(model, plan, instruction, spoken, parts.frames)
+
+
+def _whisper_note() -> str:
+    import os
+
+    from sempipe.parsing.extract import whisper_size
+
+    return f"whisper {whisper_size(os.environ)}"
+
+
+async def _attempt(
+    model: ChatModel,
+    plan: MapPlan,
+    instruction: str,
+    text: str,
+    media: tuple[ImageData | AudioData, ...],
+) -> str | Mapping[str, object]:
+    request = build_map_request(plan, instruction, text, media=media)
+    reply = await model.complete(request)
     if plan.schema is None:
         return reply.rstrip()  # plain mode: keep the reply, only trim trailing whitespace
     try:

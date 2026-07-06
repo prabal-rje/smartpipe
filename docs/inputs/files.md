@@ -109,6 +109,16 @@ stdin lines, one run:
 $ cat extra-notes.txt | sempipe map "Summarize" --in 'reports/*.pdf'
 ```
 
+## Video: frames + soundtrack
+
+A video file becomes an item carrying its bytes. `map` converts it locally
+(ffmpeg, via `pip install 'sempipe[video]'` or PATH): six evenly-sampled frames
+plus the audio track, sent natively when the model can see/hear, with a whisper
+transcript as the fallback rung. Every conversion is announced on its row
+(`⚠ degraded: demo.mp4 video → frames+audio (6 frames + audio)`). Text verbs
+transcribe the track and say the frames were dropped. `split --by seconds:N`
+slices video losslessly (keyframe-aligned) into segments that stay video.
+
 ## Images inside PDFs and DOCX: extract them with `split --media`
 
 Document parsing extracts **text**; figures embedded in a PDF/DOCX/PPTX/XLSX

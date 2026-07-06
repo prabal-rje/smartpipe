@@ -103,6 +103,7 @@ async def run_filter(
     spinner = make_stderr_spinner()
     spinner.start(total=total)
 
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     gate = WindowGate(
         provider=model.ref.provider,
         model_name=model.ref.name,
@@ -113,10 +114,10 @@ async def run_filter(
     async def worker(item: Item) -> tuple[Item, bool]:
         budget = await gate.budget_for_oversized(item.text)
         if budget is None:
-            return item, await _judge(model, tokens, item)
+            return item, await _judge(model, tokens, item, log)
         # D26: judge the chunks — any match keeps the whole item (--not inverts after)
         for chunk in split_text(item.text, budget):
-            if await _judge(model, tokens, replace(item, text=chunk)):
+            if await _judge(model, tokens, replace(item, text=chunk), log):
                 return item, True
         return item, False
 
@@ -147,6 +148,7 @@ async def run_filter(
     finally:
         spinner.finish()
         writer.flush()
+        log.finish()
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=judged, skipped=skipped)
         return interrupted_exit_code(done=judged, skipped=skipped)
@@ -162,8 +164,13 @@ def _emit_match(writer: ResultWriter, item: Item) -> None:
         writer.write_passthrough(item)
 
 
-async def _judge(model: ChatModel, tokens: tuple[Token, ...], item: Item) -> bool:
-    item = await ensure_text(item)  # image skips; audio transcribes (D20 rung 2)
+async def _judge(
+    model: ChatModel,
+    tokens: tuple[Token, ...],
+    item: Item,
+    log: diagnostics.DegradationLog,
+) -> bool:
+    item = await ensure_text(item, log=log)  # image skips; audio/video convert, row-noted
     condition = interpolate_fields(tokens, item.data)  # ItemError → skip-and-warn
     request = build_filter_request(condition, item.text)
     reply = await model.complete(request)

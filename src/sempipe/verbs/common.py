@@ -14,7 +14,8 @@ from sempipe.engine.runner import (
     should_halt,
     should_halt_consecutive,
 )
-from sempipe.models.base import AudioData, ImageData
+from sempipe.io import diagnostics
+from sempipe.models.base import AudioData, ImageData, VideoData
 
 if TYPE_CHECKING:
     import asyncio
@@ -86,9 +87,15 @@ def transcribe(audio: AudioData) -> str:
         raise ItemError(AUDIO_NEEDS_TEXT) from exc
 
 
-async def ensure_text(item: Item, *, transcriber: Callable[[AudioData], str] = transcribe) -> Item:
+async def ensure_text(
+    item: Item,
+    *,
+    transcriber: Callable[[AudioData], str] = transcribe,
+    log: diagnostics.DegradationLog | None = None,
+) -> Item:
     """Non-map verbs read text (D20 rung 2): images skip with the stage-7 pointer,
-    audio transcribes when the extra is installed (else the two-fix skip)."""
+    audio transcribes when the extra is installed (else the two-fix skip), video
+    yields its transcribed track (frames dropped) — each conversion row-noted (D27)."""
     match item.media:
         case None:
             return item
@@ -98,9 +105,41 @@ async def ensure_text(item: Item, *, transcriber: Callable[[AudioData], str] = t
             import asyncio
 
             transcript = await asyncio.to_thread(transcriber, audio)
+            if log is not None:
+                from sempipe.io.items import describe_source
+
+                log.note(describe_source(item.source), "audio → text", _whisper_detail())
+            return replace(item, text=transcript, media=None)
+        case VideoData() as video:
+            import asyncio
+
+            from sempipe.parsing.extract import video_to_parts
+
+            parts = await asyncio.to_thread(video_to_parts, video)
+            if parts.track is None:
+                raise ItemError(
+                    "this video has no audio track — text verbs read text; map can see its frames"
+                )
+            transcript = await asyncio.to_thread(transcriber, parts.track)
+            if log is not None:
+                from sempipe.io.items import describe_source
+
+                log.note(
+                    describe_source(item.source),
+                    "video → text",
+                    "audio track transcribed; frames dropped — map sees frames",
+                )
             return replace(item, text=transcript, media=None)
         case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
             assert_never(unreachable)
+
+
+def _whisper_detail() -> str:
+    import os
+
+    from sempipe.parsing.extract import whisper_size
+
+    return f"whisper {whisper_size(os.environ)}"
 
 
 EMBED_BUDGET_TOKENS = 4_800  # 8k published minus the usual safety margin
@@ -190,6 +229,7 @@ async def embed_in_batches(
     batch_size: int = EMBED_BATCH_SIZE,
     stop: asyncio.Event | None = None,
     transcriber: Callable[[AudioData], str] = transcribe,
+    log: diagnostics.DegradationLog | None = None,
 ) -> AsyncIterator[ItemOutcome[tuple[Item, tuple[float, ...]]]]:
     """Embed a finite corpus in ≤``batch_size`` chunks, sequentially (DEFER-3).
 
@@ -276,7 +316,7 @@ async def embed_in_batches(
             return
         if item.media is not None:
             try:
-                item = await ensure_text(item, transcriber=transcriber)
+                item = await ensure_text(item, transcriber=transcriber, log=log)
             except ItemError as exc:
                 skip = Skipped(item.source.index, str(exc), item.source)
                 account(skip)

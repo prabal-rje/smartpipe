@@ -79,7 +79,9 @@ async def run_top_k(
         return ExitCode.OK
 
     query_vector = (await model.embed([request.near]))[0]
-    vectors, skipped = await _collect_vectors(model, items)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    vectors, skipped = await _collect_vectors(model, items, log)
+    log.finish()
     _check_dimensions(query_vector, vectors)
 
     entries = sorted(vectors.items())  # (item_index, vector), stable by index for ties
@@ -130,9 +132,10 @@ async def _run_stream(
     model = await context.embedding_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
     query_vector = (await model.embed([request.near]))[0]
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
 
     async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
-        item = await ensure_text(item)  # image skips; audio transcribes (D20 rung 2)
+        item = await ensure_text(item, log=log)  # image skips; audio/video convert, row-noted
         vector = _precomputed_vector(item)
         if vector is None:
             vector = (await model.embed([item.text]))[0]
@@ -220,7 +223,7 @@ def _emit_snapshot(
 
 
 async def _collect_vectors(
-    model: EmbeddingModel, items: list[Item]
+    model: EmbeddingModel, items: list[Item], log: diagnostics.DegradationLog
 ) -> tuple[dict[int, tuple[float, ...]], int]:
     """Embed everything that needs embedding — chunked (≤64/call, DEFER-3),
     run_ordered bypassed on purpose: batching ≠ per-item workers (order comes
@@ -237,7 +240,7 @@ async def _collect_vectors(
     spinner = make_stderr_spinner()
     spinner.start(total=len(to_embed))
     skipped = 0
-    outcomes = embed_in_batches(model, to_embed, failure_policy=FailurePolicy())
+    outcomes = embed_in_batches(model, to_embed, failure_policy=FailurePolicy(), log=log)
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):
@@ -249,6 +252,7 @@ async def _collect_vectors(
             spinner.advance()
     finally:
         spinner.finish()
+        log.finish()
     return vectors, skipped
 
 

@@ -69,9 +69,17 @@ def _sniff_media(data: Mapping[str, object] | None) -> MediaData | None:
     import base64
     import binascii
 
-    from sempipe.models.base import AudioData, ImageData  # runtime construction
+    from sempipe.models.base import (  # runtime construction
+        AudioData,
+        ImageData,
+        VideoData,
+    )
 
-    for key, build in (("audio_b64", AudioData), ("image_b64", ImageData)):
+    for key, build in (
+        ("audio_b64", AudioData),
+        ("image_b64", ImageData),
+        ("video_b64", VideoData),
+    ):
         encoded = data.get(key)
         if not isinstance(encoded, str):
             continue

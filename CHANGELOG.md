@@ -6,6 +6,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Video input, the poor man's way (D27).** `.mp4/.mov/.mkv/.webm` files (and
+  video on stdin) become items carrying their bytes; `map` converts each to
+  N evenly-sampled frames + the audio track (ffmpeg via the `[video]` extra's
+  bundled binary, or PATH), tries the native wire (frames seen, track heard),
+  and on a deaf model falls to frames + a whisper transcript. Text verbs
+  transcribe the track (frames dropped, said so). `split --by seconds` slices
+  video losslessly at keyframes, slices staying video through the pipe.
+- **Every conversion is disclosed on its row (D27).** `⚠ degraded: <source>
+  audio → text (whisper tiny)` lines (capped per kind) plus one closing rollup
+  (`degraded: audio→text ×1,203`), across map, filter, embed, top_k, reduce,
+  join, and split. The old once-per-run transcription note is retired.
 - **`map --explode FIELD`.** One row per element of a list-valued field,
   sibling fields copied (`{"vendor":"Acme","risks":[…]}` becomes one row per
   risk). Empty list = zero rows; non-lists pass through. Composes with

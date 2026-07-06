@@ -1,0 +1,3 @@
+"""Minimal local stub: we only ask for the bundled binary's path."""
+
+def get_ffmpeg_exe() -> str: ...

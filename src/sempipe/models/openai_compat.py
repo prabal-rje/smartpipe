@@ -17,7 +17,7 @@ from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
 from sempipe.engine.schema import is_strict_compatible
-from sempipe.models.base import AudioData, ImageData
+from sempipe.models.base import AudioData, ImageData, VideoData
 from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.retry import RetryPolicy, with_retries
 
@@ -268,6 +268,11 @@ def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
                 encoded = base64.b64encode(part.data).decode()
                 parts.append(
                     {"type": "input_audio", "input_audio": {"data": encoded, "format": fmt}}
+                )
+            case VideoData():
+                raise ItemError(
+                    "this endpoint can't watch video — map converts video to "
+                    "frames + audio automatically; use map, or split --by seconds"
                 )
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)

@@ -18,7 +18,7 @@ from sempipe.engine.units import SplitBy, parse_by
 from sempipe.io import diagnostics, readers
 from sempipe.io.inputs import STDIN
 from sempipe.io.items import describe_source
-from sempipe.models.base import AudioData
+from sempipe.models.base import AudioData, VideoData
 from sempipe.verbs.common import ensure_text, interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
@@ -68,6 +68,28 @@ def _resolve_by(request: SplitRequest) -> SplitBy:
 
 def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
     origin = describe_source(item.source)  # "report.pdf" / "line 12"
+    if by.unit in ("minutes", "seconds") and isinstance(item.media, VideoData):
+        import base64
+
+        from sempipe.parsing.extract import slice_video
+
+        step = by.slice_seconds
+        slices = slice_video(item.media, seconds=step)
+        total = len(slices)
+        for position, part in enumerate(slices):
+            marker = (
+                origin
+                if total == 1
+                else f"{origin} §{_clock(position * step)}-{_clock((position + 1) * step)}"
+            )
+            writer.write_record(
+                {
+                    "video_b64": base64.b64encode(part.data).decode("ascii"),
+                    "mime": part.mime,
+                    "source": marker,
+                }
+            )
+        return
     if by.unit in ("minutes", "seconds") and isinstance(item.media, AudioData):
         import base64
 
@@ -214,6 +236,7 @@ async def run_split(
     if by.unit == "pages":
         return await _run_pages(request, context, by=by, stdout=stdout)
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
     produced = 0
     skipped = 0
@@ -222,9 +245,9 @@ async def run_split(
             if stop is not None and stop.is_set():
                 break
             duration_slicing = by.unit in ("minutes", "seconds")
-            if not (duration_slicing and isinstance(item.media, AudioData)):
+            if not (duration_slicing and isinstance(item.media, AudioData | VideoData)):
                 try:
-                    item = await ensure_text(item)  # audio transcribes; images skip
+                    item = await ensure_text(item, log=log)  # converts, row-noted
                 except ItemError as exc:
                     diagnostics.warn(f"skipped: {describe_source(item.source)} ({exc})")
                     skipped += 1
@@ -238,6 +261,7 @@ async def run_split(
             produced += 1
     finally:
         writer.flush()
+        log.finish()
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=produced, skipped=skipped)
         return interrupted_exit_code(done=produced, skipped=skipped)

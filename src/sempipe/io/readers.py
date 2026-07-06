@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from sempipe.core.errors import ItemError, SetupFault, UsageFault
 from sempipe.io import diagnostics
 from sempipe.io.items import Item, item_from_file, item_from_line
-from sempipe.models.base import AudioData, ImageData
+from sempipe.models.base import AudioData, ImageData, VideoData
 from sempipe.parsing.detect import FileKind, detect_kind, route
 from sempipe.parsing.extract import MissingExtra, extract
 
@@ -164,6 +164,12 @@ async def _messages(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[
         suffix = _KIND_SUFFIX.get(kind, ".mp3")
         put(("audio", AudioData(data=bytes(data), mime=audio_mime(Path(f"x{suffix}")))))
 
+    def collect_video(fd: int, head: bytes) -> None:
+        data = bytearray(head)
+        while chunk := os.read(fd, 65536):
+            data += chunk
+        put(("video", VideoData(data=bytes(data), mime="video/mp4")))
+
     def pump_fd(fd: int) -> None:
         head = os.read(fd, _HEAD_BYTES)  # one read — a live stream must not stall here
         if not head:
@@ -176,6 +182,8 @@ async def _messages(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[
                 spool_document(fd, head, kind)
             case "audio":
                 collect_audio(fd, head, kind)
+            case "video":
+                collect_video(fd, head)
             case "image":
                 collect_image(fd, head)
             case "skip":
@@ -287,6 +295,10 @@ async def stdin_items(stdin: TextIO, *, stop: asyncio.Event | None = None) -> As
             assert isinstance(payload, AudioData)
             item = item_from_file("", "<stdin>", 0)
             yield replace(item, media=payload)
+        elif tag == "video":
+            assert isinstance(payload, VideoData)
+            item = item_from_file("", "<stdin>", 0)
+            yield replace(item, media=payload)
         else:  # "fatal"
             assert isinstance(payload, str)
             raise SetupFault(payload)
@@ -349,10 +361,10 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
         diagnostics.warn(f"skipped: {path} (cannot read: {exc.strerror or exc})")
         return None
     kind = detect_kind(path, head)
-    if route(kind) == "audio":
-        # D20/post-1.1-02: audio carries its BYTES — transcription became lazy and
-        # per-verb (map tries native hearing first; text verbs transcribe on demand)
-        from sempipe.parsing.detect import audio_mime
+    if route(kind) in ("audio", "video"):
+        # D20/D27: media carries its BYTES — conversion is lazy and per-verb
+        # (map tries the native wire first; text verbs convert on demand)
+        from sempipe.parsing.detect import audio_mime, video_mime
 
         try:
             data = path.read_bytes()
@@ -360,7 +372,12 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
             diagnostics.warn(f"skipped: {path} (cannot read: {exc.strerror or exc})")
             return None
         item = item_from_file("", str(path), index)
-        return replace(item, media=AudioData(data=data, mime=audio_mime(path)))
+        media = (
+            AudioData(data=data, mime=audio_mime(path))
+            if route(kind) == "audio"
+            else VideoData(data=data, mime=video_mime(path))
+        )
+        return replace(item, media=media)
     try:
         extracted = extract(path, kind)
     except MissingExtra as exc:

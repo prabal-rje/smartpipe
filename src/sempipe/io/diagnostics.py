@@ -21,6 +21,7 @@ from sempipe.core.errors import (
 from sempipe.io import tty
 
 __all__ = [
+    "DegradationLog",
     "die",
     "drain_timed_out",
     "internal_error",
@@ -69,6 +70,32 @@ def _emit_error(text: str) -> None:
         text = f"{_RED}error:{_RESET}{text.removeprefix('error:')}"
     sys.stderr.write(f"{text}\n")
     sys.stderr.flush()
+
+
+_DEGRADE_CAP = 5  # per conversion kind: first rows verbatim, then the rollup
+
+
+class DegradationLog:
+    """Per-run ledger of poor-man's conversions (D27): every degraded row is
+    announced (capped per kind), and one rollup line closes the run."""
+
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+
+    def note(self, where: str, kind: str, detail: str) -> None:
+        count = self.counts.get(kind, 0) + 1
+        self.counts[kind] = count
+        if count <= _DEGRADE_CAP:
+            warn(f"degraded: {where} {kind} ({detail})")
+        elif count == _DEGRADE_CAP + 1:
+            warn(f"more {kind} rows follow (suppressed; the rollup lands at the end)")
+
+    def finish(self) -> None:
+        if not self.counts:
+            return
+        ranked = sorted(self.counts.items(), key=lambda pair: -pair[1])
+        marks = " · ".join(f"{kind} ×{count:,}" for kind, count in ranked)  # noqa: RUF001 — the pinned rollup mark
+        note(f"degraded: {marks}")
 
 
 def report_error(screen: str) -> None:

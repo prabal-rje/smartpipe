@@ -35,7 +35,8 @@ dependencies = [
 anthropic = ["anthropic>=0.40"]
 files = ["markitdown[pdf,docx,pptx,xlsx]>=0.1.6", "pypdf>=5.0"]
 audio = ["faster-whisper>=1.0"]  # local STT: audio never leaves the machine
-all = ["sempipe[anthropic,files,audio]"]
+video = ["imageio-ffmpeg>=0.5"]  # bundles a static ffmpeg for frames/track/slicing
+all = ["sempipe[anthropic,files,audio,video]"]
 
 [project.scripts]
 sempipe = "sempipe.cli.root:main"

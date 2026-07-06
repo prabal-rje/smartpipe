@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, assert_never
 
 from sempipe.core.errors import ItemError
 from sempipe.core.jsontools import as_items, as_record
-from sempipe.models.base import AudioData, ImageData
+from sempipe.models.base import AudioData, ImageData, VideoData
 from sempipe.parsing.detect import FileKind, route
 
 if TYPE_CHECKING:
@@ -27,11 +27,14 @@ __all__ = [
     "Extracted",
     "ImageData",
     "MissingExtra",
+    "VideoParts",
     "embedded_images",
     "extract",
     "pdf_page_texts",
     "slice_audio",
+    "slice_video",
     "transcribe_audio",
+    "video_to_parts",
     "whisper_size",
 ]
 
@@ -68,6 +71,10 @@ def extract(path: Path, kind: FileKind) -> Extracted:
             return Extracted(text=_via_markitdown(path, extra="files", noun="documents"))
         case "audio":
             return Extracted(text=_via_markitdown(path, extra="audio", noun="audio"))
+        case "video":
+            raise ItemError(
+                "video reaches text extraction unconverted — this is a sempipe bug"
+            )  # readers hand video BYTES to the verbs; conversion is per-verb (D27)
         case "image":
             return Extracted(text="", image=_read_image(path))
         case "skip":
@@ -326,6 +333,177 @@ def _pdf_lookup(mapping: object, key: str) -> object:
         return None
     looked: object = getter(key)
     return _pdf_resolve(looked)
+
+
+_VIDEO_NEEDS_FFMPEG = (
+    "working with video needs ffmpeg\n"
+    "  install the extra:  pip install 'sempipe[video]'   (bundles a static ffmpeg)\n"
+    "  or put ffmpeg on PATH"
+)
+
+
+def _ffmpeg_exe() -> str:
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe
+
+        return get_ffmpeg_exe()
+    except ImportError:
+        import shutil
+
+        exe = shutil.which("ffmpeg")
+        if exe is None:
+            raise ItemError(_VIDEO_NEEDS_FFMPEG) from None
+        return exe
+
+
+def _ffprobe_duration(exe: str, source: str) -> float:
+    """Parse "Duration: HH:MM:SS.cc" from ffmpeg's banner (no ffprobe needed)."""
+    import re
+    import subprocess
+
+    result = subprocess.run([exe, "-i", source], capture_output=True, check=False)
+    match = re.search(rb"Duration: (\d+):(\d+):(\d+\.?\d*)", result.stderr)
+    if match is None:
+        raise ItemError("ffmpeg couldn't read the video's duration")
+    hours, minutes, seconds = match.groups()
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+
+@dataclass(frozen=True, slots=True)
+class VideoParts:
+    frames: tuple[ImageData, ...]
+    track: AudioData | None  # None when the video is silent
+
+
+def video_to_parts(video: VideoData, *, frames: int = 6) -> VideoParts:
+    """The poor man's video (D27): N frames sampled evenly + the audio track.
+
+    Free and local (ffmpeg). Blocking — callers run it in a thread.
+    """
+    import contextlib
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    exe = _ffmpeg_exe()
+    workdir = tempfile.mkdtemp(prefix="sempipe-video-")
+    source = os.path.join(workdir, "source")
+    try:
+        with open(source, "wb") as handle:
+            handle.write(video.data)
+        duration = _ffprobe_duration(exe, source)
+        rate = frames / duration if duration > 0 else 1.0
+        subprocess.run(
+            [
+                exe,
+                "-loglevel",
+                "error",
+                "-i",
+                source,
+                "-vf",
+                f"fps={rate}",
+                "-frames:v",
+                str(frames),
+                os.path.join(workdir, "frame-%02d.jpg"),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        names = sorted(n for n in os.listdir(workdir) if n.startswith("frame-"))
+        images = tuple(
+            ImageData(Path(os.path.join(workdir, name)).read_bytes(), "image/jpeg")
+            for name in names
+        )
+        track_path = os.path.join(workdir, "track.wav")
+        probe = subprocess.run(
+            [
+                exe,
+                "-loglevel",
+                "error",
+                "-i",
+                source,
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                track_path,
+            ],
+            check=False,
+            capture_output=True,
+        )
+        track = None
+        if probe.returncode == 0 and os.path.exists(track_path):
+            payload = Path(track_path).read_bytes()
+            if len(payload) > 44:  # more than a bare wav header — a real track
+                track = AudioData(payload, "audio/wav")
+        if not images:
+            raise ItemError("ffmpeg produced no frames from this video")
+        return VideoParts(frames=images, track=track)
+    except ItemError:
+        raise
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.decode(errors="replace").strip().splitlines()
+        raise ItemError(
+            f"ffmpeg couldn't read this video ({detail[-1] if detail else 'unknown'})"
+        ) from exc
+    except Exception as exc:
+        raise ItemError(f"video couldn't be converted ({exc})") from exc
+    finally:
+        with contextlib.suppress(OSError):
+            shutil.rmtree(workdir)
+
+
+def slice_video(video: VideoData, *, seconds: int) -> list[VideoData]:
+    """Duration slices of a video, stream-copied (fast, lossless) via ffmpeg."""
+    import contextlib
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    exe = _ffmpeg_exe()
+    workdir = tempfile.mkdtemp(prefix="sempipe-vslice-")
+    source = os.path.join(workdir, "source.mp4")
+    pattern = os.path.join(workdir, "slice-%04d.mp4")
+    try:
+        with open(source, "wb") as handle:
+            handle.write(video.data)
+        subprocess.run(
+            [
+                exe,
+                "-loglevel",
+                "error",
+                "-i",
+                source,
+                "-f",
+                "segment",
+                "-segment_time",
+                str(seconds),
+                "-c",
+                "copy",
+                "-reset_timestamps",
+                "1",
+                pattern,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        names = sorted(n for n in os.listdir(workdir) if n.startswith("slice-"))
+        return [
+            VideoData(Path(os.path.join(workdir, name)).read_bytes(), "video/mp4") for name in names
+        ] or [video]
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.decode(errors="replace").strip().splitlines()
+        raise ItemError(
+            f"ffmpeg couldn't slice this video ({detail[-1] if detail else 'unknown'})"
+        ) from exc
+    finally:
+        with contextlib.suppress(OSError):
+            shutil.rmtree(workdir)
 
 
 def whisper_size(environ: Mapping[str, str]) -> str:

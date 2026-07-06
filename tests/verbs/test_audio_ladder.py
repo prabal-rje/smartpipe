@@ -158,7 +158,9 @@ async def test_deaf_model_falls_back_to_transcription(
     assert len(model.calls) == 2  # native attempt, then the transcript retry
     assert model.calls[1].media == ()
     err = capsys.readouterr().err
-    assert err.count("transcribing with local whisper") == 1  # the once-per-run note
+    assert err.count("⚠ degraded:") == 1  # the per-row disclosure (D27)
+    assert "audio → text (whisper tiny)" in err
+    assert "note: degraded: audio → text \N{MULTIPLICATION SIGN}1" in err  # pinned rollup
 
 
 async def test_deaf_model_without_extra_skips_with_both_fixes(

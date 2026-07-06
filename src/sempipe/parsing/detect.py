@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from pathlib import Path
 
-__all__ = ["FileKind", "Route", "audio_mime", "detect_kind", "route"]
+__all__ = ["FileKind", "Route", "audio_mime", "detect_kind", "route", "video_mime"]
 
-Route = Literal["text", "doc", "audio", "image", "skip"]
+Route = Literal["text", "doc", "audio", "video", "image", "skip"]
 
 
 class FileKind(Enum):
@@ -29,6 +29,7 @@ class FileKind(Enum):
     HTML = "html"
     EPUB = "epub"
     AUDIO = "audio"
+    VIDEO = "video"
     IMAGE = "image"
     UNKNOWN_BINARY = "unknown-binary"
 
@@ -56,6 +57,10 @@ _BY_EXTENSION: dict[str, FileKind] = {
     ".flac": FileKind.AUDIO,
     ".m4a": FileKind.AUDIO,
     ".ogg": FileKind.AUDIO,
+    ".mp4": FileKind.VIDEO,
+    ".mov": FileKind.VIDEO,
+    ".mkv": FileKind.VIDEO,
+    ".webm": FileKind.VIDEO,
     ".png": FileKind.IMAGE,
     ".jpg": FileKind.IMAGE,
     ".jpeg": FileKind.IMAGE,
@@ -75,6 +80,7 @@ _ROUTES: dict[FileKind, Route] = {
     FileKind.HTML: "doc",
     FileKind.EPUB: "doc",
     FileKind.AUDIO: "audio",
+    FileKind.VIDEO: "video",
     FileKind.IMAGE: "image",
     FileKind.UNKNOWN_BINARY: "skip",
 }
@@ -112,6 +118,8 @@ def _sniff(head: bytes) -> FileKind:
         return _sniff_zip(head)
     if _is_audio(head):
         return FileKind.AUDIO
+    if len(head) >= 12 and head[4:8] == b"ftyp":
+        return FileKind.VIDEO  # mp4/mov family
     if _is_image(head):
         return FileKind.IMAGE
     if _is_utf8(head):
@@ -156,3 +164,15 @@ def _is_utf8(head: bytes) -> bool:
         # truncated at the 8 KiB sniff boundary, not mid-stream binary
         return exc.start >= len(head) - 3
     return True
+
+
+_VIDEO_MIME_BY_SUFFIX = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska",
+    ".webm": "video/webm",
+}
+
+
+def video_mime(path: Path) -> str:
+    return _VIDEO_MIME_BY_SUFFIX.get(path.suffix.lower(), "video/mp4")

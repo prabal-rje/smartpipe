@@ -74,6 +74,7 @@ async def run_embed(
     )
     spinner = make_stderr_spinner()
     spinner.start(total=total)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
 
     done = 0
     skipped = 0
@@ -82,12 +83,14 @@ async def run_embed(
         # batching ≠ per-item workers (order from sequential chunks, isolation
         # from the per-item fallback inside embed_in_batches)
         collected = [item async for item in items_iter]
-        outcomes = embed_in_batches(model, collected, failure_policy=FailurePolicy(), stop=stop)
+        outcomes = embed_in_batches(
+            model, collected, failure_policy=FailurePolicy(), stop=stop, log=log
+        )
     else:
         # live stream: one item per call — latency beats throughput
 
         async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
-            return item, await _embed_one(model, item)
+            return item, await _embed_one(model, item, log)
 
         outcomes = run_ordered(
             items_iter,
@@ -115,13 +118,16 @@ async def run_embed(
     finally:
         spinner.finish()
         writer.flush()
+        log.finish()
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped)
         return interrupted_exit_code(done=done, skipped=skipped)
     return outcome_exit_code(done=done, skipped=skipped)
 
 
-async def _embed_one(model: EmbeddingModel, item: Item) -> tuple[float, ...]:
-    item = await ensure_text(item)  # image skips; audio transcribes (D20 rung 2)
+async def _embed_one(
+    model: EmbeddingModel, item: Item, log: diagnostics.DegradationLog
+) -> tuple[float, ...]:
+    item = await ensure_text(item, log=log)  # image skips; audio/video convert, row-noted
     vectors = await model.embed([item.text])
     return vectors[0]

@@ -142,12 +142,14 @@ async def run_join(
     preview_cost(total, request.k, len(index))
 
     book = PairBook(policy=FailurePolicy(), right_name=request.right.name)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     spinner = make_stderr_spinner()
     spinner.start(total=total)
 
     async def worker(item: Item) -> tuple[Item, tuple[tuple[int, float], ...]]:
         matches = await _join_one(
             item,
+            log=log,
             embed_model=embed_model,
             chat=chat,
             tokens=tokens,
@@ -194,6 +196,7 @@ async def run_join(
     finally:
         spinner.finish()
         writer.flush()
+        log.finish()
         if unmatched_sink is not None:
             unmatched_sink.close()
     if request.unmatched is not None:
@@ -210,6 +213,7 @@ async def run_join(
 async def _join_one(
     item: Item,
     *,
+    log: diagnostics.DegradationLog,
     embed_model: EmbeddingModel,
     chat: ChatModel,
     tokens: tuple[Token, ...],
@@ -219,7 +223,7 @@ async def _join_one(
     book: PairBook,
     stop: asyncio.Event | None,
 ) -> tuple[tuple[int, float], ...]:
-    item = await ensure_text(item)  # image skips; audio transcribes (D20 rung 2)
+    item = await ensure_text(item, log=log)  # image skips; audio/video convert, row-noted
     vector = (await embed_model.embed([item.text]))[0]
     matches: list[tuple[int, float]] = []
     for position, score in candidates(vector, index, k=request.k, threshold=request.threshold):

@@ -30,6 +30,7 @@ __all__ = [
     "MediaData",
     "ModelRef",
     "Provider",
+    "VideoData",
     "parse_model_ref",
 ]
 
@@ -57,6 +58,14 @@ class ImageData:
 
 
 @dataclass(frozen=True, slots=True)
+class VideoData:
+    """Raw video bytes + mime — converted to frames + track before any wire (D27)."""
+
+    data: bytes
+    mime: str
+
+
+@dataclass(frozen=True, slots=True)
 class AudioData:
     data: bytes
     mime: str  # audio/mpeg · audio/wav · audio/mp4 · audio/ogg · audio/flac
@@ -65,7 +74,7 @@ class AudioData:
 # The D20 union: ONE optional media field on Item/CompletionRequest, dispatched
 # with match + assert_never. VideoData is reserved, not added — no wired provider
 # carries video on our wires (capability follows wire).
-MediaData = ImageData | AudioData
+MediaData = ImageData | AudioData | VideoData
 
 
 @dataclass(frozen=True, slots=True)
