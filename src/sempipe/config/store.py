@@ -48,6 +48,7 @@ class Config:
     output: str | None = None
     profile: str | None = None  # the active profile's name (D30)
     allow_captions: bool | None = None  # cloud conversions consent (D35; flag wins)
+    stt_model: str | None = None  # remote transcription role (D39/05); unset = the ladder
     cache: bool | None = None  # result caching (D38/15) — account-level posture
     cache_days: int | None = None  # sweep TTL (D39/02); default 30
     cache_max_mb: int | None = None  # LRU size cap (D39/02); default 500
@@ -94,6 +95,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Config:
         output=_string(merged, "output", path),
         profile=active,
         allow_captions=_boolean(merged, "allow-captions", path),
+        stt_model=_string(merged, "stt-model", path),
         cache=_boolean(merged, "cache", path),
         cache_days=_positive_int(merged, "cache-days", path),
         cache_max_mb=_positive_int(merged, "cache-max-mb", path),
@@ -167,6 +169,7 @@ def save_config(path: Path, config: Config) -> None:
         "output": config.output,
         "profile": config.profile,
         "allow-captions": config.allow_captions,
+        "stt-model": config.stt_model,
         "cache": config.cache,
         "cache-days": config.cache_days,
         "cache-max-mb": config.cache_max_mb,

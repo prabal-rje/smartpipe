@@ -62,6 +62,9 @@ class Ctx:
     def concurrency(self, flag: int | None = None) -> int:
         return 1
 
+    def remote_transcriber(self) -> None:
+        return None
+
     def writer(
         self,
         output_flag: OutputFormat,

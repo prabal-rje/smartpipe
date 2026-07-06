@@ -183,3 +183,15 @@ $ sempipe config embed-model nomic-embed-text
 
 - [Quickstart](../quickstart.md) — get your first model running
 - [Install](../install.md) — the optional extras, including `[anthropic]`
+
+
+## The stt-model role
+
+`sempipe config stt-model openai/whisper-1` names a dedicated remote
+transcriber. When set, it runs FIRST in the audio ladder (a configured
+transcriber signals wanting verbatim text — LLM hearing paraphrases),
+falling back to the LLM rung and local whisper on failure. It is a paid
+cloud conversion, so the `allow-captions` consent gates it like every other
+one. Unset, nothing changes. `SEMPIPE_STT_MODEL` overrides per run. Only
+the openai wire exists today; the key accepts `provider/model` so more can
+land behind the same seam.

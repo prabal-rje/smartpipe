@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.models.base import ChatModel, EmbeddingModel
+    from sempipe.models.stt import RemoteTranscriber
 
 __all__ = ["EmbedContext", "EmbedRequest", "optional_chat", "run_embed"]
 
@@ -52,6 +53,7 @@ class EmbedRequest:
 
 
 class EmbedContext(Protocol):
+    def remote_transcriber(self) -> RemoteTranscriber | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
     def concurrency(self, flag: int | None = None) -> int: ...
@@ -80,7 +82,10 @@ async def run_embed(
     spinner.start(total=total)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     converter = make_converter(
-        await optional_chat(context), allow_paid=request.allow_captions, log=log
+        await optional_chat(context),
+        allow_paid=request.allow_captions,
+        log=log,
+        stt=context.remote_transcriber(),
     )
 
     done = 0

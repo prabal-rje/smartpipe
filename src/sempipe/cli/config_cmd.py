@@ -120,6 +120,15 @@ def config_set_embed_model(model_string: str) -> None:
     click.echo(f"embed-model set to {ref}")
 
 
+@config_command.command(name="stt-model")
+@click.argument("model_string")
+def config_set_stt(model_string: str) -> None:
+    """Set the remote transcription model (e.g. openai/whisper-1) — verbatim STT."""
+    ref = parse_model_ref(model_string)
+    _update(lambda c: replace(c, stt_model=str(ref)))
+    click.echo(f"stt-model set to {ref} (runs first in the audio ladder; consent rules apply)")
+
+
 @config_command.command(name="cache")
 @click.argument("state", type=click.Choice(["on", "off"]))
 def config_set_cache(state: str) -> None:

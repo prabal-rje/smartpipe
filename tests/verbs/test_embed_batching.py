@@ -64,6 +64,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def remote_transcriber(self) -> None:
+        return None
+
 
 class _TtyStdin(io.StringIO):
     """Pure --in runs read no stdin; a TTY marks 'files only, no pipe to chain'."""

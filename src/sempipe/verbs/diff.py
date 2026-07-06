@@ -71,7 +71,10 @@ async def run_diff(
 
     log = diagnostics.DegradationLog()
     converter = make_converter(
-        await optional_chat(context), allow_paid=request.allow_captions, log=log
+        await optional_chat(context),
+        allow_paid=request.allow_captions,
+        log=log,
+        stt=context.remote_transcriber(),
     )
     union_items: list[Item] = []
     vectors: list[tuple[float, ...]] = []

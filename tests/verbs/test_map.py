@@ -55,6 +55,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return self.concurrency_value
 
+    def remote_transcriber(self) -> None:
+        return None
+
     async def context_window(self, ref: object) -> int | None:
         return None  # the static table stands in these tests
 

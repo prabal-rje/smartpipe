@@ -58,6 +58,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def remote_transcriber(self) -> None:
+        return None
+
 
 async def _run(
     left: str, right_lines: str, tmp_path: Path, **kwargs: object

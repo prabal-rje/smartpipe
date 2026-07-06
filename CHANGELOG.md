@@ -40,6 +40,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **Remote transcription — the `stt-model` role (D39/05).**
+  `sempipe config stt-model openai/whisper-1` (or `SEMPIPE_STT_MODEL`)
+  puts a verbatim transcriber at rung 0 of the audio ladder, ahead of the
+  paraphrasing LLM rung, falling through on failure; consent-gated behind
+  `allow-captions` like every paid conversion; unset means byte-identical
+  behavior. Context protocols across the converter-building verbs carry the
+  role. Live: probe.wav transcribed by openai/whisper-1, disclosed per row.
 - **Native media embeddings — the model mention is the switch (D39/04).**
   `--embed-model jina/jina-clip-v2` (JINA_API_KEY) embeds text and images
   in one space: image-only items go to the embedder as pixels, skipping the

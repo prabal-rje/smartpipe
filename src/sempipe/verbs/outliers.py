@@ -61,7 +61,10 @@ async def run_outliers(
 
     log = diagnostics.DegradationLog()
     converter = make_converter(
-        await optional_chat(context), allow_paid=request.allow_captions, log=log
+        await optional_chat(context),
+        allow_paid=request.allow_captions,
+        log=log,
+        stt=context.remote_transcriber(),
     )
     scored_items: list[Item] = []
     vectors: list[tuple[float, ...]] = []

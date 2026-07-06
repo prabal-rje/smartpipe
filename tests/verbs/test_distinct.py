@@ -47,6 +47,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def remote_transcriber(self) -> None:
+        return None
+
 
 async def _run(stdin_text: str, **kwargs: object) -> tuple[ExitCode, str, str, FakeContext]:
     import contextlib
@@ -152,6 +155,9 @@ async def test_image_only_items_route_natively_no_captions() -> None:
         def concurrency(self, flag: int | None = None) -> int:
             return 2
 
+        def remote_transcriber(self) -> None:
+            return None
+
     line = json.dumps(
         {"image_b64": base64.b64encode(b"pixels").decode(), "mime": "image/png", "source": "a.png"}
     )
@@ -161,7 +167,7 @@ async def test_image_only_items_route_natively_no_captions() -> None:
     with contextlib.redirect_stderr(err):
         code = await run_distinct(
             DistinctRequest(),
-            context,  # type: ignore[arg-type]
+            context,
             stdin=io_module.StringIO(line + "\n"),
             stdout=out,
         )

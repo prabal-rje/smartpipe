@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from sempipe.io.inputs import InputSpec
     from sempipe.io.items import Item
     from sempipe.models.base import ChatModel, EmbeddingModel
+    from sempipe.models.stt import RemoteTranscriber
 
 __all__ = ["DistinctRequest", "run_distinct"]
 
@@ -46,6 +47,7 @@ class DistinctRequest:
 
 
 class DistinctContext(Protocol):
+    def remote_transcriber(self) -> RemoteTranscriber | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
     def concurrency(self, flag: int | None = None) -> int: ...
@@ -86,7 +88,10 @@ async def run_distinct(
 
     log = diagnostics.DegradationLog()
     converter = make_converter(
-        await optional_chat(context), allow_paid=request.allow_captions, log=log
+        await optional_chat(context),
+        allow_paid=request.allow_captions,
+        log=log,
+        stt=context.remote_transcriber(),
     )
     vectors: dict[int, tuple[float, ...]] = {}  # original position → vector
     unexamined: list[int] = []  # embed-skipped: kept, disclosed

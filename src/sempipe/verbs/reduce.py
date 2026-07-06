@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from sempipe.io.items import Item
     from sempipe.io.writers import ResultWriter
     from sempipe.models.base import ChatModel, ModelRef
+    from sempipe.models.stt import RemoteTranscriber
 
 __all__ = ["ReduceContext", "ReduceRequest", "Reducer", "run_reduce"]
 
@@ -78,6 +79,7 @@ class ReduceRequest:
 
 
 class ReduceContext(Protocol):
+    def remote_transcriber(self) -> RemoteTranscriber | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
@@ -121,7 +123,9 @@ async def run_reduce(
     media_skipped = 0
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     model = await context.chat_model(request.model_flag)
-    converter = make_converter(model, allow_paid=request.allow_captions, log=log)
+    converter = make_converter(
+        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber()
+    )
     for candidate in collected:
         try:
             items.append(await ensure_text(candidate, log=log, converter=converter))
@@ -213,7 +217,9 @@ async def _run_windowed(
         window_budget=_window_budget(context, model),
     )
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    converter = make_converter(model, allow_paid=request.allow_captions, log=log)
+    converter = make_converter(
+        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber()
+    )
     buffer: WindowBuffer[str] = WindowBuffer(policy)
     produced = 0
     failed = 0

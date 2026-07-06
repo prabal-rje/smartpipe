@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from sempipe.io.diagnostics import DegradationLog
     from sempipe.io.items import Item
     from sempipe.models.base import ChatModel, EmbeddingModel
+    from sempipe.models.stt import RemoteTranscriber
 
 __all__ = ["IMAGE_NEEDS_CAPTION", "Converter", "embed_video_halves", "make_converter"]
 
@@ -65,6 +66,7 @@ class Converter:
     chat: ChatModel | None  # None: no model resolvable — lower rungs only
     allow_paid: bool  # --allow-captions
     log: DegradationLog
+    stt: RemoteTranscriber | None = None  # the stt-model role (D39/05): verbatim rung 0
 
     def _model_may_convert(self) -> bool:
         if self.chat is None:
@@ -76,7 +78,21 @@ class Converter:
         return f"{self.chat.ref.provider}/{self.chat.ref.name}"
 
     async def audio_to_text(self, audio: AudioData, where: str) -> str:
-        """LLM rung (capability by attempt) → whisper → the two-fix skip."""
+        """stt-model rung (verbatim, consent-gated) → LLM rung → whisper →
+        the two-fix skip. A configured transcriber runs FIRST: whoever set it
+        wants verbatim, and LLM hearing paraphrases (D39/05)."""
+        if self.stt is not None and self.allow_paid:
+            try:
+                transcript = await self.stt.transcribe(audio)
+            except ItemError:
+                transcript = ""  # the wire hiccuped — the ladder continues below
+            if transcript:
+                self.log.note(
+                    where,
+                    "audio → text",
+                    f"transcribed by {self.stt.ref.provider}/{self.stt.ref.name}",
+                )
+                return transcript
         if self._model_may_convert():
             assert self.chat is not None
             try:
@@ -215,5 +231,11 @@ def _whisper_or_skip(audio: AudioData) -> str:
         raise ItemError(AUDIO_NEEDS_TEXT) from exc
 
 
-def make_converter(chat: ChatModel | None, *, allow_paid: bool, log: DegradationLog) -> Converter:
-    return Converter(chat=chat, allow_paid=allow_paid, log=log)
+def make_converter(
+    chat: ChatModel | None,
+    *,
+    allow_paid: bool,
+    log: DegradationLog,
+    stt: RemoteTranscriber | None = None,
+) -> Converter:
+    return Converter(chat=chat, allow_paid=allow_paid, log=log, stt=stt)

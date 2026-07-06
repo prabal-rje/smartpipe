@@ -47,6 +47,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def remote_transcriber(self) -> None:
+        return None
+
 
 async def _run(stdin: str, *, fail_text: str | None = None) -> tuple[ExitCode, str, FakeEmbed]:
     model = FakeEmbed(fail_text=fail_text)

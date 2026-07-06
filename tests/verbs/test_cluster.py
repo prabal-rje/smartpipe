@@ -56,6 +56,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def remote_transcriber(self) -> None:
+        return None
+
 
 STDIN = (
     "payment dies on iphone\ncart dies at checkout\ncheckout button broken\n"

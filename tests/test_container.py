@@ -227,3 +227,45 @@ async def test_builds_openrouter_chat_with_slashed_name(client: httpx.AsyncClien
     assert isinstance(model, OpenAIChatModel)
     assert model.ref.name == "deepseek/deepseek-chat"  # the slashed name survives whole
     assert model.base_url == "https://openrouter.ai/api"
+
+
+# --- the stt-model role (D39/05) ----------------------------------------------------
+
+
+def test_stt_role_unset_is_none(client: httpx.AsyncClient) -> None:
+    assert _container(client).remote_transcriber() is None  # today's ladder, untouched
+
+
+def test_stt_role_builds_the_openai_wire(client: httpx.AsyncClient) -> None:
+    from sempipe.models.stt import RemoteTranscriber
+
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x"},
+        config=Config(stt_model="openai/whisper-1"),
+    )
+    transcriber = container.remote_transcriber()
+    assert isinstance(transcriber, RemoteTranscriber)
+    assert transcriber.ref.name == "whisper-1"
+
+
+def test_stt_env_overrides_config(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x", "SEMPIPE_STT_MODEL": "openai/gpt-4o-mini-transcribe"},
+        config=Config(stt_model="openai/whisper-1"),
+    )
+    transcriber = container.remote_transcriber()
+    assert transcriber is not None and transcriber.ref.name == "gpt-4o-mini-transcribe"
+
+
+def test_stt_non_openai_provider_is_a_helpful_fault(client: httpx.AsyncClient) -> None:
+    container = _container(client, config=Config(stt_model="ollama/whisper"))
+    with pytest.raises(SetupFault, match="openai/whisper-1"):
+        container.remote_transcriber()
+
+
+def test_stt_without_key_names_it(client: httpx.AsyncClient) -> None:
+    container = _container(client, config=Config(stt_model="openai/whisper-1"))
+    with pytest.raises(SetupFault, match="OPENAI_API_KEY"):
+        container.remote_transcriber()

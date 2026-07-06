@@ -40,6 +40,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def remote_transcriber(self) -> None:
+        return None
+
 
 def _request(near: str, k: int | None = None, threshold: float | None = None) -> TopKRequest:
     return TopKRequest(near=near, k=k, threshold=threshold, model_flag=None, concurrency_flag=None)

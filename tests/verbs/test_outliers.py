@@ -47,6 +47,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def remote_transcriber(self) -> None:
+        return None
+
 
 async def _run(stdin_text: str, count: int = 5) -> tuple[ExitCode, list[dict[str, object]], str]:
     import contextlib

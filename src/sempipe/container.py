@@ -28,7 +28,7 @@ from sempipe.io import diagnostics, tty
 from sempipe.io.tty import ColorMode
 from sempipe.io.writers import OutputFormat, WriterConfig, make_writer, resolve_format
 from sempipe.models.anthropic_adapter import build_anthropic_chat_model
-from sempipe.models.base import ModelRef
+from sempipe.models.base import ModelRef, parse_model_ref
 from sempipe.models.budget import CallBudget, budgeted_chat, budgeted_embed
 from sempipe.models.http_support import make_client
 from sempipe.models.ollama import (
@@ -58,6 +58,7 @@ if TYPE_CHECKING:
 
     from sempipe.io.writers import ResultWriter
     from sempipe.models.base import ChatModel, EmbeddingModel
+    from sempipe.models.stt import RemoteTranscriber
 
 __all__ = ["AppContainer", "build_container"]
 
@@ -114,6 +115,28 @@ class AppContainer:
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel:
         model = self._build_embed(resolve_embed_ref(flag, self.env, self.config))
         return model if self.budget is None else budgeted_embed(model, self.budget)
+
+    def remote_transcriber(self) -> RemoteTranscriber | None:
+        """The stt-model role (D39/05): env > config > None (today's ladder)."""
+        raw = self.env.get("SEMPIPE_STT_MODEL", "").strip() or (self.config.stt_model or "")
+        if not raw:
+            return None
+        ref = parse_model_ref(raw)
+        if ref.provider != "openai":
+            raise SetupFault(
+                f"error: no STT wire for {ref.provider!r} yet\n"
+                "  Remote transcription supports openai models: "
+                "sempipe config stt-model openai/whisper-1"
+            )
+        key = self.env.get("OPENAI_API_KEY", "").strip()
+        if not key:
+            raise SetupFault(
+                "error: remote transcription needs OPENAI_API_KEY\n"
+                "  export OPENAI_API_KEY=sk-…   (or unset stt-model to use the ladder)"
+            )
+        from sempipe.models.stt import RemoteTranscriber
+
+        return RemoteTranscriber(ref=ref, client=self.http_client, api_key=key, retry=self.retry)
 
     def concurrency(self, flag: int | None = None) -> int:
         """Max parallel model calls: flag > SEMPIPE_CONCURRENCY > config > default 4."""

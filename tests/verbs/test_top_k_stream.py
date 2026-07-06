@@ -96,6 +96,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic arrival order for the snapshot transcript
 
+    def remote_transcriber(self) -> None:
+        return None
+
 
 def _request(k: int | None = 2, **kw: object) -> TopKRequest:
     defaults: dict[str, object] = {

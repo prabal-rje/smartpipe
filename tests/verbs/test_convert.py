@@ -142,3 +142,45 @@ async def test_video_vector_is_the_fair_average_of_both_halves() -> None:
     assert len(embedder.seen) == 2  # both halves embedded separately
     assert vector == (0.5, 0.5)  # the fair 50/50 mean — neither half drowns
     assert "colored bars" in converted.text and "revenue doubled" in converted.text
+
+
+# --- the stt-model rung (D39/05) ----------------------------------------------------
+
+
+class VerbatimStt:
+    def __init__(self, reply: str = "the verbatim words") -> None:
+        self.ref = ModelRef("openai", "whisper-1")
+        self.reply = reply
+        self.calls = 0
+
+    async def transcribe(self, audio: AudioData) -> str:
+        self.calls += 1
+        if not self.reply:
+            raise ItemError("stt error 500: down")
+        return self.reply
+
+
+async def test_configured_stt_runs_before_the_llm_rung() -> None:
+    log = DegradationLog()
+    hears = Hears()  # the LLM that WOULD transcribe
+    converter = make_converter(hears, allow_paid=True, log=log, stt=VerbatimStt())  # type: ignore[arg-type]
+    text = await converter.audio_to_text(AudioData(b"x", "audio/wav"), "call.wav")
+    assert text == "the verbatim words"
+    assert hears.calls == []  # verbatim wins — the paraphrasing LLM never ran
+
+
+async def test_stt_respects_the_consent_gate() -> None:
+    log = DegradationLog()
+    stt = VerbatimStt()
+    converter = make_converter(None, allow_paid=False, log=log, stt=stt)  # type: ignore[arg-type]
+    with pytest.raises(ItemError):  # no consent, no chat, no [audio] extra → the skip
+        await converter.audio_to_text(AudioData(b"x", "audio/wav"), "call.wav")
+    assert stt.calls == 0  # paid conversion never ran without consent
+
+
+async def test_stt_failure_falls_down_the_ladder() -> None:
+    log = DegradationLog()
+    hears = Hears()
+    converter = make_converter(hears, allow_paid=True, log=log, stt=VerbatimStt(reply=""))  # type: ignore[arg-type]
+    text = await converter.audio_to_text(AudioData(b"x", "audio/wav"), "call.wav")
+    assert text == "a steady 440 Hz tone"  # the wire hiccuped; the LLM rung caught it

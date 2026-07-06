@@ -89,6 +89,9 @@ async def test_map_emits_before_eof_in_process() -> None:
         def concurrency(self, flag: int | None = None) -> int:
             return 2
 
+        def remote_transcriber(self) -> None:
+            return None
+
         def writer(
             self,
             output_flag: OutputFormat,
