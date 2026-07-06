@@ -28,6 +28,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   make them wrong — at worst unapplied.
 
 ### Added
+- **Inline types join inline descriptions (D37, amends D22).**
+  `map "Extract {vendor string: the supplier, total number, status
+  enum(paid, unpaid): payment state}"` — the type vocabulary is shared with
+  `--schema-from` (one grammar, two homes), commas inside `enum(…)` are safe
+  (brace splitting is paren-aware), and a fully-typed group regains
+  server-side strict mode. Constraints stay in the DSL/file — the unknown-type
+  error says exactly that. filter/reduce/join braces stay bare input
+  references.
 - **`sempipe chart`: bars in the terminal, SVG on disk, zero dependencies.**
   `… | map "Extract {label}" | chart label` draws ranked unicode bars from
   NDJSON (or tallies plain lines); `--save labels.svg --title "…"` writes a

@@ -29,12 +29,14 @@ Five rungs; each teaches the next. Climb only as far as your task needs:
 |---|---|---|
 | 1 | `map "Extract {vendor, total}"` | fields, model-inferred types |
 | 2 | `{vendor: the supplier name, total}` | + plain-English guidance per field |
+| 2.5 | `{vendor string: the supplier, status enum(paid, unpaid)}` | + real types inline (same vocabulary as the DSL); a fully-typed group regains server-side strict mode |
 | 3 | `--schema-from "vendor string; total number >= 0; status enum(paid, unpaid)"` | + real types and constraints — parsed deterministically, **no model call, typos fail free** |
 | 4 | `sempipe schema "an invoice with …" > invoice.json` | a drafted schema **file** (one model call, meta-validated; a failed draft exits 3 with empty stdout) |
 | 5 | `--schema invoice.json` | full JSON Schema control |
 
-Descriptions stay in braces; types and constraints stay in the DSL or the file —
-braces never grow type syntax (that's where byzantine begins).
+Braces carry names, types, and descriptions (`ident [type] [: description]`).
+Constraints (`>=`, lengths, `optional`) stay in the DSL or the file — that's
+where the fence stands now.
 
 ## Already have Pydantic or Zod models? Export them
 

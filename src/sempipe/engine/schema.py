@@ -31,15 +31,24 @@ _FENCE = re.compile(r"^```[A-Za-z0-9]*\n?|\n?```$")
 
 
 def shorthand_to_schema(
-    fields: Sequence[str], *, descriptions: Mapping[str, str] | None = None
+    fields: Sequence[str],
+    *,
+    descriptions: Mapping[str, str] | None = None,
+    types: Mapping[str, Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
-    """Turn ``{vendor, total}`` fields into a strict JSON Schema; the model infers
-    value types (permissive ``{}`` per property). Rung-2 descriptions (D22) ride
-    each property as guidance — they never affect strict-compatibility."""
+    """Turn ``{vendor, total}`` fields into a strict JSON Schema. Inline types
+    (D37) and rung-2 descriptions (D22) ride each property; a fully-typed group
+    regains strict mode (every property carries a type)."""
     notes = descriptions or {}
-    properties: dict[str, object] = {
-        field: ({"description": notes[field]} if field in notes else {}) for field in fields
-    }
+    typed = types or {}
+
+    def _property(field: str) -> dict[str, object]:
+        prop: dict[str, object] = dict(typed.get(field, {}))
+        if field in notes:
+            prop["description"] = notes[field]
+        return prop
+
+    properties: dict[str, object] = {field: _property(field) for field in fields}
     return {
         "type": "object",
         "properties": properties,

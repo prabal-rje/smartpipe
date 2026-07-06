@@ -49,6 +49,7 @@ __all__ = [
     "Token",
     "brace_fields",
     "brace_notes",
+    "brace_props",
     "build_filter_request",
     "build_judge_request",
     "build_map_request",
@@ -121,9 +122,13 @@ class BraceToken:
     fields: tuple[str, ...]
     raw: str  # the original "{a, b}" text, kept for error messages and round-trips
     notes: tuple[str | None, ...] = ()  # rung-2 descriptions, aligned with fields (D22)
+    props: tuple[Mapping[str, object] | None, ...] = ()  # inline types (D37)
 
     def note_for(self, position: int) -> str | None:
         return self.notes[position] if position < len(self.notes) else None
+
+    def prop_for(self, position: int) -> Mapping[str, object] | None:
+        return self.props[position] if position < len(self.props) else None
 
 
 Token = TextToken | BraceToken
@@ -172,6 +177,18 @@ def brace_fields(tokens: tuple[Token, ...]) -> tuple[str, ...]:
             for field in token.fields:
                 seen.setdefault(field, None)
     return tuple(seen)
+
+
+def brace_props(tokens: tuple[Token, ...]) -> dict[str, Mapping[str, object]]:
+    """field → inline type (D37), for every typed field across all groups."""
+    props: dict[str, Mapping[str, object]] = {}
+    for token in tokens:
+        if isinstance(token, BraceToken):
+            for position, name in enumerate(token.fields):
+                typed = token.prop_for(position)
+                if typed is not None:
+                    props[name] = typed
+    return props
 
 
 def brace_notes(tokens: tuple[Token, ...]) -> dict[str, str]:
@@ -230,7 +247,9 @@ def plan_map(tokens: tuple[Token, ...], *, schema: Mapping[str, object] | None) 
     if schema is not None:
         return MapPlan("structured", schema, MAP_JSON_SYSTEM)
     if has_brace(tokens):
-        synthesized = shorthand_to_schema(brace_fields(tokens), descriptions=brace_notes(tokens))
+        synthesized = shorthand_to_schema(
+            brace_fields(tokens), descriptions=brace_notes(tokens), types=brace_props(tokens)
+        )
         return MapPlan("structured", synthesized, MAP_JSON_SYSTEM)
     return MapPlan("plain", None, MAP_PLAIN_SYSTEM)
 
@@ -436,22 +455,65 @@ def _render_value(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def _parse_group(
-    text: str, start: int, ident: re.Pattern[str], *, allow_descriptions: bool = False
-) -> tuple[BraceToken, int]:
+def _find_close(text: str, start: int) -> int:
     close = text.find("}", start + 1)
     if close == -1:
         raise UsageFault("unclosed '{' in prompt — did you mean '{{' for a literal brace?")
+    return close
+
+
+def _split_top_level(inner: str) -> list[str]:
+    """Split on commas OUTSIDE parentheses — enum(a, b) survives whole (D37)."""
+    parts: list[str] = []
+    depth = 0
+    current = ""
+    for char in inner:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        if char == "," and depth == 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    parts.append(current)
+    return parts
+
+
+def _parse_group(
+    text: str, start: int, ident: re.Pattern[str], *, allow_descriptions: bool = False
+) -> tuple[BraceToken, int]:
+    close = _find_close(text, start)
     raw = text[start : close + 1]
     inner = text[start + 1 : close]
-    parts = tuple(part.strip() for part in inner.split(","))
+    parts = tuple(part.strip() for part in _split_top_level(inner))
     names: list[str] = []
     notes: list[str | None] = []
+    props: list[Mapping[str, object] | None] = []
     for part in parts:
-        name, colon, description = part.partition(":")
-        name = name.strip()
-        if colon and allow_descriptions:
-            # rung 2 (D22): the text after ':' is ALWAYS a description, never a type
+        head, colon, description = part.partition(":")
+        head = head.strip()
+        if not allow_descriptions:
+            names.append(part)
+            notes.append(None)
+            props.append(None)
+            continue
+        name, _space, type_text = head.partition(" ")
+        type_text = type_text.strip()
+        prop: Mapping[str, object] | None = None
+        if type_text:
+            # D37: an inline type, straight from the --schema-from vocabulary
+            from sempipe.engine.schema_dsl import TYPE_MENU, type_token
+
+            prop = type_token(type_text)
+            if prop is None:
+                raise UsageFault(
+                    f"{{{part}}} — {type_text!r} isn't a type\n"
+                    f"  Types: {TYPE_MENU}\n"
+                    "  Constraints (>=, lengths, optional) live in --schema-from or --schema."
+                )
+        if colon:
             description = description.strip()
             if not description:
                 raise UsageFault(
@@ -461,12 +523,14 @@ def _parse_group(
             names.append(name)
             notes.append(description)
         else:
-            names.append(part)
+            names.append(name)
             notes.append(None)
+        props.append(prop)
     if any(not ident.match(name) for name in names):
         raise UsageFault(
             f"invalid field group: {raw}\n"
             "  field names must be identifiers (letters, digits, underscores), comma-separated"
         )
     described = tuple(notes) if any(note is not None for note in notes) else ()
-    return BraceToken(tuple(names), raw, described), close + 1
+    typed = tuple(props) if any(prop is not None for prop in props) else ()
+    return BraceToken(tuple(names), raw, described, typed), close + 1

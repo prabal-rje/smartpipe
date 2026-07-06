@@ -67,7 +67,7 @@ def test_bad_grammar_is_usage_error_before_any_model_call(
     route = respx_mock.post(CHAT).mock(return_value=_reply("x"))
     code, _out, err = run_cli(["map", "Extract {bad name!}"], stdin="a\n")
     assert code == 64
-    assert "invalid field group" in err
+    assert "isn't a type" in err  # D37: ident + unknown token reads as a bad type now
     assert route.call_count == 0  # failed fast, never hit the model
 
 

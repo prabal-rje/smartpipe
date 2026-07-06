@@ -177,3 +177,59 @@ def test_colon_stays_invalid_without_the_map_flag() -> None:
     # filter/reduce/join input references never grow descriptions (ux.md, D22)
     with pytest.raises(UsageFault, match="invalid field group"):
         parse_prompt("keep {priority: high}")
+
+
+# --- inline types (D37) ---------------------------------------------------------
+
+
+def test_type_and_description_together() -> None:
+    from sempipe.engine.prompts import plan_map
+
+    tokens = parse_prompt(
+        "Extract {vendor string: the supplier name, total number, "
+        "status enum(paid, unpaid): payment state}",
+        allow_descriptions=True,
+    )
+    plan = plan_map(tokens, schema=None)
+    assert plan.schema is not None
+    assert plan.schema["properties"] == {
+        "vendor": {"type": "string", "description": "the supplier name"},
+        "total": {"type": "number"},
+        "status": {"enum": ["paid", "unpaid"], "description": "payment state"},
+    }
+    assert plan.schema["required"] == ["vendor", "total", "status"]
+
+
+def test_enum_commas_survive_the_brace_split() -> None:
+    tokens = parse_prompt("Pick {mood enum(happy, sad, neutral)}", allow_descriptions=True)
+    brace = next(t for t in tokens if isinstance(t, BraceToken))
+    assert brace.fields == ("mood",)
+    assert brace.prop_for(0) == {"enum": ["happy", "sad", "neutral"]}
+
+
+def test_fully_typed_braces_regain_strict_mode() -> None:
+    from sempipe.engine.prompts import plan_map
+    from sempipe.engine.schema import is_strict_compatible
+
+    typed = plan_map(
+        parse_prompt("Extract {a string, b number}", allow_descriptions=True), schema=None
+    )
+    assert typed.schema is not None
+    assert is_strict_compatible(typed.schema) is True  # every property carries a type
+    mixed = plan_map(parse_prompt("Extract {a string, b}", allow_descriptions=True), schema=None)
+    assert mixed.schema is not None
+    assert is_strict_compatible(mixed.schema) is False  # one untyped hole = honest non-strict
+
+
+def test_unknown_inline_type_names_the_menu() -> None:
+    with pytest.raises(UsageFault) as excinfo:
+        parse_prompt("Extract {total numbr: the total}", allow_descriptions=True)
+    message = str(excinfo.value)
+    assert "'numbr' isn't a type" in message
+    assert "enum(a, b," in message
+    assert "--schema-from" in message  # constraints live over there
+
+
+def test_types_stay_invalid_outside_map() -> None:
+    with pytest.raises(UsageFault, match="invalid field group"):
+        parse_prompt("keep {price number}")  # filter/reduce/join: bare idents only

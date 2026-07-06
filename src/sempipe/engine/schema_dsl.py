@@ -19,7 +19,7 @@ import re
 
 from sempipe.core.errors import UsageFault
 
-__all__ = ["dsl_to_schema"]
+__all__ = ["TYPE_MENU", "dsl_to_schema", "type_token"]
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _HELP = (
@@ -38,6 +38,22 @@ _SIMPLE_TYPES: dict[str, dict[str, object]] = {
 
 _BOUND = re.compile(r"(>=|<=)\s*(-?\d+(?:\.\d+)?)")
 _LENGTH = re.compile(r"(minLength|maxLength)=(\d+)")
+
+
+TYPE_MENU = "string · number · integer · boolean · enum(a, b, …) · string[] · number[]"
+
+
+def type_token(token: str) -> dict[str, object] | None:
+    """One type token → a property dict, or None when it isn't a type.
+
+    Shared vocabulary with the braces (D37): one grammar, two homes."""
+    simple = _SIMPLE_TYPES.get(token)
+    if simple is not None:
+        return dict(simple)
+    if token.startswith("enum(") and token.endswith(")"):
+        values = [value.strip() for value in token[5:-1].split(",") if value.strip()]
+        return {"enum": values} if values else None
+    return None
 
 
 def dsl_to_schema(text: str) -> dict[str, object]:
