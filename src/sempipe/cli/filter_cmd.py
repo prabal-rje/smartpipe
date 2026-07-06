@@ -57,6 +57,7 @@ def filter_command(
 
     Output is the matching input items, unchanged and in order (in file mode, the
     matching filenames). Zero matches is a successful (exit 0) empty result.
+    Deterministic condition (field == value, text has "word")? where is free.
     """
     request = FilterRequest(
         allow_captions=allow_captions,

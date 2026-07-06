@@ -40,6 +40,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **`sempipe where` — the free filter (D38/01, KQL-inspired).** Deterministic
+  predicates (`has`, `contains`, `matches /re/`, `==/!=/>/>=/</<=`, and/or/not)
+  cut the corpus BEFORE any paid stage: `where 'text has "ERROR"' | filter …`.
+  Streams, passthrough-verbatim, missing fields evaluate false but are
+  disclosed at the end. Grammar errors print the whole operator menu at
+  exit 64 before reading stdin. The welcome screen now groups verbs into
+  "call a model" vs "free utilities".
 - **Inline types join inline descriptions (D37, amends D22).**
   `map "Extract {vendor string: the supplier, total number, status
   enum(paid, unpaid): payment state}"` — the type vocabulary is shared with
