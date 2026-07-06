@@ -18,12 +18,14 @@ from typing import TYPE_CHECKING, Protocol
 
 from sempipe.core.errors import ExitCode, ItemError, TooManyFailures, UsageFault
 from sempipe.engine.blocking import RightIndex, build_index, candidates
+from sempipe.engine.chunking import estimate_tokens, mean_pool, split_text
 from sempipe.engine.prompts import (
     JUDGE_SCHEMA,
     build_judge_request,
     build_repair_request,
     parse_join_predicate,
 )
+from sempipe.engine.ranking import rank
 from sempipe.engine.runner import (
     Done,
     FailurePolicy,
@@ -37,6 +39,7 @@ from sempipe.io.inputs import STDIN
 from sempipe.io.items import ItemSource, describe_source, item_from_line
 from sempipe.io.progress import make_stderr_spinner
 from sempipe.verbs.common import (
+    embed_budget,
     embed_in_batches,
     ensure_text,
     interrupted_exit_code,
@@ -134,7 +137,10 @@ async def run_join(
         raise UsageFault(f"--k must be >= 1, got {request.k}")
     right_items = _load_right(request.right)
     embed_model = await context.embedding_model(request.embed_model_flag)
-    kept_right, index = await _index_right(embed_model, right_items, request.right.name)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    kept_right, index, right_chunks = await _index_right(
+        embed_model, right_items, request.right.name, log
+    )
     chat = await context.chat_model(request.model_flag)
     concurrency = context.concurrency(request.concurrency_flag)
     writer = context.writer(request.output, structured=True, stdout=stdout, fields=request.fields)
@@ -142,7 +148,6 @@ async def run_join(
     preview_cost(total, request.k, len(index))
 
     book = PairBook(policy=FailurePolicy(), right_name=request.right.name)
-    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     spinner = make_stderr_spinner()
     spinner.start(total=total)
 
@@ -155,6 +160,7 @@ async def run_join(
             tokens=tokens,
             index=index,
             kept_right=kept_right,
+            right_chunks=right_chunks,
             request=request,
             book=book,
             stop=stop,
@@ -219,19 +225,36 @@ async def _join_one(
     tokens: tuple[Token, ...],
     index: RightIndex,
     kept_right: list[Item],
+    right_chunks: dict[int, ChunkedSide],
     request: JoinRequest,
     book: PairBook,
     stop: asyncio.Event | None,
 ) -> tuple[tuple[int, float], ...]:
     item = await ensure_text(item, log=log)  # image skips; audio/video convert, row-noted
-    vector = (await embed_model.embed([item.text]))[0]
+    budget = embed_budget(embed_model.ref.provider)
+    left_side: ChunkedSide | None = None
+    if estimate_tokens(item.text) > budget:
+        vector, left_side = await _chunked_side(embed_model, item.text, budget)
+        log.note(
+            describe_source(item.source),
+            "oversized → best-chunk judge",
+            f"{len(left_side.chunks)} chunks pooled for blocking",
+        )
+    else:
+        vector = (await embed_model.embed([item.text]))[0]
     matches: list[tuple[int, float]] = []
     for position, score in candidates(vector, index, k=request.k, threshold=request.threshold):
         if stop is not None and stop.is_set():
             break
         right_item = kept_right[position]
+        left_for_judge = item
+        if left_side is not None:
+            left_for_judge = replace(item, text=left_side.best_text(index.vectors[position]))
+        chunked_right = right_chunks.get(position)
+        if chunked_right is not None:
+            right_item = replace(right_item, text=chunked_right.best_text(vector))
         try:
-            verdict = await _judge(chat, tokens, item, right_item)
+            verdict = await _judge(chat, tokens, left_for_judge, right_item)
         except ItemError as exc:
             book.skip(item, position, str(exc))
             continue
@@ -285,20 +308,63 @@ def _load_right(path: Path) -> list[Item]:
     return items
 
 
+@dataclass(frozen=True, slots=True)
+class ChunkedSide:
+    """An oversized side's chunks + their vectors — the judge sees the best one."""
+
+    chunks: tuple[str, ...]
+    vectors: tuple[tuple[float, ...], ...]
+
+    def best_text(self, other_vector: tuple[float, ...]) -> str:
+        position, _score = rank(other_vector, self.vectors)[0]
+        return self.chunks[position]
+
+
+async def _chunked_side(
+    model: EmbeddingModel, text: str, budget: int
+) -> tuple[tuple[float, ...], ChunkedSide]:
+    """Chunk-embed one oversized text: pooled vector for blocking, chunks kept
+    so the judge reads the most-relevant one (D26/W3 — no more skipping)."""
+    chunks = split_text(text, budget)
+    vectors = await model.embed(list(chunks))
+    return mean_pool(vectors), ChunkedSide(tuple(chunks), tuple(vectors))
+
+
 async def _index_right(
-    model: EmbeddingModel, items: list[Item], right_name: str
-) -> tuple[list[Item], RightIndex]:
+    model: EmbeddingModel,
+    items: list[Item],
+    right_name: str,
+    log: diagnostics.DegradationLog,
+) -> tuple[list[Item], RightIndex, dict[int, ChunkedSide]]:
     """The build side, fully embedded before any chat spend (the preflight)."""
+    budget = embed_budget(model.ref.provider)
+    normal = [item for item in items if estimate_tokens(item.text) <= budget]
+    oversized = [item for item in items if estimate_tokens(item.text) > budget]
     kept: list[Item] = []
     vectors: list[tuple[float, ...]] = []
-    async for outcome in embed_in_batches(model, items, failure_policy=FailurePolicy()):
+    chunked: dict[int, ChunkedSide] = {}
+    async for outcome in embed_in_batches(model, normal, failure_policy=FailurePolicy()):
         if isinstance(outcome, Done):
             item, vector = outcome.value
             kept.append(item)
             vectors.append(vector)
         else:
             diagnostics.warn(f"skipped: {right_name} line {outcome.index + 1} ({outcome.reason})")
-    return kept, build_index(vectors)
+    for item in oversized:
+        try:
+            pooled, side = await _chunked_side(model, item.text, budget)
+        except ItemError as exc:
+            diagnostics.warn(f"skipped: {right_name} line {item.source.index + 1} ({exc})")
+            continue
+        chunked[len(kept)] = side
+        kept.append(item)
+        vectors.append(pooled)
+        log.note(
+            f"{right_name} line {item.source.index + 1}",
+            "oversized → best-chunk judge",
+            f"{len(side.chunks)} chunks pooled for blocking",
+        )
+    return kept, build_index(vectors), chunked
 
 
 def preview_cost(total: int | None, k: int, index_size: int) -> None:

@@ -398,3 +398,56 @@ async def test_unmatched_left_items_land_in_the_file(tmp_path: Path) -> None:
     assert code is ExitCode.OK
     assert '"LaserJet 9"' in out.getvalue()  # the match still flows to stdout
     assert sink.read_text(encoding="utf-8") == "coffee is cold\n"  # verbatim, one line
+
+
+async def test_oversized_right_is_judged_on_its_best_chunk(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An 80k-token right row no longer skips: pooled for blocking, and the judge
+    reads only the most-relevant chunk (W3/D26)."""
+
+    filler = "unrelated filler prose about logistics and weather. " * 5_000  # ~65k tokens
+    needle = "The EspressoPro Nine thousand is our flagship espresso machine."
+    big_right = json.dumps({"name": "EspressoPro", "desc": filler + needle})
+
+    class ChunkAwareEmbed:
+        def __init__(self) -> None:
+            self.ref = ModelRef("openai", "text-embedding-3-small")
+
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            # lowercase "espresso " (the left query + the needle sentence) points
+            # one way; the JSON prefix ("EspressoPro") and filler point the other
+            return tuple((1.0, 0.0) if "espresso " in text else (0.0, 1.0) for text in texts)
+
+    class SpyJudge:
+        def __init__(self) -> None:
+            self.ref = ModelRef("ollama", "judge")
+            self.seen: list[str] = []
+
+        async def complete(self, request: CompletionRequest) -> str:
+            self.seen.append(request.user)
+            return '{"match": true}'
+
+    right = tmp_path / "products.jsonl"
+    right.write_text(big_right + "\n", encoding="utf-8")
+    embed = ChunkAwareEmbed()
+    judge = SpyJudge()
+    out = io.StringIO()
+    code = await run_join(
+        _request(
+            right,
+            k=1,
+            predicate="the complaint {left.text} matches this description: {right.text}",
+        ),
+        FakeContext(embed, judge),  # type: ignore[arg-type]
+        stdin=io.StringIO("my espresso tastes burnt\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert '"_score"' in out.getvalue()  # the pair matched — no skip
+    assert len(judge.seen) == 1
+    statement = judge.seen[0]
+    assert "EspressoPro Nine thousand" in statement  # the needle chunk was chosen
+    assert len(statement) < 20_000  # the judge never saw the 260k-char monster
+    err = capsys.readouterr().err
+    assert "oversized → best-chunk judge" in err  # row-disclosed

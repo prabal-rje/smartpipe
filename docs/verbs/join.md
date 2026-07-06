@@ -81,6 +81,14 @@ a sample with `--k 20 --threshold 0` and compare match counts — a jump means
 the default is dropping true matches; raise `--k` (and consider a stronger
 embedding model).
 
+## Items bigger than the window
+
+Oversized sides (left or right) are no longer skipped: their chunks are
+embedded once, **mean-pooled for blocking**, and the judge reads only the
+**most-relevant chunk** of the oversized side (highest similarity against the
+other side), row-disclosed as `oversized → best-chunk judge`. A 300-page spec
+in the right file matches tickets without any judge call ever seeing 300 pages.
+
 ## The unmatched remainder
 
 `--unmatched FILE` writes every left item that matched nothing, verbatim, one

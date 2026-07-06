@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`join` handles oversized sides (W3).** No more skipping: an oversized left
+  or right item is chunk-embedded once, mean-pooled for blocking, and the
+  judge reads only the most-relevant chunk of that side (argmax similarity
+  against the other side), disclosed per row. Test-pinned: a ~65k-token right
+  row matches while the judge sees under 20k characters.
 - **Documents are multimodal items (D32).** `Item.media` grew from one value
   to a tuple of parts, and with it: `map --in report.pdf` now sends the text
   AND the embedded figures (up to 8, icon floor, counted on stderr);
