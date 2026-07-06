@@ -17,6 +17,7 @@ import click
 
 from sempipe import __version__
 from sempipe.cli.auth_cmd import auth_command
+from sempipe.cli.chart_cmd import chart_command
 from sempipe.cli.cite_cmd import cite_command
 from sempipe.cli.config_cmd import config_command
 from sempipe.cli.doctor_cmd import doctor_command
@@ -71,6 +72,7 @@ cli.add_command(config_command)
 cli.add_command(doctor_command)
 cli.add_command(schema_command)
 cli.add_command(split_command)
+cli.add_command(chart_command)
 cli.add_command(auth_command)
 cli.add_command(cite_command)
 cli.add_command(echo_command)

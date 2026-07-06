@@ -72,6 +72,7 @@ sempipe — semantic pipes for your terminal
   reduce   Synthesize many items into one
   join     Match stdin against a second input, semantically
   split    Break oversized items into chunks (no model calls)
+  chart    Draw a bar chart of results (free; --save writes SVG)
   config   Configure models and settings
 
 Get started:

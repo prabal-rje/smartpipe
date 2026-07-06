@@ -30,25 +30,25 @@ __all__ = ["map_command"]
     "--prompt-file",
     "prompt_file",
     type=click.Path(path_type=Path),
-    help="Read the prompt from a file (the @file shorthand does the same).",
+    help="Prompt from a file (@file works too).",
 )
 @click.option(
     "--explode",
     "explode_field",
     metavar="FIELD",
-    help="Emit one row per element of a list-valued FIELD (sibling fields copied).",
+    help="One row per element of a list-valued FIELD.",
 )
 @click.option(
     "--tally",
     "tally_field",
     metavar="FIELD",
-    help="Count FIELD's values across results — live status line + one stderr line.",
+    help="Count FIELD's values (live tally on stderr).",
 )
 @click.option(
     "--schema-from",
     "schema_dsl",
     metavar="DSL",
-    help='Build the schema from a short DSL: "vendor string; total number >= 0".',
+    help='Schema from a mini-DSL: "vendor string; total number >= 0".',
 )
 @click.option(
     "--schema",
@@ -95,9 +95,15 @@ def map_command(
       echo "hello" | sempipe map "translate to Spanish"
       cat reviews.jsonl | sempipe map "Extract {product, sentiment}"
       sempipe map "Summarize this document" --in 'reports/*.pdf'
+      sempipe map "What does the caller want?" --in 'calls/*.mp3'
 
-    Braces in the prompt name the output fields you want back (JSON).
-    Plain prompts return plain text, one line per item.
+    You usually need NO flags: braces in the prompt name the JSON fields you
+    want back; plain prompts return plain text; and media is first-class —
+    images, audio, video, and the figures inside PDFs go to the model natively
+    when it supports them, converted (and disclosed) when it doesn't.
+
+    Everything else is opt-in refinement: schemas when braces aren't enough,
+    --tally/--explode/--fields to shape output, --max-calls to cap spend.
     """
     request = MapRequest(
         prompt=resolve_prompt(prompt, prompt_file),

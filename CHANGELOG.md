@@ -28,6 +28,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   make them wrong — at worst unapplied.
 
 ### Added
+- **`sempipe chart`: bars in the terminal, SVG on disk, zero dependencies.**
+  `… | map "Extract {label}" | chart label` draws ranked unicode bars from
+  NDJSON (or tallies plain lines); `--save labels.svg --title "…"` writes a
+  standalone SVG via svgwrite behind the `[charts]` extra (a library, not
+  bespoke markup); `--top N` widens.
+  Free, no model calls. And `map --help` got humanized: examples first, and
+  the promise stated plainly — you usually need NO flags, media is
+  first-class and converts (disclosed) when a model can't take it natively.
 - **Cloud profiles are multimodal by default (D35).** The `openai` and
   `gemini` presets set `allow-captions = true` (now also a config/profile
   key; the flag still wins): picking the profile is the consent, the wizard

@@ -36,7 +36,8 @@ anthropic = ["anthropic>=0.40"]
 files = ["markitdown[pdf,docx,pptx,xlsx]>=0.1.6", "pypdf>=5.0"]
 audio = ["faster-whisper>=1.0"]  # local STT: audio never leaves the machine
 video = ["imageio-ffmpeg>=0.5"]  # bundles a static ffmpeg for frames/track/slicing
-all = ["sempipe[anthropic,files,audio,video]"]
+charts = ["svgwrite>=1.4"]  # --save for sempipe chart (pure-python, zero deps)
+all = ["sempipe[anthropic,files,audio,video,charts]"]
 
 [project.scripts]
 sempipe = "sempipe.cli.root:main"

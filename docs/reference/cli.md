@@ -26,6 +26,7 @@ to **stderr**.
 | [`reduce`](../verbs/reduce.md) | synthesize many items into one | recursive, automatic |
 | [`join`](../verbs/join.md) | match stdin against a second input | embed-block-judge |
 | [`split`](../verbs/split.md) | break oversized items into chunk items | free — no model calls |
+| `chart` | bar-chart a field's values; `--save` writes SVG | free — no model calls |
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing (`--probe` adds the paid modality matrix) | exit 0 = ready |
@@ -58,6 +59,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
 | `join` | `--right FILE` (required), `--k N` (default 5), `--threshold FLOAT`, `--unmatched FILE`, `--embed-model` |
 | `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
+| `chart` | `FIELD` (or whole lines), `--top N`, `--save FILE.svg`, `--title` |
 
 ## `config`
 

@@ -6,8 +6,18 @@ tallies, and the join threshold picker.
 
 ## A field's distribution (the 80% case)
 
-Built in — `--tally` counts any extracted field, live on the status line and as
-one final stderr line, without touching stdout:
+Built in twice over. `sempipe chart` draws it (free, no model calls, `--save`
+writes a dependency-free SVG):
+
+```console
+$ cat tickets.txt | sempipe map "Extract {label}" | sempipe chart label --save labels.svg
+bug      ▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇ 14
+feature  ▇▇▇▇▇▇▇▇▇▇▇▇▇▇ 7
+question ▇▇▇▇▇▇ 3
+```
+
+And `--tally` counts any extracted field live on the status line and as one
+final stderr line, without touching stdout:
 
 ```console
 $ cat tickets.txt | sempipe map "Extract {label: bug, feature, or question}" --tally label
