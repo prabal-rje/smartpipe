@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
@@ -28,7 +29,7 @@ from sempipe.models.base import (  # shared request value types, not behavior
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from sempipe.io.items import Item
 
@@ -179,6 +180,53 @@ def brace_fields(tokens: tuple[Token, ...]) -> tuple[str, ...]:
     return tuple(seen)
 
 
+def _merged_brace_bits(
+    tokens: tuple[Token, ...],
+) -> tuple[list[str], dict[str, str], dict[str, Mapping[str, object]]]:
+    """Fields across all groups, deduped in first-seen order; a field typed
+    twice DIFFERENTLY is an error (strict mode also rejects duplicate
+    ``required`` entries, so the dedupe is correctness, not cosmetics)."""
+    fields: list[str] = []
+    notes: dict[str, str] = {}
+    props: dict[str, Mapping[str, object]] = {}
+    for token in tokens:
+        if not isinstance(token, BraceToken):
+            continue
+        for position, name in enumerate(token.fields):
+            if name not in fields:
+                fields.append(name)
+            note = token.note_for(position)
+            if note is not None:
+                notes.setdefault(name, note)
+            prop = token.prop_for(position)
+            if prop is not None:
+                known = props.get(name)
+                if known is not None and known != prop:
+                    raise UsageFault(
+                        f"field {name!r} is typed twice differently\n"
+                        f"  first: {_type_words(known)} — then: {_type_words(prop)}\n"
+                        "  Give a field one type; repeats without a type are fine."
+                    )
+                props[name] = prop
+    return fields, notes, props
+
+
+def _type_words(prop: Mapping[str, object]) -> str:
+    from sempipe.core.jsontools import as_items, as_record
+
+    kind = prop.get("type")
+    if isinstance(kind, str):
+        items = as_record(prop.get("items"))
+        if items is not None:
+            inner = items.get("type")
+            return f"{inner}[]" if isinstance(inner, str) else "array"
+        return kind
+    values = as_items(prop.get("enum"))
+    if values is not None:
+        return "enum(" + ", ".join(str(value) for value in values) + ")"
+    return str(dict(prop))
+
+
 def brace_props(tokens: tuple[Token, ...]) -> dict[str, Mapping[str, object]]:
     """field → inline type (D37), for every typed field across all groups."""
     props: dict[str, Mapping[str, object]] = {}
@@ -247,9 +295,8 @@ def plan_map(tokens: tuple[Token, ...], *, schema: Mapping[str, object] | None) 
     if schema is not None:
         return MapPlan("structured", schema, MAP_JSON_SYSTEM)
     if has_brace(tokens):
-        synthesized = shorthand_to_schema(
-            brace_fields(tokens), descriptions=brace_notes(tokens), types=brace_props(tokens)
-        )
+        fields, notes, props = _merged_brace_bits(tokens)
+        synthesized = shorthand_to_schema(fields, descriptions=notes, types=props)
         return MapPlan("structured", synthesized, MAP_JSON_SYSTEM)
     return MapPlan("plain", None, MAP_PLAIN_SYSTEM)
 
@@ -462,8 +509,11 @@ def _find_close(text: str, start: int) -> int:
     return close
 
 
-def _split_top_level(inner: str) -> list[str]:
-    """Split on commas OUTSIDE parentheses — enum(a, b) survives whole (D37)."""
+def _split_top_level(inner: str, raw: str) -> list[str]:
+    """Split on commas OUTSIDE parentheses — enum(a, b) survives whole (D37).
+
+    Unbalanced parens are a loud error: a stray "(" would otherwise swallow
+    every following comma (and the fields behind them) into one description."""
     parts: list[str] = []
     depth = 0
     current = ""
@@ -471,12 +521,22 @@ def _split_top_level(inner: str) -> list[str]:
         if char == "(":
             depth += 1
         elif char == ")":
-            depth = max(0, depth - 1)
+            depth -= 1
+            if depth < 0:
+                raise UsageFault(
+                    f"unbalanced parentheses in field group: {raw}\n"
+                    "  Every '(' needs a ')' — enum(a, b) is the only paren form."
+                )
         if char == "," and depth == 0:
             parts.append(current)
             current = ""
         else:
             current += char
+    if depth != 0:
+        raise UsageFault(
+            f"unbalanced parentheses in field group: {raw}\n"
+            "  Every '(' needs a ')' — enum(a, b) is the only paren form."
+        )
     parts.append(current)
     return parts
 
@@ -487,7 +547,7 @@ def _parse_group(
     close = _find_close(text, start)
     raw = text[start : close + 1]
     inner = text[start + 1 : close]
-    parts = tuple(part.strip() for part in _split_top_level(inner))
+    parts = tuple(part.strip() for part in _split_top_level(inner, raw))
     names: list[str] = []
     notes: list[str | None] = []
     props: list[Mapping[str, object] | None] = []
@@ -508,6 +568,11 @@ def _parse_group(
 
             prop = type_token(type_text)
             if prop is None:
+                if type_text.startswith("enum(") and type_text.endswith(")"):
+                    raise UsageFault(
+                        f"{{{part}}} — enum needs at least one value\n"
+                        "  Example: status enum(paid, unpaid)"
+                    )
                 raise UsageFault(
                     f"{{{part}}} — {type_text!r} isn't a type\n"
                     f"  Types: {TYPE_MENU}\n"

@@ -27,6 +27,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   Penalties remain per-wire opt-in mappings, so swapping models can never
   make them wrong — at worst unapplied.
 
+### Fixed
+- **Inline-schema edge cases, hunted and hardened.** Twenty-five adversarial
+  grammar tests (whitespace, colons and URLs in descriptions, enum comma/paren
+  torture, arrays, case, duplicates) surfaced and fixed five real gaps: an
+  unbalanced `(` could silently swallow every following field into one
+  description (now a loud error); duplicate fields produced duplicate
+  `required` entries, which strict mode rejects (now deduped first-seen);
+  a field typed twice differently won silently by last-write (now an error
+  naming both types); `enum()` got a generic message (now "enum needs at
+  least one value"); and descriptions keep their colons/URLs intact (split
+  on the first colon only, verified).
+
 ### Added
 - **Inline types join inline descriptions (D37, amends D22).**
   `map "Extract {vendor string: the supplier, total number, status
