@@ -6,6 +6,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`split` learned real units (D26/D27).** `--by pages[:N]` groups PDF pages
+  with true page provenance (`report.pdf p.6-10`); `--by minutes:N` /
+  `--by seconds:N` slices audio into segments that **stay audio** through the
+  pipe (base64 NDJSON, rebuilt on read), so
+  `split --by minutes:10 --in call.wav | map "what was agreed?"` sends each
+  slice to a model that hears it natively, with clock provenance
+  (`call.wav §00:10-00:20`) that survives into every downstream warning.
+  Live-proven: a spoken recording sliced at 4s boundaries, each slice heard by
+  Voxtral. wav slices natively; other formats want ffmpeg on PATH.
+  `--max-tokens N` stays as shorthand for `--by tokens:N`. Also disclosed in
+  the docs: images embedded in PDFs/DOCX are currently dropped by text
+  extraction (extraction-as-items is the planned fix, D29).
 - **See your data: `--tally`, `join --unmatched`, and the visualization
   cookbook.** `map … --tally label` counts any extracted field live on the
   status line and prints one final stderr line (`tally: bug 14 · feature 7 ·

@@ -18,13 +18,20 @@ __all__ = ["split_command"]
 
 @click.command(name="split")
 @click.option(
+    "--by",
+    "by_flag",
+    metavar="UNIT[:N]",
+    help="Split unit: tokens, pages, minutes, seconds. e.g. --by pages, --by minutes:10",
+)
+@click.option(
     "--max-tokens",
     "max_tokens",
     type=int,
-    help="Chunk budget in tokens (default 2000 — comfortable for every provider).",
+    help="Shorthand for --by tokens:N (default 2000).",
 )
 @input_options
 def split_command(
+    by_flag: str | None,
     max_tokens: int | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
@@ -34,7 +41,8 @@ def split_command(
     \b
     Examples:
       sempipe split --in '10k-filings/*.pdf' | sempipe map "list the risk factors {risk}"
-      sempipe split --in big.md --max-tokens 4000 | sempipe filter "mentions pricing"
+      sempipe split --by pages:5 --in report.pdf | sempipe map "summarize these pages"
+      sempipe split --by minutes:10 --in call.mp3 | sempipe map "what was agreed?"
 
     Each chunk is a JSON record: {"text": …, "source": "report.pdf §3/12"} —
     paragraph-boundary aware, and the chunks of a document concatenate back to
@@ -42,6 +50,7 @@ def split_command(
     """
     request = SplitRequest(
         max_tokens_flag=max_tokens,
+        by_flag=by_flag,
         input=input_spec(in_patterns, from_files=from_files),
     )
     code = asyncio.run(_run(request))

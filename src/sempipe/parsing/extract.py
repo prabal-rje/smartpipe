@@ -20,7 +20,16 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-__all__ = ["Extracted", "ImageData", "MissingExtra", "extract", "transcribe_audio", "whisper_size"]
+__all__ = [
+    "Extracted",
+    "ImageData",
+    "MissingExtra",
+    "extract",
+    "pdf_page_texts",
+    "slice_audio",
+    "transcribe_audio",
+    "whisper_size",
+]
 
 _IMAGE_MIME: dict[str, str] = {
     ".png": "image/png",
@@ -74,6 +83,117 @@ def _read_text(path: Path) -> Extracted:
 def _read_image(path: Path) -> ImageData:
     mime = _IMAGE_MIME.get(path.suffix.lower(), "image/png")
     return ImageData(data=path.read_bytes(), mime=mime)
+
+
+def pdf_page_texts(path: Path) -> list[str]:
+    """Per-page text of a PDF (D26 rich split). Needs the [files] extra."""
+    try:
+        from pdfminer.high_level import extract_text
+        from pdfminer.pdfpage import PDFPage
+    except ImportError as exc:
+        raise MissingExtra(
+            "files",
+            "error: parsing documents needs an optional dependency\n"
+            "  install it with:  pip install 'sempipe[files]'",
+        ) from exc
+    try:
+        with path.open("rb") as handle:
+            count = sum(1 for _ in PDFPage.get_pages(handle))
+        return [extract_text(str(path), page_numbers={number}) or "" for number in range(count)]
+    except MissingExtra:  # pragma: no cover — nothing above raises it here
+        raise
+    except Exception as exc:
+        raise ItemError(f"{path.name} couldn't be parsed as a PDF ({exc})") from exc
+
+
+def slice_audio(audio: AudioData, *, seconds: int) -> list[AudioData]:
+    """Duration slices of an audio payload (D27): wav natively, ffmpeg otherwise.
+
+    Slicing is lossless re-segmentation — every slice is a valid standalone file
+    of the same kind, so each can ride the native-hearing wire on its own.
+    """
+    if audio.mime in ("audio/wav", "audio/x-wav"):
+        return _slice_wav(audio, seconds=seconds)
+    return _slice_via_ffmpeg(audio, seconds=seconds)
+
+
+def _slice_wav(audio: AudioData, *, seconds: int) -> list[AudioData]:
+    import io
+    import wave
+
+    try:
+        with wave.open(io.BytesIO(audio.data)) as reader:
+            params = reader.getparams()
+            frames_per_slice = params.framerate * seconds
+            slices: list[AudioData] = []
+            while True:
+                frames = reader.readframes(frames_per_slice)
+                if not frames:
+                    break
+                buffer = io.BytesIO()
+                with wave.open(buffer, "wb") as writer:
+                    writer.setnchannels(params.nchannels)
+                    writer.setsampwidth(params.sampwidth)
+                    writer.setframerate(params.framerate)
+                    writer.writeframes(frames)
+                slices.append(AudioData(data=buffer.getvalue(), mime="audio/wav"))
+        return slices or [audio]
+    except ItemError:  # pragma: no cover — nothing above raises it
+        raise
+    except Exception as exc:
+        raise ItemError(f"audio couldn't be sliced ({exc})") from exc
+
+
+def _slice_via_ffmpeg(audio: AudioData, *, seconds: int) -> list[AudioData]:
+    import shutil
+
+    if shutil.which("ffmpeg") is None:
+        raise ItemError(
+            "slicing this format needs ffmpeg on PATH (wav slices natively)\n"
+            "  Install ffmpeg, or convert first: ffmpeg -i in.mp3 out.wav"
+        )
+    import contextlib
+    import os
+    import subprocess
+    import tempfile
+
+    workdir = tempfile.mkdtemp(prefix="sempipe-slice-")
+    source = os.path.join(workdir, "source")
+    pattern = os.path.join(workdir, "slice-%04d.wav")
+    try:
+        with open(source, "wb") as handle:
+            handle.write(audio.data)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-loglevel",
+                "error",
+                "-i",
+                source,
+                "-f",
+                "segment",
+                "-segment_time",
+                str(seconds),
+                "-c:a",
+                "pcm_s16le",
+                pattern,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        names = sorted(name for name in os.listdir(workdir) if name.startswith("slice-"))
+        return [
+            AudioData(data=open(os.path.join(workdir, name), "rb").read(), mime="audio/wav")
+            for name in names
+        ] or [audio]
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.decode(errors="replace").strip().splitlines()
+        raise ItemError(
+            f"ffmpeg couldn't slice it ({detail[-1] if detail else 'unknown'})"
+        ) from exc
+    finally:
+        with contextlib.suppress(OSError):
+            shutil.rmtree(workdir)
 
 
 def whisper_size(environ: Mapping[str, str]) -> str:

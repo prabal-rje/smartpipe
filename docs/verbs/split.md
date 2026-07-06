@@ -25,11 +25,34 @@ One JSON record per chunk:
 - `source` carries provenance: which document, which part.
 - Items already under the budget pass through whole, `source` unchanged.
 
+## Units
+
+`--by UNIT[:N]` picks what a chunk *is*:
+
+| Unit | Example | What you get |
+|---|---|---|
+| `tokens` (default) | `--by tokens:2000` | text chunks at paragraph boundaries, `report.pdf §3/12` |
+| `pages` | `--by pages:5` | PDF page groups with real page numbers, `report.pdf p.6-10` |
+| `minutes` / `seconds` | `--by minutes:10` | **audio slices that stay audio** — each rides the pipe as a playable segment (`call.mp3 §00:10-00:20`), so the next verb can *hear* it natively |
+
+```console
+$ sempipe split --by minutes:10 --in call.wav \
+    | sempipe map "what was agreed?" --model voxtral-mini-latest \
+    | sempipe reduce "merge the agreements"
+```
+
+Notes: `--max-tokens N` is shorthand for `--by tokens:N`. `--by pages` reads PDF
+files (DOCX has no fixed pages; the error says so). Audio slicing is native for
+wav; other formats need `ffmpeg` on PATH. Audio slices travel as base64 inside
+the NDJSON records, so segment lines are large; that's the cost of a pipe that
+carries sound.
+
 ## Options
 
 | Flag | Meaning |
 |---|---|
-| `--max-tokens N` | chunk budget (default 2000 — comfortable for every wired provider) |
+| `--by UNIT[:N]` | the split unit (table above) |
+| `--max-tokens N` | shorthand for `--by tokens:N` |
 | `--in GLOB`, `--from-files` | the usual [file inputs](../inputs/files.md) |
 
 ## When you need it

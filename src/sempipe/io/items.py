@@ -42,12 +42,40 @@ def item_from_line(line: str, index: int) -> Item:
     raw = line.removesuffix("\n").removesuffix("\r")
     if index == 0:
         raw = raw.removeprefix(_BOM)
+    data = _sniff_json_object(raw)
     return Item(
         raw=raw,
         text=raw,
-        data=_sniff_json_object(raw),
-        source=ItemSource(kind="stdin", name="-", index=index),
+        data=data,
+        source=_named_source(data, index),
+        media=_sniff_media(data),
     )
+
+
+def _named_source(data: Mapping[str, object] | None, index: int) -> ItemSource:
+    # split emits {"source": "call.mp3 §00:10-00:20"} — keep that provenance
+    name = data.get("source") if data is not None else None
+    return ItemSource(kind="stdin", name=name if isinstance(name, str) else "-", index=index)
+
+
+def _sniff_media(data: Mapping[str, object] | None) -> MediaData | None:
+    """``split --by minutes`` ships audio slices as base64 NDJSON — rebuild the
+    bytes so the next verb can hear them (D27)."""
+    if data is None:
+        return None
+    encoded = data.get("audio_b64")
+    mime = data.get("mime")
+    if not isinstance(encoded, str) or not isinstance(mime, str):
+        return None
+    import base64
+    import binascii
+
+    from sempipe.models.base import AudioData  # runtime: isinstance-free construction
+
+    try:
+        return AudioData(data=base64.b64decode(encoded, validate=True), mime=mime)
+    except (binascii.Error, ValueError):
+        return None  # not ours — treat as a plain JSON line
 
 
 def item_from_file(text: str, path: str, index: int) -> Item:
@@ -62,9 +90,12 @@ def item_from_file(text: str, path: str, index: int) -> Item:
 
 
 def describe_source(source: ItemSource) -> str:
-    """Human wording for warnings — 1-based lines, plain filenames."""
-    if source.kind == "stdin":
+    """Human wording for warnings — 1-based lines, plain filenames; a split
+    stage's provenance (``call.wav §00:10-00:20``) survives the pipe."""
+    if source.kind == "stdin" and source.name == "-":
         return f"line {source.index + 1}"
+    if source.kind == "stdin":
+        return source.name
     return source.name
 
 

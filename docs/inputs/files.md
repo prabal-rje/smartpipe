@@ -109,6 +109,15 @@ stdin lines, one run:
 $ cat extra-notes.txt | sempipe map "Summarize" --in 'reports/*.pdf'
 ```
 
+## Images inside PDFs and DOCX: currently dropped
+
+Honest disclosure: document parsing extracts **text**; figures and photos
+embedded in a PDF or DOCX contribute nothing today — they are silently dropped
+by the extractor. Standalone image files are first-class (`--in '*.png'` →
+vision models). Embedded-image extraction is planned as an explicit `split`
+option, so a 100-page deck's 300 decorative images become items only when you
+ask.
+
 ## Audio: heard natively, or transcribed
 
 An audio file (`.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`) becomes an item carrying
