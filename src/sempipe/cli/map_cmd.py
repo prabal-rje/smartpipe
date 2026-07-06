@@ -33,6 +33,12 @@ __all__ = ["map_command"]
     help="Read the prompt from a file (the @file shorthand does the same).",
 )
 @click.option(
+    "--tally",
+    "tally_field",
+    metavar="FIELD",
+    help="Count FIELD's values across results — live status line + one stderr line.",
+)
+@click.option(
     "--schema-from",
     "schema_dsl",
     metavar="DSL",
@@ -66,6 +72,7 @@ def map_command(
     prompt_file: Path | None,
     schema_path: Path | None,
     schema_dsl: str | None,
+    tally_field: str | None,
     model_flag: str | None,
     output: str,
     concurrency_flag: int | None,
@@ -89,6 +96,7 @@ def map_command(
         prompt=resolve_prompt(prompt, prompt_file),
         schema_path=schema_path,
         schema_dsl=schema_dsl,
+        tally_field=tally_field,
         model_flag=model_flag,
         output=OutputFormat(output),
         concurrency_flag=concurrency_flag,

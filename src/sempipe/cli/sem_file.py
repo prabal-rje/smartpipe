@@ -200,6 +200,7 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
         ("verbose", _bool_key(_switch("--verbose"))),
         ("schema-file", _str_key(_schema)),
         ("schema-from", _str_key(_flag("--schema-from"))),
+        ("tally", _str_key(_flag("--tally"))),
         ("fields", _list_key(_fields_arg)),
         *_COMMON_TAIL,
     ),

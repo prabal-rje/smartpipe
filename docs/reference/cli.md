@@ -51,11 +51,11 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 
 | Verb | Options |
 |---|---|
-| `map` | `--schema FILE`, `--schema-from DSL`, `--output {auto,text,json,csv,tsv}` |
+| `map` | `--schema FILE`, `--schema-from DSL`, `--tally FIELD`, `--output {auto,text,json,csv,tsv}` |
 | `filter` | `--not` (invert, like `grep -v`) |
 | `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT`, `--stream` (live leaderboard) |
 | `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
-| `join` | `--right FILE` (required), `--k N` (default 5), `--threshold FLOAT`, `--embed-model` |
+| `join` | `--right FILE` (required), `--k N` (default 5), `--threshold FLOAT`, `--unmatched FILE`, `--embed-model` |
 | `split` | `--max-tokens N` (default 2000) |
 
 ## `config`

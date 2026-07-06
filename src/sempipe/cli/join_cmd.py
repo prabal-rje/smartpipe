@@ -53,6 +53,12 @@ __all__ = ["join_command"]
     help="Similarity floor (0-1) a candidate must clear before judging.",
 )
 @click.option(
+    "--unmatched",
+    "unmatched",
+    type=click.Path(path_type=Path),
+    help="Write left items with zero matches to FILE, verbatim (one line each).",
+)
+@click.option(
     "--model",
     "model_flag",
     shell_complete=complete_chat_models,
@@ -81,6 +87,7 @@ def join_command(
     right: Path,
     k: int,
     threshold: float | None,
+    unmatched: Path | None,
     model_flag: str | None,
     embed_model_flag: str | None,
     output: str,
@@ -108,6 +115,7 @@ def join_command(
         right=right,
         k=k,
         threshold=threshold,
+        unmatched=unmatched,
         model_flag=model_flag,
         embed_model_flag=embed_model_flag,
         concurrency_flag=concurrency_flag,

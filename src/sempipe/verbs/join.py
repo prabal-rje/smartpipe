@@ -70,6 +70,7 @@ class JoinRequest:
     output: OutputFormat
     input: InputSpec = STDIN
     fields: tuple[str, ...] | None = None
+    unmatched: Path | None = None  # write zero-match left items here, verbatim
 
 
 class JoinContext(Protocol):
@@ -163,6 +164,11 @@ async def run_join(
     outcomes = run_ordered(
         items_iter, worker, concurrency=concurrency, failure_policy=FailurePolicy(), stop=stop
     )
+    matched_pairs = 0
+    unmatched_count = 0
+    unmatched_sink = (
+        request.unmatched.open("w", encoding="utf-8") if request.unmatched is not None else None
+    )
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):
@@ -175,6 +181,11 @@ async def run_join(
                             "_score": round(score, 4),
                         }
                     )
+                matched_pairs += len(matches)
+                if not matches:
+                    unmatched_count += 1
+                    if unmatched_sink is not None:
+                        unmatched_sink.write(left.raw + "\n")
                 done += 1
             else:  # Skipped — the left item itself failed (image, embed error, …)
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
@@ -183,6 +194,13 @@ async def run_join(
     finally:
         spinner.finish()
         writer.flush()
+        if unmatched_sink is not None:
+            unmatched_sink.close()
+    if request.unmatched is not None:
+        diagnostics.note(
+            f"join: {matched_pairs} matched · {unmatched_count} unmatched → "
+            f"{request.unmatched.name}"
+        )
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped + book.skipped)
         return interrupted_exit_code(done=done, skipped=skipped + book.skipped)

@@ -81,6 +81,13 @@ a sample with `--k 20 --threshold 0` and compare match counts — a jump means
 the default is dropping true matches; raise `--k` (and consider a stronger
 embedding model).
 
+## The unmatched remainder
+
+`--unmatched FILE` writes every left item that matched nothing, verbatim, one
+line each — your worklist for a looser second pass (bigger `--k`, softer
+predicate, or a human). A final stderr note reports the split:
+`join: 34 matched · 7 unmatched → leftovers.txt`.
+
 ## Streaming
 
 The left side streams flag-free, like every per-item verb — so join is a live

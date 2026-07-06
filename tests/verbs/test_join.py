@@ -381,3 +381,20 @@ async def test_left_image_item_skips_whole(tmp_path: Path) -> None:
     code = await run_join(request, FakeContext(embed, judge), stdin=_Tty(), stdout=out)
     assert code is ExitCode.ALL_FAILED  # the one left item skipped (image needs map)
     assert out.getvalue() == ""
+
+
+async def test_unmatched_left_items_land_in_the_file(tmp_path: Path) -> None:
+    embed = FakeEmbed(TABLE)
+    judge = FakeJudge(matches=[("printer smoking", "LaserJet 9")])
+    out = io.StringIO()
+    sink = tmp_path / "unmatched.txt"
+    request = _request(_right_file(tmp_path, RIGHT_LINES), unmatched=sink)
+    code = await run_join(
+        request,
+        FakeContext(embed, judge),
+        stdin=io.StringIO("printer smoking\ncoffee is cold\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert '"LaserJet 9"' in out.getvalue()  # the match still flows to stdout
+    assert sink.read_text(encoding="utf-8") == "coffee is cold\n"  # verbatim, one line

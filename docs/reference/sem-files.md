@@ -53,6 +53,8 @@ command it stands for — stdin in, stdout out, same exit codes, same everything
 | `fields` | array of strings | map, embed, top_k, reduce | `--fields` |
 | `schema-file` | string | map, reduce | `--schema`, resolved **relative to the `.sem` file** |
 | `schema-from` | string | map, reduce | `--schema-from` (the deterministic DSL) |
+| `tally` | string | map | `--tally FIELD` |
+| `unmatched` | string | join | `--unmatched FILE` |
 | `group-by` | string | reduce | `--group-by` |
 | `window` / `every` | integer | reduce | `--window` / `--every` |
 | `verbose` | boolean | reduce | `--verbose` |

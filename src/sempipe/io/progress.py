@@ -48,10 +48,14 @@ def render_known(frame: str, *, done: int, total: int, eta_seconds: float | None
     return line
 
 
-def render_unknown(frame: str, *, done: int, rate: float, matched: int | None = None) -> str:
+def render_unknown(
+    frame: str, *, done: int, rate: float, matched: int | None = None, extra: str | None = None
+) -> str:
     line = f"{frame} Processing [{done}] {rate:.1f}/s"
     if matched is not None:
         line += f" · {matched} matched"
+    if extra:
+        line += f" · {extra}"
     return line
 
 
@@ -63,6 +67,7 @@ class Spinner:
     clock: Callable[[], float]
     total: int | None = None
     matched: int | None = None  # filter's status-line segment
+    extra: str | None = None  # map's live --tally segment
     _done: int = 0
     _start: float = 0.0
     _last_draw: float = field(default=-1.0)
@@ -98,7 +103,9 @@ class Spinner:
         elapsed = max(now - self._start, 1e-9)
         rate = self._done / elapsed
         if self.total is None:
-            line = render_unknown(frame, done=self._done, rate=rate, matched=self.matched)
+            line = render_unknown(
+                frame, done=self._done, rate=rate, matched=self.matched, extra=self.extra
+            )
         else:
             eta = (self.total - self._done) / rate if self._done >= _ETA_WARMUP and rate else None
             line = render_known(frame, done=self._done, total=self.total, eta_seconds=eta)

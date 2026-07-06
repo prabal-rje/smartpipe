@@ -199,3 +199,22 @@ def test_schema_from_with_schema_is_a_usage_error(run_cli: RunCli, tmp_path: Pat
     )
     assert code == 64
     assert "both shape the output — use one" in err
+
+
+def test_tally_counts_the_field_on_stderr(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
+    replies = iter(['{"label": "bug"}', '{"label": "bug"}', '{"label": "feature"}'])
+
+    def next_reply(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"message": {"content": next(replies)}})
+
+    respx_mock.post(CHAT).mock(side_effect=next_reply)
+    code, out, err = run_cli(["map", "Extract {label}", "--tally", "label"], stdin="a\nb\nc\n")
+    assert code == 0
+    assert out.count("\n") == 3  # stdout untouched: three NDJSON records
+    assert "tally: bug 2 · feature 1" in err  # the pinned final line
+
+
+def test_tally_without_structure_is_a_usage_error(run_cli: RunCli) -> None:
+    code, _out, err = run_cli(["map", "summarize", "--tally", "label"], stdin="x\n")
+    assert code == 64
+    assert "--tally needs structured output" in err

@@ -10,11 +10,12 @@ validator's complaint before the item is skipped.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
-from sempipe.core.errors import ExitCode, ItemError
+from sempipe.core.errors import ExitCode, ItemError, UsageFault
 from sempipe.engine.prompts import (
     build_map_request,
     build_repair_request,
@@ -37,7 +38,6 @@ from sempipe.verbs.common import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from pathlib import Path
     from typing import TextIO
 
@@ -62,6 +62,7 @@ class MapRequest:
     input: InputSpec = STDIN
     fields: tuple[str, ...] | None = None  # --fields: project structured output
     schema_dsl: str | None = None  # --schema-from (rung 3, D22)
+    tally_field: str | None = None  # --tally FIELD: live distribution on stderr
 
 
 class MapContext(Protocol):
@@ -100,6 +101,17 @@ async def run_map(
     )
     concurrency = context.concurrency(request.concurrency_flag)
 
+    tally = None
+    if request.tally_field is not None:
+        if not structured:
+            raise UsageFault(
+                "--tally needs structured output — name fields in braces or pass --schema\n"
+                '  Example: sempipe map "Extract {label}" --tally label'
+            )
+        from sempipe.engine.tally import Tally
+
+        tally = Tally(request.tally_field)
+
     spinner = make_stderr_spinner()
     spinner.start(total=total)
 
@@ -131,6 +143,9 @@ async def run_map(
         async for outcome in outcomes:
             if isinstance(outcome, Done):
                 _write(writer, structured=structured, value=outcome.value)
+                if tally is not None and isinstance(outcome.value, Mapping):
+                    tally.add(outcome.value)
+                    spinner.extra = tally.live_segment()
                 done += 1
             else:  # Skipped — the union has no third case
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
@@ -139,6 +154,8 @@ async def run_map(
     finally:
         spinner.finish()
         writer.flush()
+    if tally is not None and tally.counts:
+        diagnostics.note(tally.final_line())
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped)
         return interrupted_exit_code(done=done, skipped=skipped)

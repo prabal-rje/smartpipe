@@ -34,3 +34,6 @@ $ cat big.jsonl | head -20 | sempipe map "..."    # test on 20 before running 20
 ```
 
 Or stay free with a local Ollama model — see [Models & providers](../concepts/models-and-providers.md).
+
+- **[Visualizing results](visualizing-results.md)** — distributions, ranked tables,
+  `--tally`, and the join threshold picker.

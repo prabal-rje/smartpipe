@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **See your data: `--tally`, `join --unmatched`, and the visualization
+  cookbook.** `map … --tally label` counts any extracted field live on the
+  status line and prints one final stderr line (`tally: bug 14 · feature 7 ·
+  question 3`) — stdout untouched. `join --unmatched leftovers.txt` writes
+  every zero-match left item verbatim (the worklist for a second pass) and
+  reports the split. And a new cookbook page wires the rest: `uniq -c`,
+  youplot bars, visidata tables, and the join threshold picker.
 - **The oversize stack (D26): probe, bisect, split.** Context windows are now
   *probed* when an input looks too big (Ollama, Mistral, Gemini, and OpenRouter
   publish theirs — live, Gemini's probe widens the budget 8x past the table
