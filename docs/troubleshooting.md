@@ -84,6 +84,52 @@ CSV/TSV need named columns. Ask for fields with braces or a schema:
 $ … | sempipe map "Extract {name, email}" --output csv
 ```
 
+## "the endpoint doesn't know the model 'X'" (exit 2)
+
+The cloud endpoint answered 404 for that model name — every item would fail the
+same way, so sempipe stopped at the **first** occurrence instead of burning
+through your input. Model names drift (e.g. `gemini-2.0-flash-lite` retired in
+favor of `gemini-2.5-flash-lite`); check the provider's current list, or switch:
+`sempipe config model <name>`.
+
+## "the endpoint rejected the --schema" (exit 2)
+
+A 400 mentioning `response_format`/`json_schema` means the provider's strict
+mode won't accept your schema shape (a common one: every property needs a
+`type`). This too stops the run at first sight — nothing else would have
+succeeded. Simplify the schema, build one with
+[`--schema-from` or `sempipe schema`](concepts/structured-output.md), or drop
+`--schema` and validate downstream.
+
+## "stopping — the call budget (N) is spent" (exit 1 or 2)
+
+You set `--max-calls N` and the run reached it. Per-item verbs finish what's
+in flight and report partial results (exit 1); whole-set verbs (`top_k`,
+`reduce`) stop up front (exit 2) because a partial answer would be silently
+wrong. Raise the ceiling or narrow the input.
+
+## "this model can't hear audio — …" (exit 3 on the skip path)
+
+You sent audio items to a model with no audio input. Two fixes, straight from
+the message: use a model that hears (`gpt-4o-audio-preview`-family,
+`voxtral-*`), or `pip install 'sempipe[audio]'` so text verbs (and `map`, as a
+fallback) transcribe locally. Details:
+[File inputs → audio](inputs/files.md#audio-heard-natively-or-transcribed).
+
+## "prompt file not found: X" (exit 64)
+
+A prompt starting with `@` names a file (`sempipe map @prompt.md`). If the
+prompt itself begins with a literal `@`, escape it as `@@`; the explicit form
+is `--prompt-file FILE`.
+
+## "--schema-from: unexpected 'X' for field 'Y'" (exit 64)
+
+The [schema DSL](concepts/structured-output.md) parses before any model call,
+so typos cost nothing. The message lists the whole grammar — types
+(`string`, `number`, `integer`, `boolean`, `enum(a, b)`, `string[]`,
+`number[]`) and constraints (`>= N`, `<= N`, `minLength=N`, `maxLength=N`,
+`optional`).
+
 ## "⚠ skipped: line N (…)" — but the run continued
 
 That's by design. A single item that fails (a malformed record, a model refusal, a
