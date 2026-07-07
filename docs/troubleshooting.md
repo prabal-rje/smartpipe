@@ -115,7 +115,7 @@ wrong. Raise the ceiling or narrow the input.
 You sent audio items to a model with no audio input. Two fixes, straight from
 the message: use a model that hears (`voxtral-*`, `gemini-2.5-*`,
 `voxtral-*`), or `pip install 'smartpipe[audio]'` so text verbs (and `map`, as a
-fallback) transcribe it locally with Whisper (`SEMPIPE_WHISPER_MODEL` picks
+fallback) transcribe it locally with Whisper (`SMARTPIPE_WHISPER_MODEL` picks
 the size; tiny is the default). Details:
 [File inputs → audio](inputs/files.md#audio-heard-natively-or-transcribed).
 
@@ -125,7 +125,7 @@ The item is bigger than the model's context window. The message carries the
 fix: `smartpipe split --in FILE | smartpipe map "..." | smartpipe reduce "..."` —
 [split](verbs/split.md) chunks it for free, map transforms the chunks, reduce
 recombines. If you know your deployment's window is actually bigger, assert it:
-`SEMPIPE_CONTEXT_TOKENS=200000`.
+`SMARTPIPE_CONTEXT_TOKENS=200000`.
 
 ## "prompt file not found: X" (exit 64)
 
@@ -194,7 +194,7 @@ The chat model you're using has no vision. Pick one that does:
 ## An internal error / "BUG" screen (exit 70)
 
 That's a smartpipe bug, not your fault. The screen tells you how to report it; re-run
-with `SEMPIPE_DEBUG=1` for a traceback to include.
+with `SMARTPIPE_DEBUG=1` for a traceback to include.
 
 ## See also
 

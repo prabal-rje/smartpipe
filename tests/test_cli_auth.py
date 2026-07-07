@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.config.credentials import OAuthCredential, save_oauth
-from sempipe.models.openai_codex import CODEX_ENDPOINT
+from smartpipe.config.credentials import OAuthCredential, save_oauth
+from smartpipe.models.openai_codex import CODEX_ENDPOINT
 from tests.conftest import RunCli
 
 if TYPE_CHECKING:
@@ -25,8 +25,8 @@ FRESH_MS = int(time.time() * 1000) + 3_600_000
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))  # the store lands under tmp
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setenv("SEMPIPE_MODEL", "openai/gpt-5.4")
-    return tmp_path / "sempipe" / "auth.json"
+    monkeypatch.setenv("SMARTPIPE_MODEL", "openai/gpt-5.4")
+    return tmp_path / "smartpipe" / "auth.json"
 
 
 def _login(path: Path) -> None:
@@ -103,7 +103,7 @@ def test_embeddings_on_login_only_point_at_keys(
     run_cli: RunCli, home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _login(home)
-    monkeypatch.setenv("SEMPIPE_EMBED_MODEL", "openai/text-embedding-3-small")
+    monkeypatch.setenv("SMARTPIPE_EMBED_MODEL", "openai/text-embedding-3-small")
     code, _out, err = run_cli(["embed"], stdin="hi\n")
     assert code == 2
     assert "embeddings aren't available through ChatGPT login" in err
@@ -113,7 +113,7 @@ def test_embeddings_on_login_only_point_at_keys(
 
 
 def test_login_headless_flow(run_cli: RunCli, home: Path, respx_mock: respx.MockRouter) -> None:
-    from sempipe.models.openai_oauth import ISSUER
+    from smartpipe.models.openai_oauth import ISSUER
 
     respx_mock.post(f"{ISSUER}/api/accounts/deviceauth/usercode").mock(
         return_value=httpx.Response(
@@ -132,7 +132,7 @@ def test_login_headless_flow(run_cli: RunCli, home: Path, respx_mock: respx.Mock
     assert code == 0
     assert "WXYZ-9999" in err  # the code the user types
     assert "logged in" in err
-    from sempipe.config.credentials import load_oauth
+    from smartpipe.config.credentials import load_oauth
 
     stored = load_oauth(home, "openai")
     assert stored is not None and stored.access == "at-new"
@@ -144,7 +144,7 @@ def test_login_browser_flow(
     import asyncio
     from urllib.parse import parse_qs, urlparse
 
-    from sempipe.models.openai_oauth import ISSUER
+    from smartpipe.models.openai_oauth import ISSUER
 
     respx_mock.post(f"{ISSUER}/oauth/token").mock(
         return_value=httpx.Response(

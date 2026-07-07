@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sempipe.io import metering
-from sempipe.io.usage import read_ledger, record_run, reset_ledger, usage_path
+from smartpipe.io import metering
+from smartpipe.io.usage import read_ledger, record_run, reset_ledger, usage_path
 
 if TYPE_CHECKING:
     from pathlib import Path

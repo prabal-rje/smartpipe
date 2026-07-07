@@ -6,9 +6,9 @@ import io
 import json
 from typing import TYPE_CHECKING
 
-from sempipe.core.errors import ExitCode
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.verbs.cluster import ClusterRequest, run_cluster
+from smartpipe.core.errors import ExitCode
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.verbs.cluster import ClusterRequest, run_cluster
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

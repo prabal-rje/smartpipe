@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from sempipe import __version__
+from smartpipe import __version__
 from tests.conftest import RunCli
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -41,7 +41,7 @@ def test_unexpected_exception_is_the_bug_screen_exit_70(
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise ValueError("wires crossed")
 
-    monkeypatch.setattr("sempipe.cli.root.cli.main", _boom)
+    monkeypatch.setattr("smartpipe.cli.root.cli.main", _boom)
     code, _out, err = run_cli(["--version"])
     assert code == 70
     assert "internal error — this is a bug in smartpipe" in err
@@ -53,6 +53,6 @@ def test_keyboard_interrupt_exits_130(run_cli: RunCli, monkeypatch: pytest.Monke
     def _interrupt(*_args: object, **_kwargs: object) -> None:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("sempipe.cli.root.cli.main", _interrupt)
+    monkeypatch.setattr("smartpipe.cli.root.cli.main", _interrupt)
     code, _out, _err = run_cli(["--version"])
     assert code == 130

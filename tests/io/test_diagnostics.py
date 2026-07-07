@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import SetupFault, TooManyFailures, UsageFault
-from sempipe.io import diagnostics
+from smartpipe.core.errors import SetupFault, TooManyFailures, UsageFault
+from smartpipe.io import diagnostics
 
 
 def _exit_code(excinfo: pytest.ExceptionInfo[SystemExit]) -> int:
@@ -86,7 +86,7 @@ def test_internal_error_with_debug_shows_traceback(capsys: pytest.CaptureFixture
 def test_error_prefix_is_red_only_on_tty(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("sempipe.io.tty.stderr_supports_color", lambda: True)
+    monkeypatch.setattr("smartpipe.io.tty.stderr_supports_color", lambda: True)
     with pytest.raises(SystemExit):
         diagnostics.die(UsageFault("bad"))
     assert capsys.readouterr().err == "\x1b[31merror:\x1b[0m bad\n"

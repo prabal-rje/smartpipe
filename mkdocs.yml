@@ -1,7 +1,7 @@
-site_name: sempipe
+site_name: smartpipe
 site_description: Semantic pipes for your terminal — map, filter, embed, top_k, reduce for Unix pipelines, local-first.
 docs_dir: docs
-repo_url: https://github.com/prabal-rje/sempipe
+repo_url: https://github.com/prabal-rje/smartpipe
 edit_uri: edit/main/docs/
 
 theme:

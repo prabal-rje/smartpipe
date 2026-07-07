@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ItemError, SetupFault
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.models.budget import CallBudget, budgeted_chat, budgeted_embed
+from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.models.budget import CallBudget, budgeted_chat, budgeted_embed
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

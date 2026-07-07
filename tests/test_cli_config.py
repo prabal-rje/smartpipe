@@ -4,17 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from sempipe.cli.config_cmd import run_interactive_setup
-from sempipe.config.store import Config, load_config
+from smartpipe.cli.config_cmd import run_interactive_setup
+from smartpipe.config.store import Config, load_config
 from tests.conftest import RunCli
 
 
 @pytest.fixture
 def config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.delenv("SEMPIPE_MODEL", raising=False)
-    monkeypatch.delenv("SEMPIPE_EMBED_MODEL", raising=False)
-    return tmp_path / "sempipe" / "config.toml"
+    monkeypatch.delenv("SMARTPIPE_MODEL", raising=False)
+    monkeypatch.delenv("SMARTPIPE_EMBED_MODEL", raising=False)
+    return tmp_path / "smartpipe" / "config.toml"
 
 
 # --- config model / embed-model -----------------------------------------------
@@ -72,7 +72,7 @@ def test_show_reflects_a_saved_model(run_cli: RunCli, config_home: Path) -> None
 def test_show_env_origin(
     run_cli: RunCli, config_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("SEMPIPE_MODEL", "gpt-5.4-mini")
+    monkeypatch.setenv("SMARTPIPE_MODEL", "gpt-5.4-mini")
     _code, out, _err = run_cli(["config", "show"])
     assert "(env)" in out.splitlines()[0]
 
@@ -228,8 +228,8 @@ def test_profile_unknown_name_lists_known(
 
 
 async def test_wizard_offers_profiles_first_on_a_fresh_setup(tmp_path: Path) -> None:
-    from sempipe.cli.config_cmd import run_interactive_setup
-    from sempipe.config.store import Config
+    from smartpipe.cli.config_cmd import run_interactive_setup
+    from smartpipe.config.store import Config
 
     said: list[str] = []
     saved: list[Config] = []

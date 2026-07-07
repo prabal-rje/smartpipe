@@ -5,10 +5,10 @@ Two ways to add a verb to smartpipe; built-ins always win over both.
 ## Named `.sem` verbs (no code)
 
 Any `.sem` file (single stage or a whole pipeline) in
-`~/.config/sempipe/verbs/` becomes a command named after the file:
+`~/.config/smartpipe/verbs/` becomes a command named after the file:
 
 ```console
-$ cat ~/.config/sempipe/verbs/triage.sem
+$ cat ~/.config/smartpipe/verbs/triage.sem
 [stage.hot]
 verb = "where"
 predicate = 'text has "ERROR"'
@@ -27,11 +27,11 @@ path: a custom verb that is *data*, not code.
 ## Python plugins (the Protocol)
 
 A package exposes a `click.Command` through an entry point in the
-`sempipe.verbs` group:
+`smartpipe.verbs` group:
 
 ```toml
 # pyproject.toml of your plugin package
-[project.entry-points."sempipe.verbs"]
+[project.entry-points."smartpipe.verbs"]
 redact = "my_pkg.cli:redact_command"
 ```
 

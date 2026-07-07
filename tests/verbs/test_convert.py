@@ -6,10 +6,10 @@ from collections.abc import Sequence
 
 import pytest
 
-from sempipe.core.errors import ItemError
-from sempipe.io.diagnostics import DegradationLog
-from sempipe.models.base import AudioData, CompletionRequest, ImageData, ModelRef
-from sempipe.verbs.convert import IMAGE_NEEDS_CAPTION, make_converter
+from smartpipe.core.errors import ItemError
+from smartpipe.io.diagnostics import DegradationLog
+from smartpipe.models.base import AudioData, CompletionRequest, ImageData, ModelRef
+from smartpipe.verbs.convert import IMAGE_NEEDS_CAPTION, make_converter
 
 AUDIO = AudioData(b"RIFFfake", "audio/wav")
 IMAGE = ImageData(b"\x89PNGfake", "image/png")
@@ -46,7 +46,7 @@ async def test_local_model_converts_audio_automatically(
 
 
 async def test_cloud_model_needs_the_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sempipe.parsing import extract
+    from smartpipe.parsing import extract
 
     def fake_whisper(audio: AudioData) -> str:
         return "whispered instead"
@@ -63,7 +63,7 @@ async def test_cloud_model_needs_the_flag(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 async def test_deaf_model_falls_to_whisper(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sempipe.parsing import extract
+    from smartpipe.parsing import extract
 
     def fake_whisper(audio: AudioData) -> str:
         return "the words"
@@ -106,7 +106,7 @@ class WatchesForHalves:
 
 
 async def test_video_halves_from_one_watching_call() -> None:
-    from sempipe.models.base import VideoData
+    from smartpipe.models.base import VideoData
 
     log = DegradationLog()
     converter = make_converter(WatchesForHalves(), allow_paid=False, log=log)
@@ -120,9 +120,9 @@ async def test_video_halves_from_one_watching_call() -> None:
 async def test_video_vector_is_the_fair_average_of_both_halves() -> None:
     from dataclasses import replace as dc_replace
 
-    from sempipe.io.items import item_from_file
-    from sempipe.models.base import VideoData
-    from sempipe.verbs.convert import embed_video_halves
+    from smartpipe.io.items import item_from_file
+    from smartpipe.models.base import VideoData
+    from smartpipe.verbs.convert import embed_video_halves
 
     class HalfEmbed:
         def __init__(self) -> None:

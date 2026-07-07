@@ -187,7 +187,7 @@ def main() -> None:
     orders, invoices = _orders_and_invoices(rng)
     (FIXTURES / "orders.jsonl").write_text("\n".join(orders) + "\n", encoding="utf-8")
     (FIXTURES / "invoices.jsonl").write_text("\n".join(invoices) + "\n", encoding="utf-8")
-    assets = Path(__file__).parent.parent / "src" / "sempipe" / "assets"
+    assets = Path(__file__).parent.parent / "src" / "smartpipe" / "assets"
     (FIXTURES / "media.jsonl").write_text("\n".join(_media(assets)) + "\n", encoding="utf-8")
     triage = FIXTURES / "triage.sem"
     triage.write_text(

@@ -10,12 +10,12 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.core.errors import ExitCode, UsageFault
-from sempipe.engine.ranking import board_insert
-from sempipe.io.inputs import InputSpec
-from sempipe.io.leaderboard import render_frame
-from sempipe.models.base import ChatModel, ModelRef
-from sempipe.verbs.top_k import TopKRequest, run_top_k
+from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.engine.ranking import board_insert
+from smartpipe.io.inputs import InputSpec
+from smartpipe.io.leaderboard import render_frame
+from smartpipe.models.base import ChatModel, ModelRef
+from smartpipe.verbs.top_k import TopKRequest, run_top_k
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -89,7 +89,7 @@ class FakeContext:
         return self.model
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
-        from sempipe.core.errors import SetupFault
+        from smartpipe.core.errors import SetupFault
 
         raise SetupFault("no chat configured")
 
@@ -177,8 +177,8 @@ async def test_dimension_mismatch_skips_and_continues() -> None:
 async def test_tty_mode_paints_the_board_instead_of_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("sempipe.verbs.top_k.tty.stdout_is_tty", lambda: True)
-    monkeypatch.setattr("sempipe.verbs.top_k.tty.terminal_width", lambda: 40)
+    monkeypatch.setattr("smartpipe.verbs.top_k.tty.stdout_is_tty", lambda: True)
+    monkeypatch.setattr("smartpipe.verbs.top_k.tty.terminal_width", lambda: 40)
     table = {"q": (1.0, 0.0), "hot": (1.0, 0.0)}
     out = io.StringIO()
     code = await run_top_k(

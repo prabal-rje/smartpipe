@@ -7,14 +7,14 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.config.store import Config
-from sempipe.container import AppContainer, build_container
-from sempipe.core.errors import SetupFault
-from sempipe.io.writers import OutputFormat
-from sempipe.models.anthropic_adapter import AnthropicChatModel
-from sempipe.models.ollama import OllamaChatModel, OllamaEmbeddingModel
-from sempipe.models.openai_compat import OpenAIChatModel, OpenAIEmbeddingModel
-from sempipe.models.retry import RetryPolicy
+from smartpipe.config.store import Config
+from smartpipe.container import AppContainer, build_container
+from smartpipe.core.errors import SetupFault
+from smartpipe.io.writers import OutputFormat
+from smartpipe.models.anthropic_adapter import AnthropicChatModel
+from smartpipe.models.ollama import OllamaChatModel, OllamaEmbeddingModel
+from smartpipe.models.openai_compat import OpenAIChatModel, OpenAIEmbeddingModel
+from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
@@ -34,7 +34,7 @@ def _container(
     client: httpx.AsyncClient, env: Mapping[str, str] | None = None, config: Config | None = None
 ) -> AppContainer:
     # XDG pinned to nowhere: these tests must never see the developer's real
-    # ~/.config/sempipe (a stored ChatGPT login there satisfies key-or-login
+    # ~/.config/smartpipe (a stored ChatGPT login there satisfies key-or-login
     # and silently flips the no-key tests)
     isolated = {"XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests", **(env or {})}
     return AppContainer(env=isolated, config=config or Config(), http_client=client, retry=FAST)
@@ -154,7 +154,7 @@ async def test_build_container_yields_and_closes_client() -> None:
 
 
 async def test_build_container_surfaces_broken_config(tmp_path: Path) -> None:
-    cfg_dir = tmp_path / "sempipe"
+    cfg_dir = tmp_path / "smartpipe"
     cfg_dir.mkdir()
     (cfg_dir / "config.toml").write_text("model =\n", encoding="utf-8")
     env = {"XDG_CONFIG_HOME": str(tmp_path)}
@@ -192,7 +192,7 @@ async def test_embed_mistral(client: httpx.AsyncClient) -> None:
 async def test_mistral_base_url_override(client: httpx.AsyncClient) -> None:
     container = _container(
         client,
-        env={"MISTRAL_API_KEY": "mk-x", "SEMPIPE_MISTRAL_BASE_URL": "http://proxy:9999/"},
+        env={"MISTRAL_API_KEY": "mk-x", "SMARTPIPE_MISTRAL_BASE_URL": "http://proxy:9999/"},
         config=Config(model="mistral-small-latest"),
     )
     model = await container.chat_model()
@@ -201,7 +201,7 @@ async def test_mistral_base_url_override(client: httpx.AsyncClient) -> None:
 
 
 async def test_builds_gemini_chat_on_the_native_wire(client: httpx.AsyncClient) -> None:
-    from sempipe.models.gemini_native import GeminiNativeChatModel
+    from smartpipe.models.gemini_native import GeminiNativeChatModel
 
     container = _container(
         client, env={"GEMINI_API_KEY": "g-x"}, config=Config(model="gemini-2.5-flash")
@@ -237,7 +237,7 @@ def test_stt_role_unset_is_none(client: httpx.AsyncClient) -> None:
 
 
 def test_stt_role_builds_the_openai_wire(client: httpx.AsyncClient) -> None:
-    from sempipe.models.stt import RemoteTranscriber
+    from smartpipe.models.stt import RemoteTranscriber
 
     container = _container(
         client,
@@ -252,7 +252,7 @@ def test_stt_role_builds_the_openai_wire(client: httpx.AsyncClient) -> None:
 def test_stt_env_overrides_config(client: httpx.AsyncClient) -> None:
     container = _container(
         client,
-        env={"OPENAI_API_KEY": "sk-x", "SEMPIPE_STT_MODEL": "openai/gpt-4o-mini-transcribe"},
+        env={"OPENAI_API_KEY": "sk-x", "SMARTPIPE_STT_MODEL": "openai/gpt-4o-mini-transcribe"},
         config=Config(stt_model="openai/whisper-1"),
     )
     transcriber = container.remote_transcriber()
@@ -273,7 +273,7 @@ def test_stt_without_key_names_it(client: httpx.AsyncClient) -> None:
 
 def test_stt_auto_matrix(client: httpx.AsyncClient) -> None:
     """The owner's matrix: key → whisper-1; OAuth-only/gemini/ollama → None."""
-    from sempipe.models.base import parse_model_ref
+    from smartpipe.models.base import parse_model_ref
 
     openai_ref = parse_model_ref("gpt-5.4-mini")
     gemini_ref = parse_model_ref("gemini-2.5-flash")

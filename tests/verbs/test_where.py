@@ -6,8 +6,8 @@ import io
 
 import pytest
 
-from sempipe.core.errors import ExitCode, UsageFault
-from sempipe.verbs.where import WhereRequest, run_where
+from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.verbs.where import WhereRequest, run_where
 
 
 def _run(predicate: str, stdin: str) -> tuple[ExitCode, str, str]:

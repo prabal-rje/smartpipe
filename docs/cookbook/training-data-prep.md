@@ -65,6 +65,6 @@ $ smartpipe diff --right v1-train.jsonl < candidates.jsonl     # drift BEFORE th
 
 ## Make it the team's verb
 
-Save the whole loop as `~/.config/sempipe/verbs/prep.sem` ([custom
+Save the whole loop as `~/.config/smartpipe/verbs/prep.sem` ([custom
 verbs](../reference/custom-verbs.md)) and the weekly run becomes
 `cat raw.jsonl | smartpipe prep`.

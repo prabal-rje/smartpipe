@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import io
 
-from sempipe.core.errors import ExitCode
-from sempipe.verbs.sortverb import SortRequest, run_sort
+from smartpipe.core.errors import ExitCode
+from smartpipe.verbs.sortverb import SortRequest, run_sort
 
 
 def _run(by: str, stdin_text: str, *, descending: bool = False) -> tuple[str, str]:

@@ -8,20 +8,20 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from sempipe.core.errors import ItemError, TooManyFailures
-from sempipe.engine.runner import (
+from smartpipe.core.errors import ItemError, TooManyFailures
+from smartpipe.engine.runner import (
     Done,
     FailurePolicy,
     Skipped,
     run_ordered,
     should_halt,
 )
-from sempipe.io.items import Item, ItemSource
+from smartpipe.io.items import Item, ItemSource
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 
-    from sempipe.engine.runner import ItemOutcome
+    from smartpipe.engine.runner import ItemOutcome
 
 NEVER_HALT = FailurePolicy(halt_ratio=1.0, min_sample=10**9, consecutive_limit=10**9)
 

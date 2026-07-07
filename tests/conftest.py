@@ -28,7 +28,7 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """No test may touch the developer's real ledger/cache state (D41 —
     live-caught: respx runs wrote to the real ~/.local/state), and every
     test starts with a fresh meter."""
-    from sempipe.io import metering
+    from smartpipe.io import metering
 
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     metering.reset()
@@ -37,9 +37,9 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def run_cli(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> RunCli:
     def _run(args: Sequence[str], stdin: str | None = None) -> tuple[int, str, str]:
-        from sempipe.cli.root import main
+        from smartpipe.cli.root import main
 
-        monkeypatch.setattr("sys.argv", ["sempipe", *args])
+        monkeypatch.setattr("sys.argv", ["smartpipe", *args])
         if stdin is not None:
             monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
         code = 0

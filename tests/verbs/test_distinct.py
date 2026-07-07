@@ -6,12 +6,12 @@ import io
 import json
 from typing import TYPE_CHECKING
 
-from sempipe.core.errors import ExitCode
-from sempipe.models.base import ModelRef
+from smartpipe.core.errors import ExitCode
+from smartpipe.models.base import ModelRef
 
 if True:  # runtime import for the Protocol annotation
-    from sempipe.models.base import ChatModel
-from sempipe.verbs.distinct import DistinctRequest, run_distinct
+    from smartpipe.models.base import ChatModel
+from smartpipe.verbs.distinct import DistinctRequest, run_distinct
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -107,7 +107,7 @@ async def test_empty_input_is_ok_and_silent() -> None:
 async def test_bad_threshold_is_a_usage_fault() -> None:
     import pytest
 
-    from sempipe.core.errors import UsageFault
+    from smartpipe.core.errors import UsageFault
 
     with pytest.raises(UsageFault, match="between 0 and 1"):
         await _run("x\n", threshold=1.5)
@@ -122,9 +122,9 @@ async def test_image_only_items_route_natively_no_captions() -> None:
     import io as io_module
     import json
 
-    from sempipe.core.errors import ExitCode
-    from sempipe.models.base import ImageData
-    from sempipe.models.base import ImageData as ImagePart
+    from smartpipe.core.errors import ExitCode
+    from smartpipe.models.base import ImageData
+    from smartpipe.models.base import ImageData as ImagePart
 
     class MediaEmbedder:
         """jina-shaped: embed_parts marks it media-capable."""

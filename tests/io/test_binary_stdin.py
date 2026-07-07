@@ -15,8 +15,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from sempipe.core.errors import SetupFault
-from sempipe.io.readers import stdin_items
+from smartpipe.core.errors import SetupFault
+from smartpipe.io.readers import stdin_items
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

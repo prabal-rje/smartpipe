@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import ItemError, UsageFault
-from sempipe.engine.prompts import (
+from smartpipe.core.errors import ItemError, UsageFault
+from smartpipe.engine.prompts import (
     FILTER_JUDGE_SYSTEM,
     JUDGE_SCHEMA,
     build_filter_request,

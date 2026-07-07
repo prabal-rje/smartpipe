@@ -5,7 +5,7 @@ from pathlib import Path
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.parsing.detect import FileKind, detect_kind, route
+from smartpipe.parsing.detect import FileKind, detect_kind, route
 
 # minimal magic-byte samples — enough to exercise the sniffer without binary fixtures
 PDF = b"%PDF-1.7\n..."

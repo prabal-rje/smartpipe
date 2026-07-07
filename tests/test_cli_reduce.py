@@ -18,7 +18,7 @@ CHAT = "http://localhost:11434/api/chat"
 
 @pytest.fixture(autouse=True)
 def local_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SEMPIPE_MODEL", "ollama/qwen3:8b")
+    monkeypatch.setenv("SMARTPIPE_MODEL", "ollama/qwen3:8b")
 
 
 def _reply(content: str) -> httpx.Response:

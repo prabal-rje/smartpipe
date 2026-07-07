@@ -19,7 +19,7 @@ from tests.helpers.paced import PacedOllama
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal semantics")
 
-SEMPIPE = f"{sys.executable} -m sempipe"
+SEMPIPE = f"{sys.executable} -m smartpipe"
 
 
 def test_downstream_close_is_silent_141() -> None:
@@ -54,11 +54,11 @@ def _spawn_filter(
     env = {
         **os.environ,
         "OLLAMA_HOST": server.url,
-        "SEMPIPE_MODEL": "ollama/qwen3:8b",
+        "SMARTPIPE_MODEL": "ollama/qwen3:8b",
         **(extra_env or {}),
     }
     proc = subprocess.Popen(
-        [sys.executable, "-m", "sempipe", "filter", "keep?", "--concurrency", "2"],
+        [sys.executable, "-m", "smartpipe", "filter", "keep?", "--concurrency", "2"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -116,7 +116,7 @@ def test_second_sigint_exits_immediately() -> None:
 
 def test_drain_timeout_caps_the_wait() -> None:
     with PacedOllama(_match_all) as server:
-        proc = _spawn_filter(server, "a\n", extra_env={"SEMPIPE_DRAIN_SECONDS": "1"})
+        proc = _spawn_filter(server, "a\n", extra_env={"SMARTPIPE_DRAIN_SECONDS": "1"})
         server.wait_for_arrivals(1)
         proc.send_signal(signal_module.SIGINT)  # never released → watchdog fires at ~1 s
         out, err = proc.communicate(timeout=20)
@@ -130,9 +130,9 @@ def test_broken_pipe_error_fallback_exits_141_quietly(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The exception path (Windows / flush edge): quiet SystemExit(141), no screen."""
-    from sempipe.cli import root
+    from smartpipe.cli import root
 
-    monkeypatch.setattr(sys, "argv", ["sempipe", "cite"])
+    monkeypatch.setattr(sys, "argv", ["smartpipe", "cite"])
 
     def burst(*_args: object, **_kwargs: object) -> None:
         raise BrokenPipeError

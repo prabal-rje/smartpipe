@@ -3,7 +3,7 @@ from __future__ import annotations
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.io.items import ItemSource, describe_source, item_from_line
+from smartpipe.io.items import ItemSource, describe_source, item_from_line
 
 
 def test_plain_line() -> None:

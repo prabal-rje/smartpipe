@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, ItemError
-from sempipe.io.items import item_from_file
-from sempipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
-from sempipe.models.base import AudioData, CompletionRequest, ImageData, ModelRef
-from sempipe.verbs.common import AUDIO_NEEDS_TEXT, ensure_text
-from sempipe.verbs.map import MapRequest, run_map
+from smartpipe.core.errors import ExitCode, ItemError
+from smartpipe.io.items import item_from_file
+from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
+from smartpipe.models.base import AudioData, CompletionRequest, ImageData, ModelRef
+from smartpipe.verbs.common import AUDIO_NEEDS_TEXT, ensure_text
+from smartpipe.verbs.map import MapRequest, run_map
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,8 +48,8 @@ async def test_audio_transcribes_via_the_injected_transcriber() -> None:
 async def test_missing_extra_maps_to_the_two_fix_skip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from sempipe.parsing import extract
-    from sempipe.verbs.common import transcribe
+    from smartpipe.parsing import extract
+    from smartpipe.verbs.common import transcribe
 
     def no_extra(audio: AudioData) -> str:
         raise extract.MissingExtra("audio", "install it")
@@ -120,7 +120,7 @@ class _TtyStdin(io.StringIO):
 
 
 def _request(tmp_path: Path) -> MapRequest:
-    from sempipe.io.inputs import InputSpec
+    from smartpipe.io.inputs import InputSpec
 
     (tmp_path / "call.wav").write_bytes(b"RIFF----WAVEfakeaudio")
     return MapRequest(
@@ -147,7 +147,7 @@ async def test_deaf_model_falls_back_to_transcription(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from sempipe.parsing import extract
+    from smartpipe.parsing import extract
 
     def fake_transcribe(audio: AudioData) -> str:
         return "please cancel my subscription"
@@ -171,7 +171,7 @@ async def test_deaf_model_without_extra_skips_with_both_fixes(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from sempipe.parsing import extract
+    from smartpipe.parsing import extract
 
     def no_extra(audio: AudioData) -> str:
         raise extract.MissingExtra("audio", "install it")

@@ -4,8 +4,8 @@ import io
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.io.writers import (
+from smartpipe.core.errors import UsageFault
+from smartpipe.io.writers import (
     OutputFormat,
     RenderMode,
     ResultWriter,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 
-from sempipe.io.progress import (
+from smartpipe.io.progress import (
     Spinner,
     format_eta,
     render_known,

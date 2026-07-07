@@ -8,13 +8,13 @@ import anthropic
 import httpx
 import pytest
 
-from sempipe.core.errors import ItemError, SetupFault
-from sempipe.models.anthropic_adapter import (
+from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.models.anthropic_adapter import (
     AnthropicChatModel,
     build_anthropic_chat_model,
     load_anthropic_client,
 )
-from sempipe.models.base import CompletionRequest, parse_model_ref
+from smartpipe.models.base import CompletionRequest, parse_model_ref
 
 if TYPE_CHECKING:
     import respx

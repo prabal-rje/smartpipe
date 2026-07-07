@@ -5,8 +5,8 @@ from __future__ import annotations
 import io
 import json
 
-from sempipe.core.errors import ExitCode
-from sempipe.verbs.getschema import GetSchemaRequest, run_getschema
+from smartpipe.core.errors import ExitCode
+from smartpipe.verbs.getschema import GetSchemaRequest, run_getschema
 
 
 def _run(stdin_text: str, scan_all: bool = False) -> tuple[list[dict[str, object]], str]:

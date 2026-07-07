@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 
-from sempipe.io.leaderboard import LiveBoard, render_frame
+from smartpipe.io.leaderboard import LiveBoard, render_frame
 
 
 def test_render_frame_is_pure_and_bounded() -> None:

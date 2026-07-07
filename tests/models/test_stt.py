@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.core.errors import SetupFault
-from sempipe.models.base import AudioData, ModelRef
-from sempipe.models.retry import RetryPolicy
-from sempipe.models.stt import RemoteTranscriber
+from smartpipe.core.errors import SetupFault
+from smartpipe.models.base import AudioData, ModelRef
+from smartpipe.models.retry import RetryPolicy
+from smartpipe.models.stt import RemoteTranscriber
 
 if TYPE_CHECKING:
     import respx

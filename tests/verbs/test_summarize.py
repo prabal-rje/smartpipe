@@ -5,8 +5,8 @@ from __future__ import annotations
 import io
 import json
 
-from sempipe.core.errors import ExitCode
-from sempipe.verbs.summarize import SummarizeRequest, run_summarize
+from smartpipe.core.errors import ExitCode
+from smartpipe.verbs.summarize import SummarizeRequest, run_summarize
 
 
 def _run(expression: str, stdin_text: str) -> tuple[ExitCode, list[dict[str, object]], str]:

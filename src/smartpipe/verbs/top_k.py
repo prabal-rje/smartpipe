@@ -1,0 +1,318 @@
+"""The ``top_k`` verb: rank items by similarity to a query (spec §3.4).
+
+Embeds the query and every item (reusing a precomputed ``vector`` field from an
+``embed`` record when present), ranks by cosine, and keeps the top K and/or
+everything above a threshold — reordered, each with a ``_score``. Unlike the
+per-item verbs, ``top_k`` inherently buffers: it must see all scores to rank.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
+
+from smartpipe.core.errors import ExitCode, ItemError, SetupFault, UsageFault
+from smartpipe.core.jsontools import as_float_vector
+from smartpipe.engine.ranking import board_insert, cosine, rank, select, unit_score
+from smartpipe.engine.runner import Done, FailurePolicy, run_ordered
+from smartpipe.io import diagnostics, readers, tty
+from smartpipe.io.inputs import STDIN
+from smartpipe.io.items import describe_source
+from smartpipe.io.leaderboard import LiveBoard
+from smartpipe.io.progress import make_stderr_spinner
+from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
+from smartpipe.verbs.common import (
+    embed_in_batches,
+    ensure_text,
+    interrupted_exit_code,
+    outcome_exit_code,
+)
+from smartpipe.verbs.convert import Converter, make_converter
+
+if TYPE_CHECKING:
+    from typing import TextIO
+
+    from smartpipe.io.inputs import InputSpec
+    from smartpipe.io.items import Item
+    from smartpipe.io.writers import ResultWriter
+    from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.stt import RemoteTranscriber
+
+__all__ = ["TopKContext", "TopKRequest", "run_top_k"]
+
+
+@dataclass(frozen=True, slots=True)
+class TopKRequest:
+    near: str
+    k: int | None
+    threshold: float | None
+    model_flag: str | None
+    concurrency_flag: int | None
+    input: InputSpec = STDIN
+    stream: bool = False  # --stream: the live leaderboard (a different output protocol)
+    fields: tuple[str, ...] | None = None  # --fields: project structured records
+    allow_captions: bool = False  # cloud conversions opt-in (D33)
+
+
+class TopKContext(Protocol):
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+    async def chat_model(self, flag: str | None = None) -> ChatModel: ...
+    async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
+    def concurrency(self, flag: int | None = None) -> int: ...
+
+
+async def run_top_k(
+    request: TopKRequest,
+    context: TopKContext,
+    *,
+    stdin: TextIO,
+    stdout: TextIO,
+    stop: asyncio.Event | None = None,
+) -> ExitCode:
+    if request.stream:
+        return await _run_stream(request, context, stdin=stdin, stdout=stdout, stop=stop)
+    if request.k is None and request.threshold is None:
+        raise UsageFault("top_k needs a number (K), --threshold, or both")
+    model = await context.embedding_model(request.model_flag)
+    # still validates the flag; batch embedding is chunked (≤64/call), not per-item-parallel
+    context.concurrency(request.concurrency_flag)
+
+    items_iter, _total = readers.resolve_items(request.input, stdin)
+    items = [item async for item in items_iter]  # whole-set verbs need everything
+    if not items:
+        return ExitCode.OK
+
+    query_vector = (await model.embed([request.near]))[0]
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    converter_chat = await _optional_chat(context)
+    converter = make_converter(
+        converter_chat,
+        allow_paid=request.allow_captions,
+        log=log,
+        stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
+    )
+    vectors, skipped = await _collect_vectors(model, items, log, converter)
+    log.finish()
+    _check_dimensions(query_vector, vectors)
+
+    entries = sorted(vectors.items())  # (item_index, vector), stable by index for ties
+    ranked = rank(query_vector, [vector for _, vector in entries])
+    scored = tuple((entries[position][0], score) for position, score in ranked)
+    chosen = select(scored, k=request.k, threshold=request.threshold)
+
+    by_index = {item.source.index: item for item in items}
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.TEXT, color=False, width=80, fields=request.fields), stdout
+    )
+    for item_index, score in chosen:
+        _emit(writer, by_index[item_index], score)
+    writer.flush()
+
+    if skipped == 0:
+        return ExitCode.OK
+    return ExitCode.ALL_FAILED if not vectors else ExitCode.PARTIAL
+
+
+async def _run_stream(
+    request: TopKRequest,
+    context: TopKContext,
+    *,
+    stdin: TextIO,
+    stdout: TextIO,
+    stop: asyncio.Event | None,
+) -> ExitCode:
+    """The rolling leaderboard (stage-08 §4.3): maintain the top K as items arrive.
+
+    Pipe mode emits an NDJSON snapshot (a ``{"_snapshot": seq}`` marker line, then
+    the K records, rank order) whenever membership/order changes; TTY mode repaints
+    the block in place. A vector whose dimensions don't match the query is skipped
+    (a stream shouldn't die wholesale on one bad record — unlike batch, where a
+    mismatched corpus is a setup fault).
+    """
+    if request.k is None:
+        raise UsageFault(
+            "top_k --stream needs K (a live leaderboard has a size)\n"
+            '  Example: tail -f tickets.jsonl | smartpipe top_k 5 --stream --near "billing dispute"'
+        )
+    if request.input.patterns or request.input.from_files:
+        raise UsageFault(
+            "top_k --stream reads a stream from stdin — it can't combine with --in\n"
+            "  File inputs are a finite batch. Drop --stream, or pipe the stream in."
+        )
+    k = request.k
+    model = await context.embedding_model(request.model_flag)
+    concurrency = context.concurrency(request.concurrency_flag)
+    query_vector = (await model.embed([request.near]))[0]
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    converter_chat = await _optional_chat(context)
+    converter = make_converter(
+        converter_chat,
+        allow_paid=request.allow_captions,
+        log=log,
+        stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
+    )
+
+    async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
+        item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
+        vector = _precomputed_vector(item)
+        if vector is None:
+            vector = (await model.embed([item.text]))[0]
+        if len(vector) != len(query_vector):
+            raise ItemError(
+                f"embedding dimensions {len(vector)} don't match the query ({len(query_vector)})"
+            )
+        return item, vector
+
+    board: tuple[tuple[float, int], ...] = ()
+    by_arrival: dict[int, Item] = {}
+    live = _make_live_board(stdout)
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=request.fields), stdout
+    )
+    snapshot_seq = 0
+    scored = 0
+    skipped = 0
+    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
+    outcomes = run_ordered(
+        items_iter, worker, concurrency=concurrency, failure_policy=FailurePolicy(), stop=stop
+    )
+    try:
+        async for outcome in outcomes:
+            if not isinstance(outcome, Done):
+                diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
+                skipped += 1
+                continue
+            item, vector = outcome.value
+            scored += 1
+            score = unit_score(cosine(query_vector, vector))
+            if request.threshold is not None and score < request.threshold:
+                continue
+            arrival = scored
+            by_arrival[arrival] = item
+            board, changed = board_insert(board, score, arrival, k)
+            if not changed:
+                continue
+            if live is not None:
+                live.paint(_board_rows(board, by_arrival))
+            else:
+                snapshot_seq += 1
+                _emit_snapshot(writer, snapshot_seq, board, by_arrival)
+    finally:
+        if live is not None:
+            live.paint(_board_rows(board, by_arrival), force=True)  # final state stays visible
+        writer.flush()
+    if stop is not None and stop.is_set():
+        diagnostics.interrupted_summary(processed=scored, skipped=skipped)
+        return interrupted_exit_code(done=scored, skipped=skipped)
+    return outcome_exit_code(done=scored, skipped=skipped)
+
+
+def _make_live_board(stdout: TextIO) -> LiveBoard | None:
+    if not tty.stdout_is_tty():
+        return None
+    import time
+
+    return LiveBoard(stream=stdout, width=tty.terminal_width(), clock=time.monotonic)
+
+
+def _board_rows(
+    board: tuple[tuple[float, int], ...], by_arrival: dict[int, Item]
+) -> list[tuple[float, str]]:
+    return [(score, by_arrival[arrival].raw) for score, arrival in board]
+
+
+def _emit_snapshot(
+    writer: ResultWriter,
+    seq: int,
+    board: tuple[tuple[float, int], ...],
+    by_arrival: dict[int, Item],
+) -> None:
+    writer.write_record({"_snapshot": seq})
+    for position, (score, arrival) in enumerate(board, start=1):
+        item = by_arrival[arrival]
+        record: dict[str, object]
+        if item.data is not None:
+            record = {key: value for key, value in item.data.items() if key != "vector"}
+        else:
+            record = {"text": item.raw}
+        record["_score"] = round(score, 4)
+        record["_rank"] = position
+        writer.write_record(record)
+
+
+async def _optional_chat(context: TopKContext) -> ChatModel | None:
+    """The converter's LLM rung — absent when chat isn't configured (D33)."""
+    try:
+        return await context.chat_model()
+    except Exception:
+        return None
+
+
+async def _collect_vectors(
+    model: EmbeddingModel,
+    items: list[Item],
+    log: diagnostics.DegradationLog,
+    converter: Converter,
+) -> tuple[dict[int, tuple[float, ...]], int]:
+    """Embed everything that needs embedding — chunked (≤64/call, DEFER-3),
+    run_ordered bypassed on purpose: batching ≠ per-item workers (order comes
+    from sequential chunks, isolation from the per-item poison fallback)."""
+    vectors: dict[int, tuple[float, ...]] = {}
+    to_embed: list[Item] = []
+    for item in items:
+        precomputed = _precomputed_vector(item)
+        if precomputed is not None:
+            vectors[item.source.index] = precomputed
+        else:
+            to_embed.append(item)
+
+    spinner = make_stderr_spinner()
+    spinner.start(total=len(to_embed))
+    skipped = 0
+    outcomes = embed_in_batches(
+        model, to_embed, failure_policy=FailurePolicy(), log=log, converter=converter
+    )
+    try:
+        async for outcome in outcomes:
+            if isinstance(outcome, Done):
+                _item, vector = outcome.value
+                vectors[outcome.index] = vector
+            else:  # Skipped
+                diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
+                skipped += 1
+            spinner.advance()
+    finally:
+        spinner.finish()
+        log.finish()
+    return vectors, skipped
+
+
+def _precomputed_vector(item: Item) -> tuple[float, ...] | None:
+    """An ``embed`` record carries its own ``vector`` — skip re-embedding it (spec §3.4)."""
+    if item.data is None:
+        return None
+    return as_float_vector(item.data.get("vector"))
+
+
+def _check_dimensions(query: tuple[float, ...], vectors: dict[int, tuple[float, ...]]) -> None:
+    for vector in vectors.values():
+        if len(vector) != len(query):
+            raise SetupFault(
+                f"error: the corpus and the query were embedded with different models "
+                f"(dimensions {len(vector)} vs {len(query)})\n"
+                "  Use the same embedding model for both — e.g. re-run embed and top_k\n"
+                "  with the same --embed-model, or check SMARTPIPE_EMBED_MODEL."
+            )
+
+
+def _emit(writer: ResultWriter, item: Item, score: float) -> None:
+    rounded = round(score, 4)
+    if item.source.kind == "file":  # rank files → get filenames back (the resume demo)
+        writer.write_text(f"{item.source.name}\t{rounded}")
+    elif item.data is not None:
+        record = {key: value for key, value in item.data.items() if key != "vector"}
+        record["_score"] = rounded
+        writer.write_record(record)
+    else:
+        writer.write_text(f"{item.raw}\t{rounded}")

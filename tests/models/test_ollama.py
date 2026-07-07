@@ -6,15 +6,15 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.core.errors import ItemError, SetupFault
-from sempipe.models.base import CompletionRequest, parse_model_ref
-from sempipe.models.ollama import (
+from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.models.base import CompletionRequest, parse_model_ref
+from smartpipe.models.ollama import (
     OllamaChatModel,
     OllamaEmbeddingModel,
     ollama_model_names,
     resolve_host,
 )
-from sempipe.models.retry import RetryPolicy
+from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -230,7 +230,7 @@ async def test_penalties_ride_the_options_when_set(
 async def test_usage_fields_feed_the_meter(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:
-    from sempipe.io import metering
+    from smartpipe.io import metering
 
     metering.reset()
     respx_mock.post(f"{HOST}/api/chat").mock(

@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, UsageFault
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.verbs.diff import DiffRequest, run_diff
+from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.verbs.diff import DiffRequest, run_diff
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

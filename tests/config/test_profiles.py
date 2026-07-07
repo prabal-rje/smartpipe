@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.config.store import BUILTIN_PROFILES, load_config, profile_names
-from sempipe.core.errors import SetupFault
+from smartpipe.config.store import BUILTIN_PROFILES, load_config, profile_names
+from smartpipe.core.errors import SetupFault
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -42,7 +42,7 @@ def test_user_defined_profile_overrides_the_preset(tmp_path: Path) -> None:
 def test_env_var_selects_a_one_off_profile(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text('profile = "openai"\n', encoding="utf-8")
-    config = load_config(path, {"SEMPIPE_PROFILE": "local"})
+    config = load_config(path, {"SMARTPIPE_PROFILE": "local"})
     assert config.model == "ollama/gemma-4-e2b"  # the multimodal local default
 
 

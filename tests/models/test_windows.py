@@ -7,15 +7,15 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.models.base import parse_model_ref
-from sempipe.models.windows import probe_context_window
+from smartpipe.models.base import parse_model_ref
+from smartpipe.models.windows import probe_context_window
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     import respx
 
-from sempipe.models.http_support import make_client
+from smartpipe.models.http_support import make_client
 
 
 @pytest.fixture

@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, ItemError
-from sempipe.io.diagnostics import DegradationLog
-from sempipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
-from sempipe.models.base import AudioData, CompletionRequest, ImageData, ModelRef, VideoData
-from sempipe.verbs.common import ensure_text
-from sempipe.verbs.map import MapRequest, run_map
+from smartpipe.core.errors import ExitCode, ItemError
+from smartpipe.io.diagnostics import DegradationLog
+from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
+from smartpipe.models.base import AudioData, CompletionRequest, ImageData, ModelRef, VideoData
+from smartpipe.verbs.common import ensure_text
+from smartpipe.verbs.map import MapRequest, run_map
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -55,7 +55,7 @@ def clip(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def test_video_to_parts_yields_frames_and_track(clip: Path) -> None:
-    from sempipe.parsing.extract import video_to_parts
+    from smartpipe.parsing.extract import video_to_parts
 
     parts = video_to_parts(VideoData(clip.read_bytes(), "video/mp4"), max_frames=4)
     assert 1 <= len(parts.frames) <= 4  # 2s clip at 1 fps → ~2 frames
@@ -66,7 +66,7 @@ def test_video_to_parts_yields_frames_and_track(clip: Path) -> None:
 
 
 def test_silent_video_has_no_track(tmp_path: Path) -> None:
-    from sempipe.parsing.extract import video_to_parts
+    from smartpipe.parsing.extract import video_to_parts
 
     path = tmp_path / "silent.mp4"
     _make_test_video(path, silent=True)
@@ -76,7 +76,7 @@ def test_silent_video_has_no_track(tmp_path: Path) -> None:
 
 
 def test_slice_video_reassembles_by_count(clip: Path) -> None:
-    from sempipe.parsing.extract import slice_video
+    from smartpipe.parsing.extract import slice_video
 
     slices = slice_video(VideoData(clip.read_bytes(), "video/mp4"), seconds=1)
     assert len(slices) >= 2  # a 2s clip at 1s segments
@@ -88,7 +88,7 @@ async def test_ensure_text_transcribes_the_track_with_a_row_note(
 ) -> None:
     from dataclasses import replace
 
-    from sempipe.io.items import item_from_file
+    from smartpipe.io.items import item_from_file
 
     item = replace(
         item_from_file("", str(clip), 0), media=(VideoData(clip.read_bytes(), "video/mp4"),)
@@ -184,7 +184,7 @@ class _TtyStdin(io.StringIO):
 
 
 def _request(clip: Path) -> MapRequest:
-    from sempipe.io.inputs import InputSpec
+    from smartpipe.io.inputs import InputSpec
 
     return MapRequest(
         prompt="what happens in this video?",
@@ -215,7 +215,7 @@ async def test_hearing_model_gets_frames_plus_track(
 async def test_deaf_model_falls_to_frames_plus_transcript(
     clip: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from sempipe.parsing import extract
+    from smartpipe.parsing import extract
 
     def fake_transcribe(audio: AudioData) -> str:
         return "a constant tone hums"

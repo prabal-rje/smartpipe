@@ -18,8 +18,8 @@ EMBED = "http://localhost:11434/api/embed"
 
 @pytest.fixture(autouse=True)
 def local_models(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SEMPIPE_MODEL", "ollama/qwen3:8b")
-    monkeypatch.setenv("SEMPIPE_EMBED_MODEL", "nomic-embed-text")
+    monkeypatch.setenv("SMARTPIPE_MODEL", "ollama/qwen3:8b")
+    monkeypatch.setenv("SMARTPIPE_EMBED_MODEL", "nomic-embed-text")
 
 
 def test_probe_charts_the_matrix(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:

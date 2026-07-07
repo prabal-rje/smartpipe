@@ -14,9 +14,9 @@ import httpx
 import pytest
 import respx
 
-from sempipe.core.errors import SetupFault
-from sempipe.models.http_support import make_client
-from sempipe.models.openai_oauth import (
+from smartpipe.core.errors import SetupFault
+from smartpipe.models.http_support import make_client
+from smartpipe.models.openai_oauth import (
     CLIENT_ID,
     ISSUER,
     DeviceStart,
@@ -77,7 +77,7 @@ def test_authorize_url_pins_the_protocol() -> None:
     assert query["code_challenge_method"] == "S256"
     assert query["scope"] == "openid profile email offline_access"
     assert query["codex_cli_simplified_flow"] == "true"
-    assert query["originator"] == "sempipe"  # honest self-identification, D19
+    assert query["originator"] == "smartpipe"  # honest self-identification, D19
     assert query["state"] == "STATE"
 
 

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.models.retry import RetryPolicy, with_retries
+from smartpipe.models.retry import RetryPolicy, with_retries
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

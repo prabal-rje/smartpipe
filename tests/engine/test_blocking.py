@@ -6,8 +6,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.engine.blocking import RightIndex, build_index, candidates
-from sempipe.engine.ranking import cosine, unit_score
+from smartpipe.engine.blocking import RightIndex, build_index, candidates
+from smartpipe.engine.ranking import cosine, unit_score
 
 RIGHT = build_index(
     (

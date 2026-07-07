@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, ItemError
-from sempipe.models.base import ChatModel, ModelRef
-from sempipe.verbs.embed import EmbedRequest, run_embed
+from smartpipe.core.errors import ExitCode, ItemError
+from smartpipe.models.base import ChatModel, ModelRef
+from smartpipe.verbs.embed import EmbedRequest, run_embed
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -40,7 +40,7 @@ class FakeContext:
         return self.model
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
-        from sempipe.core.errors import SetupFault
+        from smartpipe.core.errors import SetupFault
 
         raise SetupFault("no chat configured — the converter takes the lower rungs")
 
@@ -99,6 +99,6 @@ async def test_all_failed_is_exit_3() -> None:
 async def test_tty_stdout_gets_a_redirect_note(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("sempipe.io.tty.stdout_is_tty", lambda: True)
+    monkeypatch.setattr("smartpipe.io.tty.stdout_is_tty", lambda: True)
     await _run("x\n")
     assert "redirect to a file" in capsys.readouterr().err

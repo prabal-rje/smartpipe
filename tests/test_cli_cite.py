@@ -17,7 +17,7 @@ def test_cite_prints_the_bibtex_block(run_cli: RunCli) -> None:
 
 
 def test_cite_carries_the_current_version(run_cli: RunCli) -> None:
-    from sempipe import __version__
+    from smartpipe import __version__
 
     _code, out, _err = run_cli(["cite"])
     assert f"version = {{{__version__}}}" in out

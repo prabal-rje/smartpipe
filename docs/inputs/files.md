@@ -165,7 +165,7 @@ its **bytes**, not an eager transcript:
 - With any other model, smartpipe transcribes **locally** when the `[audio]`
   extra is installed (a one-time stderr note says so), then retries as text.
   The transcriber is faster-whisper, `tiny` by default: fast, but rough on
-  names and noisy audio. `SEMPIPE_WHISPER_MODEL=small` (or `medium`,
+  names and noisy audio. `SMARTPIPE_WHISPER_MODEL=small` (or `medium`,
   `large-v3`) trades speed for accuracy; the first use of a size downloads its
   weights once. Audio never leaves your machine on this path.
 - The text verbs (`filter`, `embed`, `top_k`, `reduce`, `join`) transcribe on

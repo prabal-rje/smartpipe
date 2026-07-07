@@ -4,9 +4,9 @@ import io
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.io.items import item_from_line
-from sempipe.io.writers import (
+from smartpipe.core.errors import UsageFault
+from smartpipe.io.items import item_from_line
+from smartpipe.io.writers import (
     OutputFormat,
     RenderMode,
     ResultWriter,
@@ -27,9 +27,11 @@ from sempipe.io.writers import (
         (OutputFormat.AUTO, {}, False, False, RenderMode.TEXT),
         (OutputFormat.JSON, {}, True, False, RenderMode.NDJSON),  # forced JSON even on a TTY
         (OutputFormat.TEXT, {}, False, True, RenderMode.TEXT),  # forced text even when piping
-        (OutputFormat.AUTO, {"SEMPIPE_OUTPUT": "json"}, True, True, RenderMode.NDJSON),
-        (OutputFormat.TEXT, {"SEMPIPE_OUTPUT": "json"}, False, True, RenderMode.TEXT),  # flag wins
-        (OutputFormat.AUTO, {"SEMPIPE_OUTPUT": ""}, False, True, RenderMode.NDJSON),  # empty=unset
+        (OutputFormat.AUTO, {"SMARTPIPE_OUTPUT": "json"}, True, True, RenderMode.NDJSON),
+        # the flag wins over the env
+        (OutputFormat.TEXT, {"SMARTPIPE_OUTPUT": "json"}, False, True, RenderMode.TEXT),
+        # empty env value reads as unset
+        (OutputFormat.AUTO, {"SMARTPIPE_OUTPUT": ""}, False, True, RenderMode.NDJSON),
     ],
 )
 def test_resolve_format(
@@ -45,9 +47,9 @@ def test_resolve_format(
 def test_invalid_env_value_is_a_usage_fault() -> None:
     with pytest.raises(UsageFault) as excinfo:
         resolve_format(
-            OutputFormat.AUTO, {"SEMPIPE_OUTPUT": "yaml"}, stdout_tty=False, structured=False
+            OutputFormat.AUTO, {"SMARTPIPE_OUTPUT": "yaml"}, stdout_tty=False, structured=False
         )
-    assert "SEMPIPE_OUTPUT" in str(excinfo.value)
+    assert "SMARTPIPE_OUTPUT" in str(excinfo.value)
 
 
 def test_csv_and_tsv_resolve_when_structured() -> None:
@@ -122,7 +124,7 @@ def test_human_writer_truncates_long_values_to_width() -> None:
 
 def test_human_writer_truncates_wide_chars_by_cells_never_overshooting() -> None:
     # DEFER-2: a Wide (CJK) value at the boundary must not overshoot the terminal
-    from sempipe.io.text import display_width
+    from smartpipe.io.text import display_width
 
     stream, writer = _writer(RenderMode.HUMAN, width=20)
     writer.write_record({"summary": "名" * 30})

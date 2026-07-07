@@ -23,8 +23,8 @@ CHAT = "http://localhost:11434/api/chat"
 
 @pytest.fixture(autouse=True)
 def local_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SEMPIPE_MODEL", "ollama/qwen3:8b")
-    monkeypatch.delenv("SEMPIPE_OUTPUT", raising=False)
+    monkeypatch.setenv("SMARTPIPE_MODEL", "ollama/qwen3:8b")
+    monkeypatch.delenv("SMARTPIPE_OUTPUT", raising=False)
 
 
 def _reply(content: str) -> httpx.Response:
@@ -74,7 +74,7 @@ def test_bad_grammar_is_usage_error_before_any_model_call(
 def test_no_model_configured_is_setup_screen(
     run_cli: RunCli, respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("SEMPIPE_MODEL", raising=False)
+    monkeypatch.delenv("SMARTPIPE_MODEL", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", "/nonexistent-config-dir")
     respx_mock.get("http://localhost:11434/api/tags").mock(
         side_effect=httpx.ConnectError("refused")
@@ -92,7 +92,7 @@ def test_optional_field_schema_completes_on_the_openai_wire(
 ) -> None:
     # workstream 10 Task 1: strict:true for an optional-field schema drew a 400
     # from OpenAI/Mistral and skipped every item for the wrong reason
-    monkeypatch.setenv("SEMPIPE_MODEL", "gpt-4o-mini")
+    monkeypatch.setenv("SMARTPIPE_MODEL", "gpt-4o-mini")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     schema_path = tmp_path / "optional.json"
     schema_path.write_text(
@@ -120,7 +120,7 @@ def test_doomed_404_run_stops_at_first_sight(
     run_cli: RunCli, respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # D18: before the guardrail this skipped item-by-item, burning a call per line
-    monkeypatch.setenv("SEMPIPE_MODEL", "gpt-4o-mini-typo")
+    monkeypatch.setenv("SMARTPIPE_MODEL", "gpt-4o-mini-typo")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     route = respx_mock.post("https://api.openai.com/v1/chat/completions").mock(
         return_value=httpx.Response(404, json={"error": {"message": "model not found"}})
@@ -156,10 +156,10 @@ def test_max_calls_zero_is_a_usage_error(run_cli: RunCli) -> None:
 def test_max_calls_env_fallback_is_validated(
     run_cli: RunCli, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("SEMPIPE_MAX_CALLS", "nope")
+    monkeypatch.setenv("SMARTPIPE_MAX_CALLS", "nope")
     code, _out, err = run_cli(["map", "x"], stdin="hi\n")
     assert code == 64
-    assert "SEMPIPE_MAX_CALLS must be a whole number >= 1" in err
+    assert "SMARTPIPE_MAX_CALLS must be a whole number >= 1" in err
 
 
 def test_schema_from_builds_and_enforces_the_schema(

@@ -6,8 +6,8 @@ import io
 
 import pytest
 
-from sempipe.core.errors import ExitCode, UsageFault
-from sempipe.verbs.sample import SampleRequest, run_sample
+from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.verbs.sample import SampleRequest, run_sample
 
 CORPUS = "".join(f"row-{n}\n" for n in range(100))
 

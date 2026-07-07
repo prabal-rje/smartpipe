@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.config.doctor import CheckResult, doctor_exit_code, render_report
-from sempipe.core.errors import ExitCode
+from smartpipe.config.doctor import CheckResult, doctor_exit_code, render_report
+from smartpipe.core.errors import ExitCode
 from tests.conftest import RunCli
 
 if TYPE_CHECKING:
@@ -58,8 +58,8 @@ def test_exit_one_on_any_failure() -> None:
 def isolated_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     for var in (
-        "SEMPIPE_MODEL",
-        "SEMPIPE_EMBED_MODEL",
+        "SMARTPIPE_MODEL",
+        "SMARTPIPE_EMBED_MODEL",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "MISTRAL_API_KEY",
@@ -77,8 +77,8 @@ def _tags(*names: str) -> httpx.Response:
 def test_doctor_all_green_exits_zero(
     run_cli: RunCli, respx_mock: respx.MockRouter, isolated_home: Path
 ) -> None:
-    (isolated_home / "sempipe").mkdir()
-    (isolated_home / "sempipe" / "config.toml").write_text(
+    (isolated_home / "smartpipe").mkdir()
+    (isolated_home / "smartpipe" / "config.toml").write_text(
         'model = "ollama/qwen3:8b"\nembed-model = "nomic-embed-text"\n', encoding="utf-8"
     )
     respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b", "nomic-embed-text"))
@@ -92,8 +92,8 @@ def test_doctor_all_green_exits_zero(
 def test_doctor_flags_a_missing_ollama_model(
     run_cli: RunCli, respx_mock: respx.MockRouter, isolated_home: Path
 ) -> None:
-    (isolated_home / "sempipe").mkdir()
-    (isolated_home / "sempipe" / "config.toml").write_text(
+    (isolated_home / "smartpipe").mkdir()
+    (isolated_home / "smartpipe" / "config.toml").write_text(
         'model = "ollama/qwen3:8b"\n', encoding="utf-8"
     )
     respx_mock.get(TAGS).mock(return_value=_tags("other-model"))
@@ -105,8 +105,8 @@ def test_doctor_flags_a_missing_ollama_model(
 def test_doctor_reports_a_broken_config_instead_of_dying(
     run_cli: RunCli, respx_mock: respx.MockRouter, isolated_home: Path
 ) -> None:
-    (isolated_home / "sempipe").mkdir()
-    (isolated_home / "sempipe" / "config.toml").write_text("model =\n", encoding="utf-8")
+    (isolated_home / "smartpipe").mkdir()
+    (isolated_home / "smartpipe" / "config.toml").write_text("model =\n", encoding="utf-8")
     respx_mock.get(TAGS).mock(return_value=_tags())
     code, out, _err = run_cli(["doctor"])
     assert code == 1  # sick, but reported — not exit 2

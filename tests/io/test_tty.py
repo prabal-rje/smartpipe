@@ -4,7 +4,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.io.tty import ColorMode, supports_color
+from smartpipe.io.tty import ColorMode, supports_color
 
 
 @pytest.mark.parametrize(
@@ -33,6 +33,6 @@ def test_always_and_never_are_constant(is_tty: bool, env: dict[str, str]) -> Non
 
 
 def test_enable_windows_vt_is_a_noop_success_off_windows() -> None:
-    from sempipe.io.tty import enable_windows_vt
+    from smartpipe.io.tty import enable_windows_vt
 
     assert enable_windows_vt() is True

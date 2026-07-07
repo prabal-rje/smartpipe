@@ -1,4 +1,4 @@
-#!/usr/bin/env -S sempipe run
+#!/usr/bin/env -S smartpipe run
 verb = "map"
 prompt = "Extract {vendor, total}"
 output = "csv"

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.models.base import parse_model_ref
+from smartpipe.core.errors import UsageFault
+from smartpipe.models.base import parse_model_ref
 
 
 @pytest.mark.parametrize(

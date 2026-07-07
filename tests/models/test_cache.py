@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sempipe.models.base import CompletionRequest, ImageData, ModelRef
-from sempipe.models.cache import CachingChatModel, cache_key
+from smartpipe.models.base import CompletionRequest, ImageData, ModelRef
+from smartpipe.models.cache import CachingChatModel, cache_key
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,7 +48,7 @@ async def test_hit_short_circuits_the_inner_model(tmp_path: Path) -> None:
 
 
 async def test_hits_do_not_consume_the_call_budget(tmp_path: Path) -> None:
-    from sempipe.models.budget import CallBudget, budgeted_chat
+    from smartpipe.models.budget import CallBudget, budgeted_chat
 
     inner = CountingModel()
     budget = CallBudget(limit=1, stop=None)
@@ -89,7 +89,7 @@ def _entry(tmp_path: Path, name: str, *, age_days: float, size: int) -> Path:
 def test_sweep_expires_ttl_then_lru_evicts_to_cap(tmp_path: Path) -> None:
     import time
 
-    from sempipe.models.cache import sweep
+    from smartpipe.models.cache import sweep
 
     ancient = _entry(tmp_path, "aa" * 32, age_days=40, size=10)
     old_big = _entry(tmp_path, "bb" * 32, age_days=10, size=2_000_000)

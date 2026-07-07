@@ -36,12 +36,12 @@ anthropic = ["anthropic>=0.40"]
 files = ["markitdown[pdf,docx,pptx,xlsx]>=0.1.6", "pypdf>=5.0"]
 audio = ["faster-whisper>=1.0"]  # local STT: audio never leaves the machine
 video = ["imageio-ffmpeg>=0.5"]  # bundles a static ffmpeg for frames/track/slicing
-charts = ["svgwrite>=1.4"]  # --save for sempipe chart (pure-python, zero deps)
+charts = ["svgwrite>=1.4"]  # --save for smartpipe chart (pure-python, zero deps)
 all = ["smartpipe[anthropic,files,audio,video,charts]"]
 
 [project.scripts]
-smartpipe = "sempipe.cli.root:main"
-sempipe = "sempipe.cli.root:main"  # compat alias — the old name keeps working
+smartpipe = "smartpipe.cli.root:main"
+sempipe = "smartpipe.cli.root:main"  # compat alias — the old name keeps working
 
 [project.urls]
 Homepage = "https://github.com/prabal-rje/smartpipe"
@@ -64,7 +64,7 @@ docs = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/sempipe"]
+packages = ["src/smartpipe"]
 
 [tool.hatch.build.targets.sdist]
 # Ship the package and docs — never the private working documents
@@ -91,7 +91,7 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "T20", "SIM", "RUF"]
 # T20 bans print(): ALL output must flow through io/writers or io/diagnostics
 # so the stdout-is-sacred rule is mechanically enforced.
-# A005: `sempipe.io` deliberately mirrors its responsibility; absolute imports
+# A005: `smartpipe.io` deliberately mirrors its responsibility; absolute imports
 # mean it can never shadow the stdlib `io` module in practice.
 ignore = ["A005"]
 
@@ -99,10 +99,10 @@ ignore = ["A005"]
 "qa/**" = ["T201"]  # the fixtures generator reports what it wrote
 # The *Fault taxonomy (plan/architecture.md) is deliberate: "UsageError" would
 # collide with click.UsageError, which the CLI shell handles right next to ours.
-"src/sempipe/core/errors.py" = ["N818"]
+"src/smartpipe/core/errors.py" = ["N818"]
 # MissingExtra is a control-flow signal (skip this file), named to read as prose
 # in a warning; an "Error" suffix would misrepresent it. Consistent with errors.py.
-"src/sempipe/parsing/extract.py" = ["N818"]
+"src/smartpipe/parsing/extract.py" = ["N818"]
 # Dev scripts print by design — they ARE the report (join-eval, future tooling).
 "scripts/*" = ["T201"]
 
@@ -111,7 +111,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["src/sempipe"]
+source = ["src/smartpipe"]
 branch = true
 omit = ["*/__main__.py"]
 

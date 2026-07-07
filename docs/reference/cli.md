@@ -49,7 +49,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 
 | Option | Meaning |
 |---|---|
-| `--model TEXT` | Model for this run — overrides the config and `SEMPIPE_MODEL`. |
+| `--model TEXT` | Model for this run — overrides the config and `SMARTPIPE_MODEL`. |
 | `--embed-model TEXT` | Embedding model (`embed`, `top_k`). |
 | `--concurrency N` | Max parallel model calls (default 4). |
 | `--in GLOB` | Read each matching file as one item (repeatable). |
@@ -77,7 +77,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `summarize` | `'AGG[, AGG…] [by FIELD,…]'` (count/sum/avg/min/max/p50-p99/dcount) |
 | `sample` | `N`, `--seed K` (default 0 — reproducible by default) |
 | `getschema` | `--all` (scan past the first 10,000 rows) |
-| *(custom)* | [your own verbs](custom-verbs.md): `~/.config/sempipe/verbs/*.sem` or entry points |
+| *(custom)* | [your own verbs](custom-verbs.md): `~/.config/smartpipe/verbs/*.sem` or entry points |
 | `usage` | model usage over hour/day/week/month/lifetime; `usage reset` remembers when |
 | `cache` | `stats` · `clear` (auto-swept: 30-day TTL + 500 MB LRU cap — `cache-days`, `cache-max-mb`) |
 | `sort` | `--by FIELD` (required), `--desc` |
@@ -139,7 +139,7 @@ Unknown keys in the file are errors (scripts run unattended). Full format:
 
 ## Output formats
 
-`--output` (or `SEMPIPE_OUTPUT`): `auto` (default), `text`, `json`, `csv`, `tsv`.
+`--output` (or `SMARTPIPE_OUTPUT`): `auto` (default), `text`, `json`, `csv`, `tsv`.
 See [Output formats](../concepts/output-formats.md). `auto` shows a readable view at a
 terminal and NDJSON when piped; `csv`/`tsv` need structured (named-field) output.
 `--fields a,b` projects structured output to just those columns, in that order,
@@ -155,15 +155,15 @@ Tab completion for bash, zsh, and fish — including live model-name suggestions
 
 | Variable | Effect |
 |---|---|
-| `SEMPIPE_MODEL` | Default chat model. |
-| `SEMPIPE_EMBED_MODEL` | Default embedding model. |
-| `SEMPIPE_OUTPUT` | Default output format. |
-| `SEMPIPE_MAX_CALLS` | Default call ceiling (see `--max-calls`). |
-| `SEMPIPE_OPENAI_BASE_URL` | Point the OpenAI-compatible adapter at any endpoint. |
-| `SEMPIPE_MISTRAL_BASE_URL` / `SEMPIPE_GEMINI_BASE_URL` / `SEMPIPE_OPENROUTER_BASE_URL` | Point a provider's wire elsewhere (proxies, gateways). |
-| `SEMPIPE_PROFILE` | One-off profile pick for this invocation ([profiles](../concepts/models-and-providers.md)). |
-| `SEMPIPE_CONTEXT_TOKENS` | Assert your model's context window (beats the table and the probe; the fix for OpenAI/Anthropic deployments the table underestimates). |
-| `SEMPIPE_WHISPER_MODEL` | Local transcription size: `tiny` (default), `base`, `small`, `medium`, `large-v3`. |
+| `SMARTPIPE_MODEL` | Default chat model. |
+| `SMARTPIPE_EMBED_MODEL` | Default embedding model. |
+| `SMARTPIPE_OUTPUT` | Default output format. |
+| `SMARTPIPE_MAX_CALLS` | Default call ceiling (see `--max-calls`). |
+| `SMARTPIPE_OPENAI_BASE_URL` | Point the OpenAI-compatible adapter at any endpoint. |
+| `SMARTPIPE_MISTRAL_BASE_URL` / `SMARTPIPE_GEMINI_BASE_URL` / `SMARTPIPE_OPENROUTER_BASE_URL` | Point a provider's wire elsewhere (proxies, gateways). |
+| `SMARTPIPE_PROFILE` | One-off profile pick for this invocation ([profiles](../concepts/models-and-providers.md)). |
+| `SMARTPIPE_CONTEXT_TOKENS` | Assert your model's context window (beats the table and the probe; the fix for OpenAI/Anthropic deployments the table underestimates). |
+| `SMARTPIPE_WHISPER_MODEL` | Local transcription size: `tiny` (default), `base`, `small`, `medium`, `large-v3`. |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY` | Cloud credentials (read, never stored). |
 | `OLLAMA_HOST` | Ollama endpoint (default `http://localhost:11434`). |
 | `NO_COLOR` | Disable color. |

@@ -10,17 +10,17 @@ import httpx
 import pytest
 import respx
 
-from sempipe.config.credentials import OAuthCredential, load_oauth, save_oauth
-from sempipe.core.errors import ItemError, SetupFault
-from sempipe.models.base import CompletionRequest, ImageData, ModelRef
-from sempipe.models.http_support import make_client
-from sempipe.models.openai_codex import (
+from smartpipe.config.credentials import OAuthCredential, load_oauth, save_oauth
+from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.models.base import CompletionRequest, ImageData, ModelRef
+from smartpipe.models.http_support import make_client
+from smartpipe.models.openai_codex import (
     CODEX_ENDPOINT,
     CodexChatModel,
     accumulate_sse,
     build_payload,
 )
-from sempipe.models.openai_oauth import ISSUER
+from smartpipe.models.openai_oauth import ISSUER
 from tests.helpers.wire import sent_header
 
 if TYPE_CHECKING:
@@ -94,7 +94,7 @@ def test_payload_shape_is_pinned() -> None:
 def test_payload_never_claims_strict_for_an_open_schema() -> None:
     request = CompletionRequest(system=None, user="hi", json_schema={"type": "object"})
     payload = build_payload("gpt-5.4", request)
-    from sempipe.core.jsontools import record_at
+    from smartpipe.core.jsontools import record_at
 
     fmt = record_at(payload["text"], "format")
     assert fmt is not None and fmt["strict"] is False
@@ -104,7 +104,7 @@ def test_payload_carries_images_as_data_uris() -> None:
     request = CompletionRequest(
         system=None, user="describe", media=(ImageData(b"PNG", "image/png"),)
     )
-    from sempipe.core.jsontools import as_items, as_record
+    from smartpipe.core.jsontools import as_items, as_record
 
     inputs = as_items(build_payload("gpt-5.4", request)["input"])
     assert inputs is not None
@@ -152,7 +152,7 @@ async def test_complete_pins_headers_and_endpoint(
     assert await model.complete(CompletionRequest(system=None, user="hi")) == "hello"
     assert sent_header(route, "authorization") == "Bearer at-1"
     assert sent_header(route, "chatgpt-account-id") == "acct"
-    assert sent_header(route, "originator") == "sempipe"
+    assert sent_header(route, "originator") == "smartpipe"
     assert sent_header(route, "user-agent").startswith("smartpipe/")
 
 

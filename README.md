@@ -5,7 +5,7 @@ through Unix verbs that understand their input — powered by a local model by
 default, a cloud model when you ask.
 
 > Formerly `sempipe` (which still works as a command alias). The import name,
-> `SEMPIPE_*` env vars, and `~/.config/sempipe` keep the old spelling.
+> `SMARTPIPE_*` env vars, and `~/.config/smartpipe` keep the old spelling.
 
 ```console
 $ pip install smartpipe

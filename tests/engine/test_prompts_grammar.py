@@ -6,8 +6,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.core.errors import UsageFault
-from sempipe.engine.prompts import (
+from smartpipe.core.errors import UsageFault
+from smartpipe.engine.prompts import (
     BraceToken,
     TextToken,
     brace_fields,
@@ -140,7 +140,7 @@ def test_description_parses_and_keeps_the_name() -> None:
 
 
 def test_description_reaches_the_schema() -> None:
-    from sempipe.engine.prompts import plan_map
+    from smartpipe.engine.prompts import plan_map
 
     tokens = parse_prompt("Extract {vendor: who sent it, total}", allow_descriptions=True)
     plan = plan_map(tokens, schema=None)
@@ -152,8 +152,8 @@ def test_description_reaches_the_schema() -> None:
 def test_descriptions_do_not_change_strictness() -> None:
     # shorthand schemas are honestly non-strict either way (untyped properties —
     # live-caught); a description must not flip that verdict in either direction
-    from sempipe.engine.prompts import plan_map
-    from sempipe.engine.schema import is_strict_compatible
+    from smartpipe.engine.prompts import plan_map
+    from smartpipe.engine.schema import is_strict_compatible
 
     described = plan_map(parse_prompt("Extract {a: x, b}", allow_descriptions=True), schema=None)
     bare = plan_map(parse_prompt("Extract {a, b}"), schema=None)
@@ -162,7 +162,7 @@ def test_descriptions_do_not_change_strictness() -> None:
 
 
 def test_description_stays_in_the_instruction_text() -> None:
-    from sempipe.engine.prompts import to_instruction
+    from smartpipe.engine.prompts import to_instruction
 
     tokens = parse_prompt("Extract {vendor: the supplier name}", allow_descriptions=True)
     assert "the supplier name" in to_instruction(tokens)  # guidance reaches the model
@@ -183,7 +183,7 @@ def test_colon_stays_invalid_without_the_map_flag() -> None:
 
 
 def test_type_and_description_together() -> None:
-    from sempipe.engine.prompts import plan_map
+    from smartpipe.engine.prompts import plan_map
 
     tokens = parse_prompt(
         "Extract {vendor string: the supplier name, total number, "
@@ -208,8 +208,8 @@ def test_enum_commas_survive_the_brace_split() -> None:
 
 
 def test_fully_typed_braces_regain_strict_mode() -> None:
-    from sempipe.engine.prompts import plan_map
-    from sempipe.engine.schema import is_strict_compatible
+    from smartpipe.engine.prompts import plan_map
+    from smartpipe.engine.schema import is_strict_compatible
 
     typed = plan_map(
         parse_prompt("Extract {a string, b number}", allow_descriptions=True), schema=None

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sempipe.engine.prompts import (
+from smartpipe.engine.prompts import (
     MAP_JSON_SYSTEM,
     MAP_PLAIN_SYSTEM,
     build_map_request,
@@ -9,7 +9,7 @@ from sempipe.engine.prompts import (
     plan_map,
     to_instruction,
 )
-from sempipe.models.base import CompletionRequest
+from smartpipe.models.base import CompletionRequest
 
 # --- instruction rendering ----------------------------------------------------
 

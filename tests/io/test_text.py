@@ -7,7 +7,7 @@ Emoji-ZWJ sequences are pinned as the *sum of parts* — approximate on purpose.
 
 from __future__ import annotations
 
-from sempipe.io.text import clip_to_width, display_width
+from smartpipe.io.text import clip_to_width, display_width
 
 
 def test_ascii_is_one_cell_per_char() -> None:

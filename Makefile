@@ -1,4 +1,4 @@
-# sempipe developer tasks. `make gates` is what CI runs and what a PR must pass.
+# smartpipe developer tasks. `make gates` is what CI runs and what a PR must pass.
 # Every recipe runs un-piped so a failing step fails the whole target (piping to
 # `tail` silently swallows non-zero exit codes — don't reintroduce it).
 
@@ -39,23 +39,23 @@ golden: ## Refresh golden files (review the diff before committing)
 
 docs-check: ## Internal link scan + strict site build (nav/anchor rot fails it)
 	uv run python scripts/check_doc_links.py
-	uv run --group docs mkdocs build --strict --site-dir /tmp/sempipe-site
+	uv run --group docs mkdocs build --strict --site-dir /tmp/smartpipe-site
 
-live-smoke: ## Owner-run live validity matrix (needs SEMPIPE_LIVE_SMOKE=yes; spends pennies)
+live-smoke: ## Owner-run live validity matrix (needs SMARTPIPE_LIVE_SMOKE=yes; spends pennies)
 	./scripts/live_smoke.sh
 
 join-eval: ## Blocking-recall table for join (non-gating; justifies the --k default)
 	uv run python scripts/join_eval.py
 
 startup: ## Time `--help` startup (advisory; the deterministic gate is tests/test_startup_imports.py)
-	uv run hyperfine --warmup 3 'python -m sempipe --help' || \
-	  uv run python -c "import subprocess, sys, time; t = [__import__('timeit').timeit(lambda: subprocess.run([sys.executable, '-m', 'sempipe', '--help'], capture_output=True, check=True), number=1) for _ in range(8)]; t.sort(); print(f'median --help wall clock: {t[len(t)//2]*1000:.0f} ms (hyperfine not installed; rough fallback)')"
+	uv run hyperfine --warmup 3 'python -m smartpipe --help' || \
+	  uv run python -c "import subprocess, sys, time; t = [__import__('timeit').timeit(lambda: subprocess.run([sys.executable, '-m', 'smartpipe', '--help'], capture_output=True, check=True), number=1) for _ in range(8)]; t.sort(); print(f'median --help wall clock: {t[len(t)//2]*1000:.0f} ms (hyperfine not installed; rough fallback)')"
 
 smoke: ## Build the wheel and run it from a clean environment
 	rm -rf dist
 	uv build
-	uvx --from ./dist/*.whl sempipe --version
-	@printf 'a\n{ "b" :1}\n' | uvx --from ./dist/*.whl sempipe echo
+	uvx --from ./dist/*.whl smartpipe --version
+	@printf 'a\n{ "b" :1}\n' | uvx --from ./dist/*.whl smartpipe echo
 
 clean: ## Remove build and cache artifacts
 	rm -rf dist build .ruff_cache .pytest_cache .coverage htmlcov src/*.egg-info

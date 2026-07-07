@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, SetupFault, UsageFault
-from sempipe.models.base import ChatModel, ModelRef
-from sempipe.verbs.top_k import TopKRequest, run_top_k
+from smartpipe.core.errors import ExitCode, SetupFault, UsageFault
+from smartpipe.models.base import ChatModel, ModelRef
+from smartpipe.verbs.top_k import TopKRequest, run_top_k
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -33,7 +33,7 @@ class FakeContext:
         return self.model
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
-        from sempipe.core.errors import SetupFault
+        from smartpipe.core.errors import SetupFault
 
         raise SetupFault("no chat configured")
 

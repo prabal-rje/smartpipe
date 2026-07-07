@@ -27,7 +27,7 @@ at runtime and **never written** to the config file or logged
 ## One exception, disclosed: ChatGPT login tokens
 
 `smartpipe auth login` (optional) stores OAuth tokens — never API keys — in
-`~/.config/sempipe/auth.json` with `0600` permissions, because a login that can't
+`~/.config/smartpipe/auth.json` with `0600` permissions, because a login that can't
 refresh itself is useless. Delete them any time with `smartpipe auth logout`. If you
 never log in, the file never exists.
 
@@ -42,7 +42,7 @@ outlives the run; nothing is written into your project.
 
 The optional `[audio]` extra transcribes speech **on your machine** with a
 local Whisper model (faster-whisper, `tiny` by default,
-`SEMPIPE_WHISPER_MODEL` to change it). The audio bytes never leave your
+`SMARTPIPE_WHISPER_MODEL` to change it). The audio bytes never leave your
 computer. One disclosure: the *first* use of a model size downloads its
 weights (~75 MB for tiny) from Hugging Face — a one-time fetch of model files,
 with no audio or text in it. Audio-capable models (`gemini-2.5-*`,
@@ -89,9 +89,9 @@ your input files. Output goes to stdout; where it lands is up to your shell.
 
 ## The result cache
 
-With caching on (`smartpipe config cache on` or `SEMPIPE_CACHE=1`), model
-REPLIES are stored on disk under `~/.cache/sempipe/results` (or
-`$XDG_CACHE_HOME/sempipe/results`), keyed by a hash of the full request.
+With caching on (`smartpipe config cache on` or `SMARTPIPE_CACHE=1`), model
+REPLIES are stored on disk under `~/.cache/smartpipe/results` (or
+`$XDG_CACHE_HOME/smartpipe/results`), keyed by a hash of the full request.
 That means model outputs about your data persist locally between runs.
 `smartpipe cache clear` deletes all of it and reports the size; `smartpipe
 cache stats` inspects it. The cache also maintains itself: entries expire

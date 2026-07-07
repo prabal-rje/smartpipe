@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def verbs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    directory = tmp_path / "sempipe" / "verbs"
+    directory = tmp_path / "smartpipe" / "verbs"
     directory.mkdir(parents=True)
     return directory
 
@@ -70,7 +70,7 @@ def test_broken_entry_point_warns_and_skips(
             raise RuntimeError("plugin bug")
 
     def fake_entry_points(*, group: str) -> list[BrokenPoint]:
-        assert group == "sempipe.verbs"
+        assert group == "smartpipe.verbs"
         return [BrokenPoint()]
 
     import importlib.metadata

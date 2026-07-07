@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.engine.units import SplitBy, parse_by
+from smartpipe.core.errors import UsageFault
+from smartpipe.engine.units import SplitBy, parse_by
 
 
 @pytest.mark.parametrize(

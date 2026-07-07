@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.io import readers
-from sempipe.io.readers import stdin_items
+from smartpipe.io import readers
+from smartpipe.io.readers import stdin_items
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

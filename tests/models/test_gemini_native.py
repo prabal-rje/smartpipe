@@ -9,20 +9,20 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.core.errors import SetupFault
-from sempipe.core.jsontools import as_items, as_record
-from sempipe.models.base import (
+from smartpipe.core.errors import SetupFault
+from smartpipe.core.jsontools import as_items, as_record
+from smartpipe.models.base import (
     CompletionRequest,
     VideoData,
     parse_model_ref,
 )
-from sempipe.models.gemini_native import (
+from smartpipe.models.gemini_native import (
     GeminiNativeChatModel,
     native_base_url,
     to_gemini_schema,
 )
-from sempipe.models.http_support import make_client
-from sempipe.models.retry import RetryPolicy
+from smartpipe.models.http_support import make_client
+from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -142,7 +142,7 @@ async def test_retry_after_is_honored_then_succeeds(
 def test_native_base_url_derives_from_the_compat_override() -> None:
     assert native_base_url({}) == BASE
     assert (
-        native_base_url({"SEMPIPE_GEMINI_BASE_URL": "https://proxy.corp/v1beta/openai"})
+        native_base_url({"SMARTPIPE_GEMINI_BASE_URL": "https://proxy.corp/v1beta/openai"})
         == "https://proxy.corp/v1beta"
     )
 
@@ -163,7 +163,7 @@ def test_schema_dialect_is_recursive() -> None:
 async def test_usage_metadata_feeds_the_meter(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:
-    from sempipe.io import metering
+    from smartpipe.io import metering
 
     metering.reset()
     respx_mock.post(url__regex=r".*generateContent.*").mock(

@@ -1,4 +1,4 @@
-# Contributing to sempipe
+# Contributing to smartpipe
 
 Thanks for looking under the hood. This page gets you from clone to green gates in a few
 minutes.
@@ -8,9 +8,9 @@ minutes.
 Requires [uv](https://docs.astral.sh/uv/) and Python ≥ 3.11 (uv can fetch one for you).
 
 ```console
-$ git clone https://github.com/prabal-rje/sempipe && cd sempipe
+$ git clone https://github.com/prabal-rje/smartpipe && cd smartpipe
 $ uv sync --all-extras          # creates .venv with dev + optional deps
-$ uv run sempipe                # welcome screen = working install
+$ uv run smartpipe                # welcome screen = working install
 ```
 
 ## The gates

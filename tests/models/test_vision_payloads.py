@@ -10,12 +10,12 @@ import httpx
 import pytest
 import respx
 
-from sempipe.core.errors import ItemError
-from sempipe.core.jsontools import as_items, as_record, as_str
-from sempipe.models.base import CompletionRequest, ImageData, ModelRef
-from sempipe.models.http_support import make_client
-from sempipe.models.ollama import OllamaChatModel
-from sempipe.models.openai_compat import OpenAIChatModel
+from smartpipe.core.errors import ItemError
+from smartpipe.core.jsontools import as_items, as_record, as_str
+from smartpipe.models.base import CompletionRequest, ImageData, ModelRef
+from smartpipe.models.http_support import make_client
+from smartpipe.models.ollama import OllamaChatModel
+from smartpipe.models.openai_compat import OpenAIChatModel
 from tests.helpers.wire import sent_json
 
 if TYPE_CHECKING:
@@ -112,7 +112,7 @@ async def test_openai_wire_sends_a_data_uri_content_array(
 
 
 def test_anthropic_builds_image_blocks_image_first() -> None:
-    from sempipe.models.anthropic_adapter import build_kwargs
+    from smartpipe.models.anthropic_adapter import build_kwargs
 
     kwargs = build_kwargs("claude-opus-4-8", _vision_request())
     messages = as_items(kwargs.get("messages"))
@@ -131,7 +131,7 @@ def test_anthropic_builds_image_blocks_image_first() -> None:
 
 
 def test_plain_requests_are_unchanged() -> None:
-    from sempipe.models.anthropic_adapter import build_kwargs
+    from smartpipe.models.anthropic_adapter import build_kwargs
 
     kwargs = build_kwargs("claude-opus-4-8", CompletionRequest(system=None, user="hi"))
     assert kwargs["messages"] == [{"role": "user", "content": "hi"}]  # still the string form

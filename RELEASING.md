@@ -2,7 +2,7 @@
 
 > Before every tag: walk the MANUAL pass in [`qa/README.md`](qa/README.md)
 > end to end (about 20 minutes, fixtures included). The automated gates are
-> the primary defense; the human pass is the redundant layer. sempipe
+> the primary defense; the human pass is the redundant layer. smartpipe
 
 Two parts: the machine gate, then the human walkthrough. Both green before any tag.
 
@@ -22,16 +22,16 @@ $ make docs-check                  # once wired: link scan + mkdocs --strict
 
 | Type | Look for |
 |---|---|
-| `sempipe` | the welcome screen, seven verbs |
-| `sempipe --help` | verbs + run/config/doctor/schema listed |
-| `sempipe doctor` | your real setup, ✓/✗ with fixes, exit code matches |
-| `env -i PATH=$PATH sempipe map "hi" </dev/null` | the no-model screen, exit 2 |
-| `SEMPIPE_MODEL=gpt-4o-mini sempipe map "hi" </dev/null` (no key) | the key-or-login screen |
-| `echo hi \| sempipe map "Extract {a, b}"` | NDJSON with both fields |
-| `sempipe map "Summarize" --in 'docs/*.md' </dev/null` | file items flow |
+| `smartpipe` | the welcome screen, seven verbs |
+| `smartpipe --help` | verbs + run/config/doctor/schema listed |
+| `smartpipe doctor` | your real setup, ✓/✗ with fixes, exit code matches |
+| `env -i PATH=$PATH smartpipe map "hi" </dev/null` | the no-model screen, exit 2 |
+| `SMARTPIPE_MODEL=gpt-4o-mini smartpipe map "hi" </dev/null` (no key) | the key-or-login screen |
+| `echo hi \| smartpipe map "Extract {a, b}"` | NDJSON with both fields |
+| `smartpipe map "Summarize" --in 'docs/*.md' </dev/null` | file items flow |
 | `./extract.sem < fixture` | equals the typed invocation |
-| `tail -f /tmp/x \| sempipe filter "…"` + Ctrl-C | live results, drain summary |
-| `yes \| sempipe map "hi" \| head -1` | one line, exit 141, silence |
+| `tail -f /tmp/x \| smartpipe filter "…"` + Ctrl-C | live results, drain summary |
+| `yes \| smartpipe map "hi" \| head -1` | one line, exit 141, silence |
 
 ## 3. Tag + push
 

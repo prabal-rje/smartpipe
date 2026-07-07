@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.core.errors import SetupFault
-from sempipe.models.base import ImageData, ModelRef, supports_media_embedding
-from sempipe.models.jina import JinaClipEmbeddingModel
-from sempipe.models.retry import RetryPolicy
+from smartpipe.core.errors import SetupFault
+from smartpipe.models.base import ImageData, ModelRef, supports_media_embedding
+from smartpipe.models.jina import JinaClipEmbeddingModel
+from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
     import respx
@@ -60,7 +60,7 @@ async def test_401_names_the_env_var(respx_mock: respx.MockRouter) -> None:
 
 
 def test_the_wire_is_media_capable_and_compat_is_not() -> None:
-    from sempipe.models.openai_compat import OpenAIEmbeddingModel
+    from smartpipe.models.openai_compat import OpenAIEmbeddingModel
 
     async def check() -> tuple[bool, bool]:
         async with httpx.AsyncClient() as client:

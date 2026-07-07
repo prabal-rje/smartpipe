@@ -8,8 +8,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.core.errors import ItemError, SetupFault
-from sempipe.engine.schema import (
+from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.engine.schema import (
     is_strict_compatible,
     load_schema,
     shorthand_to_schema,

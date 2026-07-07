@@ -15,16 +15,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode
-from sempipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.verbs.map import MapRequest, run_map
+from smartpipe.core.errors import ExitCode
+from smartpipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.verbs.map import MapRequest, run_map
 from tests.helpers.paced import PacedOllama
 
 if TYPE_CHECKING:
     from typing import TextIO
 
-    from sempipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX pipes/signals")
 
@@ -38,9 +38,9 @@ def test_filter_streams_and_shuts_down_cleanly() -> None:
     stops on ^C with the reader BLOCKED on an open pipe, (3) exit is fast — the
     daemon pump can't hang shutdown."""
     with PacedOllama(_match_all, paced=False) as server:
-        env = {**os.environ, "OLLAMA_HOST": server.url, "SEMPIPE_MODEL": "ollama/qwen3:8b"}
+        env = {**os.environ, "OLLAMA_HOST": server.url, "SMARTPIPE_MODEL": "ollama/qwen3:8b"}
         proc = subprocess.Popen(
-            [sys.executable, "-m", "sempipe", "filter", "keep?", "--concurrency", "2"],
+            [sys.executable, "-m", "smartpipe", "filter", "keep?", "--concurrency", "2"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -141,10 +141,10 @@ def test_binary_stdin_document_end_to_end() -> None:
         return "ONE-LINE SUMMARY"
 
     with PacedOllama(reply, paced=False) as server:
-        env = {**os.environ, "OLLAMA_HOST": server.url, "SEMPIPE_MODEL": "ollama/qwen3:8b"}
+        env = {**os.environ, "OLLAMA_HOST": server.url, "SMARTPIPE_MODEL": "ollama/qwen3:8b"}
         with open("tests/corpus/one-page.pdf", "rb") as pdf:
             proc = subprocess.run(
-                [sys.executable, "-m", "sempipe", "map", "Summarize"],
+                [sys.executable, "-m", "smartpipe", "map", "Summarize"],
                 stdin=pdf,
                 capture_output=True,
                 text=True,

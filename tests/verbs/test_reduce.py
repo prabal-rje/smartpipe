@@ -6,17 +6,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, ItemError, UsageFault
-from sempipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.verbs.reduce import ReduceRequest, run_reduce
+from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.verbs.reduce import ReduceRequest, run_reduce
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import TextIO
 
-    from sempipe.io.writers import ResultWriter
-    from sempipe.models.base import Provider
+    from smartpipe.io.writers import ResultWriter
+    from smartpipe.models.base import Provider
 
 
 class FakeChat:
@@ -150,7 +150,7 @@ async def test_schema_final_is_validated(monkeypatch: pytest.MonkeyPatch) -> Non
     def fake_load(_path: object) -> dict[str, object]:
         return schema
 
-    monkeypatch.setattr("sempipe.verbs.reduce.load_schema", fake_load)
+    monkeypatch.setattr("smartpipe.verbs.reduce.load_schema", fake_load)
     request = ReduceRequest(
         prompt="Summarize",
         schema_path=Path("x.json"),
@@ -277,7 +277,7 @@ async def test_schema_repair_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_load(_path: object) -> dict[str, object]:
         return schema
 
-    monkeypatch.setattr("sempipe.verbs.reduce.load_schema", fake_load)
+    monkeypatch.setattr("smartpipe.verbs.reduce.load_schema", fake_load)
     calls = {"n": 0}
 
     def reply(_request: CompletionRequest) -> str:
@@ -318,7 +318,7 @@ class OverflowingChat:
 async def test_bisection_recovers_when_the_estimate_lies(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from sempipe.verbs.reduce import Reducer
+    from smartpipe.verbs.reduce import Reducer
 
     model = OverflowingChat(window_chars=900)
     reducer = Reducer(model=model, budget=10_000, concurrency=1, verbose=False)
@@ -335,7 +335,7 @@ async def test_bisection_recovers_when_the_estimate_lies(
 async def test_single_item_overflow_surfaces_the_wire_error() -> None:
     # one item that alone exceeds the true window can't be bisected at item
     # boundaries — the wire's own message surfaces loudly (D26: split is the fix)
-    from sempipe.verbs.reduce import Reducer
+    from smartpipe.verbs.reduce import Reducer
 
     model = OverflowingChat(window_chars=100)
     reducer = Reducer(model=model, budget=10_000, concurrency=1, verbose=False)

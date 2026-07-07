@@ -4,7 +4,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.engine.chunking import (
+from smartpipe.engine.chunking import (
     budget_for,
     chunk_indices,
     estimate_tokens,

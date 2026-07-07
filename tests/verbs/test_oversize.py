@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode
-from sempipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.verbs.filter import FilterRequest, run_filter
-from sempipe.verbs.map import MapRequest, run_map
+from smartpipe.core.errors import ExitCode
+from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.verbs.filter import FilterRequest, run_filter
+from smartpipe.verbs.map import MapRequest, run_map
 
 if TYPE_CHECKING:
     from typing import TextIO

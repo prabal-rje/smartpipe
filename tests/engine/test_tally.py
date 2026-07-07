@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sempipe.engine.tally import Tally
+from smartpipe.engine.tally import Tally
 
 
 def test_counts_and_orders_by_frequency() -> None:
@@ -36,7 +36,7 @@ def test_non_string_values_stringify() -> None:
 
 
 def test_explode_makes_one_row_per_element() -> None:
-    from sempipe.engine.tally import explode_record
+    from smartpipe.engine.tally import explode_record
 
     rows = explode_record({"vendor": "Acme", "risks": ["late", "fx"]}, "risks")
     assert rows == [
@@ -46,13 +46,13 @@ def test_explode_makes_one_row_per_element() -> None:
 
 
 def test_explode_passes_non_lists_through() -> None:
-    from sempipe.engine.tally import explode_record
+    from smartpipe.engine.tally import explode_record
 
     assert explode_record({"risks": "single"}, "risks") == [{"risks": "single"}]
     assert explode_record({"other": 1}, "risks") == [{"other": 1}]
 
 
 def test_explode_empty_list_is_zero_rows() -> None:
-    from sempipe.engine.tally import explode_record
+    from smartpipe.engine.tally import explode_record
 
     assert explode_record({"risks": []}, "risks") == []

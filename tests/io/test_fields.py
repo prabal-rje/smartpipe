@@ -12,9 +12,9 @@ import io
 
 import pytest
 
-from sempipe.cli.input_options import parse_fields
-from sempipe.core.errors import UsageFault
-from sempipe.io.writers import (
+from smartpipe.cli.input_options import parse_fields
+from smartpipe.core.errors import UsageFault
+from smartpipe.io.writers import (
     OutputFormat,
     RenderMode,
     ResultWriter,

@@ -28,7 +28,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "sem"
 
 @pytest.fixture(autouse=True)
 def local_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SEMPIPE_MODEL", "ollama/qwen3:8b")
+    monkeypatch.setenv("SMARTPIPE_MODEL", "ollama/qwen3:8b")
 
 
 def _reply(content: str) -> httpx.Response:
@@ -133,7 +133,7 @@ def test_shebang_executes_the_stage_directly(tmp_path: Path) -> None:
         env = {
             **os.environ,
             "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}",
-            "SEMPIPE_MODEL": "ollama/qwen3:8b",
+            "SMARTPIPE_MODEL": "ollama/qwen3:8b",
             "OLLAMA_HOST": server.url,
         }
         proc = subprocess.run(

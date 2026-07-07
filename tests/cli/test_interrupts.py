@@ -8,15 +8,15 @@ import signal
 
 import pytest
 
-from sempipe.cli.interrupts import drain_cap, graceful_interrupts
+from smartpipe.cli.interrupts import drain_cap, graceful_interrupts
 
 
 def test_drain_cap_env_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("SEMPIPE_DRAIN_SECONDS", raising=False)
+    monkeypatch.delenv("SMARTPIPE_DRAIN_SECONDS", raising=False)
     assert drain_cap() == 10.0
-    monkeypatch.setenv("SEMPIPE_DRAIN_SECONDS", "2.5")
+    monkeypatch.setenv("SMARTPIPE_DRAIN_SECONDS", "2.5")
     assert drain_cap() == 2.5
-    monkeypatch.setenv("SEMPIPE_DRAIN_SECONDS", "garbage")
+    monkeypatch.setenv("SMARTPIPE_DRAIN_SECONDS", "garbage")
     assert drain_cap() == 10.0  # invalid → default, never a crash
 
 
@@ -31,7 +31,7 @@ async def test_first_sigint_sets_stop() -> None:
 async def test_drain_timeout_cancels_the_task(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("SEMPIPE_DRAIN_SECONDS", "0.05")
+    monkeypatch.setenv("SMARTPIPE_DRAIN_SECONDS", "0.05")
     with pytest.raises(asyncio.CancelledError):
         async with graceful_interrupts() as stop:
             os.kill(os.getpid(), signal.SIGINT)

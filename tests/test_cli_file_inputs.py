@@ -20,8 +20,8 @@ EMBED = "http://localhost:11434/api/embed"
 
 @pytest.fixture(autouse=True)
 def local_models(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SEMPIPE_MODEL", "ollama/qwen3:8b")
-    monkeypatch.setenv("SEMPIPE_EMBED_MODEL", "ollama/nomic-embed-text")
+    monkeypatch.setenv("SMARTPIPE_MODEL", "ollama/qwen3:8b")
+    monkeypatch.setenv("SMARTPIPE_EMBED_MODEL", "ollama/nomic-embed-text")
 
 
 def test_map_reads_each_file_as_an_item(
@@ -114,7 +114,7 @@ def test_map_describes_an_image_via_vision(
     code, out, _err = run_cli(["map", "Describe", "--in", str(tmp_path / "*.png")])
     assert code == 0
     assert out == "a red bicycle\n"
-    from sempipe.core.jsontools import as_items, as_record, as_str
+    from smartpipe.core.jsontools import as_items, as_record, as_str
     from tests.helpers.wire import sent_json
 
     body = as_record(sent_json(route))

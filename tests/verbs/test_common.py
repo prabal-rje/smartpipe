@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import ExitCode
-from sempipe.io import diagnostics
-from sempipe.verbs.common import interrupted_exit_code, outcome_exit_code
+from smartpipe.core.errors import ExitCode
+from smartpipe.io import diagnostics
+from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code
 
 
 def test_outcome_exit_code() -> None:

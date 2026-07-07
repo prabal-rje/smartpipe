@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, UsageFault
-from sempipe.io.writers import OutputFormat
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.verbs.extend import ExtendRequest, base_fields, run_extend
+from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.io.writers import OutputFormat
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.verbs.extend import ExtendRequest, base_fields, run_extend
 
 if TYPE_CHECKING:
     from typing import TextIO
 
-    from sempipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter
 
 
 class SentimentModel:
@@ -55,7 +55,7 @@ class FakeContext:
         stdout: TextIO,
         fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
-        from sempipe.io.writers import RenderMode, WriterConfig, make_writer
+        from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 
         config = WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=fields)
         return make_writer(config, stdout)
@@ -148,7 +148,7 @@ async def test_explode_copies_original_fields_onto_every_row() -> None:
 def test_base_fields_drops_media_transport_keys() -> None:
     from dataclasses import replace
 
-    from sempipe.io.items import item_from_line
+    from smartpipe.io.items import item_from_line
 
     line = json.dumps(
         {"image_b64": "aGk=", "mime": "image/png", "source": "fig.png", "text": "a chart"}

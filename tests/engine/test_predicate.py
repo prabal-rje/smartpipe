@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.engine.predicate import FieldTally, evaluate, parse_predicate
-from sempipe.io.items import item_from_line
+from smartpipe.core.errors import UsageFault
+from smartpipe.engine.predicate import FieldTally, evaluate, parse_predicate
+from smartpipe.io.items import item_from_line
 
 
 def _matches(predicate: str, line: str) -> bool:

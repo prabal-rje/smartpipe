@@ -1,32 +1,35 @@
 # Changelog
 
-All notable changes to sempipe are documented here.
+All notable changes to smartpipe are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: [SemVer](https://semver.org).
 
 ## [Unreleased]
 
 ### Added
-- **`sempipe usage` — the resettable usage ledger (D41).** Hour, day, week,
+- **`smartpipe usage` — the resettable usage ledger (D41).** Hour, day, week,
   month, and lifetime windows over what the meter observed (runs, tokens,
   media, audio time, paid conversions); `usage reset` zeroes it, prints the
   previous lifetime, and remembers the reset time. Local state only.
 
 ### Changed
-- **The command is `smartpipe` now** (`sempipe` remains a working alias, so
-  nothing breaks and old docs/scripts keep running). Help, screens, docs,
-  and the QA pass all say smartpipe; shell completion installs under
-  `_SMARTPIPE_COMPLETE` (doctor recognizes old rc lines too). Per the
-  internals rule, `SEMPIPE_*` env vars, `~/.config/sempipe`, and the import
-  name are unchanged.
+- **The rename is total: smartpipe everywhere** (old name collided with an
+  existing project; nothing was ever published, so there is no installed
+  base to protect). Package and import (`import smartpipe`,
+  `python -m smartpipe`), the command (+ a `sempipe` compat alias), env
+  vars (`SMARTPIPE_*`), config (`~/.config/smartpipe`), state, and cache
+  directories, help, screens, docs, completion (`_SMARTPIPE_COMPLETE`;
+  doctor still recognizes old rc lines). Pre-1.2.1 machines: move
+  `~/.config/sempipe` to `~/.config/smartpipe` (and likewise
+  `~/.local/state`, `~/.cache`) to keep logins and settings.
 - **The pitch is multimodality-first.** README, docs front page, the repo
   description, `--help`, and the welcome screen now lead with what makes
-  sempipe different — PDFs (figures included), scans, images, audio, and
+  smartpipe different — PDFs (figures included), scans, images, audio, and
   video through Unix verbs — and the examples reflect it. Stale claims
   swept (v1.1-era verb tables, gpt-4o-audio references, old citation).
 - **Renamed to `smartpipe`** (the old name collided with an existing
   project). The DISTRIBUTION and repository are `smartpipe`; the command,
-  package, import name, env vars (`SEMPIPE_*`), and config directory stay
-  `sempipe` — zero breakage, and `smartpipe` also works as a command alias.
+  package, import name, env vars (`SMARTPIPE_*`), and config directory stay
+  `smartpipe` — zero breakage, and `smartpipe` also works as a command alias.
   Install: `pip install smartpipe`.
 
 ## [1.2.0] — 2026-07-06
@@ -91,13 +94,13 @@ estimated dollars.
   that goes in the training report. Paid conversions are counted; local
   whisper is free and uncounted; absent usage under-counts rather than lies.
 - **Custom verbs — the contract (D39/06).** Two legs: any `.sem` file
-  (stage or pipeline) in `~/.config/sempipe/verbs/` becomes `sempipe NAME`
+  (stage or pipeline) in `~/.config/smartpipe/verbs/` becomes `smartpipe NAME`
   (validated, shareable, listed in --help), and Python packages can expose
-  a `click.Command` via an entry point in group `sempipe.verbs`. Built-ins
+  a `click.Command` via an entry point in group `smartpipe.verbs`. Built-ins
   always win; broken plugins warn and skip (a third-party bug never takes
   down the CLI); discovery is lazy so built-in startup pays nothing.
 - **Remote transcription — the `stt-model` role (D39/05).**
-  `sempipe config stt-model openai/whisper-1` (or `SEMPIPE_STT_MODEL`)
+  `smartpipe config stt-model openai/whisper-1` (or `SMARTPIPE_STT_MODEL`)
   puts a verbatim transcriber at rung 0 of the audio ladder, ahead of the
   paraphrasing LLM rung, falling through on failure; consent-gated behind
   `allow-captions` like every paid conversion; unset means byte-identical
@@ -121,23 +124,23 @@ estimated dollars.
 - **The cache maintains itself (D39/02).** 30-day TTL plus a 500 MB
   size-bounded LRU (hits refresh recency), swept automatically at exit at
   most once a day — never at startup, never the user's problem; tunable via
-  `cache-days`/`cache-max-mb`; `sempipe cache stats` inspects entries, size,
+  `cache-days`/`cache-max-mb`; `smartpipe cache stats` inspects entries, size,
   and age.
 - **Result caching (D38/15, KQL `materialize`).** Opt-in
-  (`sempipe config cache on` or `SEMPIPE_CACHE=1`): identical chat calls
+  (`smartpipe config cache on` or `SMARTPIPE_CACHE=1`): identical chat calls
   reuse stored replies, so editing stage 4 of a pipeline stops re-paying
   stages 1-3. Sound because of D36's temperature-0 contract; the key hashes
   everything that could change a reply (model, prompts, schema, sampling,
   media bytes). The cache wraps OUTSIDE the call budget — hits never count
   against `--max-calls` (the belt caps spend, not answers). Closing receipt
   (`cache: 9,412 hits · 588 calls`), atomic writes, corrupt entries read as
-  misses, `sempipe cache clear` reports the space freed, privacy page
+  misses, `smartpipe cache clear` reports the space freed, privacy page
   discloses the storage. This deliberately reverses the old "no caching"
   parking — determinism changed the calculus.
 - **Multi-stage `.sem` pipelines (D38/14).** `[stage.NAME]` tables run in
   order, each stage feeding the next (`input = "name"` picks any earlier
   stage); first reads stdin, last writes stdout; stage receipts are
-  name-prefixed; `sempipe run triage.sem --dry-run` prints the graph with
+  name-prefixed; `smartpipe run triage.sem --dry-run` prints the graph with
   per-stage cost posture (free / embeddings / model calls) and runs
   nothing — D18 at pipeline scale. Stage keys validate as loudly as
   single-stage files, and every D38 verb is now scriptable in both shapes.
@@ -157,36 +160,36 @@ estimated dollars.
   `"right": null` where nothing matched. `inner` stays the default;
   `--unmatched FILE` remains for inner (and is a usage error with anti,
   which already owns stdout).
-- **`sempipe sort` — order records by a field, free (D38/10).** Numbers
+- **`smartpipe sort` — order records by a field, free (D38/10).** Numbers
   numerically before strings lexically; missing-field rows always last (both
   directions) with a note; stable ties; byte-faithful passthrough. No `take`
   verb on purpose — head already counts NDJSON rows.
-- **`sempipe getschema` — the stream's field/type/coverage table, free
+- **`smartpipe getschema` — the stream's field/type/coverage table, free
   (D38/09).** A table on a terminal, NDJSON when piped; mixed types union
   visibly (`integer|string` is the dirt worth seeing); first 10k rows by
   default with `--all` to scan everything; plain-text input gets a one-line
   answer; the footer suggests the next move (`chart`/`where` on the
   best-covered field).
-- **`sempipe sample` — seeded random subsets, free (D38/08).** Reservoir
+- **`smartpipe sample` — seeded random subsets, free (D38/08).** Reservoir
   sampling, input order preserved, and deterministic BY DEFAULT (seed 0):
   the same input gives the same sample with no flags, so prompt iterations
   compare prompts and the sample is citable; `--seed` varies it,
   reproducibly. The receipt always names the seed. The representative
   counterpart to `--max-calls`' head-truncating belt.
-- **`sempipe summarize` — deterministic aggregation, free (D38/07).**
+- **`smartpipe summarize` — deterministic aggregation, free (D38/07).**
   KQL's grammar verbatim: `'count(), avg(total), p95(total) by region'` →
   one record per group, largest first, KQL output naming (`avg_total`).
   Missing group fields group under null visibly; non-numeric values skip
   with a counted stderr note; empty numeric groups report null, not zero.
   count/sum/avg/min/max/p50-p99/dcount; the error screen prints the menu.
-- **`sempipe diff` — what distinguishes two sets (D38/06).** KQL's
+- **`smartpipe diff` — what distinguishes two sets (D38/06).** KQL's
   diffpatterns for meaning: embed both sides, cluster the union (adaptive
   threshold), keep the lopsided themes with BOTH shares as evidence and
   examples from the dominant side; balanced themes fold into a counted
   note (`--all` shows them). Left is stdin, right is `--right FILE`
   (join's shape). The post-incident "what changed", the eval regression
   story, and dataset drift before the GPU bill.
-- **`sempipe cluster` — themes with sizes and quotes (D38/05).** KQL's
+- **`smartpipe cluster` — themes with sizes and quotes (D38/05).** KQL's
   autocluster done semantically: leader clustering over embeddings, one
   temperature-0 label call per cluster (N embeddings + K labels, never N
   chat calls — the preview line prints before spend). One row per cluster,
@@ -194,28 +197,28 @@ estimated dollars.
   folds the tail into `(other)`; `--k` forces a count; `--explode members`
   labels every input row for spreadsheets and training files. Degrades to
   numbered clusters without a chat model.
-- **`sempipe outliers` — novelty, surfaced (D38/04).** top_k's mirror:
+- **`smartpipe outliers` — novelty, surfaced (D38/04).** top_k's mirror:
   the N items farthest from everything, scored by mean cosine distance to
   their nearest neighbors (honest on multi-cluster corpora), anchored
   against the corpus median on stderr so the number means something.
   Embeddings only. Record shape mirrors top_k (`_distance`, original
   fields survive). For novel failure shapes, label noise, and the alert
   that isn't like the others.
-- **`sempipe distinct` — near-duplicate folding (D38/03).** Exact duplicates
+- **`smartpipe distinct` — near-duplicate folding (D38/03).** Exact duplicates
   fold free before any embedding; the rest embed once and leader-cluster
   (hand-rolled, deterministic, order-stable — no sklearn). First occurrence
   wins, output keeps input order and bytes, the receipt names the split
   (`kept 412 of 1,208 — 573 exact + 223 near folded`), `--show-groups` is
   the audit trail, and items that fail to embed are KEPT and disclosed.
   The training-data decontamination move and the alert-storm collapser.
-- **`sempipe extend` — your record, plus columns (D38/02).** map's machinery
+- **`smartpipe extend` — your record, plus columns (D38/02).** map's machinery
   with a merge at the emit edge: every input field survives, extracted fields
   land beside them (collisions overwrite idempotently, disclosed once per
   field). Plain lines promote to `{"text": …}` records; `--explode` copies
   the merged fields onto every row; media-transport b64 never re-emits.
-  The verb dataset owners needed to drop sempipe into the MIDDLE of a
+  The verb dataset owners needed to drop smartpipe into the MIDDLE of a
   pipeline instead of the end.
-- **`sempipe where` — the free filter (D38/01, KQL-inspired).** Deterministic
+- **`smartpipe where` — the free filter (D38/01, KQL-inspired).** Deterministic
   predicates (`has`, `contains`, `matches /re/`, `==/!=/>/>=/</<=`, and/or/not)
   cut the corpus BEFORE any paid stage: `where 'text has "ERROR"' | filter …`.
   Streams, passthrough-verbatim, missing fields evaluate false but are
@@ -230,7 +233,7 @@ estimated dollars.
   server-side strict mode. Constraints stay in the DSL/file — the unknown-type
   error says exactly that. filter/reduce/join braces stay bare input
   references.
-- **`sempipe chart`: bars in the terminal, SVG on disk, zero dependencies.**
+- **`smartpipe chart`: bars in the terminal, SVG on disk, zero dependencies.**
   `… | map "Extract {label}" | chart label` draws ranked unicode bars from
   NDJSON (or tallies plain lines); `--save labels.svg --title "…"` writes a
   standalone SVG via svgwrite behind the `[charts]` extra (a library, not
@@ -287,8 +290,8 @@ estimated dollars.
 - **Config profiles (D30).** Named bundles of the existing config keys, three
   shipped presets (`openai`, `gemini`, `local` — the local one on
   `ollama/gemma-4-e2b`, the multimodal 2.3B-effective model), user tables via
-  `[profiles.NAME]`, `sempipe config profile [NAME]` to list/switch,
-  `SEMPIPE_PROFILE` for one-offs, and the interactive `sempipe config` now
+  `[profiles.NAME]`, `smartpipe config profile [NAME]` to list/switch,
+  `SMARTPIPE_PROFILE` for one-offs, and the interactive `smartpipe config` now
   opens with a pick-a-profile question on fresh setups. Direct keys beat the
   profile; profiles never hold secrets (a key inside one is rejected loudly).
 - **`join` handles oversized sides (W3).** No more skipping: an oversized left
@@ -350,7 +353,7 @@ estimated dollars.
 - **The oversize stack (D26): probe, bisect, split.** Context windows are now
   *probed* when an input looks too big (Ollama, Mistral, Gemini, and OpenRouter
   publish theirs — live, Gemini's probe widens the budget 8x past the table
-  floor; `SEMPIPE_CONTEXT_TOKENS` overrides everything). `reduce` self-corrects
+  floor; `SMARTPIPE_CONTEXT_TOKENS` overrides everything). `reduce` self-corrects
   when every estimate lies: a chunk the wire rejects splits in half and
   retries, so the token estimator is a hint, not a correctness dependency. And
   the new **`split` verb** turns one oversized item into provenance-carrying
@@ -370,7 +373,7 @@ estimated dollars.
 ### Changed
 - **Audio transcription is now local (faster-whisper).** The `[audio]` extra
   swaps Google's Web Speech API for a local Whisper model (`tiny` by default,
-  `SEMPIPE_WHISPER_MODEL=small|medium|large-v3` to trade speed for accuracy;
+  `SMARTPIPE_WHISPER_MODEL=small|medium|large-v3` to trade speed for accuracy;
   first use downloads the weights once). Audio bytes never leave the machine
   on the fallback path. Verified end to end on synthesized speech.
 - **Honest audio-transcription disclosure.** The `[audio]` extra's transcriber
@@ -391,7 +394,7 @@ validated by gates AND — where a wire exists — by live calls against real
 endpoints, which caught and fixed four real bugs along the way.
 
 ### Added
-- **Prompts from files (D23).** `sempipe map @prompt.md` reads the prompt from
+- **Prompts from files (D23).** `smartpipe map @prompt.md` reads the prompt from
   a file (`--prompt-file FILE` is the explicit form; the `.sem` key
   `prompt-file` resolves beside the script). Only a *leading* `@` is special
   (`@@` escapes it; `$file` was rejected — the shell eats it silently, the
@@ -413,11 +416,11 @@ endpoints, which caught and fixed four real bugs along the way.
   English guidance riding the synthesized schema, map only);
   `--schema-from "vendor string; total number >= 0; status enum(paid, unpaid)"`
   — a deterministic DSL parsed with zero model calls, typos fail free at argv
-  time; and `sempipe schema "an invoice with …" > invoice.json` — a drafted
+  time; and `smartpipe schema "an invoice with …" > invoice.json` — a drafted
   schema file (one call + one repair, meta-validated; a failed draft exits 3
   with **empty stdout**, so a broken schema can never slip into a pipe).
   Braces never grow type syntax — descriptions in braces, types in the DSL.
-- **Native audio Q&A (D20).** `sempipe map "what does the caller want?" --in
+- **Native audio Q&A (D20).** `smartpipe map "what does the caller want?" --in
   'calls/*.wav'` sends the *sound itself* to models that can hear
   (`gpt-4o-audio-preview`-family, Voxtral — wav/mp3 as `input_audio` parts,
   byte-verified); models that can't trigger a transcription fallback when the
@@ -426,7 +429,7 @@ endpoints, which caught and fixed four real bugs along the way.
   on demand instead of eagerly at read time. All of it lands on the one media
   union (`Item.media`), so vision behavior is byte-identical — and the whole
   audio diff came in *smaller* than vision's, as the constitution demands.
-- **`sempipe join` — the sixth semantic verb (D21).** Match stdin against a
+- **`smartpipe join` — the sixth semantic verb (D21).** Match stdin against a
   second input wherever a plain-English predicate holds:
   `join "{left.text} concerns {right.name}" --right products.jsonl`. Embed →
   block → judge keeps cost at lines×k (default k=5) instead of lines×catalog;
@@ -435,7 +438,7 @@ endpoints, which caught and fixed four real bugs along the way.
   (live enrichment). Output nests `{"left", "right", "_score"}` per matched
   pair; `--fields` grows dotted paths. `make join-eval` publishes the recall@k
   table that justifies the default, and the docs teach the `--k 20` spot-check.
-- **`sempipe doctor`** — every no-cost setup check on one screen: config parses,
+- **`smartpipe doctor`** — every no-cost setup check on one screen: config parses,
   Ollama reachable, configured chat/embed models installed, API keys present
   (never printed, never validated — validation costs a call), ChatGPT login,
   optional extras, shell completions. Each ✗ carries its fix; exit 0 all-green,
@@ -445,17 +448,17 @@ endpoints, which caught and fixed four real bugs along the way.
   drain gracefully (`note: stopped by --max-calls (N calls made)`); whole-set
   `top_k`/`reduce` treat mid-collection exhaustion as fatal with a fix screen —
   a partial collection is nothing usable. A capped run never exits 0. Also
-  `SEMPIPE_MAX_CALLS` and the `.sem` key `max-calls`.
+  `SMARTPIPE_MAX_CALLS` and the `.sem` key `max-calls`.
 - **Mistral, first-class.** `--model mistral-large-latest` (or any of the
   family's bare prefixes — `ministral-*`, `codestral-*`, `magistral-*`,
   `devstral-*`, `pixtral-*`, `open-mistral-*`, `open-mixtral-*`) just works:
   routing, `MISTRAL_API_KEY`, `mistral-embed` embeddings, `pixtral-*` vision,
   structured output, and the same retry/`Retry-After` resilience — all on the
-  built-in OpenAI-wire adapter, no extra install. `SEMPIPE_MISTRAL_BASE_URL`
+  built-in OpenAI-wire adapter, no extra install. `SMARTPIPE_MISTRAL_BASE_URL`
   redirects it; `hf.co/mistralai/...` still routes to Ollama, untouched.
-- **`.sem` stage files + `sempipe run`.** Save one verb invocation as TOML
+- **`.sem` stage files + `smartpipe run`.** Save one verb invocation as TOML
   (`verb = "map"`, `prompt = …`, the verb's flags as keys) and execute it with
-  `sempipe run stage.sem` — or add `#!/usr/bin/env -S sempipe run`, `chmod +x`,
+  `smartpipe run stage.sem` — or add `#!/usr/bin/env -S smartpipe run`, `chmod +x`,
   and pipe stages together like any other command. CLI flags override the
   file's values; `schema-file` resolves next to the script; unknown keys are
   loud errors (scripts run unattended — unlike config.toml's forward-compat
@@ -466,28 +469,28 @@ endpoints, which caught and fixed four real bugs along the way.
   `embed`, `top_k`, and `reduce` (never `filter` — its output stays byte-faithful).
   A field the results don't carry keeps its place (null / empty cell) with a
   one-time stderr warning; on a plain-text run the flag is a clear usage error.
-- **Shell completions** for bash, zsh, and fish (click's `_SEMPIPE_COMPLETE`
+- **Shell completions** for bash, zsh, and fish (click's `_SMARTPIPE_COMPLETE`
   machinery; setup one-liners in the install docs). `--model`, `--embed-model`,
   and `config model`/`config embed-model` complete with your configured model
   plus the locally installed Ollama models — probed with a 150 ms cap so `<TAB>`
   never hangs, and any probe failure just means no suggestions.
-- **Log in with ChatGPT.** `sempipe auth login` (browser PKCE, or `--headless`
+- **Log in with ChatGPT.** `smartpipe auth login` (browser PKCE, or `--headless`
   device codes) lets ChatGPT Plus/Pro subscribers use OpenAI's Codex-family models
-  without an API key. Tokens live in `~/.config/sempipe/auth.json` (0600,
-  self-refreshing, `sempipe auth logout` removes them); an exported
+  without an API key. Tokens live in `~/.config/smartpipe/auth.json` (0600,
+  self-refreshing, `smartpipe auth logout` removes them); an exported
   `OPENAI_API_KEY` always takes precedence. Embeddings still need a key or a
-  local model — sempipe says so instead of failing cryptically.
+  local model — smartpipe says so instead of failing cryptically.
 - **Vision.** Images (`--in 'photos/*.jpg'`, or one redirected to stdin) flow to
   the chat model as images — describe them, or extract `{fields}` from them —
   across all three providers. Non-vision models skip the item with a hint; the
   other verbs point you to `map`.
-- **Binary stdin.** `sempipe map "Summarize" < report.pdf` works: the bytes are
+- **Binary stdin.** `smartpipe map "Summarize" < report.pdf` works: the bytes are
   sniffed, spooled, and parsed as one document item. Unrecognizable binary input
   stops with a clear screen instead of garbling.
 - **Mixed input.** `--in` now composes with a pipe: files first (glob-sorted),
   then stdin lines, one run.
 - **Streaming, flag-free.** `map`, `filter`, and `embed` now read stdin
-  incrementally — `tail -f app.log | sempipe filter "…"` just works, with results
+  incrementally — `tail -f app.log | smartpipe filter "…"` just works, with results
   flowing out as lines arrive and a count+rate status line (`· N matched` for
   filter). Finite-input behavior is byte-identical to 1.0.
 - **`reduce --window N [--every M]`** — rolling synthesis over a stream: one
@@ -497,10 +500,10 @@ endpoints, which caught and fixed four real bugs along the way.
 - **`top_k K --stream --near "…"`** — the live leaderboard: repaints the top-K
   block in place at a terminal; in a pipe, emits an NDJSON snapshot (a
   `{"_snapshot": n}` marker + K ranked records) whenever membership changes.
-- **`sempipe cite`** — print a copy-paste BibTeX entry; `CITATION.cff` ships in the
+- **`smartpipe cite`** — print a copy-paste BibTeX entry; `CITATION.cff` ships in the
   repo (GitHub's "Cite this repository" reads it) and in the sdist.
 - **Unix death done right.** Downstream closing the pipe (`… | head`) now kills
-  sempipe instantly and silently with the conventional exit 141 — never the BUG
+  smartpipe instantly and silently with the conventional exit 141 — never the BUG
   screen. The first Ctrl-C on `map`/`filter`/`embed` stops intake, drains in-flight
   work (10 s cap), emits completed results in order, prints a
   `done: interrupted — N processed · M skipped` summary, and exits with the run's
@@ -514,16 +517,16 @@ endpoints, which caught and fixed four real bugs along the way.
   successes also halt (a run that never worked was doomed from item 1); one
   success anywhere disarms that rule, so a working run with a bad patch of
   input still survives on the ordinary >50 % policy.
-- **Optional-field schemas no longer 400 on OpenAI/Mistral.** sempipe claimed
+- **Optional-field schemas no longer 400 on OpenAI/Mistral.** smartpipe claimed
   `strict: true` structured output unconditionally; strict mode rejects any
   schema whose fields aren't all required (with `additionalProperties: false`),
   so a `--schema` with optional fields skipped every item for the wrong reason.
   Strictness is now claimed only when the schema qualifies; either way, replies
   are validated client-side with one repair retry.
-- **Config edits are atomic and lossless (except comments).** `sempipe config
+- **Config edits are atomic and lossless (except comments).** `smartpipe config
   model …` now rewrites `config.toml` via a same-directory temp file +
   `os.replace` (a concurrent reader can never see a torn file), and keys it
-  doesn't know survive the rewrite — an older sempipe no longer strips a newer
+  doesn't know survive the rewrite — an older smartpipe no longer strips a newer
   one's settings. Comments still don't survive (tomli-w can't round-trip them;
   the CLI reference says so).
 - **CJK-safe alignment.** `config show` columns and the terminal view's value
@@ -551,7 +554,7 @@ endpoints, which caught and fixed four real bugs along the way.
   (seconds or HTTP-date) now sleeps the server's number — no jitter, capped at a
   60 s abuse ceiling — instead of guessing with exponential backoff. Ollama and
   OpenAI-compatible endpoints; the Anthropic SDK already did this itself.
-- **Startup stays fast, now enforced.** `sempipe --help` no longer imports
+- **Startup stays fast, now enforced.** `smartpipe --help` no longer imports
   `httpx` or `jsonschema` (they load only when a command actually runs);
   an `importtime`-based test gates it in CI and `make startup` reports the
   advisory wall-clock number (~64 ms median locally).
@@ -614,7 +617,7 @@ Documents become items — point any verb at files.
 - **File inputs** — `--in 'reports/*.pdf'` reads each matching file as one item;
   `--from-files` treats each stdin line as a filename. Works with every verb.
 - **Automatic parsing** — you never name a parser. Text files read directly; PDF,
-  DOCX, PPTX, XLSX, HTML, and EPUB extract via the optional `sempipe[files]` extra;
+  DOCX, PPTX, XLSX, HTML, and EPUB extract via the optional `smartpipe[files]` extra;
   detection is by extension with a magic-byte fallback. Unreadable, unparseable, or
   unsupported files are skipped with a warning — a bad file never crashes the run.
   Missing an extra shows one-time install guidance, then skips those files.
@@ -625,15 +628,15 @@ Documents become items — point any verb at files.
 
 ### Not yet
 - Describing images with a vision model, and reading a single binary file from
-  stdin (`sempipe map … < report.pdf`), are planned for a following release.
+  stdin (`smartpipe map … < report.pdf`), are planned for a following release.
 
 ## [0.4.0] — 2026-07-05
 
-The last of the five verbs — sempipe's full vocabulary now works end to end.
+The last of the five verbs — smartpipe's full vocabulary now works end to end.
 
 ### Added
-- **`sempipe reduce`** — synthesize all input items into one result. When the input
-  exceeds the model's context, sempipe **automatically** chunks it, summarizes each
+- **`smartpipe reduce`** — synthesize all input items into one result. When the input
+  exceeds the model's context, smartpipe **automatically** chunks it, summarizes each
   chunk into dense notes, and recurses on the notes — no flags, no strategy to pick.
   `--group-by FIELD` produces one result per group (with `{field}` naming the
   group's value in the prompt); `--schema` validates the final result (same one-shot
@@ -644,10 +647,10 @@ The last of the five verbs — sempipe's full vocabulary now works end to end.
 ## [0.3.0] — 2026-07-05
 
 ### Added
-- **`sempipe embed`** — convert each item to a vector embedding, emitted as NDJSON
+- **`smartpipe embed`** — convert each item to a vector embedding, emitted as NDJSON
   (`{text, vector, source}`). Uses the embedding model (never a chat model);
   redirect to a file to reuse. `--embed-model`, `--concurrency`.
-- **`sempipe top_k`** — rank items by cosine similarity to `--near`, keeping the
+- **`smartpipe top_k`** — rank items by cosine similarity to `--near`, keeping the
   top `K` and/or everything above `--threshold` (each result gains a `_score`).
   Reuses a precomputed `vector` from an `embed` record instead of re-embedding, so
   a corpus can be embedded once and queried many times. A query/corpus embedding
@@ -657,7 +660,7 @@ The last of the five verbs — sempipe's full vocabulary now works end to end.
 ## [0.2.0] — 2026-07-05
 
 ### Added
-- **`sempipe filter`** — semantic grep. Keeps the items that match a plain-English
+- **`smartpipe filter`** — semantic grep. Keeps the items that match a plain-English
   condition, byte-for-byte unchanged and in input order (a strict subset of the
   input). `--not` inverts, like `grep -v`. `{field}` references pull values out of
   JSON Lines input (`"{priority} is wrong given {description}"`); comma-groups are
@@ -668,19 +671,19 @@ The last of the five verbs — sempipe's full vocabulary now works end to end.
 
 ## [0.1.0] — 2026-07-05
 
-The first release: `sempipe map` works end to end, local-first.
+The first release: `smartpipe map` works end to end, local-first.
 
 ### Added
-- **`sempipe map`** — transform each input item with a prompt. Plain-text mode
+- **`smartpipe map`** — transform each input item with a prompt. Plain-text mode
   (one line in, one line out) and structured mode: put `{field}` names in the
   prompt (or pass `--schema file.json`) to get validated JSON back. A reply that
   fails schema validation is repaired once (re-asking the model with the error)
   before the item is skipped. `--model`, `--output`, `--concurrency` flags.
-- **`sempipe config`** — interactive first-run setup, plus `config show` (effective
+- **`smartpipe config`** — interactive first-run setup, plus `config show` (effective
   settings with their origin), `config model`, and `config embed-model`.
 - **Local-first models** — talks to a running Ollama by default (with model
-  autodetection); any OpenAI-compatible endpoint via `--model`/`SEMPIPE_OPENAI_BASE_URL`;
-  Claude via the optional `sempipe[anthropic]` extra. API keys are read from the
+  autodetection); any OpenAI-compatible endpoint via `--model`/`SMARTPIPE_OPENAI_BASE_URL`;
+  Claude via the optional `smartpipe[anthropic]` extra. API keys are read from the
   environment, never stored.
 - **Unix-native behavior** — results to stdout, diagnostics to stderr; TTY-adaptive
   output (human-readable at a terminal, NDJSON when piped); order-preserving

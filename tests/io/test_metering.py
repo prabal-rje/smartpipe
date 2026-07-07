@@ -7,8 +7,8 @@ import wave
 
 import pytest
 
-from sempipe.io import metering
-from sempipe.models.base import AudioData, ImageData
+from smartpipe.io import metering
+from smartpipe.models.base import AudioData, ImageData
 
 
 @pytest.fixture(autouse=True)

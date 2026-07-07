@@ -5,21 +5,21 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, ItemError, SetupFault
-from sempipe.io.writers import (
+from smartpipe.core.errors import ExitCode, ItemError, SetupFault
+from smartpipe.io.writers import (
     OutputFormat,
     RenderMode,
     WriterConfig,
     make_writer,
 )
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.verbs.map import MapRequest, run_map
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.verbs.map import MapRequest, run_map
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import TextIO
 
-    from sempipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter
 
 
 # --- fakes --------------------------------------------------------------------
@@ -195,7 +195,7 @@ class _Tty(io.StringIO):
 
 
 async def test_terminal_stdin_is_a_usage_fault() -> None:
-    from sempipe.core.errors import UsageFault
+    from smartpipe.core.errors import UsageFault
 
     model = FakeChat(replies=["x"])
     with pytest.raises(UsageFault, match="terminal"):

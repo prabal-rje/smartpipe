@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.engine.schema import is_strict_compatible
-from sempipe.engine.schema_dsl import dsl_to_schema
+from smartpipe.core.errors import UsageFault
+from smartpipe.engine.schema import is_strict_compatible
+from smartpipe.engine.schema_dsl import dsl_to_schema
 
 
 def test_the_flagship_example() -> None:
@@ -25,7 +25,7 @@ def test_the_flagship_example() -> None:
 
 
 def test_every_type_maps() -> None:
-    from sempipe.core.jsontools import as_record
+    from smartpipe.core.jsontools import as_record
 
     schema = dsl_to_schema("a string; b number; c integer; d boolean; e string[]; f number[]")
     properties = as_record(schema["properties"])
@@ -37,7 +37,7 @@ def test_every_type_maps() -> None:
 
 
 def test_string_length_constraints() -> None:
-    from sempipe.core.jsontools import as_record
+    from smartpipe.core.jsontools import as_record
 
     schema = dsl_to_schema("summary string minLength=1 maxLength=280")
     properties = as_record(schema["properties"])

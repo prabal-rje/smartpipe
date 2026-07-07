@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode
-from sempipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
-from sempipe.verbs.split import SplitRequest, run_split
+from smartpipe.core.errors import ExitCode
+from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
+from smartpipe.verbs.split import SplitRequest, run_split
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,7 +37,7 @@ class _TtyStdin(io.StringIO):
 async def test_small_file_passes_through_whole(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from sempipe.io.inputs import InputSpec
+    from smartpipe.io.inputs import InputSpec
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "note.md").write_text("short and sweet", encoding="utf-8")
@@ -56,7 +56,7 @@ async def test_small_file_passes_through_whole(
 async def test_big_file_becomes_provenance_chunks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from sempipe.io.inputs import InputSpec
+    from smartpipe.io.inputs import InputSpec
 
     monkeypatch.chdir(tmp_path)
     paragraphs = "\n\n".join(f"paragraph {i} " + "x" * 100 for i in range(20))
@@ -129,7 +129,7 @@ def _minimal_pdf(pages: list[str]) -> bytes:
 
 
 async def test_by_pages_yields_page_spans(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from sempipe.io.inputs import InputSpec
+    from smartpipe.io.inputs import InputSpec
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "r.pdf").write_bytes(_minimal_pdf(["alpha page", "beta page", "gamma page"]))
@@ -154,7 +154,7 @@ async def test_by_seconds_slices_audio_with_clock_provenance(
     import struct
     import wave
 
-    from sempipe.io.inputs import InputSpec
+    from smartpipe.io.inputs import InputSpec
 
     monkeypatch.chdir(tmp_path)
     with wave.open(str(tmp_path / "call.wav"), "w") as w:
@@ -186,7 +186,7 @@ async def test_by_seconds_slices_audio_with_clock_provenance(
 async def test_by_pages_on_docx_is_a_loud_skip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from sempipe.io.inputs import InputSpec
+    from smartpipe.io.inputs import InputSpec
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "r.docx").write_bytes(b"PK\x03\x04fake")
@@ -205,8 +205,8 @@ async def test_sliced_audio_round_trips_into_hearable_items() -> None:
     # the pipeline promise: split --by seconds | map can HEAR each slice
     import base64
 
-    from sempipe.io.items import item_from_line
-    from sempipe.models.base import AudioData
+    from smartpipe.io.items import item_from_line
+    from smartpipe.models.base import AudioData
 
     payload = base64.b64encode(b"RIFFfakewav").decode("ascii")
     line = (
@@ -216,7 +216,7 @@ async def test_sliced_audio_round_trips_into_hearable_items() -> None:
     assert len(item.media) == 1 and isinstance(item.media[0], AudioData)
     assert item.media[0].data == b"RIFFfakewav"
     assert item.media[0].mime == "audio/wav"
-    from sempipe.io.items import describe_source
+    from smartpipe.io.items import describe_source
 
     assert describe_source(item.source) == "call.wav §00:00-00:02"
 
@@ -269,7 +269,7 @@ async def test_media_extracts_docx_images_and_drops_icons(
 ) -> None:
     import base64
 
-    from sempipe.io.inputs import InputSpec
+    from smartpipe.io.inputs import InputSpec
 
     monkeypatch.chdir(tmp_path)
     real = b"\x89PNG\r\n\x1a\n" + b"x" * 9_000  # past the floor
@@ -296,7 +296,7 @@ async def test_media_extracts_pdf_jpegs_with_page_provenance(
 ) -> None:
     import base64
 
-    from sempipe.io.inputs import InputSpec
+    from smartpipe.io.inputs import InputSpec
 
     monkeypatch.chdir(tmp_path)
     jpeg = b"\xff\xd8\xff\xe0" + b"j" * 8_000 + b"\xff\xd9"  # passthrough, never decoded
@@ -317,8 +317,8 @@ async def test_media_extracts_pdf_jpegs_with_page_provenance(
 async def test_media_image_items_round_trip_into_vision_items() -> None:
     import base64
 
-    from sempipe.io.items import item_from_line
-    from sempipe.models.base import ImageData
+    from smartpipe.io.items import item_from_line
+    from smartpipe.models.base import ImageData
 
     line = (
         '{"image_b64": "'
@@ -335,9 +335,9 @@ async def test_pages_media_fuses_text_and_figures_per_page(
 ) -> None:
     import base64
 
-    from sempipe.io.inputs import InputSpec
-    from sempipe.io.items import item_from_line
-    from sempipe.models.base import ImageData
+    from smartpipe.io.inputs import InputSpec
+    from smartpipe.io.items import item_from_line
+    from smartpipe.models.base import ImageData
 
     monkeypatch.chdir(tmp_path)
     jpeg = b"\xff\xd8\xff\xe0" + b"j" * 8_000 + b"\xff\xd9"
@@ -367,15 +367,15 @@ async def test_pages_media_fuses_text_and_figures_per_page(
 async def test_doc_items_carry_figures_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from sempipe.io.inputs import InputSpec
-    from sempipe.io.readers import resolve_items
-    from sempipe.models.base import ImageData
+    from smartpipe.io.inputs import InputSpec
+    from smartpipe.io.readers import resolve_items
+    from smartpipe.models.base import ImageData
 
     monkeypatch.chdir(tmp_path)
     real = b"\x89PNG\r\n\x1a\n" + b"x" * 9_000
     _docx_with_media(tmp_path / "deck.docx", {"image1.png": real})
-    from sempipe.io import readers
-    from sempipe.parsing.extract import Extracted
+    from smartpipe.io import readers
+    from smartpipe.parsing.extract import Extracted
 
     def fake_extract(path: object, kind: object) -> Extracted:
         # 64+ chars: a REAL text layer — the plain figure note, not the scan route

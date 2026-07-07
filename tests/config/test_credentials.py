@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.config.credentials import OAuthCredential, load_oauth, remove_oauth, save_oauth
-from sempipe.core.errors import SetupFault
+from smartpipe.config.credentials import OAuthCredential, load_oauth, remove_oauth, save_oauth
+from smartpipe.core.errors import SetupFault
 
 if TYPE_CHECKING:
     from pathlib import Path

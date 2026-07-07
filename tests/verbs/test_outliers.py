@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, UsageFault
-from sempipe.models.base import ChatModel, ModelRef
-from sempipe.verbs.outliers import OutliersRequest, run_outliers
+from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.models.base import ChatModel, ModelRef
+from smartpipe.verbs.outliers import OutliersRequest, run_outliers
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

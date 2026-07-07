@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.models.http_support import is_retryable_http, retry_after_seconds
-from sempipe.models.retry import RetryPolicy, with_retries
+from smartpipe.models.http_support import is_retryable_http, retry_after_seconds
+from smartpipe.models.retry import RetryPolicy, with_retries
 
 if TYPE_CHECKING:
     import respx

@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.engine.prompts import BraceToken, parse_prompt, plan_map, to_instruction
-from sempipe.engine.schema import is_strict_compatible
+from smartpipe.core.errors import UsageFault
+from smartpipe.engine.prompts import BraceToken, parse_prompt, plan_map, to_instruction
+from smartpipe.engine.schema import is_strict_compatible
 
 
 def _schema(prompt: str) -> dict[str, object]:
@@ -18,7 +18,7 @@ def _schema(prompt: str) -> dict[str, object]:
 
 
 def _properties(prompt: str) -> dict[str, object]:
-    from sempipe.core.jsontools import as_record
+    from smartpipe.core.jsontools import as_record
 
     properties = as_record(_schema(prompt)["properties"])
     assert properties is not None
@@ -166,7 +166,7 @@ def test_type_without_a_name_is_an_error() -> None:
 
 def test_duplicate_field_same_type_dedupes() -> None:
     schema = _schema("Compare {a string} against {a string}")
-    from sempipe.core.jsontools import as_items
+    from smartpipe.core.jsontools import as_items
 
     required = as_items(schema["required"])
     assert required is not None

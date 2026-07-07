@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.engine.aggregate import GroupState, finish, fold, group_key, parse_summarize
+from smartpipe.core.errors import UsageFault
+from smartpipe.engine.aggregate import GroupState, finish, fold, group_key, parse_summarize
 
 
 def _summarize(expression: str, records: list[dict[str, object]]) -> list[dict[str, object]]:

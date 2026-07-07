@@ -6,16 +6,16 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.core.errors import ItemError, SetupFault
-from sempipe.models.base import CompletionRequest, parse_model_ref
-from sempipe.models.openai_compat import (
+from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.models.base import CompletionRequest, parse_model_ref
+from smartpipe.models.openai_compat import (
     MISTRAL_WIRE,
     OpenAIChatModel,
     OpenAIEmbeddingModel,
     require_api_key,
     resolve_base_url,
 )
-from sempipe.models.retry import RetryPolicy
+from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -45,7 +45,7 @@ def _chat(client: httpx.AsyncClient) -> OpenAIChatModel:
 def test_resolve_base_url() -> None:
     assert resolve_base_url({}) == "https://api.openai.com"
     assert (
-        resolve_base_url({"SEMPIPE_OPENAI_BASE_URL": "https://api.groq.com/openai/"})
+        resolve_base_url({"SMARTPIPE_OPENAI_BASE_URL": "https://api.groq.com/openai/"})
         == "https://api.groq.com/openai"
     )
 
@@ -301,7 +301,7 @@ async def test_mistral_rejected_key_names_the_right_env_vars(
         await _mistral_chat(client).complete(CompletionRequest(system=None, user="x"))
     message = str(excinfo.value)
     assert "MISTRAL_API_KEY" in message
-    assert "SEMPIPE_MISTRAL_BASE_URL" in message
+    assert "SMARTPIPE_MISTRAL_BASE_URL" in message
 
 
 def test_mistral_missing_key_screen_points_at_the_console() -> None:

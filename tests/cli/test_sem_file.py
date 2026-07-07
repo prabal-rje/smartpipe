@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from sempipe.cli.sem_file import parse_sem
-from sempipe.core.errors import UsageFault
+from smartpipe.cli.sem_file import parse_sem
+from smartpipe.core.errors import UsageFault
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "sem"
 
@@ -284,7 +284,7 @@ expression = "count()"
 
 
 def test_pipeline_parses_stages_in_order(tmp_path: Path) -> None:
-    from sempipe.cli.sem_file import parse_pipeline
+    from smartpipe.cli.sem_file import parse_pipeline
 
     stages = parse_pipeline(_pipeline_file(tmp_path, PIPELINE))
     assert stages is not None
@@ -294,7 +294,7 @@ def test_pipeline_parses_stages_in_order(tmp_path: Path) -> None:
 
 
 def test_single_stage_files_return_none(tmp_path: Path) -> None:
-    from sempipe.cli.sem_file import parse_pipeline
+    from smartpipe.cli.sem_file import parse_pipeline
 
     path = tmp_path / "one.sem"
     path.write_text('verb = "where"\npredicate = "total > 1"\n', encoding="utf-8")
@@ -304,20 +304,20 @@ def test_single_stage_files_return_none(tmp_path: Path) -> None:
 def test_input_must_name_an_earlier_stage(tmp_path: Path) -> None:
     body = PIPELINE.replace('expression = "count()"', 'expression = "count()"\ninput = "later"')
     with pytest.raises(UsageFault, match="EARLIER stage"):
-        from sempipe.cli.sem_file import parse_pipeline
+        from smartpipe.cli.sem_file import parse_pipeline
 
         parse_pipeline(_pipeline_file(tmp_path, body))
 
 
 def test_mixing_top_level_keys_with_stages_is_a_fault(tmp_path: Path) -> None:
-    from sempipe.cli.sem_file import parse_pipeline
+    from smartpipe.cli.sem_file import parse_pipeline
 
     with pytest.raises(UsageFault, match="pick one shape"):
         parse_pipeline(_pipeline_file(tmp_path, 'verb = "map"\nprompt = "x"\n' + PIPELINE))
 
 
 def test_stage_keys_are_checked_like_single_stage(tmp_path: Path) -> None:
-    from sempipe.cli.sem_file import parse_pipeline
+    from smartpipe.cli.sem_file import parse_pipeline
 
     body = PIPELINE.replace("predicate = ", "typo = 1\npredicate = ")
     with pytest.raises(UsageFault, match="unknown key 'typo'"):

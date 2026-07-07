@@ -5,15 +5,15 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import ItemError, UsageFault
-from sempipe.engine.prompts import (
+from smartpipe.core.errors import ItemError, UsageFault
+from smartpipe.engine.prompts import (
     JOIN_JUDGE_SYSTEM,
     JUDGE_SCHEMA,
     build_judge_request,
     interpolate_join,
     parse_join_predicate,
 )
-from sempipe.io.items import item_from_line
+from smartpipe.io.items import item_from_line
 
 
 def _json_item(payload: str, index: int = 0):

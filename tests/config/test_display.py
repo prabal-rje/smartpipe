@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from sempipe.config.display import Setting, render_show, settings_with_origin
-from sempipe.config.store import Config
-from sempipe.io.text import display_width
+from smartpipe.config.display import Setting, render_show, settings_with_origin
+from smartpipe.config.store import Config
+from smartpipe.io.text import display_width
 
 
 def test_origins_default_when_nothing_set() -> None:
@@ -22,7 +22,7 @@ def test_config_file_origin() -> None:
 
 
 def test_env_origin_wins_over_config() -> None:
-    env = {"SEMPIPE_MODEL": "gpt-4o-mini", "SEMPIPE_CONCURRENCY": "8"}
+    env = {"SMARTPIPE_MODEL": "gpt-4o-mini", "SMARTPIPE_CONCURRENCY": "8"}
     by_key = {s.key: s for s in settings_with_origin(env, Config(model="ollama/x"))}
     assert by_key["model"] == Setting("model", "gpt-4o-mini", "env")
     assert by_key["concurrency"] == Setting("concurrency", "8", "env")
@@ -30,20 +30,20 @@ def test_env_origin_wins_over_config() -> None:
 
 def test_render_show_is_aligned_and_ends_with_file_path() -> None:
     config = Config(model="ollama/qwen3:8b", embed_model="nomic-embed-text")
-    path = "/home/u/.config/sempipe/config.toml"
+    path = "/home/u/.config/smartpipe/config.toml"
     rendered = render_show(settings_with_origin({}, config), path)
     lines = rendered.splitlines()
     assert lines[0] == "model        ollama/qwen3:8b   (config file)"
     assert lines[1] == "embed-model  nomic-embed-text  (config file)"
     assert lines[2] == "concurrency  4                 (default)"
     assert lines[3] == "output       auto              (default)"
-    assert lines[4] == "config file  /home/u/.config/sempipe/config.toml"
+    assert lines[4] == "config file  /home/u/.config/smartpipe/config.toml"
 
 
 def test_render_show_aligns_cjk_values_by_display_width() -> None:
     # DEFER-2: a Wide value must not push its origin column out of line
     config = Config(model="ollama/日本語モデル", embed_model="nomic-embed-text")
-    rendered = render_show(settings_with_origin({}, config), "~/.config/sempipe/config.toml")
+    rendered = render_show(settings_with_origin({}, config), "~/.config/smartpipe/config.toml")
     lines = rendered.splitlines()
     cells_before_origin = {display_width(line[: line.index("(")]) for line in lines[:4]}
     assert len(cells_before_origin) == 1  # every origin starts in the same terminal cell

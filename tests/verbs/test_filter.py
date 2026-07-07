@@ -7,16 +7,16 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.core.errors import ExitCode, ItemError, UsageFault
-from sempipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.verbs.filter import FilterRequest, run_filter
+from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.verbs.filter import FilterRequest, run_filter
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import TextIO
 
-    from sempipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter
 
 
 class FakeChat:

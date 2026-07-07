@@ -18,7 +18,7 @@ EMBED = "http://localhost:11434/api/embed"
 
 @pytest.fixture(autouse=True)
 def embed_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SEMPIPE_EMBED_MODEL", "ollama/nomic-embed-text")
+    monkeypatch.setenv("SMARTPIPE_EMBED_MODEL", "ollama/nomic-embed-text")
 
 
 def _embeddings(*vectors: list[float]) -> httpx.Response:

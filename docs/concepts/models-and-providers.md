@@ -58,7 +58,7 @@ Any *other* OpenAI-compatible endpoint — Groq, OpenRouter, a local llama.cpp
 server — works by pointing smartpipe at it:
 
 ```console
-$ export SEMPIPE_OPENAI_BASE_URL=https://api.groq.com/openai
+$ export SMARTPIPE_OPENAI_BASE_URL=https://api.groq.com/openai
 ```
 
 ## Log in with ChatGPT (no API key)
@@ -77,7 +77,7 @@ What to know:
 - **Precedence:** an exported `OPENAI_API_KEY` always wins over a login — a key is
   an explicit, billable choice. Unset it to use your plan.
 - **No embeddings:** `embed`/`top_k` need an API key or a local model.
-- **Where tokens live:** `~/.config/sempipe/auth.json`, permissions `0600`,
+- **Where tokens live:** `~/.config/smartpipe/auth.json`, permissions `0600`,
   refreshed automatically, removed with `smartpipe auth logout`. (API keys are still
   never stored — this file holds only login tokens.)
 - **Why no login for Anthropic/Mistral:** they don't offer one to third-party
@@ -93,7 +93,7 @@ There is deliberately no `--auth` knob and no `--api-key`/`--base-url` flags
 ```console
 $ OPENAI_API_KEY=sk-... smartpipe map …          # force the key path
 $ env -u OPENAI_API_KEY smartpipe map …          # force the ChatGPT login path
-$ SEMPIPE_OPENAI_BASE_URL=https://… smartpipe …  # point the wire elsewhere
+$ SMARTPIPE_OPENAI_BASE_URL=https://… smartpipe …  # point the wire elsewhere
 ```
 
 ## Gemini rides its native wire (and watches video)
@@ -103,7 +103,7 @@ Gemini chat uses Google's native endpoint, the only wired endpoint that takes
 sends the actual video (visuals and soundtrack heard together, no conversion).
 On every other model the video ladder converts to frames + audio automatically.
 Structured output translates to Gemini's response-schema dialect; embeddings
-stay on the compat wire. `SEMPIPE_GEMINI_BASE_URL` still points both.
+stay on the compat wire. `SMARTPIPE_GEMINI_BASE_URL` still points both.
 
 ## Context windows: probed, not guessed
 
@@ -112,7 +112,7 @@ actually exceeds it, asks the provider for the real number (one cached
 metadata call — Ollama, Mistral, Gemini, and OpenRouter publish it; OpenAI and
 Anthropic don't). A live example: the table floors Gemini at 128k, but the
 probe discovers `gemini-2.5-flash` really holds 1M and widens the budget 8x.
-`SEMPIPE_CONTEXT_TOKENS=32000` overrides everything. And if every estimate is
+`SMARTPIPE_CONTEXT_TOKENS=32000` overrides everything. And if every estimate is
 wrong anyway, `reduce` self-corrects: a chunk the wire rejects as too big is
 split in half and retried (you'll see one note: `splitting further and
 retrying`).
@@ -131,7 +131,7 @@ output) under a name. Three ship built in:
 ```console
 $ smartpipe config profile              # list (the active one marked)
 $ smartpipe config profile local        # switch
-$ SEMPIPE_PROFILE=gemini smartpipe map …  # one-off, no file change (D24: env is the override)
+$ SMARTPIPE_PROFILE=gemini smartpipe map …  # one-off, no file change (D24: env is the override)
 ```
 
 The cloud presets are **multimodal by default**: they set
@@ -164,7 +164,7 @@ $ cat data.txt | smartpipe map "summarize" --model claude-opus-4-8
 When the same setting is specified more than one way, the most specific wins:
 
 ```
---model flag  >  SEMPIPE_MODEL env var  >  config file  >  Ollama autodetect
+--model flag  >  SMARTPIPE_MODEL env var  >  config file  >  Ollama autodetect
 ```
 
 `smartpipe config show` prints each value with its origin, so precedence is never a
@@ -201,7 +201,7 @@ one. Unset, smartpipe picks the sensible strategy automatically:
 | Gemini | the model hears audio natively |
 | Ollama | local whisper (no STT endpoint) |
 
-`SEMPIPE_STT_MODEL` / `stt-model` override the matrix per run or per
+`SMARTPIPE_STT_MODEL` / `stt-model` override the matrix per run or per
 account. Only the openai wire exists today; the key accepts
 `provider/model` so more can land behind the same seam.
 
@@ -212,5 +212,5 @@ account. Only the openai wire exists today; the key accepts
 month, and lifetime — runs, tokens in/out, media, audio time, paid
 conversions. `smartpipe usage reset` zeroes it (printing the previous lifetime
 so the number isn't lost) and remembers the reset time. Only model-touching
-runs count; the ledger lives in `~/.local/state/sempipe/` and never leaves
+runs count; the ledger lives in `~/.local/state/smartpipe/` and never leaves
 your machine.

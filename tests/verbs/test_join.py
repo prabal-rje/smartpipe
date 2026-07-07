@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, ItemError, UsageFault
-from sempipe.io.items import item_from_line
-from sempipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.verbs.join import JoinRequest, run_join
+from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.io.items import item_from_line
+from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.verbs.join import JoinRequest, run_join
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -135,7 +135,7 @@ RIGHT_LINES = ('{"name": "LaserJet 9"}', '{"name": "Espresso One"}')
 
 
 def _side_values(records: list[dict[str, object]], side: str, key: str) -> list[object]:
-    from sempipe.core.jsontools import as_record
+    from smartpipe.core.jsontools import as_record
 
     values: list[object] = []
     for record in records:
@@ -172,7 +172,7 @@ async def test_matches_pair_and_nests_both_sides(tmp_path: Path) -> None:
 async def test_bad_right_file_costs_zero_judge_calls(tmp_path: Path) -> None:
     embed = FakeEmbed({})  # right side can't embed at all
     judge = FakeJudge(matches=[])
-    from sempipe.core.errors import TooManyFailures
+    from smartpipe.core.errors import TooManyFailures
 
     with pytest.raises(TooManyFailures):
         await _run(
@@ -321,7 +321,7 @@ async def test_judge_repair_recovers_an_invalid_verdict(tmp_path: Path) -> None:
 
 
 async def test_five_consecutive_pair_failures_halt_the_doomed_join(tmp_path: Path) -> None:
-    from sempipe.core.errors import TooManyFailures
+    from smartpipe.core.errors import TooManyFailures
 
     embed = FakeEmbed(TABLE)
     judge = FakeJudge(matches=[], poison="Statement")  # poison hits EVERY judge call
@@ -336,8 +336,8 @@ async def test_five_consecutive_pair_failures_halt_the_doomed_join(tmp_path: Pat
 
 
 def test_preview_lines(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    from sempipe.io import tty
-    from sempipe.verbs.join import preview_cost
+    from smartpipe.io import tty
+    from smartpipe.verbs.join import preview_cost
 
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
     preview_cost(total=1204, k=5, index_size=400)
@@ -350,9 +350,9 @@ def test_preview_lines(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFi
 
 
 async def test_ratio_halt_covers_the_pair_book() -> None:
-    from sempipe.core.errors import TooManyFailures
-    from sempipe.engine.runner import FailurePolicy
-    from sempipe.verbs.join import PairBook
+    from smartpipe.core.errors import TooManyFailures
+    from smartpipe.engine.runner import FailurePolicy
+    from smartpipe.verbs.join import PairBook
 
     book = PairBook(
         policy=FailurePolicy(halt_ratio=0.5, min_sample=2, consecutive_limit=99),
@@ -368,7 +368,7 @@ async def test_ratio_halt_covers_the_pair_book() -> None:
 async def test_left_image_item_skips_whole(tmp_path: Path) -> None:
     png = tmp_path / "photo.png"
     png.write_bytes(b"\x89PNG\r\n\x1a\nfake")
-    from sempipe.io.inputs import InputSpec
+    from smartpipe.io.inputs import InputSpec
 
     embed = FakeEmbed(TABLE)
     judge = FakeJudge(matches=[])

@@ -15,7 +15,7 @@ BANNED = {"httpx", "jsonschema", "anthropic", "markitdown"}
 
 def test_help_never_imports_the_heavy_stack() -> None:
     proc = subprocess.run(
-        [sys.executable, "-X", "importtime", "-m", "sempipe", "--help"],
+        [sys.executable, "-X", "importtime", "-m", "smartpipe", "--help"],
         capture_output=True,
         text=True,
         timeout=30,

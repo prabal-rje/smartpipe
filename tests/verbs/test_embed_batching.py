@@ -16,19 +16,19 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from sempipe.core.errors import ExitCode, ItemError, TooManyFailures
-from sempipe.engine.runner import Done, FailurePolicy
-from sempipe.io.inputs import InputSpec
-from sempipe.io.items import item_from_line
-from sempipe.models.base import ChatModel, ModelRef
-from sempipe.verbs.common import batched, embed_in_batches
-from sempipe.verbs.embed import EmbedRequest, run_embed
+from smartpipe.core.errors import ExitCode, ItemError, TooManyFailures
+from smartpipe.engine.runner import Done, FailurePolicy
+from smartpipe.io.inputs import InputSpec
+from smartpipe.io.items import item_from_line
+from smartpipe.models.base import ChatModel, ModelRef
+from smartpipe.verbs.common import batched, embed_in_batches
+from smartpipe.verbs.embed import EmbedRequest, run_embed
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
-    from sempipe.io.items import Item
+    from smartpipe.io.items import Item
 
 
 class BatchFake:
@@ -57,7 +57,7 @@ class FakeContext:
         return self.model
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
-        from sempipe.core.errors import SetupFault
+        from smartpipe.core.errors import SetupFault
 
         raise SetupFault("no chat configured — the converter takes the lower rungs")
 
@@ -227,7 +227,7 @@ async def test_pre_set_stop_reports_interrupted(tmp_path: Path) -> None:
     stop.set()  # the drain fired before the batch began
     model = BatchFake()
     out = io.StringIO()
-    from sempipe.verbs.embed import EmbedRequest as _Req
+    from smartpipe.verbs.embed import EmbedRequest as _Req
 
     code = await run_embed(
         _Req(model_flag=None, concurrency_flag=None, input=_corpus(tmp_path, ["a", "b"])),

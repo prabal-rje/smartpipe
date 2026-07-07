@@ -16,7 +16,7 @@ def test_license_is_apache() -> None:
 
 def test_notice_carries_attribution() -> None:
     notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
-    assert notice.startswith("sempipe")
+    assert notice.startswith("smartpipe")
     assert "Copyright 2026 Prabal Gupta" in notice
 
 

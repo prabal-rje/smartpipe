@@ -5,9 +5,9 @@ from __future__ import annotations
 import io
 from typing import TYPE_CHECKING
 
-from sempipe.core.errors import ExitCode
-from sempipe.engine.chart import render_bars, render_svg
-from sempipe.verbs.chart import ChartRequest, run_chart
+from smartpipe.core.errors import ExitCode
+from smartpipe.engine.chart import render_bars, render_svg
+from smartpipe.verbs.chart import ChartRequest, run_chart
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -87,7 +87,7 @@ def test_facets_stack_sections_in_one_pass() -> None:
 def test_facet_with_field_is_a_usage_fault() -> None:
     import pytest
 
-    from sempipe.core.errors import UsageFault
+    from smartpipe.core.errors import UsageFault
 
     with pytest.raises(UsageFault, match="--facet replaces"):
         run_chart(
@@ -140,7 +140,7 @@ def test_by_time_is_chronological_and_zero_filled() -> None:
 def test_by_time_excludes_field_and_facet() -> None:
     import pytest
 
-    from sempipe.core.errors import UsageFault
+    from smartpipe.core.errors import UsageFault
 
     with pytest.raises(UsageFault, match="--by-time replaces"):
         run_chart(

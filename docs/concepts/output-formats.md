@@ -24,7 +24,7 @@ moment you pipe it into `jq` or a file, it becomes clean NDJSON — no flags nee
 | `csv` | comma-separated, with a header row |
 | `tsv` | tab-separated, with a header row |
 
-You can also set a default with the `SEMPIPE_OUTPUT` environment variable.
+You can also set a default with the `SMARTPIPE_OUTPUT` environment variable.
 
 ## CSV & TSV — for spreadsheet people
 

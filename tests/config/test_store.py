@@ -6,26 +6,26 @@ from pathlib import Path
 
 import pytest
 
-from sempipe.config.paths import config_path
-from sempipe.config.store import Config, load_config, save_config
-from sempipe.core.errors import SetupFault
+from smartpipe.config.paths import config_path
+from smartpipe.config.store import Config, load_config, save_config
+from smartpipe.core.errors import SetupFault
 
 # --- paths --------------------------------------------------------------------
 
 
 def test_config_path_honors_xdg(tmp_path: Path) -> None:
     path = config_path(env={"XDG_CONFIG_HOME": str(tmp_path)}, platform="darwin")
-    assert path == tmp_path / "sempipe" / "config.toml"
+    assert path == tmp_path / "smartpipe" / "config.toml"
 
 
 def test_config_path_defaults_to_dot_config_on_unix() -> None:
     path = config_path(env={}, platform="linux")
-    assert path == Path.home() / ".config" / "sempipe" / "config.toml"
+    assert path == Path.home() / ".config" / "smartpipe" / "config.toml"
 
 
 def test_config_path_uses_appdata_on_windows(tmp_path: Path) -> None:
     path = config_path(env={"APPDATA": str(tmp_path)}, platform="win32")
-    assert path == tmp_path / "sempipe" / "config.toml"
+    assert path == tmp_path / "smartpipe" / "config.toml"
 
 
 # --- store --------------------------------------------------------------------

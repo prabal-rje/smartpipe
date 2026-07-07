@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from sempipe.cli import screens
+from smartpipe.cli import screens
 
 GOLDEN = Path(__file__).parent / "golden" / "screens"
 

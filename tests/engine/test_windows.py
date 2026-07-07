@@ -4,7 +4,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.engine.windows import Window, WindowBuffer, WindowPolicy
+from smartpipe.engine.windows import Window, WindowBuffer, WindowPolicy
 
 # --- policy validation ----------------------------------------------------------
 

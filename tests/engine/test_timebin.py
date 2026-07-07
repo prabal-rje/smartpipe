@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.engine.timebin import bucket_label, parse_bucket, parse_timestamp
+from smartpipe.core.errors import UsageFault
+from smartpipe.engine.timebin import bucket_label, parse_bucket, parse_timestamp
 
 
 def test_epoch_seconds_and_milliseconds() -> None:

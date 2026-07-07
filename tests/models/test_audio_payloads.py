@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from sempipe.core.errors import ItemError
-from sempipe.core.jsontools import as_items, as_record, as_str
-from sempipe.models.base import AudioData, CompletionRequest, ModelRef
-from sempipe.models.http_support import make_client
-from sempipe.models.ollama import OllamaChatModel
-from sempipe.models.openai_compat import MISTRAL_WIRE, OpenAIChatModel
+from smartpipe.core.errors import ItemError
+from smartpipe.core.jsontools import as_items, as_record, as_str
+from smartpipe.models.base import AudioData, CompletionRequest, ModelRef
+from smartpipe.models.http_support import make_client
+from smartpipe.models.ollama import OllamaChatModel
+from smartpipe.models.openai_compat import MISTRAL_WIRE, OpenAIChatModel
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -111,14 +111,14 @@ async def test_ollama_refuses_audio_before_any_bytes_leave(
 
 
 def test_anthropic_refuses_audio_in_the_builder() -> None:
-    from sempipe.models.anthropic_adapter import build_kwargs
+    from smartpipe.models.anthropic_adapter import build_kwargs
 
     with pytest.raises(ItemError, match="can't hear audio"):
         build_kwargs("claude-haiku-4-5", _hear_request())
 
 
 def test_codex_wire_refuses_audio_in_the_builder() -> None:
-    from sempipe.models.openai_codex import build_payload
+    from smartpipe.models.openai_codex import build_payload
 
     with pytest.raises(ItemError, match="can't hear audio"):
         build_payload("gpt-5.4", _hear_request())

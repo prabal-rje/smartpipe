@@ -62,19 +62,19 @@ One line per shell. Completions cover verbs and flags — and `--model` /
 **zsh** — add to `~/.zshrc`:
 
 ```console
-$ eval "$(_SEMPIPE_COMPLETE=zsh_source smartpipe)"
+$ eval "$(_SMARTPIPE_COMPLETE=zsh_source smartpipe)"
 ```
 
 **bash** (4.4+) — add to `~/.bashrc`:
 
 ```console
-$ eval "$(_SEMPIPE_COMPLETE=bash_source smartpipe)"
+$ eval "$(_SMARTPIPE_COMPLETE=bash_source smartpipe)"
 ```
 
 **fish** — write it once to your completions directory:
 
 ```console
-$ _SEMPIPE_COMPLETE=fish_source smartpipe > ~/.config/fish/completions/smartpipe.fish
+$ _SMARTPIPE_COMPLETE=fish_source smartpipe > ~/.config/fish/completions/smartpipe.fish
 ```
 
 (For a faster shell startup, redirect the script to a file and `source` it

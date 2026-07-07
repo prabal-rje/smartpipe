@@ -4,9 +4,9 @@ import io
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.io.items import Item
-from sempipe.io.readers import ensure_not_a_tty, stdin_items
+from smartpipe.core.errors import UsageFault
+from smartpipe.io.items import Item
+from smartpipe.io.readers import ensure_not_a_tty, stdin_items
 
 
 async def _collect(stdin: io.StringIO) -> list[Item]:
@@ -57,7 +57,7 @@ def test_piped_stdin_passes_the_guard() -> None:
 
 
 def test_thin_text_with_figures_reads_as_a_scan() -> None:
-    from sempipe.io.readers import figure_note
+    from smartpipe.io.readers import figure_note
 
     note = figure_note("contract.pdf", 11, 8, 22)
     assert "thin text layer (11 chars)" in note
@@ -66,7 +66,7 @@ def test_thin_text_with_figures_reads_as_a_scan() -> None:
 
 
 def test_real_text_keeps_the_plainfigure_note() -> None:
-    from sempipe.io.readers import figure_note
+    from smartpipe.io.readers import figure_note
 
     note = figure_note("report.pdf", 5_000, 3, 0)
     assert note == "report.pdf: 3 figures attached"

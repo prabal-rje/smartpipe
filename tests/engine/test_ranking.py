@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sempipe.engine.ranking import cosine, rank, select, unit_score
+from smartpipe.engine.ranking import cosine, rank, select, unit_score
 
 _FINITE = st.floats(min_value=-100, max_value=100, allow_nan=False, allow_infinity=False, width=32)
 

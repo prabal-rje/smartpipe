@@ -127,8 +127,8 @@ $ smartpipe map "describe this" --max-calls 6 < qa/fixtures/media.jsonl
 ```console
 $ smartpipe run qa/fixtures/triage.sem --dry-run
 $ smartpipe run qa/fixtures/triage.sem < qa/fixtures/logs.jsonl
-$ mkdir -p ~/.config/sempipe/verbs && cp qa/fixtures/triage.sem ~/.config/sempipe/verbs/qa-triage.sem
-$ smartpipe qa-triage < qa/fixtures/logs.jsonl && rm ~/.config/sempipe/verbs/qa-triage.sem
+$ mkdir -p ~/.config/smartpipe/verbs && cp qa/fixtures/triage.sem ~/.config/smartpipe/verbs/qa-triage.sem
+$ smartpipe qa-triage < qa/fixtures/logs.jsonl && rm ~/.config/smartpipe/verbs/qa-triage.sem
 ```
 - [ ] dry-run prints both stages with cost postures, runs nothing.
 - [ ] The run emits hourly error counts; stage receipts are `[hot]`-prefixed.
@@ -137,8 +137,8 @@ $ smartpipe qa-triage < qa/fixtures/logs.jsonl && rm ~/.config/sempipe/verbs/qa-
 ## 9. Cache round-trip
 
 ```console
-$ SEMPIPE_CACHE=1 smartpipe map "Extract {label}" --max-calls 12 < qa/fixtures/feedback.txt > /tmp/qa-a.jsonl
-$ SEMPIPE_CACHE=1 smartpipe map "Extract {label}" --max-calls 2  < qa/fixtures/feedback.txt > /tmp/qa-b.jsonl
+$ SMARTPIPE_CACHE=1 smartpipe map "Extract {label}" --max-calls 12 < qa/fixtures/feedback.txt > /tmp/qa-a.jsonl
+$ SMARTPIPE_CACHE=1 smartpipe map "Extract {label}" --max-calls 2  < qa/fixtures/feedback.txt > /tmp/qa-b.jsonl
 $ diff /tmp/qa-a.jsonl /tmp/qa-b.jsonl && echo IDENTICAL
 $ smartpipe cache stats && smartpipe cache clear
 ```

@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import UsageFault
-from sempipe.io.inputs import InputSpec
-from sempipe.io.readers import file_items, resolve_items
+from smartpipe.core.errors import UsageFault
+from smartpipe.io.inputs import InputSpec
+from smartpipe.io.readers import file_items, resolve_items
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -144,7 +144,7 @@ async def test_in_plus_piped_stdin_is_files_first_then_lines(tmp_path: Path) -> 
     assert [i.text for i in items] == ["file-a", "line-1", "line-2"]  # spec §8 order
     assert [i.source.kind for i in items] == ["file", "stdin", "stdin"]
     # line numbering restarts for the stdin leg (describe_source stays honest)
-    from sempipe.io.items import describe_source
+    from smartpipe.io.items import describe_source
 
     assert describe_source(items[1].source) == "line 1"
 
@@ -175,7 +175,7 @@ def test_audio_file_becomes_an_audio_item_with_bytes(tmp_path: Path) -> None:
     wav.write_bytes(b"RIFF----WAVEfakeaudio")
     items = file_items([wav])
     assert len(items) == 1
-    from sempipe.models.base import AudioData
+    from smartpipe.models.base import AudioData
 
     assert len(items[0].media) == 1
     media = items[0].media[0]

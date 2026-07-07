@@ -8,17 +8,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sempipe.core.errors import ExitCode, ItemError, UsageFault
-from sempipe.io.inputs import InputSpec
-from sempipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
-from sempipe.models.base import CompletionRequest, ModelRef
-from sempipe.verbs.reduce import ReduceRequest, run_reduce
+from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.io.inputs import InputSpec
+from smartpipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
+from smartpipe.models.base import CompletionRequest, ModelRef
+from smartpipe.verbs.reduce import ReduceRequest, run_reduce
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import TextIO
 
-    from sempipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter
 
 
 class FakeChat:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sempipe.engine.clustering import knn_mean_distance, leader_clusters
+from smartpipe.engine.clustering import knn_mean_distance, leader_clusters
 
 NEARLY_RIGHT = (0.995, 0.0999)  # ~cos 0.995 to (1,0)
 RIGHT = (1.0, 0.0)
@@ -39,7 +39,7 @@ def test_knn_on_tiny_corpus_is_zero() -> None:
 
 
 def test_merge_to_k_folds_smallest_into_most_similar() -> None:
-    from sempipe.engine.clustering import merge_to_k
+    from smartpipe.engine.clustering import merge_to_k
 
     vectors = [RIGHT, NEARLY_RIGHT, UP, (0.01, 1.0)]
     clusters = [[0], [1], [2, 3]]  # three clusters, want two
@@ -51,7 +51,7 @@ def test_adaptive_threshold_lands_in_the_gap() -> None:
     # measured gemini-like geometry: same-theme ~0.62-0.75, background ~0.47-0.55
     import math
 
-    from sempipe.engine.clustering import adaptive_threshold
+    from smartpipe.engine.clustering import adaptive_threshold
 
     def vec(angle: float) -> tuple[float, float]:
         return (math.cos(angle), math.sin(angle))
@@ -62,6 +62,6 @@ def test_adaptive_threshold_lands_in_the_gap() -> None:
 
 
 def test_adaptive_threshold_on_tiny_corpus_only_folds_identity() -> None:
-    from sempipe.engine.clustering import adaptive_threshold
+    from smartpipe.engine.clustering import adaptive_threshold
 
     assert adaptive_threshold([RIGHT, UP]) == 0.99
