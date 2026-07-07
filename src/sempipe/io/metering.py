@@ -22,6 +22,9 @@ __all__ = [
     "add_conversion",
     "add_request_media",
     "add_tokens",
+    "count",
+    "duration",
+    "megabytes",
     "receipt",
     "reset",
     "snapshot",
@@ -119,7 +122,7 @@ def snapshot() -> Snapshot:
 # --- formatting --------------------------------------------------------------------
 
 
-def _count(value: int) -> str:
+def count(value: int) -> str:
     if value >= 1_000_000:
         return f"{value / 1_000_000:.1f}M"
     if value >= 1_000:
@@ -127,11 +130,11 @@ def _count(value: int) -> str:
     return str(value)
 
 
-def _megabytes(size: int) -> str:
+def megabytes(size: int) -> str:
     return f"{size / 1_048_576:.1f} MB"
 
 
-def _duration(seconds: float) -> str:
+def duration(seconds: float) -> str:
     whole = int(seconds)
     if whole >= 60:
         return f"{whole // 60}m{whole % 60:02d}s"
@@ -143,16 +146,16 @@ def status_segment() -> str:
     view = snapshot()
     if view.empty:
         return ""
-    pieces = [f"↑{_count(view.tokens_in)} ↓{_count(view.tokens_out)} tok"]
+    pieces = [f"↑{count(view.tokens_in)} ↓{count(view.tokens_out)} tok"]
     for kind, label in (("image", "img"), ("video", "vid")):
         size = view.media_bytes.get(kind)
         if size:
-            pieces.append(f"{_megabytes(size)} {label}")
+            pieces.append(f"{megabytes(size)} {label}")
     if view.media_bytes.get("audio"):
         held = (
-            _duration(view.audio_seconds)
+            duration(view.audio_seconds)
             if view.audio_seconds
-            else _megabytes(view.media_bytes["audio"])
+            else megabytes(view.media_bytes["audio"])
         )
         pieces.append(f"{held} audio")
     return " · ".join(pieces)
@@ -163,15 +166,15 @@ def receipt() -> str | None:
     view = snapshot()
     if view.empty:
         return None
-    pieces = [f"{_count(view.tokens_in)} in · {_count(view.tokens_out)} out tokens"]
+    pieces = [f"{count(view.tokens_in)} in · {count(view.tokens_out)} out tokens"]
     for kind, plural in (("image", "images"), ("video", "video")):
         size = view.media_bytes.get(kind)
         if size:
-            pieces.append(f"{_megabytes(size)} {plural} ({view.media_count[kind]})")
+            pieces.append(f"{megabytes(size)} {plural} ({view.media_count[kind]})")
     audio_size = view.media_bytes.get("audio")
     if audio_size:
-        timed = f" · {_duration(view.audio_seconds)}" if view.audio_seconds else ""
-        pieces.append(f"{_megabytes(audio_size)} audio ({view.media_count['audio']}){timed}")
+        timed = f" · {duration(view.audio_seconds)}" if view.audio_seconds else ""
+        pieces.append(f"{megabytes(audio_size)} audio ({view.media_count['audio']}){timed}")
     if view.conversions:
         pieces.append(f"{view.conversions} paid conversions")
     return "run: " + " · ".join(pieces)

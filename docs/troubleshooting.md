@@ -113,7 +113,7 @@ wrong. Raise the ceiling or narrow the input.
 ## "this model can't hear audio — …" (exit 3 on the skip path)
 
 You sent audio items to a model with no audio input. Two fixes, straight from
-the message: use a model that hears (`gpt-4o-audio-preview`-family,
+the message: use a model that hears (`voxtral-*`, `gemini-2.5-*`,
 `voxtral-*`), or `pip install 'sempipe[audio]'` so text verbs (and `map`, as a
 fallback) transcribe it locally with Whisper (`SEMPIPE_WHISPER_MODEL` picks
 the size; tiny is the default). Details:

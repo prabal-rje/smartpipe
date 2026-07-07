@@ -390,6 +390,9 @@ async def build_container(
         totals = metering.receipt()
         if totals is not None:
             diagnostics.note(totals)  # D40: the number that goes in the report
+        from sempipe.io import usage
+
+        usage.record_run(metering.snapshot(), container.env)  # D41: the ledger
         _cache_receipt(container)
 
 

@@ -43,6 +43,7 @@ from sempipe.cli.sort_cmd import sort_command
 from sempipe.cli.split_cmd import split_command
 from sempipe.cli.summarize_cmd import summarize_command
 from sempipe.cli.top_k_cmd import top_k_command
+from sempipe.cli.usage_cmd import usage_command
 from sempipe.cli.where_cmd import where_command
 from sempipe.core.errors import ExitCode, SempipeError, UsageFault
 from sempipe.io import diagnostics
@@ -141,7 +142,7 @@ def _entry_point_command(name: str) -> click.Command | None:
 @click.group(cls=_RootGroup)
 @click.version_option(__version__, prog_name="sempipe", message="%(prog)s %(version)s")
 def cli() -> None:
-    """sempipe — semantic pipes for your terminal."""
+    """sempipe — pipe documents, images, audio, video, and text through verbs that understand."""
 
 
 cli.add_command(map_command)
@@ -168,6 +169,7 @@ cli.add_command(getschema_command)
 cli.add_command(sort_command)
 cli.add_command(auth_command)
 cli.add_command(cache_command)
+cli.add_command(usage_command)
 cli.add_command(cite_command)
 cli.add_command(echo_command)
 

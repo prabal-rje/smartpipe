@@ -160,7 +160,7 @@ PDFs — other encodings would need re-encoding and are skipped for now).
 An audio file (`.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`) becomes an item carrying
 its **bytes**, not an eager transcript:
 
-- `map` with an audio-capable model (`gpt-4o-audio-preview`, `voxtral-*`) sends
+- `map` with an audio-capable model (`gemini-2.5-*`, `voxtral-*`) sends
   the sound itself — tone and speaker changes included.
 - With any other model, sempipe transcribes **locally** when the `[audio]`
   extra is installed (a one-time stderr note says so), then retries as text.

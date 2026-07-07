@@ -45,7 +45,7 @@ local Whisper model (faster-whisper, `tiny` by default,
 `SEMPIPE_WHISPER_MODEL` to change it). The audio bytes never leave your
 computer. One disclosure: the *first* use of a model size downloads its
 weights (~75 MB for tiny) from Hugging Face — a one-time fetch of model files,
-with no audio or text in it. Audio-capable models (`gpt-4o-audio-preview`,
+with no audio or text in it. Audio-capable models (`gemini-2.5-*`,
 `voxtral-*`) are the other path: they hear natively, over the endpoint you
 configured.
 

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "smartpipe"
 version = "1.2.0"
-description = "Semantic pipes for your terminal: map, filter, embed, top_k, reduce for Unix pipelines, local-first."
+description = "Pipe PDFs, images, audio, video, and text through Unix verbs that understand — local-first semantic pipelines."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]

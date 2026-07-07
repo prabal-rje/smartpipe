@@ -5,7 +5,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Added
+- **`sempipe usage` — the resettable usage ledger (D41).** Hour, day, week,
+  month, and lifetime windows over what the meter observed (runs, tokens,
+  media, audio time, paid conversions); `usage reset` zeroes it, prints the
+  previous lifetime, and remembers the reset time. Local state only.
+
 ### Changed
+- **The pitch is multimodality-first.** README, docs front page, the repo
+  description, `--help`, and the welcome screen now lead with what makes
+  sempipe different — PDFs (figures included), scans, images, audio, and
+  video through Unix verbs — and the examples reflect it. Stale claims
+  swept (v1.1-era verb tables, gpt-4o-audio references, old citation).
 - **Renamed to `smartpipe`** (the old name collided with an existing
   project). The DISTRIBUTION and repository are `smartpipe`; the command,
   package, import name, env vars (`SEMPIPE_*`), and config directory stay

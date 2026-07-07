@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import pytest
@@ -20,6 +21,17 @@ __all__ = ["RunCli", "run_cli"]
 
 class RunCli(Protocol):
     def __call__(self, args: Sequence[str], stdin: str | None = None) -> tuple[int, str, str]: ...
+
+
+@pytest.fixture(autouse=True)
+def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may touch the developer's real ledger/cache state (D41 —
+    live-caught: respx runs wrote to the real ~/.local/state), and every
+    test starts with a fresh meter."""
+    from sempipe.io import metering
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    metering.reset()
 
 
 @pytest.fixture

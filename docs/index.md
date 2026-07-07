@@ -1,6 +1,7 @@
 # sempipe
 
-**Semantic pipes for your terminal.** Verbs that understand — `map`, `filter`,
+**Pipe anything with meaning through your terminal — PDFs, images, audio,
+video, and text.** Verbs that understand — `map`, `filter`,
 `top_k`, `reduce` — that put a language model into Unix pipelines. Text in, text out;
 local-first; composes with everything you already use.
 

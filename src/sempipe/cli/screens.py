@@ -64,6 +64,7 @@ error: the prompt references a {field}, but the first input line isn't JSON
 
 WELCOME = """\
 sempipe — semantic pipes for your terminal
+PDFs, images, audio, video, and text — verbs that understand their input.
 
 Verbs (call a model):
   map      Transform each item with a prompt

@@ -204,3 +204,13 @@ one. Unset, sempipe picks the sensible strategy automatically:
 `SEMPIPE_STT_MODEL` / `stt-model` override the matrix per run or per
 account. Only the openai wire exists today; the key accepts
 `provider/model` so more can land behind the same seam.
+
+
+## The usage ledger
+
+`sempipe usage` shows what the meter observed over the past hour, day, week,
+month, and lifetime — runs, tokens in/out, media, audio time, paid
+conversions. `sempipe usage reset` zeroes it (printing the previous lifetime
+so the number isn't lost) and remembers the reset time. Only model-touching
+runs count; the ledger lives in `~/.local/state/sempipe/` and never leaves
+your machine.

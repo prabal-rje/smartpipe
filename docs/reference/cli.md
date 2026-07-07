@@ -78,6 +78,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `sample` | `N`, `--seed K` (default 0 — reproducible by default) |
 | `getschema` | `--all` (scan past the first 10,000 rows) |
 | *(custom)* | [your own verbs](custom-verbs.md): `~/.config/sempipe/verbs/*.sem` or entry points |
+| `usage` | model usage over hour/day/week/month/lifetime; `usage reset` remembers when |
 | `cache` | `stats` · `clear` (auto-swept: 30-day TTL + 500 MB LRU cap — `cache-days`, `cache-max-mb`) |
 | `sort` | `--by FIELD` (required), `--desc` |
 | `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |

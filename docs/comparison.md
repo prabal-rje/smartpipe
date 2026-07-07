@@ -6,7 +6,9 @@ sempipe fits, and where you might reach for something else.
 ## The one-sentence positioning
 
 **sempipe brings the semantic-operator vocabulary of data frameworks like DocETL —
-`map`, `filter`, `reduce`, `embed`, `top_k` — to genuine Unix pipes, local-first.**
+map, filter, reduce, cluster, join, dedupe — to genuine Unix pipes, local-first,
+over ANY input: PDFs with their figures, scans, images, audio, and video, not
+just text.**
 
 The landscape splits into two worlds, and sempipe is the bridge:
 
