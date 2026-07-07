@@ -13,6 +13,7 @@ build/
 coverage.xml
 htmlcov/
 .env
+/site/
 
 # Local-only reference material (another project's code — never publish with sempipe)
 context/
