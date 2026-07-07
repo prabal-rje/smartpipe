@@ -103,7 +103,10 @@ def _write_raw(path: Path, data: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
-        os.fchmod(fd, _MODE)  # 0600 from the first byte, not after the fact
+        if hasattr(os, "fchmod"):  # POSIX: 0600 from the first byte
+            os.fchmod(fd, _MODE)
+        else:  # Windows has no fd-chmod; ACLs scope the profile dir instead
+            os.chmod(tmp, _MODE)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(data, handle, indent=2)
         os.replace(tmp, path)  # atomic on POSIX and Windows (same volume)

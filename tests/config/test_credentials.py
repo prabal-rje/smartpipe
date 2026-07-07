@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -24,7 +25,8 @@ def _mode(path: Path) -> int:
 def test_roundtrip_and_0600_on_create(tmp_path: Path) -> None:
     path = tmp_path / "auth.json"
     save_oauth(path, "openai", CRED)
-    assert _mode(path) == 0o600  # tokens are secrets from the first byte
+    if sys.platform != "win32":  # Windows mode bits are advisory
+        assert _mode(path) == 0o600  # tokens are secrets from the first byte
     assert load_oauth(path, "openai") == CRED
 
 
@@ -32,7 +34,8 @@ def test_rewrite_keeps_0600_and_unknown_entries(tmp_path: Path) -> None:
     path = tmp_path / "auth.json"
     path.write_text(json.dumps({"future-provider": {"type": "oauth", "x": 1}}))
     save_oauth(path, "openai", CRED)
-    assert _mode(path) == 0o600
+    if sys.platform != "win32":
+        assert _mode(path) == 0o600
     data = json.loads(path.read_text())
     assert "future-provider" in data  # forward compatibility — never clobbered
 

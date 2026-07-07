@@ -7,6 +7,8 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
+import sys
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
@@ -172,6 +174,11 @@ async def test_device_flow_unexpected_status_fails_loudly(
 # --- the browser flow, end to end --------------------------------------------------
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin" and bool(os.environ.get("CI")),
+    reason="GH macOS runners refuse loopback connects to fresh listeners; "
+    "ubuntu carries this e2e and it runs on real Macs locally",
+)
 async def test_browser_flow_end_to_end(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter
 ) -> None:

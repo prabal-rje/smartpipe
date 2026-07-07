@@ -50,8 +50,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with: { python-version: "${{ matrix.python }}" }
       - run: uv sync --all-extras
-      # TEMP: -x -v while hunting the windows one-dot crash
-      - run: uv run coverage run -m pytest -x -v --tb=short
+      # TEMP: verbose while stabilizing windows; no -x so one pass shows all
+      - run: uv run coverage run -m pytest -v --tb=line
       - run: uv run coverage report
 
   live-ollama-smoke:
