@@ -1,29 +1,29 @@
 # AI Disclosure
 
-This file documents AI use in this repository.
+This file documents how AI systems are used in this repository.
 
-## Scope of AI tool usage
+## Development use
 
-**Coding.** The code in this repository was written by LLM coding assistants
-under human direction, review, and oversight. The human author specified
-requirements and priorities, reviewed behavior (frequently via live runs
-against real providers), redirected designs, and made the final decisions —
-including rejecting proposed designs and demanding reworks when live output
-fell short. Design decisions are recorded in a decision log maintained with
-the project.
+Much of the code, tests, documentation, and cookbook material in this
+repository was drafted with LLM coding assistants under human direction. The
+maintainer specified requirements, selected designs, reviewed diffs and
+behavior, ran local and live-provider checks, and made final decisions before
+changes were merged.
 
-**The tool itself invokes LLMs at runtime.** smartpipe is a client: it sends
-your data to whichever model endpoint you configure (a local Ollama if you run one;
-cloud providers by explicit configuration - see docs/privacy.md for the
-exact data-flow rules), and to nowhere else. Paid media
-conversions sit behind an explicit consent flag; per-row disclosures name
-every conversion; telemetry stays on your machine (docs/privacy.md).
+Golden files and tests pin user-facing text and behavior so changes can be
+reviewed intentionally.
 
-**Tests and docs.** Test suites, documentation, and the cookbook were
-AI-drafted and human-reviewed. Golden files pin user-facing text so that
-behavior changes are always deliberate.
+## Runtime use
 
-## Why disclose
+smartpipe is an LLM client. It sends input only to the model endpoint selected
+by the user: local providers such as Ollama when configured, or cloud
+providers when explicitly configured. The privacy documentation describes
+provider data flows and media handling in detail.
 
-The author believes AI assistance is a fact about how software is built now,
-and that stating it plainly is more honest than implying otherwise.
+Paid or remote media conversions require explicit consent. Per-row disclosures
+identify conversions, and telemetry is stored locally.
+
+## Purpose
+
+This file records AI involvement in repository development and distinguishes
+that development assistance from runtime model calls made by the tool.
