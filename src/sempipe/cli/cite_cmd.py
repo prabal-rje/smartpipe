@@ -9,13 +9,13 @@ from sempipe import __version__
 __all__ = ["cite_command"]
 
 _BIBTEX = """\
-@software{{gupta_sempipe_2026,
+@software{{gupta_smartpipe_2026,
   author = {{Gupta, Prabal}},
-  title = {{sempipe: semantic pipes for your terminal}},
+  title = {{smartpipe: semantic pipes for your terminal}},
   year = {{2026}},
   version = {{{version}}},
   license = {{Apache-2.0}},
-  url = {{https://github.com/prabal-rje/sempipe}}
+  url = {{https://github.com/prabal-rje/smartpipe}}
 }}
 """
 

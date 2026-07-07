@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Changed
+- **Renamed to `smartpipe`** (the old name collided with an existing
+  project). The DISTRIBUTION and repository are `smartpipe`; the command,
+  package, import name, env vars (`SEMPIPE_*`), and config directory stay
+  `sempipe` — zero breakage, and `smartpipe` also works as a command alias.
+  Install: `pip install smartpipe`.
+
 ## [1.2.0] — 2026-07-06
 
 The biggest release yet, in five sentences: **eighteen verbs** now cover the

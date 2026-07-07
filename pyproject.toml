@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sempipe"
+name = "smartpipe"
 version = "1.2.0"
 description = "Semantic pipes for your terminal: map, filter, embed, top_k, reduce for Unix pipelines, local-first."
 readme = "README.md"
@@ -37,15 +37,16 @@ files = ["markitdown[pdf,docx,pptx,xlsx]>=0.1.6", "pypdf>=5.0"]
 audio = ["faster-whisper>=1.0"]  # local STT: audio never leaves the machine
 video = ["imageio-ffmpeg>=0.5"]  # bundles a static ffmpeg for frames/track/slicing
 charts = ["svgwrite>=1.4"]  # --save for sempipe chart (pure-python, zero deps)
-all = ["sempipe[anthropic,files,audio,video,charts]"]
+all = ["smartpipe[anthropic,files,audio,video,charts]"]
 
 [project.scripts]
 sempipe = "sempipe.cli.root:main"
+smartpipe = "sempipe.cli.root:main"  # the distribution name works as a command too
 
 [project.urls]
-Homepage = "https://github.com/prabal-rje/sempipe"
-Changelog = "https://github.com/prabal-rje/sempipe/blob/main/CHANGELOG.md"
-Issues = "https://github.com/prabal-rje/sempipe/issues"
+Homepage = "https://github.com/prabal-rje/smartpipe"
+Changelog = "https://github.com/prabal-rje/smartpipe/blob/main/CHANGELOG.md"
+Issues = "https://github.com/prabal-rje/smartpipe/issues"
 
 [dependency-groups]
 dev = [

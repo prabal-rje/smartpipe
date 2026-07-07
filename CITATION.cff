@@ -1,11 +1,11 @@
 cff-version: 1.1.0
 message: "If you use sempipe in your research, please cite it as below."
-title: "sempipe: semantic pipes for your terminal"
+title: "smartpipe: semantic pipes for your terminal"
 type: software
 authors:
   - family-names: Gupta
     given-names: Prabal
-repository-code: "https://github.com/prabal-rje/sempipe"
+repository-code: "https://github.com/prabal-rje/smartpipe"
 license: Apache-2.0
 version: 1.2.0
 date-released: '2026-07-06'

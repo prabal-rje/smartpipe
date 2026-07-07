@@ -1,10 +1,13 @@
-# sempipe
+# smartpipe
 
-**Semantic pipes for your terminal.** Five Unix verbs that understand meaning —
+**Semantic pipes for your terminal.** Unix verbs that understand meaning —
 powered by a local model by default, a cloud model when you ask.
 
+> Install as `smartpipe`; the command is `sempipe` (a `smartpipe` alias works
+> too). The import/package name stays `sempipe` — same tool, clearer name.
+
 ```console
-$ pip install sempipe
+$ pip install smartpipe
 $ echo "hello world" | sempipe map "translate to Spanish"
 hola mundo
 ```
@@ -98,7 +101,7 @@ If sempipe is useful in your research, cite it (or run `sempipe cite` for the sa
   year = {2026},
   version = {1.0.0},
   license = {Apache-2.0},
-  url = {https://github.com/prabal-rje/sempipe}
+  url = {https://github.com/prabal-rje/smartpipe}
 }
 ```
 

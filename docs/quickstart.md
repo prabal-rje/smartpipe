@@ -18,7 +18,7 @@ that does the thinking). Let's get both.
 ## 1. Install sempipe
 
 ```console
-$ pip install sempipe
+$ pip install smartpipe
 ```
 
 (Details and alternatives — pipx, uv — are in [install.md](install.md).)

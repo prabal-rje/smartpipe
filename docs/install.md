@@ -6,7 +6,7 @@ hard requirement. (Not sure what you have? Run `python3 --version`.)
 ## The one-liner
 
 ```console
-$ pip install sempipe
+$ pip install smartpipe
 ```
 
 That's the whole install. `sempipe` is now a command:
@@ -23,7 +23,7 @@ dependencies, use [pipx](https://pipx.pypa.io) — it installs command-line tool
 into isolated environments:
 
 ```console
-$ pipx install sempipe
+$ pipx install smartpipe
 ```
 
 ## With uv
@@ -31,7 +31,7 @@ $ pipx install sempipe
 If you use [uv](https://docs.astral.sh/uv):
 
 ```console
-$ uv tool install sempipe      # like pipx
+$ uv tool install smartpipe      # like pipx
 # or, inside a project:
 $ uv add sempipe
 ```
