@@ -1,0 +1,150 @@
+{"level": "info", "ts": "2026-07-01T13:12:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "error", "ts": "2026-07-01T15:43:00Z", "msg": "db replica lag exceeded 30s"}
+{"level": "info", "ts": "2026-07-01T14:50:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T13:40:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T13:16:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "error", "ts": "2026-07-01T15:16:00Z", "msg": "payments-v2 connection pool exhausted"}
+{"level": "info", "ts": "2026-07-01T14:23:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T16:14:00Z", "msg": "GET /health 200 2ms"}
+{"level": "error", "ts": "2026-07-01T15:52:00Z", "msg": "payments-v2 connection pool exhausted"}
+{"level": "error", "ts": "2026-07-01T15:46:00Z", "msg": "timeout calling payments-v2 (504)"}
+{"level": "info", "ts": "2026-07-01T14:09:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T16:32:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T14:31:00Z", "msg": "GET /health 200 2ms"}
+{"level": "error", "ts": "2026-07-01T13:03:00Z", "msg": "payments-v2 connection pool exhausted"}
+{"level": "error", "ts": "2026-07-01T15:06:00Z", "msg": "cache miss storm on session store"}
+{"level": "info", "ts": "2026-07-01T14:26:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T14:13:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "error", "ts": "2026-07-01T14:08:00Z", "msg": "upstream payments-v2 gateway timeout"}
+{"level": "error", "ts": "2026-07-01T14:28:00Z", "msg": "upstream payments-v2 gateway timeout"}
+{"level": "info", "ts": "2026-07-01T15:25:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T13:41:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T16:38:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T14:10:00Z", "msg": "GET /health 200 2ms"}
+{"level": "error", "ts": "2026-07-01T13:34:00Z", "msg": "upstream payments-v2 gateway timeout"}
+{"level": "error", "ts": "2026-07-01T14:10:00Z", "msg": "timeout calling payments-v2 (504)"}
+{"level": "info", "ts": "2026-07-01T13:39:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T14:26:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T16:52:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "error", "ts": "2026-07-01T15:04:00Z", "msg": "timeout calling payments-v2 (504)"}
+{"level": "info", "ts": "2026-07-01T16:45:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T16:47:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T16:11:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T15:14:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T15:57:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T13:17:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T15:18:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T13:56:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "error", "ts": "2026-07-01T15:57:00Z", "msg": "upstream payments-v2 gateway timeout"}
+{"level": "info", "ts": "2026-07-01T14:47:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T16:21:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T16:30:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T13:27:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "error", "ts": "2026-07-01T15:50:00Z", "msg": "cache miss storm on session store"}
+{"level": "info", "ts": "2026-07-01T13:36:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "error", "ts": "2026-07-01T13:01:00Z", "msg": "cache miss storm on session store"}
+{"level": "info", "ts": "2026-07-01T14:22:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T13:02:00Z", "msg": "GET /health 200 2ms"}
+{"level": "error", "ts": "2026-07-01T13:47:00Z", "msg": "cache miss storm on session store"}
+{"level": "info", "ts": "2026-07-01T15:12:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T13:56:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T13:15:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T13:02:00Z", "msg": "GET /health 200 2ms"}
+{"level": "error", "ts": "2026-07-01T15:30:00Z", "msg": "timeout calling payments-v2 (504)"}
+{"level": "info", "ts": "2026-07-01T14:18:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "error", "ts": "2026-07-01T15:01:00Z", "msg": "payments-v2 connection pool exhausted"}
+{"level": "info", "ts": "2026-07-01T13:45:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T16:54:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T16:01:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T15:30:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T14:45:00Z", "msg": "GET /health 200 2ms"}
+{"level": "error", "ts": "2026-07-01T15:10:00Z", "msg": "cache miss storm on session store"}
+{"level": "info", "ts": "2026-07-01T14:18:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T13:22:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T14:31:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T15:36:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T14:44:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T13:40:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T13:40:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T16:59:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T16:56:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T14:19:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T14:24:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T16:08:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T13:22:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T14:55:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "error", "ts": "2026-07-01T15:10:00Z", "msg": "payments-v2 connection pool exhausted"}
+{"level": "info", "ts": "2026-07-01T14:08:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T14:17:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T14:46:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "error", "ts": "2026-07-01T15:38:00Z", "msg": "upstream payments-v2 gateway timeout"}
+{"level": "info", "ts": "2026-07-01T14:20:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T13:10:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T14:24:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "error", "ts": "2026-07-01T15:46:00Z", "msg": "payments-v2 connection pool exhausted"}
+{"level": "info", "ts": "2026-07-01T14:06:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T15:13:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T13:00:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T14:32:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T16:01:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T16:00:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T16:54:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T14:43:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T16:27:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T16:15:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "error", "ts": "2026-07-01T15:54:00Z", "msg": "db replica lag exceeded 30s"}
+{"level": "info", "ts": "2026-07-01T13:39:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T14:57:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T16:53:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T13:16:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T14:33:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T16:34:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T13:40:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T15:26:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T14:43:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T13:46:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T13:16:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "error", "ts": "2026-07-01T13:00:00Z", "msg": "db replica lag exceeded 30s"}
+{"level": "error", "ts": "2026-07-01T15:37:00Z", "msg": "upstream payments-v2 gateway timeout"}
+{"level": "error", "ts": "2026-07-01T15:47:00Z", "msg": "cache miss storm on session store"}
+{"level": "info", "ts": "2026-07-01T14:51:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T14:10:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T14:30:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T14:22:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T16:18:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T16:22:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "error", "ts": "2026-07-01T15:45:00Z", "msg": "payments-v2 connection pool exhausted"}
+{"level": "info", "ts": "2026-07-01T16:43:00Z", "msg": "GET /health 200 2ms"}
+{"level": "error", "ts": "2026-07-01T15:22:00Z", "msg": "payments-v2 connection pool exhausted"}
+{"level": "error", "ts": "2026-07-01T15:30:00Z", "msg": "cache miss storm on session store"}
+{"level": "info", "ts": "2026-07-01T13:42:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "error", "ts": "2026-07-01T15:54:00Z", "msg": "timeout calling payments-v2 (504)"}
+{"level": "info", "ts": "2026-07-01T15:50:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T15:40:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T14:04:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T13:37:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T14:49:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T14:57:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T14:39:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T13:42:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "error", "ts": "2026-07-01T15:12:00Z", "msg": "upstream payments-v2 gateway timeout"}
+{"level": "info", "ts": "2026-07-01T13:47:00Z", "msg": "GET /health 200 2ms"}
+{"level": "info", "ts": "2026-07-01T13:16:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T16:31:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T16:57:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T14:31:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T13:10:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T16:42:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "error", "ts": "2026-07-01T15:27:00Z", "msg": "timeout calling payments-v2 (504)"}
+{"level": "info", "ts": "2026-07-01T14:40:00Z", "msg": "GET /health 200 2ms"}
+{"level": "error", "ts": "2026-07-01T13:39:00Z", "msg": "payments-v2 connection pool exhausted"}
+{"level": "info", "ts": "2026-07-01T13:32:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T13:13:00Z", "msg": "GET /api/users 200 41ms"}
+{"level": "info", "ts": "2026-07-01T15:06:00Z", "msg": "POST /api/orders 201 88ms"}
+{"level": "info", "ts": "2026-07-01T15:30:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T14:18:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "error", "ts": "2026-07-01T15:35:00Z", "msg": "payments-v2 connection pool exhausted"}
+{"level": "info", "ts": "2026-07-01T15:22:00Z", "msg": "retry scheduled for job 4411"}
+{"level": "info", "ts": "2026-07-01T15:32:00Z", "msg": "cron sweep finished in 1.2s"}
+{"level": "info", "ts": "2026-07-01T15:13:00Z", "msg": "GET /health 200 2ms"}
+{"level": "error", "ts": "2026-07-01T15:12:00Z", "msg": "payments-v2 connection pool exhausted"}

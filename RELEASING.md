@@ -1,4 +1,8 @@
-# Releasing sempipe
+# Releasing
+
+> Before every tag: walk the MANUAL pass in [`qa/README.md`](qa/README.md)
+> end to end (about 20 minutes, fixtures included). The automated gates are
+> the primary defense; the human pass is the redundant layer. sempipe
 
 Two parts: the machine gate, then the human walkthrough. Both green before any tag.
 

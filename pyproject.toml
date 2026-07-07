@@ -95,6 +95,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "T20", "SIM", "RUF"]
 ignore = ["A005"]
 
 [tool.ruff.lint.per-file-ignores]
+"qa/**" = ["T201"]  # the fixtures generator reports what it wrote
 # The *Fault taxonomy (plan/architecture.md) is deliberate: "UsageError" would
 # collide with click.UsageError, which the CLI shell handles right next to ours.
 "src/sempipe/core/errors.py" = ["N818"]

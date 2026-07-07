@@ -1,0 +1,7 @@
+[stage.hot]
+verb = "where"
+predicate = 'level == "error"'
+
+[stage.count]
+verb = "summarize"
+expression = "count() by bin(ts, 1h)"
