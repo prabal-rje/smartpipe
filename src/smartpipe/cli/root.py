@@ -48,7 +48,7 @@ from smartpipe.cli.where_cmd import where_command
 from smartpipe.core.errors import ExitCode, SempipeError, UsageFault
 
 if True:  # typing-only import kept runtime-cheap
-    from collections.abc import Sequence
+    from collections.abc import Iterable
 from smartpipe.io import diagnostics
 
 if TYPE_CHECKING:
@@ -81,7 +81,7 @@ class _StyledHelpFormatter(click.HelpFormatter):
 
     def write_dl(
         self,
-        rows: Sequence[tuple[str, str]],
+        rows: Iterable[tuple[str, str]],
         col_max: int = 30,
         col_spacing: int = 2,
     ) -> None:
