@@ -5,6 +5,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Fixed
+- **401s now quote the provider's actual reason.** A scope-restricted key
+  (text chat and whisper fine, media chat forbidden) used to read as "check
+  the key" — a live goose chase. The screen now includes the server's
+  message ("Missing scopes: model.request") and, when the reason is a
+  scope/permission, says the key is RESTRICTED and where to fix it.
+- **files.md's video section was two designs stale** (six frames,
+  track-only text verbs) — rewritten for the 1 fps/24 default, the D43
+  flags, and the D36 halves pivot.
+
 ### Added
 - **Video frame control (D43).** `map`/`extend` gain `--frame-every SECONDS`
   (a density guarantee: one frame per period, lifting the default 24-frame

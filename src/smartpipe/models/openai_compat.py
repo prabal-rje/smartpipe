@@ -214,11 +214,18 @@ async def _post(
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         if status in (401, 403):
+            reason = _detail(exc.response)
+            hint = (
+                "  This key is RESTRICTED — grant the missing scope (or use an\n"
+                "  unrestricted project key) in your provider console."
+                if "scope" in reason.lower() or "permission" in reason.lower()
+                else f"  Fix: check the key, or the endpoint in {model.wire.base_url_env}."
+            )
             raise SetupFault(
                 f"error: the API key for '{model.ref.name}' was rejected "
                 f"({status})\n"
-                f"  The endpoint answered, but it didn't accept {model.wire.key_env}.\n"
-                f"  Fix: check the key, or the endpoint in {model.wire.base_url_env}."
+                f"  The endpoint answered but didn't accept {model.wire.key_env}.\n"
+                f"  It said: {reason[:160]}\n" + hint
             ) from exc
         detail = _detail(exc.response)
         # D18: failures that doom every item identically stop the run at the first

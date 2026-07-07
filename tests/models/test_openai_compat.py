@@ -398,3 +398,23 @@ async def test_temperature_strips_and_retries_when_rejected(
 
     retried = jsonlib.loads(route.calls.last.request.content)
     assert "temperature" not in retried  # stripped on the second attempt
+
+
+async def test_scoped_key_401_names_the_missing_scope(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    respx_mock.post(f"{BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            401,
+            json={
+                "error": {
+                    "message": "You have insufficient permissions. Missing scopes: model.request"
+                }
+            },
+        )
+    )
+    with pytest.raises(SetupFault) as excinfo:
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))
+    message = str(excinfo.value)
+    assert "Missing scopes: model.request" in message  # the server's actual reason
+    assert "RESTRICTED" in message  # and the fix that matches it

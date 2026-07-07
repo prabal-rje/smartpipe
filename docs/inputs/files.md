@@ -109,17 +109,31 @@ stdin lines, one run:
 $ cat extra-notes.txt | smartpipe map "Summarize" --in 'reports/*.pdf'
 ```
 
-## Video: frames + soundtrack
+## Video: watched, or frames + soundtrack
 
 A video file becomes an item carrying its bytes. On `gemini-2.5-*` models the
 video rides the native wire whole — the model watches it, soundtrack included.
-Everywhere else `map` converts it locally
-(ffmpeg, via `pip install 'smartpipe[video]'` or PATH): six evenly-sampled frames
-plus the audio track, sent natively when the model can see/hear, with a whisper
-transcript as the fallback rung. Every conversion is announced on its row
-(`⚠ degraded: demo.mp4 video → frames+audio (6 frames + audio)`). Text verbs
-transcribe the track and say the frames were dropped. `split --by seconds:N`
-slices video losslessly (keyframe-aligned) into segments that stay video.
+Everywhere else `map`/`extend` convert it locally (ffmpeg, via
+`pip install 'smartpipe[video]'` or PATH): **one frame per second up to 24**,
+evenly spread past that, plus the audio track — sent natively when the model
+can see/hear, with a transcript fallback beneath. Tune the sampling when it
+matters:
+
+```console
+$ smartpipe map "what changes between scenes?" --in demo.mp4 --frame-every 1
+$ smartpipe map "summarize this lecture" --in talk.mp4 --frame-every 5 --max-frames 120
+```
+
+`--frame-every SECONDS` guarantees the density (and lifts the 24-frame cap);
+`--max-frames N` is the budget — the smaller wins. Every conversion is
+announced on its row (`⚠ degraded: demo.mp4 video → frames+audio (24 frames +
+audio)`), and the run receipt totals the megabytes sent.
+
+Text and embedding verbs use the **halves pivot** (D36): the visual
+description and the speech transcript, embedded as a 50/50 mean — so a video's
+vector carries what it *shows* as well as what it *says*. `split --by
+seconds:N` slices video losslessly (keyframe-aligned) into segments that stay
+video.
 
 ## Documents carry their figures (D32)
 

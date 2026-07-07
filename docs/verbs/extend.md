@@ -13,7 +13,9 @@ $ cat tickets.jsonl | smartpipe extend "Add {sentiment enum(pos, neg, neutral), 
 ```
 
 Same prompt language as [`map`](map.md): typed braces, `--schema`,
-`--schema-from`, plus `--tally`, `--explode`, `--fields`, `--max-calls`.
+`--schema-from`, plus `--tally`, `--explode`, `--fields`, `--max-calls`, and
+the [video frame controls](map.md#video-frame-control)
+(`--frame-every`, `--max-frames`).
 
 ## Semantics worth knowing
 
