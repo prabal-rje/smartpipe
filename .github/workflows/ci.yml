@@ -25,7 +25,8 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run pyright
-      - run: uv run coverage run -m pytest -q
+      # TEMP diagnostic: -v names the test that dies with SIGPIPE on this runner
+      - run: uv run coverage run -m pytest -v
       - run: uv run coverage report
       - run: uv build && uvx twine check dist/*
       - run: make docs-check
