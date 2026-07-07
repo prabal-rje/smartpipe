@@ -5,10 +5,16 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 
 import pytest
 
 from smartpipe.cli.interrupts import drain_cap, graceful_interrupts
+
+# os.kill(pid, SIGINT) on Windows raises CTRL_C_EVENT for the whole console
+# process group — it killed the CI runner's pytest outright (exit 2, one dot).
+# The drain semantics under test are POSIX contracts.
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal delivery")
 
 
 def test_drain_cap_env_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
