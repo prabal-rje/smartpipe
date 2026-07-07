@@ -222,13 +222,26 @@ def _stylize(command: click.Command) -> None:
 _stylize(cli)
 
 
+def _stdout_is_real() -> bool:
+    """True when stdout is an OS-level stream (tty or pipe), not a capture."""
+    try:
+        return sys.stdout.fileno() >= 0
+    except (OSError, ValueError):  # capture objects raise UnsupportedOperation (a ValueError)
+        return False
+
+
 def main() -> None:
     # standalone_mode=False so *we* own exit codes. In this mode click does not
     # sys.exit(): a ctx.exit(n) / --version / --help comes back as a plain int
     # return value (verified against click 8.4), and UsageError is raised.
     # --debug becomes a real global flag with the first verb (stage 3); until then
     # the env var keeps tracebacks reachable for development.
-    if hasattr(signal, "SIGPIPE"):  # POSIX: when downstream closes, die exactly like grep
+    if hasattr(signal, "SIGPIPE") and _stdout_is_real():
+        # POSIX: when downstream closes, die exactly like grep. Guarded to
+        # REAL stdout streams — under a test harness's capture there is no
+        # pipe to honor, and SIG_DFL process-wide lets any stray SIGPIPE
+        # (worker threads, GC'd pipes) kill the harness itself (seen only
+        # on the GitHub runner: exit 141 at a moving test).
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     debug = "SMARTPIPE_DEBUG" in os.environ
     try:
