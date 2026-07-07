@@ -4,13 +4,18 @@ on:
     - cron: "17 6 * * 1"  # weekly live-Ollama smoke (allowed-failure radar, plan/testing.md)
   push: { branches: [main] }
   pull_request:
+  workflow_dispatch: {}  # run the full cross-platform matrix on demand
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 env:
   NO_COLOR: "1"
 jobs:
-  gates:
+  # Every push: ONE Linux runner (~$0.04 at private-repo pricing, free when
+  # public). macOS is 10x Linux money — it runs on releases and on demand
+  # only (owner ruling after a $15/day macOS bill).
+  checks:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,9 +25,15 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run pyright
+      - run: uv run coverage run -m pytest -q
+      - run: uv run coverage report
       - run: uv build && uvx twine check dist/*
       - run: make docs-check
-  tests:
+
+  # The expensive cross-platform matrix: manual dispatch only here; releases
+  # run their own copy as a publish gate (release.yml).
+  full-matrix:
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:

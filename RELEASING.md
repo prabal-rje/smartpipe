@@ -1,5 +1,10 @@
 # Releasing
 
+> CI economics (owner ruling, 2026-07-07): pushes run ONE Linux job;
+> the macOS/Windows matrix runs only as the release publish gate
+> (release.yml `verify`) or via manual `workflow_dispatch` — macOS minutes
+> bill at 10x Linux.
+
 > Before every tag: walk the MANUAL pass in [`qa/README.md`](qa/README.md)
 > end to end (about 20 minutes, fixtures included). The automated gates are
 > the primary defense; the human pass is the redundant layer. smartpipe
