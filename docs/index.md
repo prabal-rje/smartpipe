@@ -1,9 +1,12 @@
 # smartpipe
 
-**Semantic pipes for your terminal.** PDFs, images, audio, video, and text -
-verbs that understand: `map`, `filter`,
-`top_k`, `reduce` - that put a language model into Unix pipelines. Text in, text out;
-local-capable, provider-honest; composes with everything you already use.
+**Semantic pipes for your terminal.**
+
+Run PDFs, images, audio, video, and text through Unix-style verbs:
+`map`, `filter`, `top_k`, `reduce`, and more.
+
+Use Ollama for local model calls, or choose a cloud provider explicitly.
+smartpipe keeps normal stdin/stdout composition either way.
 
 ```console
 $ cat reviews.txt \
@@ -13,7 +16,7 @@ $ cat reviews.txt \
 
 ## Start here
 
-- **[Install](install.md)** - one line, plus the optional extras.
+- **[Install](install.md)** - one command and current platform notes.
 - **[Quickstart](quickstart.md)** - from zero to a working pipeline in a minute,
   local or cloud.
 
@@ -54,11 +57,14 @@ around the semantic core, so paid stages only see what matters.
 - [`.sem` stage files](reference/sem-files.md) - save a pipe stage as an executable script
 - [Troubleshooting](troubleshooting.md) - find your error message
 - [How smartpipe compares](comparison.md) - where it fits among the alternatives
-- [Privacy & security](privacy.md) - local-capable, provider-honest, no telemetry, no tool-use surface
+- [Privacy & security](privacy.md) - where data goes, no telemetry, no tool-use surface
 
 ## Why smartpipe
 
 It brings the semantic-operator vocabulary of data frameworks like DocETL to real
-Unix pipes - local-capable, provider-honest, with automatic file parsing, automatic recursive chunking,
-and terminal-adaptive output. See [the comparison](comparison.md) for the honest map
-of the landscape.
+Unix pipes.
+
+It can use local Ollama models or configured cloud providers. It also handles file
+parsing, recursive chunking, and terminal-adaptive output.
+
+See [the comparison](comparison.md) for the landscape.

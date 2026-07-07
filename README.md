@@ -5,9 +5,10 @@
 [![Python](https://img.shields.io/badge/python-3.11%E2%80%933.14-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
-**Semantic pipes for your terminal.** PDFs, images, audio, video, and text
-through Unix verbs that understand their input - powered by a local model by
-default, a cloud model when you ask.
+**Semantic pipes for your terminal.**
+
+Run PDFs, images, audio, video, and text through Unix verbs that understand their
+input. Use Ollama for local models, or choose a cloud provider explicitly.
 
 > Formerly `sempipe` (which still works as a command alias). The import name,
 > `SMARTPIPE_*` env vars, and `~/.config/smartpipe` keep the old spelling.
@@ -22,11 +23,12 @@ $ echo "hello world" \
 hola mundo
 ```
 
-A PDF arrives with its figures attached; a scanned page routes itself to a
-vision model and says so; audio is heard natively or transcribed (whisper-1
-automatically when your OpenAI key allows it); video is watched where the
-wire supports it and decomposed into frames + transcript where it doesn't.
-Every degradation is disclosed per row - nothing silently drops.
+A PDF arrives with its figures attached. A scanned page routes itself to a vision
+model and says so.
+
+Audio is heard natively or transcribed. Video is watched where the wire supports
+it, and decomposed into frames plus transcript where it does not. Every degradation
+is disclosed per row.
 
 No server. No YAML. No vector database. stdin to stdout, composing with
 `grep`, `jq`, `sort` - and `tail -f`: the per-item verbs stream.
@@ -87,19 +89,20 @@ nothing - including that you know what a "model" is.
 
 ## Honest about where your data goes, and what it costs
 
-Some of smartpipe runs on your machine no matter what: local embeddings
-(fastembed) and local transcription (whisper) ship built in, and
-[Ollama](https://ollama.com) gives you a fully local chat model - free,
-private, no API key. But be clear-eyed: **your data goes to whichever model
-endpoint you configure.** Point at a cloud model (`--model gpt-5.4-mini`, `claude-opus-4-8`, `gemini-3.1-flash-lite`,
-`mistral-large-latest`, `openrouter/…` - keys via environment variables,
-never stored) and that provider sees that data; ChatGPT subscribers can
-skip keys with `smartpipe auth login`. Paid media conversions sit behind one consent (`allow-captions`),
-every run shows **live token/media telemetry** in the status bar and ends
-with a receipt (`run: 423 in · 75 out tokens`), `smartpipe usage` tracks
-hour/day/week/month/lifetime (resettable), and the opt-in result cache makes
-re-runs free. Nothing goes anywhere you didn't configure - no telemetry
-leaves your machine, no accounts, ever.
+Some of smartpipe runs locally regardless of chat model choice: local embeddings
+(fastembed) and local transcription (whisper) ship built in.
+
+For chat, [Ollama](https://ollama.com) gives you a local path when it runs on your
+machine. If you choose a cloud model, that provider sees the data for that run.
+Examples: `gpt-5.4-mini`, `claude-opus-4-8`, `gemini-3.1-flash-lite`,
+`mistral-large-latest`, and `openrouter/...`.
+
+API keys come from environment variables and are never stored. ChatGPT subscribers
+can use `smartpipe auth login` instead.
+
+Paid media conversions require `allow-captions`. Runs show live token/media counts
+and end with a receipt. `smartpipe usage` keeps local hour/day/week/month/lifetime
+totals, and the opt-in result cache makes repeated calls free.
 
 ## It behaves like a real Unix tool
 
@@ -113,11 +116,15 @@ leaves your machine, no accounts, ever.
 
 Full docs in [`docs/`](docs/index.md) (or as a site - `uv run --group docs mkdocs serve`):
 
-- [Quickstart](docs/quickstart.md) - zero to first result, gently · [Install](docs/install.md)
+- [Quickstart](docs/quickstart.md) - zero to first result, gently
+- [Install](docs/install.md) - package and platform notes
 - [Working with files & media](docs/inputs/files.md) - PDFs, scans, images, audio, video
-- The verbs - [`map`](docs/verbs/map.md), [`extend`](docs/verbs/extend.md), [`filter`](docs/verbs/filter.md), [`cluster`](docs/verbs/cluster.md), [`distinct`](docs/verbs/distinct.md), [`diff`](docs/verbs/diff.md), [`where`](docs/verbs/where.md), [and the rest](docs/reference/cli.md)
-- [Training-data prep, end to end](docs/cookbook/training-data-prep.md) - the curator's loop with receipts
-- [Custom verbs](docs/reference/custom-verbs.md) · [`.sem` pipelines](docs/reference/sem-files.md) · [Troubleshooting](docs/troubleshooting.md) · [Privacy](docs/privacy.md)
+- [The verbs](docs/reference/cli.md) - `map`, `extend`, `filter`, `cluster`,
+  `distinct`, `diff`, `where`, and the rest
+- [Training-data prep](docs/cookbook/training-data-prep.md) - the curator's loop
+  with receipts
+- [Custom verbs](docs/reference/custom-verbs.md), [`.sem` pipelines](docs/reference/sem-files.md),
+  [Troubleshooting](docs/troubleshooting.md), and [Privacy](docs/privacy.md)
 
 ## How to cite
 

@@ -33,7 +33,7 @@ path:
 ### Path A - local & free (recommended)
 
 [Ollama](https://ollama.com) runs open models on your own machine - no account, no
-API key, nothing leaves your computer.
+API key, and model requests stay on that machine.
 
 ```console
 $ # 1. Install Ollama from https://ollama.com

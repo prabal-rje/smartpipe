@@ -36,7 +36,7 @@ which skips re-embedding items that already carry a `vector`.
 
 | Option | Meaning |
 |---|---|
-| `--embed-model TEXT` | The embedding model (default `nomic-embed-text`, configured separately from the chat model) |
+| `--embed-model TEXT` | The embedding model (default `local/nomic-embed-text-v1.5` when fastembed is available; configured separately from the chat model) |
 | `--concurrency N` | Max parallel model calls (default 4) |
 | `--fields A,B` | Select + order the `{text, vector, source}` record fields ([details](../concepts/output-formats.md)) |
 
@@ -53,13 +53,15 @@ one item per call: on a live stream, latency beats throughput.
 space through a ladder, per item, disclosed per row:
 
 - **audio** → a chat model that hears ("transcribe verbatim; if it isn't
-  speech, describe the sound" - this covers non-speech audio) → whisper →
-  skip. A **local** model converts free and automatically; a **cloud** model
-  converts only with `--allow-captions`.
+  speech, describe the sound" - this covers non-speech audio) → the configured
+  transcription ladder → skip. Local conversion is automatic; cloud conversion
+  requires `--allow-captions` or an equivalent cloud profile consent.
+
 - **images** → a vision chat model describes them (including visible text) -
   same fence: local free and automatic, cloud behind `--allow-captions`; no
   free non-LLM rung exists, so without either the item skips, naming both
   fixes.
+
 - **video** → first the WHOLE video to a model that watches (gemini native:
   the description covers the visuals too); otherwise the audio track through
   the audio row (frames dropped, said so).

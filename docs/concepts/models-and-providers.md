@@ -12,13 +12,20 @@ compatible service). You choose which; smartpipe just talks to it.
 | | Local (Ollama) | Cloud |
 |---|---|---|
 | Cost | Free | Small charge per use |
-| Privacy | Nothing leaves your machine | Text goes to the provider |
+| Privacy | Nothing leaves your machine when Ollama is local | Text and supported media go to the provider |
 | Setup | Install Ollama, pull a model | Get an API key |
 | Speed / quality | Depends on your hardware | Usually faster and stronger |
 
-smartpipe is **local-first**: with no configuration it looks for a running Ollama and
-uses it. It will never silently call a paid API - if nothing is configured and no
-Ollama is found, it prints a short setup screen and stops.
+With no configured chat model, smartpipe tries local Ollama first. If it finds a
+non-embedding model, it uses that model and prints the exact `ollama/...` name.
+
+If no model is configured and no usable Ollama model is found, smartpipe stops with
+a setup screen. It does not silently fall through to a cloud provider just because
+a key or login exists.
+
+Once you choose a cloud model, profile, or ChatGPT login path, the relevant item data
+for that run goes to that provider. That is an explicit provider choice, not a hidden
+fallback.
 
 ## Model strings
 
@@ -108,15 +115,15 @@ stay on the compat wire. `SMARTPIPE_GEMINI_BASE_URL` still points both.
 
 ## Context windows: probed, not guessed
 
-smartpipe keeps a conservative window table per provider, and when an input
-actually exceeds it, asks the provider for the real number (one cached
-metadata call - Ollama, Mistral, Gemini, and OpenRouter publish it; OpenAI and
-Anthropic don't). A live example: the table floors Gemini at 128k, but the
-probe discovers `gemini-2.5-flash` really holds 1M and widens the budget 8x.
-`SMARTPIPE_CONTEXT_TOKENS=32000` overrides everything. And if every estimate is
-wrong anyway, `reduce` self-corrects: a chunk the wire rejects as too big is
-split in half and retried (you'll see one note: `splitting further and
-retrying`).
+smartpipe keeps a conservative context-window table per provider. When an input
+exceeds that table, it asks providers that publish metadata for the real number:
+Ollama, Mistral, Gemini, and OpenRouter. OpenAI and Anthropic do not publish it.
+
+Example: the table floors Gemini at 128k, but the probe can discover that
+`gemini-2.5-flash` holds 1M and widen the budget.
+
+`SMARTPIPE_CONTEXT_TOKENS=32000` overrides everything. If an estimate is still wrong,
+`reduce` self-corrects: a rejected chunk is split in half and retried.
 
 ## Profiles: named setups you can switch between (D30)
 
@@ -125,9 +132,9 @@ output) under a name. Three ship built in:
 
 | Profile | Chat | Embeddings | For |
 |---|---|---|---|
-| `openai` | gpt-5.4-mini | text-embedding-3-small | the fast cloud default |
-| `gemini` | gemini-3.1-flash-lite | gemini/gemini-embedding-001 | the most multimodal wire |
-| `local` | ollama/gemma-4-e2b | embeddinggemma | multimodal, nothing leaves the machine |
+| `openai` | gpt-5.4-mini | text-embedding-3-small | cloud preset |
+| `gemini` | gemini-3.1-flash-lite | gemini/gemini-embedding-001 | cloud multimodal preset |
+| `local` | ollama/gemma-4-e2b | embeddinggemma | local preset when Ollama runs on your machine |
 
 ```console
 $ smartpipe config profile              # list (the active one marked)
@@ -174,7 +181,7 @@ mystery.
 
 ## Two models: chat and embedding
 
-Most verbs use a **chat** model. `embed` and `top_k` (coming soon) use a separate
+Most verbs use a **chat** model. `embed` and `top_k` use a separate
 **embedding** model, configured independently:
 
 ```console
@@ -184,7 +191,7 @@ $ smartpipe config embed-model nomic-embed-text
 ## See also
 
 - [Quickstart](../quickstart.md) - get your first model running
-- [Install](../install.md) - the optional extras, including `[anthropic]`
+- [Install](../install.md) - package contents and environment notes
 
 
 ## The stt-model role

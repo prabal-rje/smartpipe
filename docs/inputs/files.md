@@ -42,23 +42,22 @@ and extracts the text automatically.
 |---|---|
 | `.txt` `.md` `.csv` `.json` | reads it as text |
 | `.pdf` `.docx` `.pptx` `.xlsx` `.html` `.epub` | extracts the text (built in) |
-| `.mp3` `.wav` `.flac` … | transcribes it locally (whisper, built in) |
+| `.mp3` `.wav` `.flac` … | carries the audio bytes; the next verb either sends them to an audio-capable model or transcribes them through the configured ladder |
 | anything unreadable | skips it with a warning - never crashes |
 
 Detection is by extension first, with a magic-byte fallback for files whose name
 doesn't say what they are.
 
-## Optional dependencies
+## Parser availability
 
-Parsing documents and audio needs extra packages, kept optional so a plain install
-stays tiny:
+Parsing documents, audio, video, and charts ships with the normal install:
 
 ```console
 $ pip install smartpipe    # everything ships in the box - documents, video, charts, all of it
 ```
 
-If a parser is ever unavailable (a broken environment), smartpipe tells you
-exactly what to install (once), then skips those files.
+If a parser is unavailable in a broken or unsupported environment, smartpipe tells
+you exactly what is missing once, then skips those files.
 
 ## What file mode returns
 
@@ -112,13 +111,14 @@ $ cat extra-notes.txt \
 
 ## Video: watched, or frames + soundtrack
 
-A video file becomes an item carrying its bytes. On gemini models the
-video rides the native wire whole - the model watches it, soundtrack included.
-Everywhere else `map`/`extend` convert it locally (ffmpeg, via
-bundled, or PATH): **one frame per second up to 24**,
-evenly spread past that, plus the audio track - sent natively when the model
-can see/hear, with a transcript fallback beneath. Tune the sampling when it
-matters:
+A video file becomes an item carrying its bytes.
+
+On gemini models, the video rides the native wire whole: visuals and soundtrack
+together. Everywhere else, `map`/`extend` convert it locally with ffmpeg into frames
+plus audio.
+
+The default is **one frame per second up to 24**, evenly spread past that. Tune the
+sampling when it matters:
 
 ```console
 $ smartpipe map "what changes between scenes?" --in demo.mp4 --frame-every 1
@@ -176,21 +176,23 @@ PDFs - other encodings would need re-encoding and are skipped for now).
 An audio file (`.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`) becomes an item carrying
 its **bytes**, not an eager transcript:
 
-- `map` with an audio-capable model (gemini models, `voxtral-*`) sends
-  the sound itself - tone and speaker changes included.
-- With any other model, smartpipe transcribes **locally** when the `[audio]`
-  extra is installed (a one-time stderr note says so), then retries as text.
-  The transcriber is faster-whisper, `tiny` by default: fast, but rough on
-  names and noisy audio. `SMARTPIPE_WHISPER_MODEL=small` (or `medium`,
-  `large-v3`) trades speed for accuracy; the first use of a size downloads its
-  weights once. Audio never leaves your machine on this path.
+- `map` with an audio-capable model (gemini models, `voxtral-*`) sends the sound to
+  that configured endpoint - tone and speaker changes included.
+
+- With a text-only model, smartpipe needs a transcript. It uses a configured remote
+  transcriber (`stt-model`, or OpenAI `whisper-1` on the OpenAI API-key path when
+  consent allows it); otherwise it uses local faster-whisper (`tiny` by default),
+  then retries as text. `SMARTPIPE_WHISPER_MODEL=small` (or `medium`, `large-v3`)
+  trades speed for accuracy; the first use of a size downloads its weights once.
+  Audio never leaves your machine on the local whisper path.
+
 - The text verbs (`filter`, `embed`, `top_k`, `reduce`, `join`) transcribe on
-  demand with the extra, or skip with a line naming both fixes.
+  demand through the same ladder, or skip with a line naming the fixes.
 
 ## See also
 
 - [Pipes & items](../concepts/pipes-and-items.md) - the item model
-- [Install](../install.md) - the optional extras in full
+- [Install](../install.md) - package contents and environment notes
 
 
 ## Scanned documents
@@ -203,9 +205,10 @@ note: contract.pdf: thin text layer (11 chars) - scanned? routed 8 page image(s)
       to the vision path (22 more capped - split --by pages --media processes every page)
 ```
 
-`map` then reads the pages with a vision model directly (the LLM **is** the
-OCR); text verbs caption them through the conversion ladder (consent rules
-apply). For long scans, `split --by pages --media` processes every page -
-the whole-document item caps at 8 images for request-size sanity. Pick a
-model that can see (`gpt-5.4-mini`, `gemini-3.1-flash-lite`, `ollama/llava`);
-`smartpipe doctor --probe` verifies actual ability.
+`map` reads those pages with a vision model directly; the LLM is the OCR. Text verbs
+caption them through the conversion ladder, with the usual consent rules.
+
+For long scans, `split --by pages --media` processes every page. The whole-document
+item caps at 8 images for request-size sanity. Pick a model that can see
+(`gpt-5.4-mini`, `gemini-3.1-flash-lite`, `ollama/llava`); `smartpipe doctor --probe`
+verifies actual ability.

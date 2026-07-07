@@ -186,14 +186,20 @@ Chosen so a script can branch on *how* a run went, not just pass/fail:
 
 ### What Ctrl-C does
 
-For the per-item verbs (`map`, `filter`, `embed`), the **first Ctrl-C** stops new work,
-lets what's already in flight finish (up to 10 s), emits those results in order, prints
-`done: interrupted - N processed · M skipped` on stderr, and exits with the run's normal
-outcome code (`0`/`1`/`3`) - so a script still learns whether the partial output is
-trustworthy. A **second Ctrl-C** exits `130` immediately. The same drain applies to the stream
-modes (`reduce --window` flushes its partial window; `top_k --stream`'s board is
-already on screen). Whole-set `reduce`/`top_k` exit `130` at once - they produce one
-result at the end, so there's nothing to drain.
+For per-item verbs (`map`, `filter`, `embed`), the **first Ctrl-C** stops new work and
+lets in-flight work finish for up to 10 seconds. Finished results are emitted in
+order.
+
+The command then prints `done: interrupted - N processed · M skipped` on stderr and
+exits with the run's normal outcome code (`0`/`1`/`3`). Scripts can still tell whether
+the partial output is trustworthy.
+
+A **second Ctrl-C** exits `130` immediately. The same drain applies to stream modes:
+`reduce --window` flushes its partial window, and `top_k --stream` already has its
+board on screen.
+
+Whole-set `reduce` and `top_k` exit `130` at once. They produce one result at the end,
+so there is nothing to drain.
 
 ## See also
 

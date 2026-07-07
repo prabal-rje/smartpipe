@@ -5,21 +5,26 @@ and doesn't do.
 
 ## Where your data goes: exactly where you point it
 
-The honest framing first: **your data goes to whichever model endpoint you
-configure, and nowhere else.** If that's a local Ollama, everything stays on
-your machine. If that's a cloud provider (a key, or the ChatGPT login - the
-paths the setup wizard offers when no local model is found), your text and
-media go to that provider under their terms. smartpipe will **never silently
-call a paid cloud API**: if nothing is configured and no Ollama is found, it
-stops and asks; paid media conversions additionally sit behind the
-`allow-captions` consent (cloud profiles set it - switching to one IS the
-consent); remote transcription follows the same rule.
+The framing is simple: **your data goes to the model endpoint you configure, and
+nowhere else.**
 
-Two pieces are local regardless of your model choice: **embeddings** (the
-default embedder is fastembed's nomic model, on-device, no server) and
-**local transcription** (whisper, built in). The auto-STT matrix prefers
-your OpenAI key's whisper-1 when you have one - that's a cloud call, gated
-by the same consent - and falls back to the local model otherwise.
+If that endpoint is Ollama running on your machine, the model request stays on your
+machine. If it is a cloud provider, your text and supported media go to that
+provider under their terms.
+
+smartpipe will not silently call a paid cloud API. If no chat model is configured,
+it tries local Ollama. If no usable Ollama model is found, it stops and asks.
+
+Paid media conversions require `allow-captions`. Cloud profiles set that consent
+when selected; remote transcription follows the same rule.
+
+Two pieces are local regardless of your chat model: **embeddings** and **local
+transcription**. The default embedder is fastembed's nomic model. Local
+transcription uses built-in whisper.
+
+The auto-STT matrix can use OpenAI `whisper-1` when an OpenAI API key is present.
+That is a cloud call and uses the same consent gate. Otherwise it falls back to the
+local model.
 
 ## When you use a cloud model, you're sending data to that provider
 
@@ -46,27 +51,28 @@ never log in, the file never exists.
 
 Two features spool bytes to a private temp file for the length of one operation,
 then delete it: a binary document redirected to stdin (`smartpipe map … <
-report.pdf`), and audio transcription (the `[audio]` extra). Nothing
-outlives the run; nothing is written into your project.
+report.pdf`), and audio transcription. Nothing outlives the run; nothing is written
+into your project.
 
-## Audio transcription is local
+## Local audio transcription
 
-The optional `[audio]` extra transcribes speech **on your machine** with a
-local Whisper model (faster-whisper, `tiny` by default,
-`SMARTPIPE_WHISPER_MODEL` to change it). The audio bytes never leave your
-computer. One disclosure: the *first* use of a model size downloads its
-weights (~75 MB for tiny) from Hugging Face - a one-time fetch of model files,
-with no audio or text in it. Audio-capable models (gemini models,
-`voxtral-*`) are the other path: they hear natively, over the endpoint you
-configured.
+Local transcription uses faster-whisper on your machine (`tiny` by default;
+`SMARTPIPE_WHISPER_MODEL` changes the size). The audio bytes never leave your
+computer on this path.
+
+The first use of a model size downloads its weights from Hugging Face. That is a
+one-time model-file download, with no audio or text in it.
+
+Audio-capable models are the other path. Gemini and `voxtral-*` hear natively over
+the endpoint you configured.
 
 ## No telemetry, ever
 
-smartpipe makes **no network calls except to the model endpoint you configured**
-(and the one-time whisper weights download above, if you use the `[audio]`
-extra). There
-is no analytics, no phone-home, no update check. The test suite enforces this: it runs
-with strict HTTP mocking, so any unexpected outbound request fails the build.
+smartpipe makes **no network calls except to the model endpoint you configured** and
+one-time model asset downloads for local Whisper or local embeddings.
+
+There is no analytics, no phone-home, no update check. The test suite enforces this:
+it runs with strict HTTP mocking, so any unexpected outbound request fails the build.
 
 ## No tool-use surface - prompt injection can't make smartpipe act
 
@@ -100,14 +106,17 @@ your input files. Output goes to stdout; where it lands is up to your shell.
 
 ## The result cache
 
-With caching on (`smartpipe config cache on` or `SMARTPIPE_CACHE=1`), model
-REPLIES are stored on disk under `~/.cache/smartpipe/results` (or
-`$XDG_CACHE_HOME/smartpipe/results`), keyed by a hash of the full request.
+With caching on (`smartpipe config cache on` or `SMARTPIPE_CACHE=1`), model replies
+are stored on disk under `~/.cache/smartpipe/results` or
+`$XDG_CACHE_HOME/smartpipe/results`. The key is a hash of the full request.
+
 That means model outputs about your data persist locally between runs.
-`smartpipe cache clear` deletes all of it and reports the size; `smartpipe
-cache stats` inspects it. The cache also maintains itself: entries expire
-after 30 days and the store LRU-evicts past 500 MB (tunable via the
-`cache-days` and `cache-max-mb` config keys). Caching is off by default.
+`smartpipe cache clear` deletes all of it and reports the size. `smartpipe cache
+stats` inspects it.
+
+The cache also maintains itself. Entries expire after 30 days, and the store
+LRU-evicts past 500 MB. Tune those with `cache-days` and `cache-max-mb`. Caching is
+off by default.
 
 
 ## Remote transcription
