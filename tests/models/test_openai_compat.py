@@ -418,3 +418,22 @@ async def test_scoped_key_401_names_the_missing_scope(
     message = str(excinfo.value)
     assert "Missing scopes: model.request" in message  # the server's actual reason
     assert "RESTRICTED" in message  # and the fix that matches it
+
+
+async def test_scoped_401_on_media_is_per_item_not_fatal(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    from smartpipe.models.base import ImageData
+
+    respx_mock.post(f"{BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            401,
+            json={"error": {"message": "insufficient permissions. Missing scopes: model.request"}},
+        )
+    )
+    with pytest.raises(ItemError, match="can't send media"):  # ladders continue; run survives
+        await _chat(client).complete(
+            CompletionRequest(
+                system=None, user="what is this?", media=(ImageData(b"px", "image/png"),)
+            )
+        )

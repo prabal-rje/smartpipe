@@ -150,14 +150,14 @@ class OpenAIChatModel:
             }
         metering.add_request_media(request.media)
         try:
-            data = await _post(self, "/v1/chat/completions", payload)
+            data = await _post(self, "/v1/chat/completions", payload, has_media=bool(request.media))
         except ItemError as exc:
             # o-series models reject explicit temperature — strip and retry once
             # (capability by attempt, D36; no model-name sniffing)
             if "temperature" not in str(exc) or "temperature" not in payload:
                 raise
             payload.pop("temperature")
-            data = await _post(self, "/v1/chat/completions", payload)
+            data = await _post(self, "/v1/chat/completions", payload, has_media=bool(request.media))
         record = as_record(data)
         choices = as_items(record.get("choices")) if record is not None else None
         first = record_at(choices[0], "message") if choices else None
@@ -198,7 +198,11 @@ class OpenAIEmbeddingModel:
 
 
 async def _post(
-    model: OpenAIChatModel | OpenAIEmbeddingModel, path: str, payload: Mapping[str, object]
+    model: OpenAIChatModel | OpenAIEmbeddingModel,
+    path: str,
+    payload: Mapping[str, object],
+    *,
+    has_media: bool = False,
 ) -> object:
     headers = {"Authorization": f"Bearer {model.api_key}"}
 
@@ -215,10 +219,19 @@ async def _post(
         status = exc.response.status_code
         if status in (401, 403):
             reason = _detail(exc.response)
+            scoped = "scope" in reason.lower() or "permission" in reason.lower()
+            if scoped and has_media:
+                # a RESTRICTED key refusing a media request is a capability
+                # statement, not a dead key (text works) — per-item, so the
+                # ladders and skip machinery take it from here (D43c)
+                raise ItemError(
+                    f"this key can't send media ({reason[:80]}) — grant the "
+                    "scope or use an unrestricted key"
+                ) from exc
             hint = (
                 "  This key is RESTRICTED — grant the missing scope (or use an\n"
                 "  unrestricted project key) in your provider console."
-                if "scope" in reason.lower() or "permission" in reason.lower()
+                if scoped
                 else f"  Fix: check the key, or the endpoint in {model.wire.base_url_env}."
             )
             raise SetupFault(

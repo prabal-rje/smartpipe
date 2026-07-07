@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Fixed
+- **A restricted key refusing MEDIA no longer kills the run (D43c).** The
+  owner's key proved the case: text chat 200, image-bearing chat 401
+  "Missing scopes: model.request". A scope-401 on a media request is a
+  capability statement about the key, not a dead key — it now degrades
+  per-item (the ladders and skip machinery take over, the skip line quotes
+  the scope and the fix), while a scope-401 on plain text stays properly
+  fatal.
 - **401s now quote the provider's actual reason.** A scope-restricted key
   (text chat and whisper fine, media chat forbidden) used to read as "check
   the key" — a live goose chase. The screen now includes the server's
