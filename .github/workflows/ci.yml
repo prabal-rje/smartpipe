@@ -18,15 +18,14 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
         with: { python-version: "3.12" }
       - run: uv sync --all-extras
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run pyright
-      # TEMP diagnostic: -v names the test that dies with SIGPIPE on this runner
-      - run: uv run coverage run -m pytest -v
+      - run: uv run coverage run -m pytest -q
       - run: uv run coverage report
       - run: uv build && uvx twine check dist/*
       - run: make docs-check
@@ -44,8 +43,8 @@ jobs:
         python: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
         with: { python-version: "${{ matrix.python }}" }
       - run: uv sync --all-extras
       - run: uv run coverage run -m pytest -q
@@ -61,8 +60,8 @@ jobs:
         image: ollama/ollama
         ports: ["11434:11434"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
       - run: uv sync --all-extras
       - run: curl -s http://localhost:11434/api/pull -d '{"name":"qwen3:0.6b"}' > /dev/null
       - run: |

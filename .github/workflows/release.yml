@@ -17,8 +17,8 @@ jobs:
     env:
       NO_COLOR: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
         with: { python-version: "${{ matrix.python }}" }
       - run: uv sync --all-extras
       - run: uv run coverage run -m pytest -q
@@ -32,8 +32,8 @@ jobs:
       id-token: write # PyPI Trusted Publishing (no token secret)
       contents: write # GitHub release
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
         with: { python-version: "3.12" }
       - run: uv build
       - uses: pypa/gh-action-pypi-publish@release/v1
