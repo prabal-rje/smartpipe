@@ -1,25 +1,32 @@
-# `map` — transform each item
+# `map` - transform each item
 
 > Need your input record's fields to SURVIVE alongside the extraction?
-> That's [`extend`](extend.md) — map that merges.
+> That's [`extend`](extend.md) - map that merges.
 
 Applies a prompt to every input item. One item in, one result out.
 
 ## Examples
 
 ```console
-# Plain transform — each line becomes a prompt, one result per line:
-$ cat notes.txt | smartpipe map "Translate to French"
+# Plain transform - each line becomes a prompt, one result per line:
+$ cat notes.txt \
+    | smartpipe map "Translate to French"
 
-# Structured extraction — braces name the fields you want back (NDJSON out):
-$ cat receipts.txt | smartpipe map "Extract {vendor, date, total}"
+# Structured extraction - braces name the fields you want back (NDJSON out):
+$ cat receipts.txt \
+    | smartpipe map "Extract {vendor, date, total}"
 {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 
 # Use a cloud model just for this run:
-$ cat data.txt | smartpipe map "Classify the sentiment" --model gpt-5.4-mini
+$ cat data.txt \
+    | smartpipe map "Classify the sentiment" --model gpt-5.4-mini
 
 # Compose with the tools you already have:
-$ cat receipts.txt | smartpipe map "Extract {vendor, total}" | jq -r '.total' | paste -sd+ | bc
+$ cat receipts.txt \
+    | smartpipe map "Extract {vendor, total}" \
+    | jq -r '.total' \
+    | paste -sd+ \
+    | bc
 ```
 
 ## How it decides plain vs. structured
@@ -31,31 +38,33 @@ One rule: **braces mean you want structured output.**
   input, validated against the fields you asked for.
 
 In `map`, braces describe the *output*. (In `filter` and `reduce`, `{field}` reads
-an input field instead — see [structured output](../concepts/structured-output.md)
+an input field instead - see [structured output](../concepts/structured-output.md)
 for the full grammar.)
 
 ## Images
 
 `map` is the vision verb: an image item (from `--in 'photos/*.jpg'` or a redirected
 image on stdin) is sent to the model as an image, and your prompt describes what to
-do with it — including structured extraction (`"Extract {brand, color}"`). Needs a
+do with it - including structured extraction (`"Extract {brand, color}"`). Needs a
 vision-capable model (`ollama/qwen3-vl`, `gpt-5.4-mini`, `claude-opus-4-8`, …);
 without one, the item skips with a hint.
 
 ## Streaming
 
-`map` processes stdin incrementally — results appear as input arrives, so live
+`map` processes stdin incrementally - results appear as input arrives, so live
 sources work with no flag:
 
 ```console
-$ tail -f app.log | smartpipe map "Classify: {severity, category}" | tee incidents.jsonl
+$ tail -f app.log \
+    | smartpipe map "Classify: {severity, category}" \
+    | tee incidents.jsonl
 ```
 
 ## Options
 
 | Option | Meaning |
 |---|---|
-| `--schema FILE` | Enforce a JSON Schema file on the output (production-grade extraction — see below) |
+| `--schema FILE` | Enforce a JSON Schema file on the output (production-grade extraction - see below) |
 | `--model TEXT` | Model for this run (e.g. `ollama/qwen3:8b`, `gpt-5.4-mini`, `claude-opus-4-8`) |
 | `--output FORMAT` | `auto` (default) · `text` · `json`. `auto` = human-readable at a terminal, NDJSON when piped |
 | `--concurrency N` | Max parallel model calls (default 4) |
@@ -65,10 +74,11 @@ $ tail -f app.log | smartpipe map "Classify: {severity, category}" | tee inciden
 ## Lists into rows: `--explode`
 
 When a field is a list, `--explode FIELD` emits one row per element with the
-sibling fields copied — `jq -c '.risks[]'`, but provenance-aware and schema-checked:
+sibling fields copied - `jq -c '.risks[]'`, but provenance-aware and schema-checked:
 
 ```console
-$ cat filings.txt | smartpipe map "Extract {vendor, risks}" --explode risks
+$ cat filings.txt \
+    | smartpipe map "Extract {vendor, risks}" --explode risks
 {"vendor":"Acme","risks":"late delivery"}
 {"vendor":"Acme","risks":"currency exposure"}
 ```
@@ -81,7 +91,7 @@ Composes with `--tally` (counted per exploded row) and `--fields`.
 `map` refuses an item the model can't hold, before spending anything:
 
 ```
-⚠ skipped: report.pdf (~87,886 tokens is past gpt-5.4-mini's ~76,300-token budget —
+⚠ skipped: report.pdf (~87,886 tokens is past gpt-5.4-mini's ~76,300-token budget -
   split it first: smartpipe split --in FILE | smartpipe map "..." | smartpipe reduce "...")
 ```
 
@@ -93,12 +103,12 @@ recombines.
 
 `map` is the multimodal verb: image items reach vision models as images, audio
 items reach audio models as sound (`--in 'calls/*.wav'`). A model that can't
-hear falls back to local transcription when `pip install 'smartpipe[audio]'` is
+hear falls back to local transcription (built in - whisper ships with smartpipe) when it is
 present; details in [File inputs](../inputs/files.md#audio-heard-natively-or-transcribed).
 
 ## Inline braces vs. `--schema`
 
-- **Inline** `{vendor, total}` is quick and great for exploration — the model
+- **Inline** `{vendor, total}` is quick and great for exploration - the model
   infers the types.
 - **`--schema invoice.json`** points at a standard JSON Schema file for production:
   output strictly conforms, types are coerced, and fields you didn't ask for are
@@ -107,7 +117,7 @@ present; details in [File inputs](../inputs/files.md#audio-heard-natively-or-tra
 ## Gotchas
 
 - **One in, one out works best with per-line prompts.** If a prompt asks for a
-  multi-paragraph essay, you get multiple lines out for that item — fine, but know
+  multi-paragraph essay, you get multiple lines out for that item - fine, but know
   it breaks the neat line-for-line mapping.
 - **A bad item is a warning, not a crash.** If the model can't produce valid JSON
   for one line (even after a retry), that line is skipped with a `⚠ skipped:`
@@ -120,8 +130,8 @@ present; details in [File inputs](../inputs/files.md#audio-heard-natively-or-tra
 
 ## See also
 
-- [Structured output](../concepts/structured-output.md) — the brace grammar and `--schema`
-- [Models & providers](../concepts/models-and-providers.md) — picking and switching models
+- [Structured output](../concepts/structured-output.md) - the brace grammar and `--schema`
+- [Models & providers](../concepts/models-and-providers.md) - picking and switching models
 
 
 ## Video frame control
@@ -135,10 +145,10 @@ $ smartpipe map "what changes in this scene?" --in demo.mp4 --frame-every 1
 $ smartpipe map "summarize" --in long.mp4 --frame-every 2 --max-frames 120
 ```
 
-- `--frame-every SECONDS` is a **density guarantee** — one frame per period,
+- `--frame-every SECONDS` is a **density guarantee** - one frame per period,
   and the default 24-frame cap lifts (a guarantee that silently caps isn't
   one).
-- `--max-frames N` is a **budget** — when both are set, the smaller wins.
+- `--max-frames N` is a **budget** - when both are set, the smaller wins.
 - The per-row note prints the frame count, and the run receipt shows the
   image megabytes actually sent, so a 600-frame decision is a visible one.
 - The text-verb caption pivot keeps its small fixed sample; these flags

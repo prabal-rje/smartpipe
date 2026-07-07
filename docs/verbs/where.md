@@ -1,20 +1,24 @@
-# where — the free filter
+# where - the free filter
 
-Keep rows matching a deterministic predicate. **Free — `where` never calls a
+Keep rows matching a deterministic predicate. **Free - `where` never calls a
 model.** Streams, preserves input order, and emits matching rows byte-for-byte.
 
 ```console
-$ tail -f app.log | smartpipe where 'text has "ERROR"'
-$ cat orders.jsonl | smartpipe where 'total > 1000'
+$ tail -f app.log \
+    | smartpipe where 'text has "ERROR"'
+$ cat orders.jsonl \
+    | smartpipe where 'total > 1000'
 ```
 
 ## The filter-early idiom
 
-`where` exists so the paid stages only see what matters — the same discipline
+`where` exists so the paid stages only see what matters - the same discipline
 KQL enforces ("cheapest predicate first"):
 
 ```console
-$ cat app.log | smartpipe where 'text has "ERROR"' | smartpipe filter "an actual outage, not a retry storm"
+$ cat app.log \
+    | smartpipe where 'text has "ERROR"' \
+    | smartpipe filter "an actual outage, not a retry storm"
 ```
 
 On a 100k-line log, judging every line costs real money; `where` first cuts
@@ -29,7 +33,7 @@ for judgment.**
 | `FIELD contains "text"` | substring, case-insensitive |
 | `FIELD matches /re/` | Python regex search, case-sensitive |
 | `FIELD == VALUE` / `!=` | numeric when both sides are numbers, else exact string |
-| `FIELD > >= < <=` | numeric only — non-numbers never match (and are disclosed) |
+| `FIELD > >= < <=` | numeric only - non-numbers never match (and are disclosed) |
 | `and` · `or` · `not` · `( )` | `not` binds tightest, then `and`, then `or` |
 
 `FIELD` is a record field name, or `text` for the whole line (on plain-text
@@ -38,7 +42,7 @@ spelling: `pass == true`.
 
 ## Honest silence
 
-Missing fields evaluate false — streams keep flowing — but the run ends with
+Missing fields evaluate false - streams keep flowing - but the run ends with
 a disclosure so silence never lies:
 
 ```

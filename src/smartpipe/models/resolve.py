@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 __all__ = ["Resolved", "resolve_chat_ref", "resolve_embed_ref"]
 
-_DEFAULT_EMBED_MODEL = "nomic-embed-text"
+_DEFAULT_EMBED_MODEL = "local/nomic-embed-text-v1.5"  # D44: no server needed
 
 
 @dataclass(frozen=True, slots=True)

@@ -240,10 +240,10 @@ class AppContainer:
                 return build_anthropic_chat_model(ref)
             case "mistral":  # the parametrized OpenAI wire (workstream 10)
                 return self._wire_chat(ref, MISTRAL_WIRE)
-            case "jina":
+            case "jina" | "local":
                 raise SetupFault(
                     f"error: '{ref.name}' is an embedding model, not a chat model\n"
-                    "  Jina models embed; pick a chat model: smartpipe config model …"
+                    "  Pick a chat model instead: smartpipe config model …"
                 )
             case "gemini":  # D34: chat rides the NATIVE wire — the one that watches video
                 from smartpipe.models.gemini_native import GeminiNativeChatModel, native_base_url
@@ -283,6 +283,10 @@ class AppContainer:
 
     def _build_embed(self, ref: ModelRef) -> EmbeddingModel:
         match ref.provider:
+            case "local":  # D44: the on-device default — no server, no key
+                from smartpipe.models.local_embed import LocalEmbeddingModel
+
+                return LocalEmbeddingModel(ref=ref)
             case "ollama":
                 return OllamaEmbeddingModel(
                     ref=ref,

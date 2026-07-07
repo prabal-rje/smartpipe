@@ -1,6 +1,6 @@
 # Ranking documents
 
-**Goal:** given a folder of files and a query, find the most relevant ones — by
+**Goal:** given a folder of files and a query, find the most relevant ones - by
 meaning, not keyword.
 
 ## The résumé screen
@@ -8,8 +8,7 @@ meaning, not keyword.
 The classic: rank a stack of résumés against a role.
 
 ```console
-$ smartpipe top_k 5 --near "senior distributed systems engineer, Rust, Kubernetes" \
-    --in 'resumes/*.pdf'
+$ smartpipe top_k 5 --near "senior distributed systems engineer, Rust, Kubernetes" --in 'resumes/*.pdf'
 ```
 
 Output is the five closest files, best first, each with a similarity score:
@@ -27,13 +26,15 @@ resumes/nguyen.pdf	0.81
 ## Embed once, query many times
 
 If you'll run several queries against the same corpus, embed it once and reuse the
-vectors — much cheaper than re-embedding every time:
+vectors - much cheaper than re-embedding every time:
 
 ```console
 $ smartpipe embed --in 'docs/**/*.md' > corpus.embeddings
 
-$ cat corpus.embeddings | smartpipe top_k 10 --near "our data retention policy"
-$ cat corpus.embeddings | smartpipe top_k 10 --near "incident response runbook"
+$ cat corpus.embeddings \
+    | smartpipe top_k 10 --near "our data retention policy"
+$ cat corpus.embeddings \
+    | smartpipe top_k 10 --near "incident response runbook"
 ```
 
 `top_k` sees the precomputed `vector` in each record and skips re-embedding.

@@ -5,9 +5,7 @@
 ## The pipeline
 
 ```console
-$ smartpipe map "Extract {party_a, party_b, effective_date, total_value, governing_law}" \
-    --in 'contracts/*.pdf' \
-    --output csv > contracts.csv
+$ smartpipe map "Extract {party_a, party_b, effective_date, total_value, governing_law}" --in 'contracts/*.pdf' --output csv > contracts.csv
 ```
 
 That's the whole thing. Each PDF becomes one item; smartpipe parses it to text
@@ -43,12 +41,11 @@ fields are dropped:
 ```
 
 ```console
-$ smartpipe map "Extract the contract details" --in 'contracts/*.pdf' --schema contract.json \
-    --output csv > contracts.csv
+$ smartpipe map "Extract the contract details" --in 'contracts/*.pdf' --schema contract.json --output csv > contracts.csv
 ```
 
 Now `total_value` is a real number, and a document that doesn't parse cleanly is
-retried once, then skipped with a warning — the batch never dies on one bad file.
+retried once, then skipped with a warning - the batch never dies on one bad file.
 
 ## Narrow to the contracts you care about first
 

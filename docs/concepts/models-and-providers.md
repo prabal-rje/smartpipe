@@ -3,7 +3,7 @@
 ## What's a "model"?
 
 A model is the AI that reads your instruction and produces the answer. smartpipe
-doesn't contain one — it sends your text to a model running either **locally** (on
+doesn't contain one - it sends your text to a model running either **locally** (on
 your machine, via Ollama) or in the **cloud** (OpenAI, Anthropic, or any
 compatible service). You choose which; smartpipe just talks to it.
 
@@ -17,7 +17,7 @@ compatible service). You choose which; smartpipe just talks to it.
 | Speed / quality | Depends on your hardware | Usually faster and stronger |
 
 smartpipe is **local-first**: with no configuration it looks for a running Ollama and
-uses it. It will never silently call a paid API — if nothing is configured and no
+uses it. It will never silently call a paid API - if nothing is configured and no
 Ollama is found, it prints a short setup screen and stops.
 
 ## Model strings
@@ -27,8 +27,8 @@ You name a model with a string. Two forms:
 - **Explicit provider:** `ollama/qwen3:8b`, `openai/gpt-5.4-mini`,
   `anthropic/claude-opus-4-8`, `mistral/mistral-large-latest`,
   `gemini/gemini-2.5-flash`, `openrouter/deepseek/deepseek-chat`
-  (OpenRouter is explicit-only — its names are other vendors' names).
-- **Bare name:** smartpipe routes by shape — `claude-*` → Anthropic, `gpt-*` / `o*` /
+  (OpenRouter is explicit-only - its names are other vendors' names).
+- **Bare name:** smartpipe routes by shape - `claude-*` → Anthropic, `gpt-*` / `o*` /
   `text-embedding-*` → OpenAI, the Mistral family (`mistral-*`, `ministral-*`,
   `codestral-*`, `magistral-*`, `devstral-*`, `pixtral-*`, `open-mistral-*`,
   `open-mixtral-*`, `voxtral-*`) → Mistral, `gemini-*` → Gemini, anything else
@@ -36,7 +36,7 @@ You name a model with a string. Two forms:
   `openai/gpt-5.4-mini` mean the same thing.
 
 Namespaced Ollama models keep working as bare names too: `hf.co/org/model` routes to
-Ollama whole — including `hf.co/mistralai/...`, which is an Ollama name, not a
+Ollama whole - including `hf.co/mistralai/...`, which is an Ollama name, not a
 Mistral cloud model.
 
 ## Cloud credentials
@@ -52,10 +52,10 @@ $ export OPENROUTER_API_KEY=sk-or-...   # openrouter.ai/keys
 ```
 
 Claude models also need an optional package: `pip install 'smartpipe[anthropic]'`.
-(smartpipe tells you if it's missing.) Mistral needs nothing extra — chat,
+(smartpipe tells you if it's missing.) Mistral needs nothing extra - chat,
 `mistral-embed` embeddings, and `pixtral-*` vision all ride the built-in adapter.
-Any *other* OpenAI-compatible endpoint — Groq, OpenRouter, a local llama.cpp
-server — works by pointing smartpipe at it:
+Any *other* OpenAI-compatible endpoint - Groq, OpenRouter, a local llama.cpp
+server - works by pointing smartpipe at it:
 
 ```console
 $ export SMARTPIPE_OPENAI_BASE_URL=https://api.groq.com/openai
@@ -67,19 +67,20 @@ If you have a ChatGPT Plus/Pro plan, you can use it directly:
 
 ```console
 $ smartpipe auth login              # opens your browser (or --headless for a code)
-$ echo "hi" | smartpipe map "translate to French" --model gpt-5.4
+$ echo "hi" \
+    | smartpipe map "translate to French" --model gpt-5.4
 ```
 
 What to know:
 
 - **Which models:** the ChatGPT wire serves the Codex-era family (`gpt-5.x`,
   `gpt-*-codex`). Older platform models like `gpt-5.4-mini` still need an API key.
-- **Precedence:** an exported `OPENAI_API_KEY` always wins over a login — a key is
+- **Precedence:** an exported `OPENAI_API_KEY` always wins over a login - a key is
   an explicit, billable choice. Unset it to use your plan.
 - **No embeddings:** `embed`/`top_k` need an API key or a local model.
 - **Where tokens live:** `~/.config/smartpipe/auth.json`, permissions `0600`,
   refreshed automatically, removed with `smartpipe auth logout`. (API keys are still
-  never stored — this file holds only login tokens.)
+  never stored - this file holds only login tokens.)
 - **Why no login for Anthropic/Mistral:** they don't offer one to third-party
   tools. OpenAI's login uses the same public OAuth client the Codex CLI and other
   open-source tools use, and smartpipe identifies itself honestly (`originator:
@@ -109,7 +110,7 @@ stay on the compat wire. `SMARTPIPE_GEMINI_BASE_URL` still points both.
 
 smartpipe keeps a conservative window table per provider, and when an input
 actually exceeds it, asks the provider for the real number (one cached
-metadata call — Ollama, Mistral, Gemini, and OpenRouter publish it; OpenAI and
+metadata call - Ollama, Mistral, Gemini, and OpenRouter publish it; OpenAI and
 Anthropic don't). A live example: the table floors Gemini at 128k, but the
 probe discovers `gemini-2.5-flash` really holds 1M and widens the budget 8x.
 `SMARTPIPE_CONTEXT_TOKENS=32000` overrides everything. And if every estimate is
@@ -156,7 +157,8 @@ $ smartpipe config show                       # see the effective settings + whe
 Override the default for a single command with `--model`:
 
 ```console
-$ cat data.txt | smartpipe map "summarize" --model claude-opus-4-8
+$ cat data.txt \
+    | smartpipe map "summarize" --model claude-opus-4-8
 ```
 
 ## Precedence
@@ -181,15 +183,15 @@ $ smartpipe config embed-model nomic-embed-text
 
 ## See also
 
-- [Quickstart](../quickstart.md) — get your first model running
-- [Install](../install.md) — the optional extras, including `[anthropic]`
+- [Quickstart](../quickstart.md) - get your first model running
+- [Install](../install.md) - the optional extras, including `[anthropic]`
 
 
 ## The stt-model role
 
 `smartpipe config stt-model openai/whisper-1` names a dedicated remote
 transcriber. When set, it runs FIRST in the audio ladder (a configured
-transcriber signals wanting verbatim text — LLM hearing paraphrases),
+transcriber signals wanting verbatim text - LLM hearing paraphrases),
 falling back to the LLM rung and local whisper on failure. It is a paid
 cloud conversion, so the `allow-captions` consent gates it like every other
 one. Unset, smartpipe picks the sensible strategy automatically:
@@ -209,7 +211,7 @@ account. Only the openai wire exists today; the key accepts
 ## The usage ledger
 
 `smartpipe usage` shows what the meter observed over the past hour, day, week,
-month, and lifetime — runs, tokens in/out, media, audio time, paid
+month, and lifetime - runs, tokens in/out, media, audio time, paid
 conversions. `smartpipe usage reset` zeroes it (printing the previous lifetime
 so the number isn't lost) and remembers the reset time. Only model-touching
 runs count; the ledger lives in `~/.local/state/smartpipe/` and never leaves

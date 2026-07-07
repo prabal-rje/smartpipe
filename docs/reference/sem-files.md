@@ -1,11 +1,13 @@
-# `.sem` files — saved pipe stages
+# `.sem` files - saved pipe stages
 
 A `.sem` file captures **exactly one verb invocation** in TOML. `smartpipe run
 stage.sem` executes it; a shebang makes it directly executable. Composition
-stays where it belongs — in the shell:
+stays where it belongs - in the shell:
 
 ```console
-$ cat tickets.log | ./filter-urgent.sem | ./extract.sem > urgent.csv
+$ cat tickets.log \
+    | ./filter-urgent.sem \
+    | ./extract.sem > urgent.csv
 ```
 
 ## A worked pair
@@ -29,15 +31,15 @@ fields = ["severity", "customer", "product"]
 ```
 
 Make them executable once (`chmod +x *.sem`), and each behaves exactly like the
-command it stands for — stdin in, stdout out, same exit codes, same everything.
+command it stands for - stdin in, stdout out, same exit codes, same everything.
 
 ## The format
 
 - The file is TOML. The shebang line is legal because `#` opens a TOML comment.
 - `verb` is required: one of `map`, `filter`, `embed`, `top_k`, `reduce`.
-  (`run` and `config` are refused — no recursion, no config mutation from
+  (`run` and `config` are refused - no recursion, no config mutation from
   scripts.)
-- Each verb accepts exactly the keys below — anything else is an error.
+- Each verb accepts exactly the keys below - anything else is an error.
 
 | Key | Type | Verbs | Becomes |
 |---|---|---|---|
@@ -65,7 +67,7 @@ command it stands for — stdin in, stdout out, same exit codes, same everything
 | `in` | array of strings | all | repeated `--in` (globs resolve against the **current directory**, like the flag) |
 | `from-files` | boolean | all | `--from-files` |
 
-## Unknown keys are errors — on purpose
+## Unknown keys are errors - on purpose
 
 `config.toml` ignores keys it doesn't know (a config must survive version
 skew). A `.sem` script is the opposite trade: it runs unattended, so a typo'd
@@ -74,8 +76,8 @@ error names the key and lists the valid ones for that verb:
 
 ```console
 $ smartpipe run extract.sem
-error: extract.sem: unknown key 'promt' — valid keys for map: concurrency, fields, from-files, in, model, output, prompt, schema-file
-  A .sem script runs unattended — a typo silently ignored would be a disaster.
+error: extract.sem: unknown key 'promt' - valid keys for map: concurrency, fields, from-files, in, model, output, prompt, schema-file
+  A .sem script runs unattended - a typo silently ignored would be a disaster.
   Fix the key, then: smartpipe run extract.sem
 ```
 
@@ -100,7 +102,7 @@ $ smartpipe run extract.sem < cards.txt
 ## Why one stage per file?
 
 Multi-stage pipeline files were considered and rejected: they would re-implement
-`|` — ordering, buffering, and error propagation the shell already does better.
+`|` - ordering, buffering, and error propagation the shell already does better.
 One file = one stage keeps every `.sem` composable with everything else on your
 system, which is the whole point of smartpipe.
 
@@ -108,7 +110,7 @@ system, which is the whole point of smartpipe.
 ## Pipelines: several stages in one file
 
 A `.sem` file can hold a whole pipeline as `[stage.NAME]` tables, run in
-order — the team's weekly triage as one reviewable, versionable artifact:
+order - the team's weekly triage as one reviewable, versionable artifact:
 
 ```toml
 [stage.hot]
@@ -126,7 +128,8 @@ save = "themes.svg"
 ```
 
 ```console
-$ cat week.log | smartpipe run triage.sem
+$ cat week.log \
+    | smartpipe run triage.sem
 $ smartpipe run triage.sem --dry-run      # the graph + cost posture, zero calls
 stage hot          where 'text has "ERROR"'   [free]
 stage themes       cluster --top 8            [model calls]
@@ -136,10 +139,10 @@ stage picture      chart cluster --save …     [free]
 Each stage reads the previous stage's output (`input = "name"` picks any
 EARLIER stage instead); the first stage reads stdin, the last writes stdout.
 Stage receipts on stderr carry their stage name (`[hot] where: 214 of 9,102
-matched`). Stage keys are validated exactly like single-stage files — a typo
+matched`). Stage keys are validated exactly like single-stage files - a typo
 is a loud error, never silently ignored. Single-stage files are unchanged;
 extra CLI flags apply to them only.
 
-All verbs are scriptable now — including the D38 additions (where, extend,
+All verbs are scriptable now - including the D38 additions (where, extend,
 distinct, outliers, cluster, diff, summarize, sample, getschema, sort,
 chart).

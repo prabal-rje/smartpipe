@@ -103,7 +103,7 @@ def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
         # the messages API has no audio input — fail before any bytes leave (D20 §2)
         raise ItemError(
             "this model can't hear audio — try an audio model "
-            "(voxtral, gemini), or install 'smartpipe[audio]' to transcribe"
+            "(voxtral, gemini) — smartpipe transcribes locally otherwise"
         )
     import base64
 

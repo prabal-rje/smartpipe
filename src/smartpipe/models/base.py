@@ -36,7 +36,9 @@ __all__ = [
     "supports_media_embedding",
 ]
 
-Provider = Literal["ollama", "openai", "anthropic", "mistral", "gemini", "openrouter", "jina"]
+Provider = Literal[
+    "local", "ollama", "openai", "anthropic", "mistral", "gemini", "openrouter", "jina"
+]
 
 _OPENAI_PREFIXES = ("gpt-", "chatgpt-", "text-embedding-")
 _OPENAI_O_SERIES = re.compile(r"o\d")
@@ -140,7 +142,16 @@ def parse_model_ref(text: str) -> ModelRef:
     prefix, slash, rest = cleaned.partition("/")
     if slash:
         match prefix:
-            case "ollama" | "openai" | "anthropic" | "mistral" | "gemini" | "openrouter" | "jina":
+            case (
+                "local"
+                | "ollama"
+                | "openai"
+                | "anthropic"
+                | "mistral"
+                | "gemini"
+                | "openrouter"
+                | "jina"
+            ):
                 if not rest:
                     raise UsageFault(f"model '{cleaned}' is missing a name after '{prefix}/'")
                 return ModelRef(provider=prefix, name=rest)

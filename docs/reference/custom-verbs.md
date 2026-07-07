@@ -1,4 +1,4 @@
-# Custom verbs — the contract
+# Custom verbs - the contract
 
 Two ways to add a verb to smartpipe; built-ins always win over both.
 
@@ -17,7 +17,8 @@ predicate = 'text has "ERROR"'
 verb = "cluster"
 top = 8
 
-$ cat week.log | smartpipe triage
+$ cat week.log \
+    | smartpipe triage
 ```
 
 Full key validation applies (typos are loud), the file is shareable and
@@ -37,11 +38,11 @@ redact = "my_pkg.cli:redact_command"
 
 The contract:
 
-- The entry point resolves to a **`click.Command`** — that's the whole
+- The entry point resolves to a **`click.Command`** - that's the whole
   interface.
 - **stdout is sacred**: results only; diagnostics to stderr.
 - Exit codes follow smartpipe's table (0 ok, 64 usage, …).
-- Never name a built-in — built-ins win, silently.
+- Never name a built-in - built-ins win, silently.
 - A plugin that fails to import (or isn't a Command) is **warned and
   skipped**: your bug never takes down the CLI.
 

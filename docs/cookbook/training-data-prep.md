@@ -29,7 +29,7 @@ $ smartpipe where 'lang == "en"' < deduped.jsonl \
     | smartpipe where 'quality >= 0.7 and refusal == false' > candidates.jsonl
 ```
 
-`where` costs nothing — put every deterministic gate before the paid judge.
+`where` costs nothing - put every deterministic gate before the paid judge.
 Use enum-typed extractions for anything you'll group later
 (`{label enum(code, prose, math)}`), or the groups fragment.
 
@@ -40,7 +40,7 @@ $ smartpipe sample 5000 --seed 42 < candidates.jsonl > eval.jsonl
 sample: 5,000 of 402,118 (seed 42)
 ```
 
-Seeded by default — the split is citable and survives re-runs.
+Seeded by default - the split is citable and survives re-runs.
 
 ## 5. Balance tables and drift checks
 
@@ -59,7 +59,7 @@ $ smartpipe diff --right v1-train.jsonl < candidates.jsonl     # drift BEFORE th
 - Watch the status bar: live token and media totals; the final
   `run: … tokens` receipt is the number for the training report.
 - Whole-set verbs (`distinct`, `cluster`, `outliers`, `sort`) hold the
-  corpus in memory — at tens of millions of rows, shard first
+  corpus in memory - at tens of millions of rows, shard first
   (`split -l 1000000`), run per shard, then re-run `distinct` over the
   survivors.
 

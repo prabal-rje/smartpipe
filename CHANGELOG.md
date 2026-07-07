@@ -5,6 +5,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Changed
+- **Seamless beats slim (D44).** Local transcription (faster-whisper) and
+  local embeddings (fastembed) moved from optional extras into the core
+  install: `smartpipe embed` now works on a fresh machine with NOTHING
+  running - the default embedder is on-device nomic-embed-text v1.5 (768-dim,
+  one ~130 MB download on first use, disclosed; one engine per run, reused
+  across batches). Ollama is no longer required for embeddings; the `[audio]`
+  extra is gone and every "install smartpipe[audio]" message with it. The
+  frozen-dependency snapshot was refreshed deliberately - the wheel now pulls
+  onnxruntime and ctranslate2, and that trade is the point.
+- **The privacy story is provider-honest now.** "Local-first" overclaimed:
+  the docs, README, and descriptions now lead with "your data goes to
+  whichever endpoint you configure" - local pieces (embeddings, whisper)
+  on-device regardless, cloud models named as cloud, consent gates spelled
+  out.
+- **Docs readability pass (owner review).** Every multi-stage pipe example
+  is now Kusto-style - one stage per line with backslash continuations; em
+  dashes removed from the docs entirely; the verbs nav nested into four
+  groups (Transform / Find & match / Group & compare / Free utilities); a
+  five-line "Unix toolbox" primer in pipes-and-items with kindness links
+  where jq first appears.
+
 ## [1.3.0] — 2026-07-07
 
 The release that ships the identity and the polish: the **total rename to

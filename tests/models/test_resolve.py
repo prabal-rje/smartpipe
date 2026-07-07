@@ -88,8 +88,9 @@ def test_embed_env_over_config() -> None:
 
 
 def test_embed_defaults_to_nomic() -> None:
+    # D44: the default embedder is on-device fastembed — no server required
     ref = resolve_embed_ref(None, {}, Config())
-    assert str(ref) == "ollama/nomic-embed-text"
+    assert str(ref) == "local/nomic-embed-text-v1.5"
 
 
 async def test_mistral_env_model_resolves() -> None:

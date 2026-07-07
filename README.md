@@ -6,7 +6,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
 **Semantic pipes for your terminal.** PDFs, images, audio, video, and text
-through Unix verbs that understand their input — powered by a local model by
+through Unix verbs that understand their input - powered by a local model by
 default, a cloud model when you ask.
 
 > Formerly `sempipe` (which still works as a command alias). The import name,
@@ -17,7 +17,8 @@ $ uvx smartpipe          # zero-install trial (or: pip install smartpipe)
 
 $ smartpipe map "summarize the key risk" --in 'filings/*.pdf'     # documents, figures included
 $ smartpipe filter "the caller sounds frustrated" --in 'calls/*.mp3'
-$ echo "hello world" | smartpipe map "translate to Spanish"
+$ echo "hello world" \
+    | smartpipe map "translate to Spanish"
 hola mundo
 ```
 
@@ -25,10 +26,10 @@ A PDF arrives with its figures attached; a scanned page routes itself to a
 vision model and says so; audio is heard natively or transcribed (whisper-1
 automatically when your OpenAI key allows it); video is watched where the
 wire supports it and decomposed into frames + transcript where it doesn't.
-Every degradation is disclosed per row — nothing silently drops.
+Every degradation is disclosed per row - nothing silently drops.
 
 No server. No YAML. No vector database. stdin to stdout, composing with
-`grep`, `jq`, `sort` — and `tail -f`: the per-item verbs stream.
+`grep`, `jq`, `sort` - and `tail -f`: the per-item verbs stream.
 
 ## The verbs
 
@@ -36,7 +37,7 @@ No server. No YAML. No vector database. stdin to stdout, composing with
 
 | Verb | What it does | Feels like |
 |---|---|---|
-| `map` | transform each item — text or media — with a prompt | `sed`, but it understands |
+| `map` | transform each item - text or media - with a prompt | `sed`, but it understands |
 | `extend` | add extracted fields; everything else survives | your record, plus columns |
 | `filter` | keep items matching a plain-English condition | `grep`, but semantic |
 | `embed` / `top_k` | vectors; rank by similarity | `sort \| head`, by meaning |
@@ -50,7 +51,7 @@ No server. No YAML. No vector database. stdin to stdout, composing with
 **Free utilities** (never call a model): `where` (KQL-style predicates),
 `summarize` (count/avg/percentiles, time buckets), `sort`, `sample` (seeded),
 `getschema`, `split`, `chart` (terminal bars, SVG, facets, time series).
-Put them first — they cut the corpus before anything paid runs.
+Put them first - they cut the corpus before anything paid runs.
 
 ## Sixty seconds
 
@@ -61,52 +62,61 @@ $ smartpipe config
 # 2. Ask a question across a folder of mixed documents:
 $ smartpipe map "What does this say about pricing?" --in 'docs/*.pdf'
 
-# 3. Typed extraction — braces carry names, types, AND guidance:
-$ cat tickets.jsonl | smartpipe extend "Add {label enum(bug, feature, praise), urgency number: 0 to 1}"
+# 3. Typed extraction - braces carry names, types, AND guidance:
+$ cat tickets.jsonl \
+    | smartpipe extend "Add {label enum(bug, feature, praise), urgency number: 0 to 1}"
 
 # 4. The analyst's Monday, one line:
-$ cat feedback.txt | smartpipe cluster --top 8 | smartpipe chart cluster --save themes.svg
+# group by meaning, label each theme; chart it for the deck
+$ cat feedback.txt \
+    | smartpipe cluster --top 8 \
+    | smartpipe chart cluster --save themes.svg
 
-# 5. Free gates before paid judges — and watch the live token/media counts:
-$ cat app.log | smartpipe where 'text has "ERROR"' | smartpipe filter "an actual outage"
+# 5. Free gates before paid judges - and watch the live token/media counts:
+# where cuts for free; the model judges only what remains
+$ cat app.log \
+    | smartpipe where 'text has "ERROR"' \
+    | smartpipe filter "an actual outage"
 
 # 6. Save the whole pipeline as a file; it becomes a command:
 $ smartpipe run triage.sem --dry-run     # the stage graph + cost posture, zero calls
 ```
 
 New to any of this? The [ten-minute quickstart](docs/quickstart.md) assumes
-nothing — including that you know what a "model" is.
+nothing - including that you know what a "model" is.
 
-## Local-first, honest about cost
+## Honest about where your data goes, and what it costs
 
-Out of the box `smartpipe` talks to [Ollama](https://ollama.com) on your
-machine: free, private, no API key. Any invocation can use a cloud model
-instead (`--model gpt-5.4-mini`, `claude-opus-4-8`, `gemini-2.5-flash`,
-`mistral-large-latest`, `openrouter/…` — keys via environment variables,
-never stored), and ChatGPT subscribers can skip keys with `smartpipe auth
-login`. Paid media conversions sit behind one consent (`allow-captions`),
+Some of smartpipe runs on your machine no matter what: local embeddings
+(fastembed) and local transcription (whisper) ship built in, and
+[Ollama](https://ollama.com) gives you a fully local chat model - free,
+private, no API key. But be clear-eyed: **your data goes to whichever model
+endpoint you configure.** Point at a cloud model (`--model gpt-5.4-mini`, `claude-opus-4-8`, `gemini-2.5-flash`,
+`mistral-large-latest`, `openrouter/…` - keys via environment variables,
+never stored) and that provider sees that data; ChatGPT subscribers can
+skip keys with `smartpipe auth login`. Paid media conversions sit behind one consent (`allow-captions`),
 every run shows **live token/media telemetry** in the status bar and ends
 with a receipt (`run: 423 in · 75 out tokens`), `smartpipe usage` tracks
 hour/day/week/month/lifetime (resettable), and the opt-in result cache makes
-re-runs free. Your data goes to the endpoint you configured and nowhere
-else — no telemetry leaves your machine, no accounts, ever.
+re-runs free. Nothing goes anywhere you didn't configure - no telemetry
+leaves your machine, no accounts, ever.
 
 ## It behaves like a real Unix tool
 
 - **stdout is data, stderr is chatter.** Progress and receipts never contaminate your pipe.
-- **TTY-aware.** Human-readable at the terminal, NDJSON when piped — automatically.
+- **TTY-aware.** Human-readable at the terminal, NDJSON when piped - automatically.
 - **Order-preserving.** Output order matches input order, even with parallel calls.
 - **Failure-tolerant.** One bad item is a warning, not a crash.
 - **Reproducible.** Temperature 0 everywhere, seeded sampling, deterministic clustering.
 
 ## Learn more
 
-Full docs in [`docs/`](docs/index.md) (or as a site — `uv run --group docs mkdocs serve`):
+Full docs in [`docs/`](docs/index.md) (or as a site - `uv run --group docs mkdocs serve`):
 
-- [Quickstart](docs/quickstart.md) — zero to first result, gently · [Install](docs/install.md)
-- [Working with files & media](docs/inputs/files.md) — PDFs, scans, images, audio, video
-- The verbs — [`map`](docs/verbs/map.md), [`extend`](docs/verbs/extend.md), [`filter`](docs/verbs/filter.md), [`cluster`](docs/verbs/cluster.md), [`distinct`](docs/verbs/distinct.md), [`diff`](docs/verbs/diff.md), [`where`](docs/verbs/where.md), [and the rest](docs/reference/cli.md)
-- [Training-data prep, end to end](docs/cookbook/training-data-prep.md) — the curator's loop with receipts
+- [Quickstart](docs/quickstart.md) - zero to first result, gently · [Install](docs/install.md)
+- [Working with files & media](docs/inputs/files.md) - PDFs, scans, images, audio, video
+- The verbs - [`map`](docs/verbs/map.md), [`extend`](docs/verbs/extend.md), [`filter`](docs/verbs/filter.md), [`cluster`](docs/verbs/cluster.md), [`distinct`](docs/verbs/distinct.md), [`diff`](docs/verbs/diff.md), [`where`](docs/verbs/where.md), [and the rest](docs/reference/cli.md)
+- [Training-data prep, end to end](docs/cookbook/training-data-prep.md) - the curator's loop with receipts
 - [Custom verbs](docs/reference/custom-verbs.md) · [`.sem` pipelines](docs/reference/sem-files.md) · [Troubleshooting](docs/troubleshooting.md) · [Privacy](docs/privacy.md)
 
 ## How to cite

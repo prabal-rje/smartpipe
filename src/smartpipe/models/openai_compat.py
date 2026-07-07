@@ -300,7 +300,7 @@ def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
                     raise ItemError(
                         f"audio format {part.mime} isn't sendable — "
                         "wav or mp3 reach audio models natively; "
-                        "install 'smartpipe[audio]' to transcribe others"
+                        "other formats transcribe locally"
                     )
                 encoded = base64.b64encode(part.data).decode()
                 parts.append(

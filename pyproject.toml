@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "smartpipe"
 version = "1.3.0"
-description = "Semantic pipes for your terminal — PDFs, images, audio, video, and text through Unix verbs that understand. Local-first."
+description = "Semantic pipes for your terminal - PDFs, images, audio, video, and text through Unix verbs that understand."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -29,15 +29,19 @@ dependencies = [
   "httpx>=0.27",
   "jsonschema>=4.23",
   "tomli-w>=1.0",
+  # D44 (owner): seamless beats slim — local STT and local embeddings work
+  # out of the box, no server, no extras. Imports stay function-local so the
+  # startup budget holds; models download once on first use.
+  "faster-whisper>=1.0",
+  "fastembed>=0.4",
 ]
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40"]
 files = ["markitdown[pdf,docx,pptx,xlsx]>=0.1.6", "pypdf>=5.0"]
-audio = ["faster-whisper>=1.0"]  # local STT: audio never leaves the machine
 video = ["imageio-ffmpeg>=0.5"]  # bundles a static ffmpeg for frames/track/slicing
 charts = ["svgwrite>=1.4"]  # --save for smartpipe chart (pure-python, zero deps)
-all = ["smartpipe[anthropic,files,audio,video,charts]"]
+all = ["smartpipe[anthropic,files,video,charts]"]
 
 [project.scripts]
 smartpipe = "smartpipe.cli.root:main"

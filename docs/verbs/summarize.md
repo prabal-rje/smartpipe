@@ -1,10 +1,11 @@
-# summarize — the numbers, deterministically
+# summarize - the numbers, deterministically
 
-Aggregate records in one pass. **Free — never calls a model.** KQL's own
+Aggregate records in one pass. **Free - never calls a model.** KQL's own
 grammar and output naming, because it's the most-proven syntax for this job.
 
 ```console
-$ cat orders.jsonl | smartpipe summarize 'count(), avg(total), p95(total) by region'
+$ cat orders.jsonl \
+    | smartpipe summarize 'count(), avg(total), p95(total) by region'
 {"region":"EU","count":812,"avg_total":74.2,"p95_total":189.0}
 {"region":"US","count":310,"avg_total":61.8,"p95_total":140.5}
 ```
@@ -20,13 +21,13 @@ Semantics worth knowing: groups sort largest first; a record missing the
 `by` field groups under `null`, visibly; non-numeric values in numeric
 aggregations are skipped and counted on stderr (never a crash); a group
 with no numeric values reports `null`, not zero. Percentile aggregations
-hold each group's values in memory — everything else streams.
+hold each group's values in memory - everything else streams.
 
 ## Time buckets
 
 `by bin(ts, 1h)` groups by UTC time bucket (buckets: 1m 5m 15m 1h 6h 1d).
 The fence: timestamps parse as **ISO-8601 or epoch seconds/milliseconds
-only** — anything else groups under `null` and any other format is a
+only** - anything else groups under `null` and any other format is a
 preprocessing job for jq/date. `chart --by-time ts:1h` draws the same
 buckets chronologically, zero-filled (gaps are signal).
 

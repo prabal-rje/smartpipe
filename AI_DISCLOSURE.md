@@ -13,8 +13,9 @@ fell short. Design decisions are recorded in a decision log maintained with
 the project.
 
 **The tool itself invokes LLMs at runtime.** smartpipe is a client: it sends
-your data to whichever model endpoint you configure (local Ollama by default;
-cloud providers by explicit choice), and to nowhere else. Paid media
+your data to whichever model endpoint you configure (a local Ollama if you run one;
+cloud providers by explicit configuration - see docs/privacy.md for the
+exact data-flow rules), and to nowhere else. Paid media
 conversions sit behind an explicit consent flag; per-row disclosures name
 every conversion; telemetry stays on your machine (docs/privacy.md).
 

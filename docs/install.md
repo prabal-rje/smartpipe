@@ -1,6 +1,6 @@
 # Installing smartpipe
 
-smartpipe is a Python package. It needs **Python 3.11 or newer** — that's the only
+smartpipe is a Python package. It needs **Python 3.11 or newer** - that's the only
 hard requirement. (Not sure what you have? Run `python3 --version`.)
 
 ## The one-liner
@@ -19,7 +19,7 @@ smartpipe 1.1.0
 ## Recommended: pipx
 
 If you want smartpipe available everywhere without adding it to any project's
-dependencies, use [pipx](https://pipx.pypa.io) — it installs command-line tools
+dependencies, use [pipx](https://pipx.pypa.io) - it installs command-line tools
 into isolated environments:
 
 ```console
@@ -45,33 +45,36 @@ libraries are opt-in, so you only install what you use:
 |---|---|---|
 | `anthropic` | Claude models (`claude-*`) | `pip install 'smartpipe[anthropic]'` |
 | `files` | reading PDF, DOCX, PPTX, XLSX, HTML, EPUB via [`--in`](inputs/files.md) | `pip install 'smartpipe[files]'` |
-| `audio` | local Whisper transcription of audio files (never leaves your machine) | `pip install 'smartpipe[audio]'` |
 | `video` | frames + soundtrack from video files (bundled ffmpeg) | `pip install 'smartpipe[video]'` |
 | `charts` | `smartpipe chart --save file.svg` (svgwrite) | `pip install 'smartpipe[charts]'` |
-| `all` | everything above | `pip install 'smartpipe[all]'` |
+| `all` | everything above |
+
+Local transcription (whisper) and local embeddings (fastembed) ship in the
+core install - no extra needed. Their models download once on first use
+(~75 MB and ~130 MB) and cache on disk. `pip install 'smartpipe[all]'` |
 
 If you run a command that needs an extra you haven't installed, smartpipe tells you
-exactly which one and how to get it — you never have to guess.
+exactly which one and how to get it - you never have to guess.
 
 ## Tab completion
 
-One line per shell. Completions cover verbs and flags — and `--model` /
+One line per shell. Completions cover verbs and flags - and `--model` /
 `--embed-model` suggest your configured model plus whatever Ollama has installed
 (instantly; if Ollama doesn't answer within 150 ms, you just get no suggestions).
 
-**zsh** — add to `~/.zshrc`:
+**zsh** - add to `~/.zshrc`:
 
 ```console
 $ eval "$(_SMARTPIPE_COMPLETE=zsh_source smartpipe)"
 ```
 
-**bash** (4.4+) — add to `~/.bashrc`:
+**bash** (4.4+) - add to `~/.bashrc`:
 
 ```console
 $ eval "$(_SMARTPIPE_COMPLETE=bash_source smartpipe)"
 ```
 
-**fish** — write it once to your completions directory:
+**fish** - write it once to your completions directory:
 
 ```console
 $ _SMARTPIPE_COMPLETE=fish_source smartpipe > ~/.config/fish/completions/smartpipe.fish

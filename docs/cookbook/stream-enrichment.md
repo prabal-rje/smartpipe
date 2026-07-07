@@ -1,10 +1,10 @@
 # Live stream enrichment with `join`
 
-Tag a live event stream with the catalog rows it concerns — as it happens.
+Tag a live event stream with the catalog rows it concerns - as it happens.
 
 ## The setup
 
-`customers.jsonl` — the finite side, indexed once at startup:
+`customers.jsonl` - the finite side, indexed once at startup:
 
 ```json
 {"name": "Acme Corp", "tier": "enterprise", "owner": "dana"}
@@ -15,13 +15,12 @@ Tag a live event stream with the catalog rows it concerns — as it happens.
 
 ```console
 $ tail -f support-events.log \
-    | smartpipe join "this event {left.text} involves the customer {right.name}" \
-        --right customers.jsonl --k 3 \
+    | smartpipe join "this event {left.text} involves the customer {right.name}" --right customers.jsonl --k 3 \
     | jq -r 'select(.right.tier == "enterprise") | "\(.right.owner): \(.left.text)"'
 ```
 
 Every arriving line is embedded, blocked to its 3 nearest customers, and only
-those pairs are judged — then `jq` routes enterprise matches to their owner.
+those pairs are judged - then `jq` routes enterprise matches to their owner.
 First Ctrl-C drains in-flight judges and exits with the run's true outcome code.
 
 ## Cost control
@@ -44,5 +43,5 @@ max-calls = 500
 ```
 
 `chmod +x enrich.sem` and the whole thing becomes `tail -f … | ./enrich.sem`.
-(`right` resolves next to the `.sem` file — the stage and its catalog travel
+(`right` resolves next to the `.sem` file - the stage and its catalog travel
 together.)

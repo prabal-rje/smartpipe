@@ -1,7 +1,7 @@
 # Log triage
 
 **Goal:** cut through a noisy log to the entries that actually matter, then summarize
-them — using meaning, not just string matching.
+them - using meaning, not just string matching.
 
 ## Find the real problems
 
@@ -9,10 +9,11 @@ them — using meaning, not just string matching.
 problem*, even when they don't say "error":
 
 ```console
-$ cat server.log | smartpipe filter "indicates a real failure, not a warning or retry"
+$ cat server.log \
+    | smartpipe filter "indicates a real failure, not a warning or retry"
 ```
 
-Combine the two — `grep` to cheaply narrow, `filter` to judge:
+Combine the two - `grep` to cheaply narrow, `filter` to judge:
 
 ```console
 $ grep -i "POST /api" server.log \
@@ -27,7 +28,10 @@ Turn raw lines into structured records you can count and group:
 ```console
 $ cat errors.log \
     | smartpipe map "Extract {service, severity, root_cause_category}" --output json \
-    | jq -r .root_cause_category | sort | uniq -c | sort -rn
+    | jq -r .root_cause_category \
+    | sort \
+    | uniq -c \
+    | sort -rn
 ```
 
 ```
@@ -38,7 +42,7 @@ $ cat errors.log \
 
 ## Summarize an incident window
 
-When something breaks, point `reduce` at the window and get a written analysis — even
+When something breaks, point `reduce` at the window and get a written analysis - even
 if the window is far larger than the model's context (it chunks automatically):
 
 ```console

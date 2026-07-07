@@ -2,7 +2,7 @@
 
 Ask questions of video the way you'd ask them of text. On Gemini the model
 watches the file whole; everywhere else smartpipe samples frames + the
-soundtrack and sends what the model can take — disclosed per row either way.
+soundtrack and sends what the model can take - disclosed per row either way.
 
 ## Ask one question of one clip
 
@@ -16,25 +16,24 @@ The default sampling (1 fps up to 24 frames) is right for "what is this?".
 For "what CHANGES?", guarantee the density:
 
 ```console
-$ smartpipe map "List each distinct scene with a one-line description {scenes string[]}" \
-    --in demo.mp4 --frame-every 1 --explode scenes
+$ smartpipe map "List each distinct scene with a one-line description {scenes string[]}" --in demo.mp4 --frame-every 1 --explode scenes
 ```
 
 ## A long lecture on a budget
 
 ```console
-$ smartpipe map "Outline the sections with timestamps if visible" \
-    --in lecture.mp4 --frame-every 10 --max-frames 90
+$ smartpipe map "Outline the sections with timestamps if visible" --in lecture.mp4 --frame-every 10 --max-frames 90
 ```
 
-One frame per 10 seconds, never more than 90 — the per-row note prints the
+One frame per 10 seconds, never more than 90 - the per-row note prints the
 frame count and the run receipt totals the megabytes, so the cost of a
 density choice is visible before it becomes a habit.
 
 ## Segment first when clips are long
 
 ```console
-$ smartpipe split --by seconds:60 --in webinar.mp4 | smartpipe map "summarize this minute"
+$ smartpipe split --by seconds:60 --in webinar.mp4 \
+    | smartpipe map "summarize this minute"
 ```
 
 `split` slices losslessly (keyframe-aligned); each segment stays real video,

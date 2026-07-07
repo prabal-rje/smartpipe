@@ -542,8 +542,8 @@ def transcribe_audio(audio: AudioData) -> str:
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:
-        raise MissingExtra(
-            "audio", "transcribing audio needs: pip install 'smartpipe[audio]'"
+        raise MissingExtra(  # whisper ships in core (D44); only a broken env lands here
+            "audio", "local transcription is unavailable — reinstall smartpipe"
         ) from exc
 
     size = whisper_size(os.environ)

@@ -1,14 +1,15 @@
-# extend — your record, plus columns
+# extend - your record, plus columns
 
 Add extracted fields to each record. Everything the record already had
 survives; the new fields land beside it. This is `map` for people who own a
-*dataset* rather than a question — results flow straight back into the
+*dataset* rather than a question - results flow straight back into the
 pipeline that produced them.
 
 ```console
 $ head -1 tickets.jsonl
 {"id": 812, "customer": "acme", "body": "app crashes when saving"}
-$ cat tickets.jsonl | smartpipe extend "Add {sentiment enum(pos, neg, neutral), product string}"
+$ cat tickets.jsonl \
+    | smartpipe extend "Add {sentiment enum(pos, neg, neutral), product string}"
 {"id": 812, "customer": "acme", "body": "app crashes when saving", "sentiment": "neg", "product": "app"}
 ```
 
@@ -19,13 +20,13 @@ the [video frame controls](map.md#video-frame-control)
 
 ## Semantics worth knowing
 
-- **Plain text lines** become records: `{"text": <the line>, …new fields}` —
+- **Plain text lines** become records: `{"text": <the line>, …new fields}` -
   the on-ramp from text files to structured pipelines.
 - **Collisions**: an extracted field with an existing name **overwrites** it
   (re-running enrichment stays idempotent), disclosed once per field on
   stderr: `note: overwriting 'sentiment' on incoming records`.
 - **`--explode FIELD`** emits one row per list element with the *merged*
-  record's other fields copied onto every row — provenance rides along.
+  record's other fields copied onto every row - provenance rides along.
 - **Media records** (from `split`): the base64 transport fields are dropped
   from the output (the model consumed them); `source` and other metadata
   survive.

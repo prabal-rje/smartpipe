@@ -1,7 +1,7 @@
 # CLI reference
 
 The complete surface, in one page. As of 1.0 this is a contract governed by
-[SemVer](https://semver.org) — flags, formats, and exit codes won't change under you
+[SemVer](https://semver.org) - flags, formats, and exit codes won't change under you
 within a major version.
 
 ## Synopsis
@@ -10,7 +10,7 @@ within a major version.
 smartpipe <verb> [PROMPT] [OPTIONS]
 ```
 
-Input comes from stdin (each line an item — or ONE redirected binary document),
+Input comes from stdin (each line an item - or ONE redirected binary document),
 from files (`--in` / `--from-files`, each file an item), or both (`--in` files
 first, then the piped lines). Results go to **stdout**; progress and warnings go
 to **stderr**.
@@ -30,13 +30,13 @@ to **stderr**.
 | [`outliers`](../verbs/outliers.md) | rank the N items least like the rest | embeddings only |
 | [`cluster`](../verbs/cluster.md) | group items by meaning; label each group | embeddings + 1 call per cluster |
 | [`diff`](../verbs/diff.md) | themes that distinguish stdin from --right FILE | embeddings + labels |
-| [`where`](../verbs/where.md) | keep rows matching a deterministic predicate | free — no model calls |
-| [`summarize`](../verbs/summarize.md) | count/avg/percentiles by field (KQL grammar) | free — no model calls |
-| [`sample`](../verbs/sample.md) | keep N random rows, seeded + reproducible | free — no model calls |
-| [`getschema`](../verbs/getschema.md) | report the stream's fields, types, coverage | free — no model calls |
-| [`sort`](../verbs/sort.md) | order records by a field | free — no model calls |
-| [`split`](../verbs/split.md) | break oversized items into chunk items | free — no model calls |
-| `chart` | bar-chart a field's values; `--save` writes SVG | free — no model calls |
+| [`where`](../verbs/where.md) | keep rows matching a deterministic predicate | free - no model calls |
+| [`summarize`](../verbs/summarize.md) | count/avg/percentiles by field (KQL grammar) | free - no model calls |
+| [`sample`](../verbs/sample.md) | keep N random rows, seeded + reproducible | free - no model calls |
+| [`getschema`](../verbs/getschema.md) | report the stream's fields, types, coverage | free - no model calls |
+| [`sort`](../verbs/sort.md) | order records by a field | free - no model calls |
+| [`split`](../verbs/split.md) | break oversized items into chunk items | free - no model calls |
+| `chart` | bar-chart a field's values; `--save` writes SVG | free - no model calls |
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing (`--probe` adds the paid modality matrix) | exit 0 = ready |
@@ -49,12 +49,12 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 
 | Option | Meaning |
 |---|---|
-| `--model TEXT` | Model for this run — overrides the config and `SMARTPIPE_MODEL`. |
+| `--model TEXT` | Model for this run - overrides the config and `SMARTPIPE_MODEL`. |
 | `--embed-model TEXT` | Embedding model (`embed`, `top_k`). |
 | `--concurrency N` | Max parallel model calls (default 4). |
 | `--in GLOB` | Read each matching file as one item (repeatable). |
 | `--from-files` | Treat each stdin line as a filename. |
-| `--fields A,B` | Select + order columns of structured output (`map`, `embed`, `top_k`, `reduce` — never `filter`). |
+| `--fields A,B` | Select + order columns of structured output (`map`, `embed`, `top_k`, `reduce` - never `filter`). |
 | `--allow-captions` | Let a CLOUD model convert images/audio/video to text for embedding/text verbs (paid; local models convert free; the `openai`/`gemini` profiles set this by default). |
 | `@file` / `--prompt-file FILE` | Read the prompt from a file (`map`, `filter`, `reduce`, `join`). Missing file = loud exit 64; `@@` escapes a literal leading `@`. |
 | `--max-calls N` | Hard ceiling on model calls (cost cap). Per-item verbs stop intake and drain; whole-set `top_k`/`reduce` treat exhaustion as fatal (nothing usable from a partial collection). A capped run never exits 0. |
@@ -76,11 +76,11 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `diff` | `--right FILE` (required), `--top N`, `--all`, `--model`, `--embed-model` |
 | `where` | `'PREDICATE'` (has, contains, matches /re/, == != > >= < <=, and/or/not) |
 | `summarize` | `'AGG[, AGG…] [by FIELD,…]'` (count/sum/avg/min/max/p50-p99/dcount) |
-| `sample` | `N`, `--seed K` (default 0 — reproducible by default) |
+| `sample` | `N`, `--seed K` (default 0 - reproducible by default) |
 | `getschema` | `--all` (scan past the first 10,000 rows) |
 | *(custom)* | [your own verbs](custom-verbs.md): `~/.config/smartpipe/verbs/*.sem` or entry points |
 | `usage` | model usage over hour/day/week/month/lifetime; `usage reset` remembers when |
-| `cache` | `stats` · `clear` (auto-swept: 30-day TTL + 500 MB LRU cap — `cache-days`, `cache-max-mb`) |
+| `cache` | `stats` · `clear` (auto-swept: 30-day TTL + 500 MB LRU cap - `cache-days`, `cache-max-mb`) |
 | `sort` | `--by FIELD` (required), `--desc` |
 | `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
 | `chart` | `FIELD` (or whole lines), `--facet f1,f2,…`, `--by-time FIELD:BUCKET`, `--top N`, `--save FILE.svg`, `--title` |
@@ -94,7 +94,7 @@ $ smartpipe config model MODEL         # set the default chat model
 $ smartpipe config embed-model MODEL   # set the default embedding model
 ```
 
-API keys are **never** stored — they're read from the environment.
+API keys are **never** stored - they're read from the environment.
 
 Edits via `smartpipe config` rewrite the file atomically; unknown keys are
 preserved, comments are not.
@@ -148,7 +148,7 @@ identically in every format.
 
 ## Shell completion
 
-Tab completion for bash, zsh, and fish — including live model-name suggestions on
+Tab completion for bash, zsh, and fish - including live model-name suggestions on
 `--model`/`--embed-model` and `config model`. One-liners per shell in
 [Installing smartpipe → Tab completion](../install.md#tab-completion).
 
@@ -175,24 +175,24 @@ Chosen so a script can branch on *how* a run went, not just pass/fail:
 
 | Code | Meaning |
 |---|---|
-| `0` | OK — everything succeeded (including zero matches for `filter`). |
-| `1` | PARTIAL — some items were skipped; the rest succeeded. |
-| `2` | SETUP — misconfiguration (no model, unreachable Ollama, missing key). |
-| `3` | ALL_FAILED — every item failed. |
-| `64` | USAGE — bad flags or input. |
-| `70` | BUG — an internal error (please report it). |
-| `130` | INTERRUPTED — Ctrl-C (before anything finished, or pressed twice). |
-| `141` | SIGPIPE — downstream closed the pipe (normal in `\| head` pipelines); smartpipe prints nothing. |
+| `0` | OK - everything succeeded (including zero matches for `filter`). |
+| `1` | PARTIAL - some items were skipped; the rest succeeded. |
+| `2` | SETUP - misconfiguration (no model, unreachable Ollama, missing key). |
+| `3` | ALL_FAILED - every item failed. |
+| `64` | USAGE - bad flags or input. |
+| `70` | BUG - an internal error (please report it). |
+| `130` | INTERRUPTED - Ctrl-C (before anything finished, or pressed twice). |
+| `141` | SIGPIPE - downstream closed the pipe (normal in `\| head` pipelines); smartpipe prints nothing. |
 
 ### What Ctrl-C does
 
 For the per-item verbs (`map`, `filter`, `embed`), the **first Ctrl-C** stops new work,
 lets what's already in flight finish (up to 10 s), emits those results in order, prints
-`done: interrupted — N processed · M skipped` on stderr, and exits with the run's normal
-outcome code (`0`/`1`/`3`) — so a script still learns whether the partial output is
+`done: interrupted - N processed · M skipped` on stderr, and exits with the run's normal
+outcome code (`0`/`1`/`3`) - so a script still learns whether the partial output is
 trustworthy. A **second Ctrl-C** exits `130` immediately. The same drain applies to the stream
 modes (`reduce --window` flushes its partial window; `top_k --stream`'s board is
-already on screen). Whole-set `reduce`/`top_k` exit `130` at once — they produce one
+already on screen). Whole-set `reduce`/`top_k` exit `130` at once - they produce one
 result at the end, so there's nothing to drain.
 
 ## See also

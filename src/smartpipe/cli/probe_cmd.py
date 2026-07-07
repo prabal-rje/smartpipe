@@ -123,7 +123,7 @@ async def _chat_audio(chat: ChatModel, stt: str | None) -> Cell:
     except SempipeError:
         if stt is not None:
             return Cell("via", "transcribed, then chat", footnote=f"audio → {stt}")
-        return Cell("no", "no STT — set a key or install 'smartpipe[audio]'")
+        return Cell("no", "no transcription path — reinstall smartpipe")
 
 
 async def _embed_text(embed: EmbeddingModel) -> Cell:

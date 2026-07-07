@@ -10,16 +10,19 @@ Built in twice over. `smartpipe chart` draws it (free, no model calls, `--save`
 writes a dependency-free SVG):
 
 ```console
-$ cat tickets.txt | smartpipe map "Extract {label}" | smartpipe chart label --save labels.svg
+$ cat tickets.txt \
+    | smartpipe map "Extract {label}" \
+    | smartpipe chart label --save labels.svg
 bug      ▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇ 14
 feature  ▇▇▇▇▇▇▇▇▇▇▇▇▇▇ 7
 question ▇▇▇▇▇▇ 3
 ```
 
-Several distributions in one pass — the analyst's first look:
+Several distributions in one pass - the analyst's first look:
 
 ```console
-$ cat tickets.jsonl | smartpipe chart --facet label,severity,region --save tickets.svg
+$ cat tickets.jsonl \
+    | smartpipe chart --facet label,severity,region --save tickets.svg
 ── label ──────────────────────────────────
 bug      ▇▇▇▇▇▇▇▇▇▇▇▇▇▇ 41
 feature  ▇▇▇▇▇▇ 17
@@ -31,7 +34,8 @@ And `--tally` counts any extracted field live on the status line and as one
 final stderr line, without touching stdout:
 
 ```console
-$ cat tickets.txt | smartpipe map "Extract {label: bug, feature, or question}" --tally label
+$ cat tickets.txt \
+    | smartpipe map "Extract {label: bug, feature, or question}" --tally label
 {"label":"bug"} …
 tally: bug 14 · feature 7 · question 3
 ```
@@ -39,7 +43,11 @@ tally: bug 14 · feature 7 · question 3
 Or compose it the Unix way (works for any field, any time):
 
 ```console
-$ smartpipe map "Extract {label}" < tickets.txt | jq -r .label | sort | uniq -c | sort -rn
+$ smartpipe map "Extract {label}" < tickets.txt \
+    | jq -r .label \
+    | sort \
+    | uniq -c \
+    | sort -rn
   14 bug
    7 feature
    3 question
@@ -48,7 +56,12 @@ $ smartpipe map "Extract {label}" < tickets.txt | jq -r .label | sort | uniq -c 
 Pipe that into a bar chart with [youplot](https://github.com/red-data-tools/YouPlot):
 
 ```console
-$ … | jq -r .label | sort | uniq -c | sort -rn | youplot bar -d ' ' --title "labels"
+$ … \
+    | jq -r .label \
+    | sort \
+    | uniq -c \
+    | sort -rn \
+    | youplot bar -d ' ' --title "labels"
 ```
 
 ## A ranked table you can read
@@ -57,13 +70,16 @@ $ … | jq -r .label | sort | uniq -c | sort -rn | youplot bar -d ' ' --title "l
 it into an interactive table:
 
 ```console
-$ smartpipe top_k 20 --near "billing complaints" < feedback.jsonl | vd -f jsonl
+$ smartpipe top_k 20 --near "billing complaints" < feedback.jsonl \
+    | vd -f jsonl
 ```
 
 Plain terminal version, no extra tools:
 
 ```console
-$ … | jq -r '[(._score|tostring), .text[:70]] | @tsv' | column -t -s $'\t'
+$ … \
+    | jq -r '[(._score|tostring), .text[:70]] | @tsv' \
+    | column -t -s $'\t'
 ```
 
 ## Picking a join threshold from the score histogram
@@ -73,13 +89,15 @@ the floor between the clusters:
 
 ```console
 $ smartpipe join "{left.text} is about {right.name}" --right products.jsonl < tickets.txt \
-    | jq ._score | sort -n | uniq -c
+    | jq ._score \
+    | sort -n \
+    | uniq -c
 $ # scores bunch at ~0.4 (noise) and ~0.75 (real) → rerun with --threshold 0.6
 ```
 
 ## The unmatched remainder
 
-`join --unmatched leftovers.txt` writes every zero-match left item verbatim —
+`join --unmatched leftovers.txt` writes every zero-match left item verbatim -
 the worklist for a second pass with a looser predicate, a bigger `--k`, or a
 human:
 

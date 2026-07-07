@@ -34,23 +34,27 @@ nav:
       - Install: install.md
       - Quickstart: quickstart.md
   - Verbs:
-      - map: verbs/map.md
-      - extend: verbs/extend.md
-      - filter: verbs/filter.md
-      - embed: verbs/embed.md
-      - top_k: verbs/top-k.md
-      - reduce: verbs/reduce.md
-      - join: verbs/join.md
-      - cluster: verbs/cluster.md
-      - diff: verbs/diff.md
-      - distinct: verbs/distinct.md
-      - outliers: verbs/outliers.md
-      - where: verbs/where.md
-      - summarize: verbs/summarize.md
-      - sort: verbs/sort.md
-      - sample: verbs/sample.md
-      - getschema: verbs/getschema.md
-      - split: verbs/split.md
+      - Transform:
+          - map: verbs/map.md
+          - extend: verbs/extend.md
+          - reduce: verbs/reduce.md
+      - Find & match:
+          - filter: verbs/filter.md
+          - top_k: verbs/top-k.md
+          - join: verbs/join.md
+      - Group & compare:
+          - cluster: verbs/cluster.md
+          - distinct: verbs/distinct.md
+          - diff: verbs/diff.md
+          - outliers: verbs/outliers.md
+          - embed: verbs/embed.md
+      - Free utilities:
+          - where: verbs/where.md
+          - summarize: verbs/summarize.md
+          - sort: verbs/sort.md
+          - sample: verbs/sample.md
+          - getschema: verbs/getschema.md
+          - split: verbs/split.md
   - Concepts:
       - Pipes & items: concepts/pipes-and-items.md
       - Models & providers: concepts/models-and-providers.md

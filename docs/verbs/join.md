@@ -1,21 +1,22 @@
-# `join` — match two inputs, semantically
+# `join` - match two inputs, semantically
 
 Merge stdin against a second input wherever a plain-English predicate holds.
-The SQL join's semantic cousin: no keys, no exact equality — meaning.
+The SQL join's semantic cousin: no keys, no exact equality - meaning.
 
 ```console
-$ cat tickets.jsonl | smartpipe join "ticket {left.text} concerns product {right.name}" --right products.jsonl
+$ cat tickets.jsonl \
+    | smartpipe join "ticket {left.text} concerns product {right.name}" --right products.jsonl
 {"left": {"text": "the laser printer keeps smoking"}, "right": {"name": "LaserJet 9"}, "_score": 0.91}
 ```
 
 ## How it works (and why it's affordable)
 
-A naive semantic join would ask the model about every pair — 1,000 × 1,000 =
+A naive semantic join would ask the model about every pair - 1,000 × 1,000 =
 a million calls. smartpipe does **embed → block → judge**:
 
 1. **Embed** the `--right` file once (it's read whole and indexed in memory).
 2. **Block**: each stdin item is embedded and matched to its `--k` nearest
-   right-side candidates by similarity — pure math, no model calls.
+   right-side candidates by similarity - pure math, no model calls.
 3. **Judge**: only those candidate pairs go to the chat model, with a
    yes/no verdict prompt.
 
@@ -28,13 +29,13 @@ join: 1,204 left items · up to 5 candidates each = at most 6,020 model calls (c
 
 ## The predicate
 
-Braces name a side's field — every brace must pick a side:
+Braces name a side's field - every brace must pick a side:
 
-- `{left.text}` / `{right.text}` — the whole item (for JSON items without a
+- `{left.text}` / `{right.text}` - the whole item (for JSON items without a
   `text` field, the raw line).
-- `{left.body}`, `{right.name}`, … — a JSON field; a pair whose item lacks the
+- `{left.body}`, `{right.name}`, … - a JSON field; a pair whose item lacks the
   field is skipped with a warning naming what it *does* have.
-- A predicate must mention **both** sides — one that reads only one side would
+- A predicate must mention **both** sides - one that reads only one side would
   match everything or nothing, so it's refused up front.
 
 ## Options
@@ -42,11 +43,11 @@ Braces name a side's field — every brace must pick a side:
 | Option | Meaning |
 |---|---|
 | `--right FILE` | The finite side to index (JSONL or plain lines). Required; never stdin |
-| `--k N` | Candidates judged per left item (default 5 — **the recall knob**, see below) |
+| `--k N` | Candidates judged per left item (default 5 - **the recall knob**, see below) |
 | `--threshold FLOAT` | Similarity floor (0–1) a candidate must clear before judging |
 | `--model TEXT` | Chat model for the judge calls |
 | `--embed-model TEXT` | Embedding model for both sides |
-| `--fields A,B` | Project output columns — dotted paths reach the sides: `--fields left.id,right.name,_score` |
+| `--fields A,B` | Project output columns - dotted paths reach the sides: `--fields left.id,right.name,_score` |
 | `--output FORMAT` | `auto` · `json` · `csv` · `tsv` |
 | `--concurrency N` / `--max-calls N` | Parallel left items / hard cost ceiling |
 
@@ -77,7 +78,7 @@ Candidates that blocking drops are matches the judge never sees. On a synthetic
 | 10 | 1.00 |
 
 Real numbers depend on your embedding model and data. **The spot-check:** rerun
-a sample with `--k 20 --threshold 0` and compare match counts — a jump means
+a sample with `--k 20 --threshold 0` and compare match counts - a jump means
 the default is dropping true matches; raise `--k` (and consider a stronger
 embedding model).
 
@@ -92,17 +93,18 @@ in the right file matches tickets without any judge call ever seeing 300 pages.
 ## The unmatched remainder
 
 `--unmatched FILE` writes every left item that matched nothing, verbatim, one
-line each — your worklist for a looser second pass (bigger `--k`, softer
+line each - your worklist for a looser second pass (bigger `--k`, softer
 predicate, or a human). A final stderr note reports the split:
 `join: 34 matched · 7 unmatched → leftovers.txt`.
 
 ## Streaming
 
-The left side streams flag-free, like every per-item verb — so join is a live
+The left side streams flag-free, like every per-item verb - so join is a live
 enrichment operator:
 
 ```console
-$ tail -f events.log | smartpipe join "event {left.text} involves customer {right.name}" --right customers.jsonl
+$ tail -f events.log \
+    | smartpipe join "event {left.text} involves customer {right.name}" --right customers.jsonl
 ```
 
 The right side can never stream (an index can't be built from a tail): `--right -`
@@ -111,8 +113,8 @@ is a usage error that says so.
 ## See also
 
 - [Cookbook: live stream enrichment](../cookbook/stream-enrichment.md)
-- [`top_k`](top-k.md) — ranking against one query instead of matching two sets
-- [`.sem` files](../reference/sem-files.md) — save a join as an executable stage
+- [`top_k`](top-k.md) - ranking against one query instead of matching two sets
+- [`.sem` files](../reference/sem-files.md) - save a join as an executable stage
 
 ## Join kinds
 
@@ -120,13 +122,15 @@ is a usage error that says so.
 matched-pairs behavior):
 
 ```console
-$ cat orders.jsonl | smartpipe join "the same purchase" --right invoices.jsonl --kind anti
+$ cat orders.jsonl \
+    | smartpipe join "the same purchase" --right invoices.jsonl --kind anti
 {"id": 4411, "customer": "acme", "total": 240.0}    ← unmatched LEFT rows, verbatim
-$ … --kind leftouter | head -1
+$ … --kind leftouter \
+    | head -1
 {"left": {...}, "right": null}                       ← every left row, match or not
 ```
 
-`anti` is reconciliation's native shape — "orders with no invoice" IS the
+`anti` is reconciliation's native shape - "orders with no invoice" IS the
 deliverable, emitted passthrough so it pipes onward (into `cluster`, a CSV,
 a ticket). `leftouter` keeps every left row with `"right": null` where
 nothing matched. The summary line works for every kind.

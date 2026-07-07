@@ -12,7 +12,7 @@ from smartpipe.container import AppContainer, build_container
 from smartpipe.core.errors import SetupFault
 from smartpipe.io.writers import OutputFormat
 from smartpipe.models.anthropic_adapter import AnthropicChatModel
-from smartpipe.models.ollama import OllamaChatModel, OllamaEmbeddingModel
+from smartpipe.models.ollama import OllamaChatModel
 from smartpipe.models.openai_compat import OpenAIChatModel, OpenAIEmbeddingModel
 from smartpipe.models.retry import RetryPolicy
 
@@ -107,10 +107,12 @@ async def test_no_model_no_ollama_is_the_screen(
 # --- embedding model construction ---------------------------------------------
 
 
-async def test_embed_defaults_to_ollama_nomic(client: httpx.AsyncClient) -> None:
-    model = await _container(client).embedding_model()
-    assert isinstance(model, OllamaEmbeddingModel)
-    assert model.ref.name == "nomic-embed-text"
+async def test_embed_defaults_to_local_nomic(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.local_embed import LocalEmbeddingModel
+
+    model = await _container(client).embedding_model()  # D44: no server needed
+    assert isinstance(model, LocalEmbeddingModel)
+    assert model.ref.name == "nomic-embed-text-v1.5"
 
 
 async def test_embed_openai(client: httpx.AsyncClient) -> None:
