@@ -122,3 +122,25 @@ present; details in [File inputs](../inputs/files.md#audio-heard-natively-or-tra
 
 - [Structured output](../concepts/structured-output.md) — the brace grammar and `--schema`
 - [Models & providers](../concepts/models-and-providers.md) — picking and switching models
+
+
+## Video frame control
+
+By default a video yields one frame per second up to 24, evenly spread past
+that (a 10-minute clip becomes 24 frames, one per 25 seconds). Two flags
+change the deal on `map`/`extend`:
+
+```console
+$ smartpipe map "what changes in this scene?" --in demo.mp4 --frame-every 1
+$ smartpipe map "summarize" --in long.mp4 --frame-every 2 --max-frames 120
+```
+
+- `--frame-every SECONDS` is a **density guarantee** — one frame per period,
+  and the default 24-frame cap lifts (a guarantee that silently caps isn't
+  one).
+- `--max-frames N` is a **budget** — when both are set, the smaller wins.
+- The per-row note prints the frame count, and the run receipt shows the
+  image megabytes actually sent, so a 600-frame decision is a visible one.
+- The text-verb caption pivot keeps its small fixed sample; these flags
+  govern frames sent natively to a vision model. On gemini the video is
+  watched natively and no frames are extracted at all.

@@ -9,6 +9,7 @@ couldn't be parsed — skip with a warning).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, assert_never
 
@@ -376,9 +377,13 @@ class VideoParts:
     track: AudioData | None  # None when the video is silent
 
 
-def video_to_parts(video: VideoData, *, max_frames: int = 24) -> VideoParts:
-    """The poor man's video (D27/D36): 1 frame per second up to ``max_frames``,
-    evenly spread past the cap, plus the audio track.
+def video_to_parts(
+    video: VideoData, *, max_frames: int = 24, every_seconds: float | None = None
+) -> VideoParts:
+    """Frames + the audio track (D27/D36/D43). Default: 1 frame per second up
+    to ``max_frames``, evenly spread past the cap. ``every_seconds`` is a
+    DENSITY GUARANTEE — one frame per period, and the default cap lifts
+    (callers pass their own ``max_frames`` to keep a budget; the smaller wins).
 
     Free and local (ffmpeg). Blocking — callers run it in a thread.
     """
@@ -396,8 +401,15 @@ def video_to_parts(video: VideoData, *, max_frames: int = 24) -> VideoParts:
         with open(source, "wb") as handle:
             handle.write(video.data)
         duration = _ffprobe_duration(exe, source)
-        # 1 fps for clips up to the cap; longer clips spread the cap evenly (D36)
-        rate = 1.0 if 0 < duration <= max_frames else max(max_frames / duration, 0.01)
+        if every_seconds is not None:
+            # D43: the density guarantee — one frame per period, cap honored
+            rate = 1.0 / every_seconds
+            if duration > 0:
+                wanted = max(1, math.ceil(duration / every_seconds))
+                max_frames = min(max_frames, wanted) if max_frames else wanted
+        else:
+            # 1 fps for clips up to the cap; longer clips spread the cap evenly (D36)
+            rate = 1.0 if 0 < duration <= max_frames else max(max_frames / duration, 0.01)
         subprocess.run(
             [
                 exe,

@@ -64,6 +64,8 @@ class MapRequest:
     schema_dsl: str | None = None  # --schema-from (rung 3, D22)
     tally_field: str | None = None  # --tally FIELD: live distribution on stderr
     explode_field: str | None = None  # --explode FIELD: one row per list element
+    frame_every: float | None = None  # --frame-every SECONDS: video density guarantee (D43)
+    max_frames: int | None = None  # --max-frames N: video frame budget (D43)
 
 
 class MapContext(Protocol):
@@ -134,7 +136,15 @@ async def run_map(
         if budget is not None:
             # D26: silently chunking would change what was asked — teach the pipeline
             raise ItemError(gate.refusal(item.text, budget))
-        return await map_one(model, plan, instruction, item, log)
+        return await map_one(
+            model,
+            plan,
+            instruction,
+            item,
+            log,
+            frame_every=request.frame_every,
+            max_frames=request.max_frames,
+        )
 
     done = 0
     skipped = 0
@@ -176,10 +186,22 @@ async def map_one(
     instruction: str,
     item: Item,
     log: diagnostics.DegradationLog,
+    *,
+    frame_every: float | None = None,
+    max_frames: int | None = None,
 ) -> str | Mapping[str, object]:
     video = next((part for part in item.media if isinstance(part, VideoData)), None)
     if video is not None:
-        return await _map_video(model, plan, instruction, item, video, log)
+        return await _map_video(
+            model,
+            plan,
+            instruction,
+            item,
+            video,
+            log,
+            frame_every=frame_every,
+            max_frames=max_frames,
+        )
     try:
         return await _attempt(model, plan, instruction, item.text, item.media)
     except ItemError as native_failure:
@@ -202,6 +224,9 @@ async def _map_video(
     item: Item,
     video: VideoData,
     log: diagnostics.DegradationLog,
+    *,
+    frame_every: float | None = None,
+    max_frames: int | None = None,
 ) -> str | Mapping[str, object]:
     """Video ladder (D27/D34): the real thing where the wire watches it (gemini
     native accepts video; every other adapter refuses pre-send at zero cost),
@@ -210,9 +235,17 @@ async def _map_video(
         return await _attempt(model, plan, instruction, item.text, (video,))
     except ItemError:
         pass  # this wire can't watch — convert (the refusal cost nothing)
+    from functools import partial as _partial
+
     from smartpipe.parsing.extract import video_to_parts
 
-    parts = await asyncio.to_thread(video_to_parts, video)
+    sample = _partial(
+        video_to_parts,
+        video,
+        max_frames=max_frames if max_frames is not None else 24,
+        every_seconds=frame_every,
+    )
+    parts = await asyncio.to_thread(sample)
     track = parts.track
     detail = f"{len(parts.frames)} frames" + (" + audio" if track is not None else ", silent")
     log.note(describe_source(item.source), "video → frames+audio", detail)

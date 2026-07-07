@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Video frame control (D43).** `map`/`extend` gain `--frame-every SECONDS`
+  (a density guarantee: one frame per period, lifting the default 24-frame
+  cap) and `--max-frames N` (a budget: the smaller of the two wins). Defaults
+  unchanged — 1 fps up to 24, evenly spread past that — so nobody's costs
+  move silently; the per-row note and the run receipt make dense choices
+  visible.
 - **The face got fixed after owner review (D42b).** The box-drawing banner
   (which rendered gappy in real terminals) became a proper ASCII wordmark;
   the welcome's verb columns are computed, not hand-spaced; "Get started"

@@ -69,6 +69,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
 | `join` | `--right FILE` (required), `--k N` (default 5), `--threshold FLOAT`, `--kind inner|leftouter|anti`, `--unmatched FILE`, `--embed-model` |
 | `extend` | map's flags (braces/--schema/--schema-from/--tally/--explode/--fields) |
+| `map`/`extend` video | `--frame-every SECONDS` (density guarantee), `--max-frames N` (budget; smaller wins) |
 | `distinct` | `--show-groups`, `--threshold F` (cosine, default 0.90), `--embed-model` |
 | `outliers` | `N` (default 5), `--embed-model` |
 | `cluster` | `--k N`, `--top N`, `--explode members`, `--model` (labels), `--embed-model` |

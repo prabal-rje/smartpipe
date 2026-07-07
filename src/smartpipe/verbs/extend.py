@@ -63,6 +63,8 @@ class ExtendRequest:
     schema_dsl: str | None = None
     tally_field: str | None = None
     explode_field: str | None = None
+    frame_every: float | None = None  # D43
+    max_frames: int | None = None  # D43
 
 
 async def run_extend(
@@ -105,7 +107,15 @@ async def run_extend(
         budget = await gate.budget_for_oversized(item.text)
         if budget is not None:
             raise ItemError(gate.refusal(item.text, budget))  # D26: no silent chunking
-        result = await map_one(model, plan, instruction, item, log)
+        result = await map_one(
+            model,
+            plan,
+            instruction,
+            item,
+            log,
+            frame_every=request.frame_every,
+            max_frames=request.max_frames,
+        )
         assert isinstance(result, Mapping)  # structured mode: validated against the schema
         return item, result
 

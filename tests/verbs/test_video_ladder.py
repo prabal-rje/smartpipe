@@ -243,3 +243,21 @@ async def test_watching_wire_gets_the_raw_video(clip: Path) -> None:
     assert out.getvalue() == "watched the actual video\n"
     assert len(model.calls) == 1  # no conversion, no second attempt
     assert isinstance(model.calls[0].media[0], VideoData)  # the bytes rode whole
+
+
+def test_frame_every_is_a_density_guarantee(clip: Path) -> None:
+    from smartpipe.parsing.extract import video_to_parts
+
+    parts = video_to_parts(
+        VideoData(clip.read_bytes(), "video/mp4"), max_frames=1000, every_seconds=0.5
+    )
+    assert 3 <= len(parts.frames) <= 5  # 2s at one frame per 0.5s ≈ 4
+
+
+def test_max_frames_still_caps_the_density(clip: Path) -> None:
+    from smartpipe.parsing.extract import video_to_parts
+
+    parts = video_to_parts(
+        VideoData(clip.read_bytes(), "video/mp4"), max_frames=2, every_seconds=0.25
+    )
+    assert len(parts.frames) <= 2  # the smaller of the two wins

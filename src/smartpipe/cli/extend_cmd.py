@@ -61,12 +61,27 @@ __all__ = ["extend_command"]
     show_default=True,
     help="Output format.",
 )
+@click.option(
+    "--frame-every",
+    "frame_every",
+    type=float,
+    metavar="SECONDS",
+    help="Video density guarantee: one frame per period (lifts the 24-frame cap).",
+)
+@click.option(
+    "--max-frames",
+    "max_frames",
+    type=int,
+    help="Video frame budget (default 24; the smaller of the two flags wins).",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @fields_option
 @input_options
 def extend_command(
     prompt: str | None,
+    frame_every: float | None,
+    max_frames: int | None,
     prompt_file: Path | None,
     schema_path: Path | None,
     schema_dsl: str | None,
@@ -99,6 +114,8 @@ def extend_command(
         schema_dsl=schema_dsl,
         tally_field=tally_field,
         explode_field=explode_field,
+        frame_every=frame_every,
+        max_frames=max_frames,
         model_flag=model_flag,
         output=OutputFormat(output),
         concurrency_flag=concurrency_flag,
