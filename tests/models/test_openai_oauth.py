@@ -184,17 +184,24 @@ async def test_browser_flow_end_to_end(
 
         async def visit() -> None:  # what the user's browser does after consent
             async with httpx.AsyncClient() as browser_client:
-                await browser_client.get(
-                    # the v4 loopback, matching the server bind: "localhost" order
-                    # varies by host and a refused ::1 connect would hang the flow
-                    f"http://127.0.0.1:{port}/auth/callback",
-                    params={"code": "CODE", "state": query["state"]},
-                )
+                for attempt in range(40):  # GH macOS runners refuse briefly (~2s grace)
+                    try:
+                        await browser_client.get(
+                            # the v4 loopback, matching the server bind: "localhost"
+                            # order varies by host; a refused ::1 would hang the flow
+                            f"http://127.0.0.1:{port}/auth/callback",
+                            params={"code": "CODE", "state": query["state"]},
+                        )
+                        return
+                    except httpx.ConnectError:
+                        if attempt == 39:
+                            raise
+                        await asyncio.sleep(0.05)
 
         asyncio.get_running_loop().create_task(visit())
 
     credential = await asyncio.wait_for(
-        login_via_browser(client, open_browser=fake_browser, port=port), timeout=10
+        login_via_browser(client, open_browser=fake_browser, port=port), timeout=30
     )
     assert credential.access == "at-1"
     assert credential.account_id == "acct-1"
@@ -218,7 +225,7 @@ async def test_browser_flow_rejects_a_wrong_state(
 
     with pytest.raises(SetupFault, match="invalid OAuth state"):
         await asyncio.wait_for(
-            login_via_browser(client, open_browser=fake_browser, port=port), timeout=10
+            login_via_browser(client, open_browser=fake_browser, port=port), timeout=30
         )
 
 
@@ -281,5 +288,5 @@ async def test_browser_flow_reports_an_error_param(
 
     with pytest.raises(SetupFault, match="access denied"):
         await asyncio.wait_for(
-            login_via_browser(client, open_browser=fake_browser, port=port), timeout=10
+            login_via_browser(client, open_browser=fake_browser, port=port), timeout=30
         )

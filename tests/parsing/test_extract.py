@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
 import pytest
@@ -107,7 +108,7 @@ def test_missing_markitdown_raises_missing_extra(
     with pytest.raises(MissingExtra) as excinfo:
         extract(f, FileKind.PDF)
     assert excinfo.value.extra == "files"
-    assert "reinstall smartpipe" in excinfo.value.guidance  # ships in core (D46)
+    assert "unavailable" in excinfo.value.guidance  # core on <=3.13; wheel-gap wording on 3.14
 
 
 def test_audio_names_the_audio_extra(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -119,6 +120,10 @@ def test_audio_names_the_audio_extra(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert excinfo.value.extra == "audio"
 
 
+@pytest.mark.skipif(
+    find_spec("faster_whisper") is None,
+    reason="whisper wheels absent on this python (3.14 until upstream ships)",
+)
 def test_transcribe_audio_runs_the_real_pipeline_on_junk_bytes() -> None:
     # the [audio] extra is installed in dev: junk bytes exercise the real
     # faster-whisper decode path and fail as a per-item error, never a crash
