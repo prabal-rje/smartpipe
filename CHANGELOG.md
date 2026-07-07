@@ -5,6 +5,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-07-07
+
+Installs from PyPI as **`smartpipe-cli`** (the plain name was too close to
+an existing project) - the command, import, and everything else you type
+remain `smartpipe`.
+
+The release that ships the identity and the polish: the **total rename to
+smartpipe** (distribution, repo, command, internals; `sempipe` survives as a
+command alias), the **usage ledger** (`smartpipe usage` — hour/day/week/
+month/lifetime, resettable), the **multimodality-first pitch** with the
+loved tagline kept, **the color voice** (ASCII wordmark, styled help,
+colored doctor/probe with honest fallback marks), **video frame control**
+(`--frame-every` guarantee vs `--max-frames` budget), and scoped-key 401s
+that degrade per-item with the provider's real reason quoted.
+
+
 ### Changed
 - **No optional extras, ever (D46).** Claude models, document parsing
   (PDF/DOCX/PPTX/XLSX/HTML/EPUB), video (bundled static ffmpeg), and chart
@@ -40,21 +56,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   five-line "Unix toolbox" primer in pipes-and-items with kindness links
   where jq first appears.
 
-## [1.3.0] — 2026-07-07
-
-Installs from PyPI as **`smartpipe-cli`** (the plain name was too close to
-an existing project) - the command, import, and everything else you type
-remain `smartpipe`.
-
-The release that ships the identity and the polish: the **total rename to
-smartpipe** (distribution, repo, command, internals; `sempipe` survives as a
-command alias), the **usage ledger** (`smartpipe usage` — hour/day/week/
-month/lifetime, resettable), the **multimodality-first pitch** with the
-loved tagline kept, **the color voice** (ASCII wordmark, styled help,
-colored doctor/probe with honest fallback marks), **video frame control**
-(`--frame-every` guarantee vs `--max-frames` budget), and scoped-key 401s
-that degrade per-item with the provider's real reason quoted.
-
+- **The rename is total: smartpipe everywhere** (old name collided with an
+  existing project; nothing was ever published, so there is no installed
+  base to protect). Package and import (`import smartpipe`,
+  `python -m smartpipe`), the command (+ a `sempipe` compat alias), env
+  vars (`SMARTPIPE_*`), config (`~/.config/smartpipe`), state, and cache
+  directories, help, screens, docs, completion (`_SMARTPIPE_COMPLETE`;
+  doctor still recognizes old rc lines). Pre-1.2.1 machines: move
+  `~/.config/sempipe` to `~/.config/smartpipe` (and likewise
+  `~/.local/state`, `~/.cache`) to keep logins and settings.
+- **The pitch is multimodality-first.** README, docs front page, the repo
+  description, `--help`, and the welcome screen now lead with what makes
+  smartpipe different — PDFs (figures included), scans, images, audio, and
+  video through Unix verbs — and the examples reflect it. Stale claims
+  swept (v1.1-era verb tables, gpt-4o-audio references, old citation).
+- **Renamed to `smartpipe`** (the old name collided with an existing
+  project). The DISTRIBUTION and repository are `smartpipe`; the command,
+  package, import name, env vars (`SMARTPIPE_*`), and config directory stay
+  `smartpipe` — zero breakage, and `smartpipe` also works as a command alias.
+  Install: `pip install smartpipe`.
 
 ### Fixed
 - **A restricted key refusing MEDIA no longer kills the run (D43c).** The
@@ -99,27 +119,6 @@ that degrade per-item with the provider's real reason quoted.
   month, and lifetime windows over what the meter observed (runs, tokens,
   media, audio time, paid conversions); `usage reset` zeroes it, prints the
   previous lifetime, and remembers the reset time. Local state only.
-
-### Changed
-- **The rename is total: smartpipe everywhere** (old name collided with an
-  existing project; nothing was ever published, so there is no installed
-  base to protect). Package and import (`import smartpipe`,
-  `python -m smartpipe`), the command (+ a `sempipe` compat alias), env
-  vars (`SMARTPIPE_*`), config (`~/.config/smartpipe`), state, and cache
-  directories, help, screens, docs, completion (`_SMARTPIPE_COMPLETE`;
-  doctor still recognizes old rc lines). Pre-1.2.1 machines: move
-  `~/.config/sempipe` to `~/.config/smartpipe` (and likewise
-  `~/.local/state`, `~/.cache`) to keep logins and settings.
-- **The pitch is multimodality-first.** README, docs front page, the repo
-  description, `--help`, and the welcome screen now lead with what makes
-  smartpipe different — PDFs (figures included), scans, images, audio, and
-  video through Unix verbs — and the examples reflect it. Stale claims
-  swept (v1.1-era verb tables, gpt-4o-audio references, old citation).
-- **Renamed to `smartpipe`** (the old name collided with an existing
-  project). The DISTRIBUTION and repository are `smartpipe`; the command,
-  package, import name, env vars (`SMARTPIPE_*`), and config directory stay
-  `smartpipe` — zero breakage, and `smartpipe` also works as a command alias.
-  Install: `pip install smartpipe`.
 
 ## [1.2.0] — 2026-07-06
 

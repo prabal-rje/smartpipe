@@ -53,6 +53,15 @@ def run_cli(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str])
                     code = 0
                 case _:
                     code = 1
+        finally:
+            # main() sets SIGPIPE to SIG_DFL process-wide (the grep-like death
+            # contract). Correct for the real CLI; lethal inside pytest — any
+            # later closed-pipe write would kill the whole run with 141 (seen
+            # on the Linux CI runner). Restore Python's default after each run.
+            import signal as _signal
+
+            if hasattr(_signal, "SIGPIPE"):
+                _signal.signal(_signal.SIGPIPE, _signal.SIG_IGN)
         captured = capsys.readouterr()
         return code, captured.out, captured.err
 
