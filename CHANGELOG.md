@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **The face got fixed after owner review (D42b).** The box-drawing banner
+  (which rendered gappy in real terminals) became a proper ASCII wordmark;
+  the welcome's verb columns are computed, not hand-spaced; "Get started"
+  realigned; and the probe matrix was rebuilt — dynamic ANSI-aware column
+  widths with … truncation (overflow can no longer smash the embed column),
+  and honest fallback semantics: `–*` instead of ✗ when a modality WORKS via
+  a fallback, with a footnote naming the path (audio → whisper/STT, image
+  embed → caption pivot, video → frames+track / halves).
 - **The CLI got a face (D42).** A small pipe-flow banner on the bare
   invocation, color in every `--help` (cyan headings, green options and
   commands), colored doctor/probe marks and column titles, styled

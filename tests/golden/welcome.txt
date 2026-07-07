@@ -1,32 +1,36 @@
-  ────╢ ◆ ╟────╢ ◆ ╟────▶
+                       _         _
+ ___ _ __   __ _  _ _ | |_  _ __ (_) _ __  ___
+(_-<| '  \ / _` || '_||  _|| '_ \| || '_ \/ -_)
+/__/|_|_|_|\__,_||_|   \__|| .__/|_|| .__/\___|
+                           |_|      |_|
 smartpipe — semantic pipes for your terminal
 PDFs, images, audio, video, and text — verbs that understand their input.
 
 Verbs (call a model):
-  map      Transform each item with a prompt
-  extend   Add extracted fields to each record
-  filter   Keep items matching a semantic condition
-  embed    Convert items to vector embeddings
-  top_k    Rank items by similarity to a query
-  reduce   Synthesize many items into one
-  join     Match stdin against a second input, semantically
-  cluster  Group items by meaning; label each group
-  diff     What distinguishes two sets of items
-  distinct Fold near-duplicate items (embeddings only)
-  outliers Rank the items least like the rest (embeddings only)
+  map        Transform each item with a prompt
+  extend     Add extracted fields to each record
+  filter     Keep items matching a semantic condition
+  embed      Convert items to vector embeddings
+  top_k      Rank items by similarity to a query
+  reduce     Synthesize many items into one
+  join       Match stdin against a second input, semantically
+  cluster    Group items by meaning; label each group
+  diff       What distinguishes two sets of items
+  distinct   Fold near-duplicate items (embeddings only)
+  outliers   Rank the items least like the rest (embeddings only)
 
 Utilities (free — no model calls):
-  where    Keep rows matching a deterministic predicate
-  summarize Aggregate records: count/avg/percentiles by field
-  sample   Keep N random rows (seeded, reproducible)
-  getschema Report the stream's fields, types, coverage
-  sort     Order records by a field (numbers, then strings)
-  split    Break oversized items into chunks
-  chart    Draw a bar chart of results (--save writes SVG)
-  config   Configure models and settings
+  where      Keep rows matching a deterministic predicate
+  summarize  Aggregate records: count/avg/percentiles by field
+  sample     Keep N random rows (seeded, reproducible)
+  getschema  Report the stream's fields, types, coverage
+  sort       Order records by a field (numbers, then strings)
+  split      Break oversized items into chunks
+  chart      Draw a bar chart of results (--save writes SVG)
+  config     Configure models and settings
 
 Get started:
-  smartpipe config                                     Interactive setup
+  smartpipe config                                     # one-minute interactive setup
   echo "hello" | smartpipe map "translate to Spanish"
 
 'smartpipe <command> --help' shows examples for each command.

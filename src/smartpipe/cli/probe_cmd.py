@@ -1,9 +1,9 @@
-"""``doctor --probe`` (D31): the modality-by-consumer matrix, with real tiny calls.
+"""``doctor --probe`` (D31/D42): the modality matrix, with real tiny calls.
 
 ``doctor`` alone never spends a cent (D18); this flag is the explicit opt-in
 that answers what the docs can only claim: which modalities *actually* reach
-your configured models. Four tiny paid calls, announced first. The assets ship
-in the wheel (an 8x8 PNG, a 0.25 s beep, one sentence — a few KB).
+your configured models. Marks: check = native; dash+star = works via a
+footnote names it); cross = no path. Four tiny paid calls, announced first.
 """
 
 from __future__ import annotations
@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import SempipeError
 from smartpipe.io import diagnostics
-from smartpipe.models.base import AudioData, CompletionRequest, ImageData
+from smartpipe.models.base import (
+    AudioData,
+    CompletionRequest,
+    ImageData,
+    supports_media_embedding,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -26,8 +31,9 @@ __all__ = ["render_matrix", "run_probe"]
 
 @dataclass(frozen=True, slots=True)
 class Cell:
-    verdict: str  # "ok" | "no" | "na"
+    verdict: str  # "ok" | "no" | "via" (fallback) | "na"
     detail: str
+    footnote: str | None = None  # what the * means, when verdict == "via"
 
 
 def _asset(name: str) -> bytes:
@@ -48,17 +54,34 @@ async def run_probe(env: Mapping[str, str]) -> str:
             "probing modalities with 4 tiny calls "
             f"(chat: {chat.ref.name} · embed: {embed.ref.name})"
         )
+        stt = _stt_path(os.environ, container.config.stt_model)
+        chat_image = await _chat_image(chat)
+        chat_audio = await _chat_audio(chat, stt)
         rows = {
             "text": (await _chat_text(chat), await _embed_text(embed)),
-            "image": (await _chat_image(chat), Cell("na", "text-only endpoint")),
-            "audio": (await _chat_audio(chat), Cell("na", "transcribe-then-embed path")),
-            "video": (_video_local(), Cell("na", "frames land with map")),
+            "image": (chat_image, _embed_image(embed, chat_image)),
+            "audio": (chat_audio, _embed_audio(chat_audio, stt)),
+            "video": (_chat_video(chat), _embed_video()),
             "document": (
                 Cell("ok", "parsed locally (no call)"),
-                Cell("ok", "as text"),
+                Cell("ok", "as extracted text"),
             ),
         }
     return render_matrix(rows)
+
+
+def _stt_path(env: Mapping[str, str], configured: str | None) -> str | None:
+    """The transcription path the ladder would take, if any (D39/05)."""
+    named = env.get("SMARTPIPE_STT_MODEL", "").strip() or (configured or "")
+    if named:
+        return named
+    if env.get("OPENAI_API_KEY", "").strip():
+        return "openai/whisper-1 (auto)"
+    from importlib.util import find_spec
+
+    if find_spec("faster_whisper") is not None:
+        return "local whisper"
+    return None
 
 
 async def _chat_text(chat: ChatModel) -> Cell:
@@ -66,7 +89,7 @@ async def _chat_text(chat: ChatModel) -> Cell:
         reply = await chat.complete(
             CompletionRequest(system=None, user="Reply with exactly: OK", max_tokens=8)
         )
-        return Cell("ok", f"replied {reply.strip()[:20]!r}")
+        return Cell("ok", f"replied {reply.strip()[:16]!r}")
     except SempipeError as exc:
         return Cell("no", _first_line(exc))
 
@@ -81,12 +104,12 @@ async def _chat_image(chat: ChatModel) -> Cell:
                 max_tokens=8,
             )
         )
-        return Cell("ok", f"saw it — {reply.strip()[:24]!r}")
-    except SempipeError as exc:
-        return Cell("no", _first_line(exc))
+        return Cell("ok", f"saw it — {reply.strip()[:16]!r}")
+    except SempipeError:
+        return Cell("no", "this model can't see images")
 
 
-async def _chat_audio(chat: ChatModel) -> Cell:
+async def _chat_audio(chat: ChatModel, stt: str | None) -> Cell:
     try:
         reply = await chat.complete(
             CompletionRequest(
@@ -96,9 +119,11 @@ async def _chat_audio(chat: ChatModel) -> Cell:
                 max_tokens=8,
             )
         )
-        return Cell("ok", f"heard it — {reply.strip()[:24]!r}")
-    except SempipeError as exc:
-        return Cell("no", _first_line(exc))
+        return Cell("ok", f"heard it — {reply.strip()[:16]!r}")
+    except SempipeError:
+        if stt is not None:
+            return Cell("via", "transcribed, then chat", footnote=f"audio → {stt}")
+        return Cell("no", "no STT — set a key or install 'smartpipe[audio]'")
 
 
 async def _embed_text(embed: EmbeddingModel) -> Cell:
@@ -109,36 +134,80 @@ async def _embed_text(embed: EmbeddingModel) -> Cell:
         return Cell("no", _first_line(exc))
 
 
-def _video_local() -> Cell:
+def _embed_image(embed: EmbeddingModel, chat_image: Cell) -> Cell:
+    if supports_media_embedding(embed):
+        return Cell("ok", "embedded as pixels")
+    if chat_image.verdict == "ok":
+        return Cell("via", "caption, then embed", footnote="image → caption pivot (D33)")
+    return Cell("no", "needs a vision chat model to caption")
+
+
+def _embed_audio(chat_audio: Cell, stt: str | None) -> Cell:
+    if chat_audio.verdict == "ok" or stt is not None:
+        return Cell("via", "transcript, then embed", footnote="audio → transcript pivot")
+    return Cell("no", "no transcription path")
+
+
+def _chat_video(chat: ChatModel) -> Cell:
+    if chat.ref.provider == "gemini":
+        return Cell("ok", "watched natively")
     try:
         from smartpipe.parsing.extract import ffmpeg_exe
 
         ffmpeg_exe()
-        return Cell("ok", "ffmpeg found — frames+audio")
+        return Cell("via", "frames + audio track", footnote="video → 1 fps frames + track")
     except SempipeError:
         return Cell("no", "ffmpeg missing — pip install 'smartpipe[video]'")
+
+
+def _embed_video() -> Cell:
+    return Cell("via", "halves, then embed", footnote="video → visual+speech halves (D36)")
 
 
 def _first_line(exc: SempipeError) -> str:
     return str(exc).splitlines()[0].removeprefix("error: ")
 
 
-_MARKS = {"ok": "✓", "no": "✗", "na": "–"}  # noqa: RUF001 — the pinned matrix marks
+_MARKS = {"ok": "✓ ", "no": "✗ ", "via": "–*", "na": "– "}  # noqa: RUF001 — pinned marks
 
 
 def render_matrix(rows: Mapping[str, tuple[Cell, Cell]]) -> str:
+    """Aligned by VISIBLE width, cells truncated to the grid — overflow never
+    smashes columns (D42; live-caught by the owner's screenshot)."""
     from smartpipe.cli.screens import bad, good, heading, tint
 
-    def mark(cell: Cell) -> str:
-        painter = good if cell.verdict == "ok" else bad if cell.verdict == "fail" else str
-        return painter(_MARKS[cell.verdict])
+    label_width = max(len(name) for name in rows) + 2
+    cap = 30
 
-    chat_title = heading(_pad_plain("chat", 34))
-    lines = [f"  {'':10s}  {chat_title}{heading('embed')}"]
+    def cell_text(cell: Cell) -> str:
+        detail = cell.detail if len(cell.detail) <= cap else cell.detail[: cap - 1] + "…"
+        return f"{_MARKS[cell.verdict]} {detail}"
+
+    def paint(cell: Cell, text: str) -> str:
+        mark_len = 2
+        mark, rest = text[:mark_len], text[mark_len:]
+        match cell.verdict:
+            case "ok":
+                return good(mark) + rest
+            case "no":
+                return bad(mark) + rest
+            case _:
+                return tint(mark, "2") + rest
+
+    chat_width = max(len(cell_text(chat)) for chat, _embed in rows.values()) + 3
+    header = f"  {' ' * label_width}{heading(_pad_plain('chat', chat_width))}{heading('embed')}"
+    lines = [header]
+    footnotes: list[str] = []
     for modality, (chat_cell, embed_cell) in rows.items():
-        left = f"{mark(chat_cell)} {chat_cell.detail}"
-        right = f"{mark(embed_cell)} {embed_cell.detail}"
-        lines.append(f"  {tint(f'{modality:10s}', '2')}  {_pad_ansi(left, 34)}{right}")
+        left = paint(chat_cell, cell_text(chat_cell))
+        right = paint(embed_cell, cell_text(embed_cell))
+        label = tint(modality.ljust(label_width), "2")
+        lines.append(f"  {label}{_pad_ansi(left, chat_width)}{right}")
+        for cell in (chat_cell, embed_cell):
+            if cell.footnote and cell.footnote not in footnotes:
+                footnotes.append(cell.footnote)
+    if footnotes:
+        lines.append(tint("  * fallback paths: " + " · ".join(footnotes), "2"))
     return "\n".join(lines)
 
 

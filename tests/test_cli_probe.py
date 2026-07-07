@@ -41,11 +41,17 @@ def test_probe_charts_the_matrix(run_cli: RunCli, respx_mock: respx.MockRouter) 
     code, out, err = run_cli(["doctor", "--probe"])
     assert "probing modalities with 4 tiny calls" in err
     assert "text" in out and "image" in out and "audio" in out
-    assert "✓ replied 'OK'" in out
-    assert "✓ saw it — 'red'" in out
+    assert "replied 'OK'" in out
+    assert "saw it — 'red'" in out
     assert "3-dim vector" in out
-    # the ollama wire refuses audio pre-send — the matrix says so honestly
-    assert "✗" in out and "can't hear audio" in out
+    # ollama refuses audio pre-send; the dev venv ships [audio], so the matrix
+    # shows the dash+asterisk fallback naming local whisper — not a red ✗ (D42)
+    assert "transcribed, then chat" in out
+    assert "audio → local whisper" in out
+    # image embedding rides the caption pivot on a text-only embedder — the
+    # dash+asterisk fallback mark with the footnote naming the path (D42)
+    assert "caption, then embed" in out
+    assert "* fallback paths:" in out and "caption pivot" in out
     del code  # exit reflects the FREE checks; capability gaps don't flip it
 
 
