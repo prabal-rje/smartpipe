@@ -115,7 +115,7 @@ wrong. Raise the ceiling or narrow the input.
 ## "this model can't hear audio - …" (exit 3 on the skip path)
 
 You sent audio items to a model with no audio input. Two fixes, straight from
-the message: use a model that hears (`voxtral-*`, `gemini-2.5-*`,
+the message: use a model that hears (`voxtral-*`, gemini models,
 `voxtral-*`) - otherwise smartpipe transcribes locally, so text verbs (and `map`, as a
 fallback) transcribe it locally with Whisper (`SMARTPIPE_WHISPER_MODEL` picks
 the size; tiny is the default). Details:

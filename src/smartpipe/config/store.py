@@ -70,7 +70,7 @@ BUILTIN_PROFILES: Mapping[str, Mapping[str, object]] = {
         "allow-captions": True,
     },
     "gemini": {
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.1-flash-lite",  # GA, fully multimodal, probe-verified (D45)
         "embed-model": "gemini/gemini-embedding-001",
         "allow-captions": True,
     },

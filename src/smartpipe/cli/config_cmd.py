@@ -173,7 +173,7 @@ async def run_interactive_setup(
             "  1. openai — gpt-5.4-mini + text-embedding-3-small "
             "(key or ChatGPT login; no audio input)"
         )
-        say("  2. gemini — gemini-2.5-flash, the most multimodal wire (needs GEMINI_API_KEY)")
+        say("  2. gemini — gemini-3.1-flash-lite, the most multimodal wire (needs GEMINI_API_KEY)")
         say("  3. local  — ollama/gemma-4-e2b, multimodal, nothing leaves this machine")
         say("  4. custom — answer the questions instead")
         choice = ask("Profile [1-4]?", "4").strip()
@@ -194,7 +194,7 @@ async def run_interactive_setup(
             return chosen
     names = await probe() or ()
     chat = _first_chat(names)
-    say("  Tip: pick a model that can SEE images (gpt-5.4-mini, gemini-2.5-flash,")
+    say("  Tip: pick a model that can SEE images (gpt-5.4-mini, gemini-3.1-flash-lite,")
     say("  ollama/llava) — smartpipe is multimodal; text-only models refuse image rows.")
     if chat is not None:
         say(f"  ✓ found Ollama ({len(names)} models)\n")

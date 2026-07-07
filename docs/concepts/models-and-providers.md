@@ -26,7 +26,7 @@ You name a model with a string. Two forms:
 
 - **Explicit provider:** `ollama/qwen3:8b`, `openai/gpt-5.4-mini`,
   `anthropic/claude-opus-4-8`, `mistral/mistral-large-latest`,
-  `gemini/gemini-2.5-flash`, `openrouter/deepseek/deepseek-chat`
+  `gemini/gemini-3.1-flash-lite`, `openrouter/deepseek/deepseek-chat`
   (OpenRouter is explicit-only - its names are other vendors' names).
 - **Bare name:** smartpipe routes by shape - `claude-*` → Anthropic, `gpt-*` / `o*` /
   `text-embedding-*` → OpenAI, the Mistral family (`mistral-*`, `ministral-*`,
@@ -100,7 +100,7 @@ $ SMARTPIPE_OPENAI_BASE_URL=https://… smartpipe …  # point the wire elsewher
 ## Gemini rides its native wire (and watches video)
 
 Gemini chat uses Google's native endpoint, the only wired endpoint that takes
-**video input**: `map "what happens?" --in demo.mp4 --model gemini-2.5-flash`
+**video input**: `map "what happens?" --in demo.mp4 --model gemini-3.1-flash-lite`
 sends the actual video (visuals and soundtrack heard together, no conversion).
 On every other model the video ladder converts to frames + audio automatically.
 Structured output translates to Gemini's response-schema dialect; embeddings
@@ -126,7 +126,7 @@ output) under a name. Three ship built in:
 | Profile | Chat | Embeddings | For |
 |---|---|---|---|
 | `openai` | gpt-5.4-mini | text-embedding-3-small | the fast cloud default |
-| `gemini` | gemini-2.5-flash | gemini/gemini-embedding-001 | the most multimodal wire |
+| `gemini` | gemini-3.1-flash-lite | gemini/gemini-embedding-001 | the most multimodal wire |
 | `local` | ollama/gemma-4-e2b | embeddinggemma | multimodal, nothing leaves the machine |
 
 ```console

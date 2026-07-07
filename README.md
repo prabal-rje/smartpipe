@@ -91,7 +91,7 @@ Some of smartpipe runs on your machine no matter what: local embeddings
 (fastembed) and local transcription (whisper) ship built in, and
 [Ollama](https://ollama.com) gives you a fully local chat model - free,
 private, no API key. But be clear-eyed: **your data goes to whichever model
-endpoint you configure.** Point at a cloud model (`--model gpt-5.4-mini`, `claude-opus-4-8`, `gemini-2.5-flash`,
+endpoint you configure.** Point at a cloud model (`--model gpt-5.4-mini`, `claude-opus-4-8`, `gemini-3.1-flash-lite`,
 `mistral-large-latest`, `openrouter/…` - keys via environment variables,
 never stored) and that provider sees that data; ChatGPT subscribers can
 skip keys with `smartpipe auth login`. Paid media conversions sit behind one consent (`allow-captions`),

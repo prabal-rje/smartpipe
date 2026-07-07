@@ -113,7 +113,7 @@ $ cat extra-notes.txt \
 
 ## Video: watched, or frames + soundtrack
 
-A video file becomes an item carrying its bytes. On `gemini-2.5-*` models the
+A video file becomes an item carrying its bytes. On gemini models the
 video rides the native wire whole - the model watches it, soundtrack included.
 Everywhere else `map`/`extend` convert it locally (ffmpeg, via
 `pip install 'smartpipe[video]'` or PATH): **one frame per second up to 24**,
@@ -177,7 +177,7 @@ PDFs - other encodings would need re-encoding and are skipped for now).
 An audio file (`.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`) becomes an item carrying
 its **bytes**, not an eager transcript:
 
-- `map` with an audio-capable model (`gemini-2.5-*`, `voxtral-*`) sends
+- `map` with an audio-capable model (gemini models, `voxtral-*`) sends
   the sound itself - tone and speaker changes included.
 - With any other model, smartpipe transcribes **locally** when the `[audio]`
   extra is installed (a one-time stderr note says so), then retries as text.
@@ -208,5 +208,5 @@ note: contract.pdf: thin text layer (11 chars) - scanned? routed 8 page image(s)
 OCR); text verbs caption them through the conversion ladder (consent rules
 apply). For long scans, `split --by pages --media` processes every page -
 the whole-document item caps at 8 images for request-size sanity. Pick a
-model that can see (`gpt-5.4-mini`, `gemini-2.5-flash`, `ollama/llava`);
+model that can see (`gpt-5.4-mini`, `gemini-3.1-flash-lite`, `ollama/llava`);
 `smartpipe doctor --probe` verifies actual ability.

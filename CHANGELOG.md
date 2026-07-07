@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Changed
+- **The gemini profile's default chat model is `gemini-3.1-flash-lite` (D45).**
+  Verified against the live catalog (GA, not a preview) and through the
+  ability probe: sees, hears, and watches video natively. Wizard tips and
+  doc examples updated; family-wide claims ("gemini-2.5-*" hears/watches)
+  generalized to gemini models, which was already how the wire treats them.
 - **Seamless beats slim (D44).** Local transcription (faster-whisper) and
   local embeddings (fastembed) moved from optional extras into the core
   install: `smartpipe embed` now works on a fresh machine with NOTHING
