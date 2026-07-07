@@ -108,8 +108,12 @@ async def test_no_model_no_ollama_is_the_screen(
 
 
 async def test_embed_defaults_to_local_nomic(client: httpx.AsyncClient) -> None:
+    from importlib.util import find_spec
+
     from smartpipe.models.local_embed import LocalEmbeddingModel
 
+    if find_spec("fastembed") is None:  # 3.14 until upstream wheels land (D46)
+        pytest.skip("fastembed wheels absent on this python")
     model = await _container(client).embedding_model()  # D44: no server needed
     assert isinstance(model, LocalEmbeddingModel)
     assert model.ref.name == "nomic-embed-text-v1.5"

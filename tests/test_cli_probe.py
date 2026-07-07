@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
 import httpx
@@ -44,10 +45,11 @@ def test_probe_charts_the_matrix(run_cli: RunCli, respx_mock: respx.MockRouter) 
     assert "replied 'OK'" in out
     assert "saw it — 'red'" in out
     assert "3-dim vector" in out
-    # ollama refuses audio pre-send; the dev venv ships [audio], so the matrix
+    # ollama refuses audio pre-send; with whisper wheels present the matrix
     # shows the dash+asterisk fallback naming local whisper — not a red ✗ (D42)
-    assert "transcribed, then chat" in out
-    assert "audio → local whisper" in out
+    if find_spec("faster_whisper") is not None:  # absent on 3.14 until upstream ships
+        assert "transcribed, then chat" in out
+        assert "audio → local whisper" in out
     # image embedding rides the caption pivot on a text-only embedder — the
     # dash+asterisk fallback mark with the footnote naming the path (D42)
     assert "caption, then embed" in out

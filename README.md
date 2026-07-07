@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/prabal-rje/smartpipe/actions/workflows/ci.yml/badge.svg)](https://github.com/prabal-rje/smartpipe/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/smartpipe)](https://pypi.org/project/smartpipe/)
-[![Python](https://img.shields.io/badge/python-3.11%E2%80%933.14-blue)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.11%E2%80%933.13-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
 **Semantic pipes for your terminal.**

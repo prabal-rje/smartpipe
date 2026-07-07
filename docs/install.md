@@ -47,7 +47,7 @@ commands still work and simply install the same thing.
 Two local models download once on first use and cache on disk: whisper
 (~75 MB) and the local embedder (~130 MB). Every download is announced.
 
-One honest asterisk: on **Python 3.14**, three components (documents,
+Supported pythons: **3.11-3.13 for the complete box**. On **Python 3.14**, three components (documents,
 whisper, local embeddings) wait on upstream wheels (onnxruntime, av) - the
 install works and everything else runs; those paths degrade with clear
 messages (`doctor` shows exactly what's waiting), and embeddings fall back
