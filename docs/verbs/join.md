@@ -131,3 +131,19 @@ deliverable, emitted passthrough so it pipes onward (into `cluster`, a CSV,
 a ticket). `leftouter` keeps every left row with `"right": null` where
 nothing matched. The summary line works for every kind.
 
+
+
+## Writing predicates a judge can satisfy
+
+The judge is strict at temperature 0: a predicate that demands certainty
+("is the same purchase") gets `false` on any paraphrase. Phrase the claim as
+the evidence supports it:
+
+- Weak: `"{left.desc} is the same purchase as {right.item}"`
+- Strong: `"order {left.desc} and invoice {right.item} name the same product"`
+- Strong: `"{left.text} plausibly describes a defect in {right.name}"`
+
+Words like *names*, *describes*, *concerns*, and *plausibly* judge the
+relationship in the text; *is the same* judges an identity the text usually
+can't prove. If a join matches nothing, try the predicate by hand on one
+pair with `map` first.

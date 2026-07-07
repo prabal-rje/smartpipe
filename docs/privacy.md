@@ -97,3 +97,13 @@ That means model outputs about your data persist locally between runs.
 cache stats` inspects it. The cache also maintains itself: entries expire
 after 30 days and the store LRU-evicts past 500 MB (tunable via the
 `cache-days` and `cache-max-mb` config keys). Caching is off by default.
+
+
+## Remote transcription
+
+With `stt-model` set — or auto-selected because an OpenAI API key is present
+and your chat model is OpenAI — audio bytes are uploaded to OpenAI's
+transcription endpoint. ChatGPT-login-only setups never upload audio for
+transcription (that wire has no STT); local whisper keeps everything on your
+machine. The per-row note names which path ran, and the `allow-captions`
+consent gates the upload like every paid conversion.

@@ -5,6 +5,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-07-06
+
+The biggest release yet, in five sentences: **eighteen verbs** now cover the
+whole data loop — KQL-inspired free utilities (`where`, `summarize`, `sort`,
+`sample`, `getschema`, `chart --facet/--by-time`) around a grown semantic
+core (`extend`, `distinct`, `cluster`, `diff`, `outliers`, `join --kind`).
+**Pipelines are artifacts**: multi-stage `.sem` files with `--dry-run` cost
+posture, plus custom verbs (named `.sem` files or Python entry points).
+**Iteration stops re-paying**: temperature-0 determinism everywhere, a
+self-maintaining result cache, and seeded sampling. **Multimodality
+deepened**: scanned-document auto-routing to vision, native image
+embeddings (jina-clip-v2), a remote-STT role with a sensible auto-matrix,
+and video embedded as the fair average of its visual and spoken halves.
+**And you can see what you spend**: live token/media telemetry in the
+status bar and a run receipt on every exit — observed units, never
+estimated dollars.
+
+
 ### Changed
 - **Video sampling grew up, and video vectors are the fair average (D36).**
   Frame sampling is now 1 frame/second capped at 24 (was six per video

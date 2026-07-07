@@ -1,6 +1,6 @@
 # sempipe
 
-**Semantic pipes for your terminal.** Five verbs — `map`, `filter`, `embed`,
+**Semantic pipes for your terminal.** Verbs that understand — `map`, `filter`,
 `top_k`, `reduce` — that put a language model into Unix pipelines. Text in, text out;
 local-first; composes with everything you already use.
 
@@ -23,6 +23,18 @@ $ cat reviews.txt | sempipe filter "the reviewer is sarcastic" | sempipe map "Ex
 | [`embed`](verbs/embed.md) | items → vectors | plumbing for `top_k` |
 | [`top_k`](verbs/top-k.md) | rank by similarity to a query | `sort \| head`, by meaning |
 | [`reduce`](verbs/reduce.md) | synthesize many items into one | `awk` END, but literate |
+| [`extend`](verbs/extend.md) | add extracted fields, keep the rest | your record, plus columns |
+| [`join`](verbs/join.md) | match two inputs semantically | `join`, but it understands |
+| [`cluster`](verbs/cluster.md) | group by meaning, label each group | themes with sizes and quotes |
+| [`distinct`](verbs/distinct.md) | fold near-duplicates | `sort -u`, by meaning |
+| [`diff`](verbs/diff.md) | what distinguishes two sets | the post-incident answer |
+| [`outliers`](verbs/outliers.md) | the items least like the rest | novelty, surfaced |
+
+**Free utilities** (never call a model): [`where`](verbs/where.md) ·
+[`summarize`](verbs/summarize.md) · [`sort`](verbs/sort.md) ·
+[`sample`](verbs/sample.md) · [`getschema`](verbs/getschema.md) ·
+[`split`](verbs/split.md) · `chart` — deterministic prep and reporting
+around the semantic core, so paid stages only see what matters.
 
 ## Concepts
 

@@ -100,6 +100,15 @@ into the tools you already use.
 
 ## Where to next
 
-- [`map` in depth](verbs/map.md) — every option, more examples
-- [Structured output](concepts/structured-output.md) — braces vs. a strict `--schema` file
-- [Models & providers](concepts/models-and-providers.md) — switching models per command, precedence rules
+
+- **Working with files?** `sempipe map "summarize" --in 'reports/*.pdf'` —
+  PDFs, images, audio, and video are first-class ([inputs](inputs/files.md)).
+- **Cutting costs?** Put the free verbs first: `sempipe where 'level == "error"'`
+  before any paid stage, `sempipe sample 20` while iterating, and watch the
+  live token/media counts in the status bar ([models & providers](concepts/models-and-providers.md)).
+- **Prepping data at scale?** `distinct` to fold near-duplicates, `extend` to
+  add judge scores, `summarize`/`chart` for the balance tables — the
+  [training-data cookbook](cookbook/training-data-prep.md) walks the whole loop.
+- **Same pipeline every week?** Save it as a [multi-stage `.sem` file](reference/sem-files.md)
+  or a [custom verb](reference/custom-verbs.md); turn on the
+  [result cache](privacy.md) so re-runs stop costing.
