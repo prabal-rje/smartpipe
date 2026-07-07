@@ -1,11 +1,11 @@
 # smartpipe
 
 [![CI](https://github.com/prabal-rje/smartpipe/actions/workflows/ci.yml/badge.svg)](https://github.com/prabal-rje/smartpipe/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/smartpipe)](https://pypi.org/project/smartpipe/)
+[![PyPI](https://img.shields.io/pypi/v/smartpipe-cli)](https://pypi.org/project/smartpipe-cli/)
 [![Python](https://img.shields.io/badge/python-3.11%E2%80%933.13-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
-**Semantic pipes for your terminal.**
+**Semantic pipes for your terminal.** (PyPI: [`smartpipe-cli`](https://pypi.org/project/smartpipe-cli/); the command is `smartpipe`.)
 
 Run PDFs, images, audio, video, and text through Unix verbs that understand their
 input. Use Ollama for local models, or choose a cloud provider explicitly.
@@ -14,7 +14,7 @@ input. Use Ollama for local models, or choose a cloud provider explicitly.
 > `SMARTPIPE_*` env vars, and `~/.config/smartpipe` keep the old spelling.
 
 ```console
-$ uvx smartpipe          # zero-install trial (or: pip install smartpipe)
+$ uvx --from smartpipe-cli smartpipe   # zero-install trial (or: pip install smartpipe-cli)
 
 $ smartpipe map "summarize the key risk" --in 'filings/*.pdf'     # documents, figures included
 $ smartpipe filter "the caller sounds frustrated" --in 'calls/*.mp3'

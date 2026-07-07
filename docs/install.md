@@ -6,7 +6,7 @@ hard requirement. (Not sure what you have? Run `python3 --version`.)
 ## The one-liner
 
 ```console
-$ pip install smartpipe
+$ pip install smartpipe-cli
 ```
 
 That's the whole install. `smartpipe` is now a command:
@@ -36,13 +36,18 @@ $ uv tool install smartpipe      # like pipx
 $ uv add smartpipe
 ```
 
+> **Name note:** the PyPI *distribution* is `smartpipe-cli` (the plain name
+> was too close to an existing project). Everything you actually type stays
+> `smartpipe` - the command, `import smartpipe`, the config paths, all of it.
+
 ## Everything ships in the box
 
 One install gives you the entire multimodal surface - documents (PDF, DOCX,
 PPTX, XLSX, HTML, EPUB), video (a static ffmpeg is bundled), charts with
 `--save`, Claude models, local Whisper transcription, and local embeddings.
-There are no optional extras to remember; old `pip install 'smartpipe[...]'`
-commands still work and simply install the same thing.
+There are no optional extras to remember; the extra names still exist as
+empty aliases, so `pip install 'smartpipe-cli[files]'` and friends install
+the same thing instead of erroring.
 
 Two local models download once on first use and cache on disk: whisper
 (~75 MB) and the local embedder (~130 MB). Every download is announced.

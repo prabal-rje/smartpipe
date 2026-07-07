@@ -1,5 +1,10 @@
 # Releasing
 
+> **Names (D47):** the PyPI distribution is **`smartpipe-cli`** (plain
+> `smartpipe` was rejected as too similar to an existing project). The
+> command, import, repo, env vars, and config paths all stay `smartpipe`.
+> The trusted publisher on PyPI is registered against `smartpipe-cli`.
+
 > CI economics (owner ruling, 2026-07-07): pushes run ONE Linux job;
 > the macOS/Windows matrix runs only as the release publish gate
 > (release.yml `verify`) or via manual `workflow_dispatch` — macOS minutes

@@ -19,7 +19,7 @@ that does the thinking). Let's get both.
 ## 1. Install smartpipe
 
 ```console
-$ pip install smartpipe
+$ pip install smartpipe-cli
 ```
 
 (Details and alternatives - pipx, uv - are in [install.md](install.md).)

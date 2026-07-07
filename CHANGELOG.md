@@ -42,6 +42,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [1.3.0] — 2026-07-07
 
+Installs from PyPI as **`smartpipe-cli`** (the plain name was too close to
+an existing project) - the command, import, and everything else you type
+remain `smartpipe`.
+
 The release that ships the identity and the polish: the **total rename to
 smartpipe** (distribution, repo, command, internals; `sempipe` survives as a
 command alias), the **usage ledger** (`smartpipe usage` — hour/day/week/

@@ -53,7 +53,7 @@ doesn't say what they are.
 Parsing documents, audio, video, and charts ships with the normal install:
 
 ```console
-$ pip install smartpipe    # everything ships in the box - documents, video, charts, all of it
+$ pip install smartpipe-cli    # everything ships in the box - documents, video, charts, all of it
 ```
 
 If a parser is unavailable in a broken or unsupported environment, smartpipe tells

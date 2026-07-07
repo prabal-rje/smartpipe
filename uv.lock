@@ -2557,7 +2557,7 @@ wheels = [
 ]
 
 [[package]]
-name = "smartpipe"
+name = "smartpipe-cli"
 version = "1.3.0"
 source = { editable = "." }
 dependencies = [
