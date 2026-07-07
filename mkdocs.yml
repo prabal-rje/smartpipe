@@ -35,11 +35,21 @@ nav:
       - Quickstart: quickstart.md
   - Verbs:
       - map: verbs/map.md
+      - extend: verbs/extend.md
       - filter: verbs/filter.md
       - embed: verbs/embed.md
       - top_k: verbs/top-k.md
       - reduce: verbs/reduce.md
       - join: verbs/join.md
+      - cluster: verbs/cluster.md
+      - diff: verbs/diff.md
+      - distinct: verbs/distinct.md
+      - outliers: verbs/outliers.md
+      - where: verbs/where.md
+      - summarize: verbs/summarize.md
+      - sort: verbs/sort.md
+      - sample: verbs/sample.md
+      - getschema: verbs/getschema.md
       - split: verbs/split.md
   - Concepts:
       - Pipes & items: concepts/pipes-and-items.md
@@ -50,6 +60,8 @@ nav:
   - Cookbook:
       - Overview: cookbook/README.md
       - Contract extraction: cookbook/contract-extraction.md
+      - Training-data prep: cookbook/training-data-prep.md
+      - Video Q&A: cookbook/video-qa.md
       - Log triage: cookbook/log-triage.md
       - Ranking documents: cookbook/ranking-documents.md
       - Live monitoring: cookbook/live-monitoring.md
@@ -57,6 +69,7 @@ nav:
       - Visualizing results: cookbook/visualizing-results.md
   - Reference:
       - CLI reference: reference/cli.md
+      - Custom verbs: reference/custom-verbs.md
       - .sem stage files: reference/sem-files.md
       - Troubleshooting: troubleshooting.md
       - Comparison: comparison.md

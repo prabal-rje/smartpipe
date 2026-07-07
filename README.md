@@ -1,5 +1,10 @@
 # smartpipe
 
+[![CI](https://github.com/prabal-rje/smartpipe/actions/workflows/ci.yml/badge.svg)](https://github.com/prabal-rje/smartpipe/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/smartpipe)](https://pypi.org/project/smartpipe/)
+[![Python](https://img.shields.io/badge/python-3.11%E2%80%933.14-blue)](pyproject.toml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
+
 **Semantic pipes for your terminal.** PDFs, images, audio, video, and text
 through Unix verbs that understand their input — powered by a local model by
 default, a cloud model when you ask.
@@ -8,7 +13,7 @@ default, a cloud model when you ask.
 > `SMARTPIPE_*` env vars, and `~/.config/smartpipe` keep the old spelling.
 
 ```console
-$ pip install smartpipe
+$ uvx smartpipe          # zero-install trial (or: pip install smartpipe)
 
 $ smartpipe map "summarize the key risk" --in 'filings/*.pdf'     # documents, figures included
 $ smartpipe filter "the caller sounds frustrated" --in 'calls/*.mp3'

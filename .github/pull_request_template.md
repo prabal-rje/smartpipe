@@ -1,0 +1,5 @@
+- [ ] Gates green locally: `make gates` (lint, format, pyright strict, coverage ≥ 90%)
+- [ ] Behavior change documented (CHANGELOG.md; docs page if user-facing)
+- [ ] Pinned surfaces respected: error screens/exit codes/goldens updated deliberately, never incidentally
+- [ ] stdout stays sacred (results only; diagnostics to stderr)
+- [ ] New capability behind an optional extra if it needs a dependency (core budget is frozen)
