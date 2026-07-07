@@ -55,12 +55,13 @@ $ export ANTHROPIC_API_KEY=sk-ant-…
 
 ## "Claude models need an extra" (exit 2)
 
-Install it: `pip install 'smartpipe[anthropic]'`.
+The SDK ships with smartpipe; seeing this means a broken environment - reinstall smartpipe.
 
 ## "parsing documents needs an optional dependency"
 
 You pointed `--in` at PDFs/DOCX without the parser installed:
-`pip install 'smartpipe[files]'` (or `smartpipe[all]` for
+reinstalling smartpipe (document parsing ships in the box; a missing parser means a broken
+environment, or
 everything). Files that need it are skipped until you do.
 
 ## "reading from a terminal - pipe some input in" (exit 64)

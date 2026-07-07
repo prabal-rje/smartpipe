@@ -23,7 +23,15 @@ if TYPE_CHECKING:
 
 __all__ = ["Resolved", "resolve_chat_ref", "resolve_embed_ref"]
 
-_DEFAULT_EMBED_MODEL = "local/nomic-embed-text-v1.5"  # D44: no server needed
+
+def _default_embed_model() -> str:
+    """D44: on-device fastembed when its wheels exist (all pythons < 3.14
+    today); the Ollama default otherwise — same model family either way."""
+    from importlib.util import find_spec
+
+    if find_spec("fastembed") is not None:
+        return "local/nomic-embed-text-v1.5"
+    return "nomic-embed-text"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +62,7 @@ async def resolve_chat_ref(
 
 def resolve_embed_ref(flag: str | None, env: Mapping[str, str], config: Config) -> ModelRef:
     explicit = _first_configured(flag, env.get("SMARTPIPE_EMBED_MODEL"), config.embed_model)
-    return parse_model_ref(explicit if explicit is not None else _DEFAULT_EMBED_MODEL)
+    return parse_model_ref(explicit if explicit is not None else _default_embed_model())
 
 
 def _first_configured(*candidates: str | None) -> str | None:

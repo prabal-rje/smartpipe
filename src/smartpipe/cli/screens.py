@@ -220,10 +220,10 @@ def schema_rejected(host: str, detail: str) -> str:
 
 def missing_anthropic_extra(model: str) -> str:
     return (
-        f"error: model '{model}' needs the 'anthropic' extra\n"
-        "  Claude models talk through the official SDK, which isn't installed\n"
-        "  (smartpipe stays small by default).\n"
-        "  Fix: pip install 'smartpipe[anthropic]'"
+        f"error: the SDK for '{model}' is unavailable\n"
+        "  Claude models talk through the official anthropic SDK, which ships\n"
+        "  with smartpipe — a broken environment is the only way here.\n"
+        "  Fix: reinstall smartpipe"
     )
 
 

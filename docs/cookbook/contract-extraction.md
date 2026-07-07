@@ -9,7 +9,7 @@ $ smartpipe map "Extract {party_a, party_b, effective_date, total_value, governi
 ```
 
 That's the whole thing. Each PDF becomes one item; smartpipe parses it to text
-automatically (with `smartpipe[files]` installed), extracts the five fields, and writes
+automatically, extracts the five fields, and writes
 a CSV you can open in Excel.
 
 ```

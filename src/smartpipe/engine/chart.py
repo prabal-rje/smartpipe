@@ -36,7 +36,7 @@ _CHART_WIDTH = 640
 
 CHARTS_EXTRA_SCREEN = (
     "error: saving charts needs an optional dependency\n"
-    "  install it with:  pip install 'smartpipe[charts]'"
+    "  svgwrite ships with smartpipe — reinstall smartpipe"
 )
 
 

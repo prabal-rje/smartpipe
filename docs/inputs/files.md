@@ -41,7 +41,7 @@ and extracts the text automatically.
 | You point at… | smartpipe does… |
 |---|---|
 | `.txt` `.md` `.csv` `.json` | reads it as text |
-| `.pdf` `.docx` `.pptx` `.xlsx` `.html` `.epub` | extracts the text (needs `smartpipe[files]`) |
+| `.pdf` `.docx` `.pptx` `.xlsx` `.html` `.epub` | extracts the text (built in) |
 | `.mp3` `.wav` `.flac` … | transcribes it locally (whisper, built in) |
 | anything unreadable | skips it with a warning - never crashes |
 
@@ -54,11 +54,10 @@ Parsing documents and audio needs extra packages, kept optional so a plain insta
 stays tiny:
 
 ```console
-$ pip install 'smartpipe[files]'    # PDF, Word, PowerPoint, Excel, HTML, EPUB
-$ pip install 'smartpipe[all]'      # everything
+$ pip install smartpipe    # everything ships in the box - documents, video, charts, all of it
 ```
 
-If you point `--in` at PDFs without `smartpipe[files]` installed, smartpipe tells you
+If a parser is ever unavailable (a broken environment), smartpipe tells you
 exactly what to install (once), then skips those files.
 
 ## What file mode returns
@@ -116,7 +115,7 @@ $ cat extra-notes.txt \
 A video file becomes an item carrying its bytes. On gemini models the
 video rides the native wire whole - the model watches it, soundtrack included.
 Everywhere else `map`/`extend` convert it locally (ffmpeg, via
-`pip install 'smartpipe[video]'` or PATH): **one frame per second up to 24**,
+bundled, or PATH): **one frame per second up to 24**,
 evenly spread past that, plus the audio track - sent natively when the model
 can see/hear, with a transcript fallback beneath. Tune the sampling when it
 matters:

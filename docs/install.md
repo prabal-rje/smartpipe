@@ -36,25 +36,22 @@ $ uv tool install smartpipe      # like pipx
 $ uv add smartpipe
 ```
 
-## Optional extras
+## Everything ships in the box
 
-smartpipe stays small by default (four dependencies). Features that need heavier
-libraries are opt-in, so you only install what you use:
+One install gives you the entire multimodal surface - documents (PDF, DOCX,
+PPTX, XLSX, HTML, EPUB), video (a static ffmpeg is bundled), charts with
+`--save`, Claude models, local Whisper transcription, and local embeddings.
+There are no optional extras to remember; old `pip install 'smartpipe[...]'`
+commands still work and simply install the same thing.
 
-| Extra | Enables | Install |
-|---|---|---|
-| `anthropic` | Claude models (`claude-*`) | `pip install 'smartpipe[anthropic]'` |
-| `files` | reading PDF, DOCX, PPTX, XLSX, HTML, EPUB via [`--in`](inputs/files.md) | `pip install 'smartpipe[files]'` |
-| `video` | frames + soundtrack from video files (bundled ffmpeg) | `pip install 'smartpipe[video]'` |
-| `charts` | `smartpipe chart --save file.svg` (svgwrite) | `pip install 'smartpipe[charts]'` |
-| `all` | everything above |
+Two local models download once on first use and cache on disk: whisper
+(~75 MB) and the local embedder (~130 MB). Every download is announced.
 
-Local transcription (whisper) and local embeddings (fastembed) ship in the
-core install - no extra needed. Their models download once on first use
-(~75 MB and ~130 MB) and cache on disk. `pip install 'smartpipe[all]'` |
-
-If you run a command that needs an extra you haven't installed, smartpipe tells you
-exactly which one and how to get it - you never have to guess.
+One honest asterisk: on **Python 3.14**, three components (documents,
+whisper, local embeddings) wait on upstream wheels (onnxruntime, av) - the
+install works and everything else runs; those paths degrade with clear
+messages (`doctor` shows exactly what's waiting), and embeddings fall back
+to Ollama's nomic model. Python 3.11-3.13 has the complete box today.
 
 ## Tab completion
 

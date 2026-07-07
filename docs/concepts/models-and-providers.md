@@ -51,7 +51,7 @@ $ export GEMINI_API_KEY=...             # aistudio.google.com
 $ export OPENROUTER_API_KEY=sk-or-...   # openrouter.ai/keys
 ```
 
-Claude models also need an optional package: `pip install 'smartpipe[anthropic]'`.
+The anthropic SDK ships with smartpipe - Claude models work out of the box.
 (smartpipe tells you if it's missing.) Mistral needs nothing extra - chat,
 `mistral-embed` embeddings, and `pixtral-*` vision all ride the built-in adapter.
 Any *other* OpenAI-compatible endpoint - Groq, OpenRouter, a local llama.cpp

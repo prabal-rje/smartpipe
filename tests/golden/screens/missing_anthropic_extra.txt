@@ -1,4 +1,4 @@
-error: model 'claude-opus-4-8' needs the 'anthropic' extra
-  Claude models talk through the official SDK, which isn't installed
-  (smartpipe stays small by default).
-  Fix: pip install 'smartpipe[anthropic]'
+error: the SDK for 'claude-opus-4-8' is unavailable
+  Claude models talk through the official anthropic SDK, which ships
+  with smartpipe — a broken environment is the only way here.
+  Fix: reinstall smartpipe

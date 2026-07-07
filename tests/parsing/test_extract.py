@@ -107,7 +107,7 @@ def test_missing_markitdown_raises_missing_extra(
     with pytest.raises(MissingExtra) as excinfo:
         extract(f, FileKind.PDF)
     assert excinfo.value.extra == "files"
-    assert "smartpipe[files]" in excinfo.value.guidance
+    assert "reinstall smartpipe" in excinfo.value.guidance  # ships in core (D46)
 
 
 def test_audio_names_the_audio_extra(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

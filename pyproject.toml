@@ -29,19 +29,32 @@ dependencies = [
   "httpx>=0.27",
   "jsonschema>=4.23",
   "tomli-w>=1.0",
-  # D44 (owner): seamless beats slim — local STT and local embeddings work
-  # out of the box, no server, no extras. Imports stay function-local so the
+  # D44/D46 (owner): seamless beats slim — the ENTIRE multimodal surface
+  # ships in the box: STT, local embeddings, documents, video, charts, and
+  # every provider SDK. No extras, ever. Imports stay function-local so the
   # startup budget holds; models download once on first use.
-  "faster-whisper>=1.0",
-  "fastembed>=0.4",
+  # Three components wait on upstream 3.14 wheels (onnxruntime, av) — the
+  # markers keep `pip install smartpipe` working on 3.14; runtime detection
+  # degrades those paths honestly until the wheels land.
+  "faster-whisper>=1.0; python_version < '3.14'",
+  "fastembed>=0.4; python_version < '3.14'",
+  "markitdown[pdf,docx,pptx,xlsx]>=0.1.6; python_version < '3.14'",
+  "anthropic>=0.40",
+  "pdfminer.six>=20231228",
+  "pypdf>=5.0",
+  "imageio-ffmpeg>=0.5",
+  "svgwrite>=1.4",
 ]
 
 [project.optional-dependencies]
-anthropic = ["anthropic>=0.40"]
-files = ["markitdown[pdf,docx,pptx,xlsx]>=0.1.6", "pypdf>=5.0"]
-video = ["imageio-ffmpeg>=0.5"]  # bundles a static ffmpeg for frames/track/slicing
-charts = ["svgwrite>=1.4"]  # --save for smartpipe chart (pure-python, zero deps)
-all = ["smartpipe[anthropic,files,video,charts]"]
+# D46: everything ships in core. These empty aliases keep every historical
+# "pip install 'smartpipe[…]'" command working instead of erroring.
+anthropic = []
+files = []
+audio = []
+video = []
+charts = []
+all = []
 
 [project.scripts]
 smartpipe = "smartpipe.cli.root:main"

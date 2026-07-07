@@ -157,7 +157,7 @@ def _chat_video(chat: ChatModel) -> Cell:
         ffmpeg_exe()
         return Cell("via", "frames + audio track", footnote="video → 1 fps frames + track")
     except SempipeError:
-        return Cell("no", "ffmpeg missing — pip install 'smartpipe[video]'")
+        return Cell("no", "ffmpeg unavailable — reinstall smartpipe")
 
 
 def _embed_video() -> Cell:

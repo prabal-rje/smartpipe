@@ -26,7 +26,18 @@ if TYPE_CHECKING:
 __all__ = ["doctor_command"]
 
 _KEY_VARS = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "MISTRAL_API_KEY")
-_EXTRAS = (("files", "markitdown"), ("audio", "speech_recognition"), ("anthropic", "anthropic"))
+# D46: nothing is optional — these ship in core; a missing one = broken install
+_BUNDLED = (
+    ("documents", "markitdown"),
+    ("whisper", "faster_whisper"),
+    ("embeddings", "fastembed"),
+    ("anthropic", "anthropic"),
+    ("charts", "svgwrite"),
+    ("ffmpeg", "imageio_ffmpeg"),
+)
+
+# absent-by-necessity on 3.14 until onnxruntime/av publish wheels (D46)
+_WAITING_ON_314_WHEELS = {"documents", "whisper", "embeddings"}
 _RC_FILES = {"zsh": "~/.zshrc", "bash": "~/.bashrc"}
 
 
@@ -162,16 +173,17 @@ def _check_login(env: Mapping[str, str]) -> CheckResult:
 
 
 def _check_extras() -> CheckResult:
+    import sys
     from importlib.util import find_spec
 
-    installed = {extra: find_spec(module) is not None for extra, module in _EXTRAS}
+    installed = {name: find_spec(module) is not None for name, module in _BUNDLED}
     if all(installed.values()):
-        return CheckResult("extras", "ok", " · ".join(installed))
-    marks = " · ".join(f"{extra} {'✓' if present else '✗'}" for extra, present in installed.items())
-    first_missing = next(extra for extra, present in installed.items() if not present)
-    return CheckResult(
-        "extras", "skip", f"{marks} — optional: pip install 'smartpipe[{first_missing}]'"
-    )
+        return CheckResult("extras", "ok", "everything ships in the box: " + " · ".join(installed))
+    marks = " · ".join(f"{name} {'✓' if present else '✗'}" for name, present in installed.items())
+    missing = {name for name, present in installed.items() if not present}
+    if sys.version_info >= (3, 14) and missing <= _WAITING_ON_314_WHEELS:
+        return CheckResult("extras", "skip", f"{marks} — waiting on upstream Python 3.14 wheels")
+    return CheckResult("extras", "fail", f"{marks} — broken install; reinstall smartpipe")
 
 
 def _check_completions(env: Mapping[str, str]) -> CheckResult:

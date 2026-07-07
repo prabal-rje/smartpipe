@@ -100,7 +100,7 @@ async def test_missing_extra_warns_once(
     spec = InputSpec(patterns=(str(tmp_path / "*.pdf"),), from_files=False)
     assert await _collect(spec) == []  # both skipped
     err = capsys.readouterr().err
-    assert err.count("smartpipe[files]") == 1  # guidance shown once, not per file
+    assert err.count("reinstall smartpipe") == 1  # guidance shown once, not per file
 
 
 async def test_corrupt_document_is_skipped(

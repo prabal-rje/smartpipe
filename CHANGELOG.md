@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Changed
+- **No optional extras, ever (D46).** Claude models, document parsing
+  (PDF/DOCX/PPTX/XLSX/HTML/EPUB), video (bundled static ffmpeg), and chart
+  `--save` all ship in the core install now, joining D44's whisper and local
+  embeddings. One `pip install smartpipe` is the entire multimodal surface.
+  The old extra names (`[files]`, `[video]`, `[charts]`, `[anthropic]`,
+  `[audio]`, `[all]`) remain as empty aliases so historical commands keep
+  working. `doctor`'s extras row now verifies the bundled components and
+  FAILS on a broken install instead of suggesting installs.
 - **The gemini profile's default chat model is `gemini-3.1-flash-lite` (D45).**
   Verified against the live catalog (GA, not a preview) and through the
   ability probe: sees, hears, and watches video natively. Wizard tips and

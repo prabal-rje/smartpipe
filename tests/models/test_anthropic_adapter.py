@@ -50,7 +50,7 @@ def test_missing_extra_is_a_setup_fault(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setitem(sys.modules, "anthropic", None)
     with pytest.raises(SetupFault) as excinfo:
         load_anthropic_client("claude-opus-4-8")
-    assert "pip install 'smartpipe[anthropic]'" in str(excinfo.value)
+    assert "reinstall smartpipe" in str(excinfo.value)  # the SDK ships in core (D46)
 
 
 def test_load_client_returns_an_async_client(monkeypatch: pytest.MonkeyPatch) -> None:

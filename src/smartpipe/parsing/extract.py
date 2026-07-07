@@ -106,8 +106,8 @@ def pdf_page_texts(path: Path) -> list[str]:
     except ImportError as exc:
         raise MissingExtra(
             "files",
-            "error: parsing documents needs an optional dependency\n"
-            "  install it with:  pip install 'smartpipe[files]'",
+            "error: the document parser is unavailable — reinstall smartpipe\n"
+            "  (pdfminer ships in the box; a broken environment is the only way here)",
         ) from exc
     try:
         with path.open("rb") as handle:
@@ -275,8 +275,8 @@ def _pdf_images(path: Path) -> EmbeddedMedia:
     except ImportError as exc:
         raise MissingExtra(
             "files",
-            "error: parsing documents needs an optional dependency\n"
-            "  install it with:  pip install 'smartpipe[files]'",
+            "error: the document parser is unavailable — reinstall smartpipe\n"
+            "  (pdfminer ships in the box; a broken environment is the only way here)",
         ) from exc
     images: list[EmbeddedImage] = []
     dropped = 0
@@ -338,9 +338,8 @@ def _pdf_lookup(mapping: object, key: str) -> object:
 
 
 _VIDEO_NEEDS_FFMPEG = (
-    "working with video needs ffmpeg\n"
-    "  install the extra:  pip install 'smartpipe[video]'   (bundles a static ffmpeg)\n"
-    "  or put ffmpeg on PATH"
+    "ffmpeg is unavailable — reinstall smartpipe\n"
+    "  (a static ffmpeg ships in the box; PATH ffmpeg also works)"
 )
 
 
@@ -568,11 +567,14 @@ def _via_markitdown(path: Path, *, extra: str, noun: str) -> str:
     try:
         from markitdown import MarkItDown
     except ImportError as exc:
-        raise MissingExtra(
-            extra,
-            f"error: parsing {noun} needs an optional dependency\n"
-            f"  install it with:  pip install 'smartpipe[{extra}]'",
-        ) from exc
+        import sys
+
+        reason = (
+            "waiting on upstream Python 3.14 wheels — use Python 3.11-3.13 for these"
+            if sys.version_info >= (3, 14)
+            else "it ships in the box on this Python — reinstall smartpipe"
+        )
+        raise MissingExtra(extra, f"error: the {noun} parser is unavailable\n  ({reason})") from exc
     try:
         result = MarkItDown().convert(str(path))
     except Exception as exc:  # markitdown raises many types; any of them is a parse failure
