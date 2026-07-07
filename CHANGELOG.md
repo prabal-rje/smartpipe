@@ -5,6 +5,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-07-07
+
+The release that ships the identity and the polish: the **total rename to
+smartpipe** (distribution, repo, command, internals; `sempipe` survives as a
+command alias), the **usage ledger** (`smartpipe usage` — hour/day/week/
+month/lifetime, resettable), the **multimodality-first pitch** with the
+loved tagline kept, **the color voice** (ASCII wordmark, styled help,
+colored doctor/probe with honest fallback marks), **video frame control**
+(`--frame-every` guarantee vs `--max-frames` budget), and scoped-key 401s
+that degrade per-item with the provider's real reason quoted.
+
+
 ### Fixed
 - **A restricted key refusing MEDIA no longer kills the run (D43c).** The
   owner's key proved the case: text chat 200, image-bearing chat 401

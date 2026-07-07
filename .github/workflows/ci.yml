@@ -52,5 +52,5 @@ jobs:
       - run: uv sync --all-extras
       - run: curl -s http://localhost:11434/api/pull -d '{"name":"qwen3:0.6b"}' > /dev/null
       - run: |
-          echo "hola" | OLLAMA_HOST=http://localhost:11434 SEMPIPE_MODEL=ollama/qwen3:0.6b \
-            uv run sempipe map "translate to English"
+          echo "hola" | OLLAMA_HOST=http://localhost:11434 SMARTPIPE_MODEL=ollama/qwen3:0.6b \
+            uv run smartpipe map "translate to English"
