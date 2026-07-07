@@ -399,7 +399,7 @@ JOIN_JUDGE_SYSTEM = (
 )
 
 _JOIN_EXAMPLE = (
-    '  Example: sempipe join "ticket {left.text} concerns {right.name}" --right products.jsonl'
+    '  Example: smartpipe join "ticket {left.text} concerns {right.name}" --right products.jsonl'
 )
 
 

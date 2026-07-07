@@ -1,4 +1,4 @@
-"""``sempipe chart`` — bars in the terminal, SVG on disk. No model calls."""
+"""``smartpipe chart`` — bars in the terminal, SVG on disk. No model calls."""
 
 from __future__ import annotations
 
@@ -41,11 +41,11 @@ def chart_command(
 
     \b
     Examples:
-      cat tickets.txt | sempipe map "Extract {label}" | sempipe chart label
-      jq -r .status data.jsonl | sempipe chart
-      … | sempipe chart label --save labels.svg --title "Ticket labels"
-      cat tickets.jsonl | sempipe chart --facet label,severity,region
-      cat app.jsonl | sempipe where 'level == "error"' | sempipe chart --by-time ts:1h
+      cat tickets.txt | smartpipe map "Extract {label}" | smartpipe chart label
+      jq -r .status data.jsonl | smartpipe chart
+      … | smartpipe chart label --save labels.svg --title "Ticket labels"
+      cat tickets.jsonl | smartpipe chart --facet label,severity,region
+      cat app.jsonl | smartpipe where 'level == "error"' | smartpipe chart --by-time ts:1h
 
     Reads NDJSON records (counts FIELD) or plain lines (counts each line).
     The chart is the result — it goes to stdout; --save adds an SVG.

@@ -5,7 +5,7 @@ occurrence of each meaning and folds the rest — exact duplicates for free
 (hashing, zero model calls), near-duplicates by embedding.
 
 ```console
-$ cat tickets.txt | sempipe distinct > unique.txt
+$ cat tickets.txt | smartpipe distinct > unique.txt
 distinct: kept 412 of 1,208 (573 exact + 223 near duplicates folded)
 ```
 
@@ -15,7 +15,7 @@ so re-runs keep the same representatives.
 ## Audit before you trust
 
 ```console
-$ cat alerts.jsonl | sempipe distinct --show-groups | head -1
+$ cat alerts.jsonl | smartpipe distinct --show-groups | head -1
 {"kept": "app crashes when saving", "count": 3, "duplicates": ["saving crashes the app!!", "crash on save"]}
 ```
 
@@ -36,7 +36,7 @@ captions of images:
 
 ```console
 $ export JINA_API_KEY=…
-$ cat images.jsonl | sempipe distinct --embed-model jina/jina-clip-v2
+$ cat images.jsonl | smartpipe distinct --embed-model jina/jina-clip-v2
 note: media embedded natively (jina/jina-clip-v2) — no captions
 ```
 
@@ -47,7 +47,7 @@ note says which path ran). Audio and video still pivot either way.
 ## Why bother
 
 - **Training data (the big one):** near-duplicate contamination measurably
-  hurts models; `sempipe distinct < candidates.jsonl > train-clean.jsonl` is
+  hurts models; `smartpipe distinct < candidates.jsonl > train-clean.jsonl` is
   the cheapest data-quality win available, and the receipt is the number for
   your dataset card.
 - **Cost:** every folded duplicate is a model call you don't pay for in the

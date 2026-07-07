@@ -39,7 +39,7 @@ CODEX_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
 _SKEW_MS = 60_000  # refresh when within a minute of expiry — no mid-call surprises
 
 LOGIN_EXPIRED = (
-    "error: the ChatGPT login has expired and couldn't be refreshed\n  Fix: sempipe auth login"
+    "error: the ChatGPT login has expired and couldn't be refreshed\n  Fix: smartpipe auth login"
 )
 
 
@@ -123,7 +123,7 @@ def build_payload(model: str, request: CompletionRequest) -> dict[str, object]:
         # audio on the ChatGPT login wire is unverified — fail free, name the fixes
         raise ItemError(
             "this model can't hear audio — try an audio model "
-            "(voxtral, gemini), or install 'sempipe[audio]' to transcribe"
+            "(voxtral, gemini), or install 'smartpipe[audio]' to transcribe"
         )
     for part in request.media:
         if isinstance(part, ImageData):
@@ -133,7 +133,7 @@ def build_payload(model: str, request: CompletionRequest) -> dict[str, object]:
         "model": model,
         "input": [{"role": "user", "content": content}],
         "stream": True,  # the codex wire streams; we accumulate to a final string
-        "store": False,  # sempipe is stateless — nothing parked server-side either
+        "store": False,  # smartpipe is stateless — nothing parked server-side either
     }
     if request.system is not None:
         payload["instructions"] = request.system
@@ -144,7 +144,7 @@ def build_payload(model: str, request: CompletionRequest) -> dict[str, object]:
         payload["text"] = {
             "format": {
                 "type": "json_schema",
-                "name": "sempipe_output",
+                "name": "smartpipe_output",
                 "schema": schema,
                 # same 400 hazard as the platform wire: only claim strict when true
                 "strict": is_strict_compatible(schema),
@@ -220,7 +220,7 @@ def _detail(response: httpx.Response) -> str:
 def _user_agent() -> str:
     from sempipe import __version__
 
-    return f"sempipe/{__version__}"
+    return f"smartpipe/{__version__}"
 
 
 def _meter_completed(event: object) -> None:

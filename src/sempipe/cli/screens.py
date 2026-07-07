@@ -25,45 +25,46 @@ __all__ = [
 
 CHATGPT_LOGIN_EXPIRED = """\
 error: the ChatGPT login has expired and couldn't be refreshed
-  Fix: sempipe auth login"""
+  Fix: smartpipe auth login"""
 
 EMBEDDINGS_NEED_KEY = """\
 error: embeddings aren't available through ChatGPT login
   The ChatGPT plan wire serves chat models only.
   Fix: export OPENAI_API_KEY=sk-...
-   or use a local model: sempipe config embed-model nomic-embed-text"""
+   or use a local model: smartpipe config embed-model nomic-embed-text"""
 
 
 def openai_needs_key_or_login(model: str) -> str:
     return (
         f"error: model '{model}' needs an OpenAI API key or a ChatGPT login\n"
-        "  sempipe found no OPENAI_API_KEY and no ChatGPT login. Keys are never stored in config.\n"
+        "  smartpipe found no OPENAI_API_KEY and no ChatGPT login. Keys are never\n"
+        "  stored in config.\n"
         "  Fix: export OPENAI_API_KEY=sk-...        (platform billing)\n"
-        "   or: sempipe auth login                  (use your ChatGPT Plus/Pro plan)"
+        "   or: smartpipe auth login                  (use your ChatGPT Plus/Pro plan)"
     )
 
 
 BINARY_STDIN_UNPARSEABLE = """\
-error: stdin looks like binary data sempipe can't parse
+error: stdin looks like binary data smartpipe can't parse
   Recognized on stdin: text lines, or a single PDF/DOCX/PPTX/XLSX/audio/image document.
-  For files on disk use --in: sempipe map "Summarize" --in 'report.pdf'"""
+  For files on disk use --in: smartpipe map "Summarize" --in 'report.pdf'"""
 
 
 def stdin_document_failed(reason: str) -> str:
     return (
         f"error: stdin looks like a document, but it couldn't be read ({reason})\n"
-        "  sempipe reads ONE binary document per run from stdin.\n"
-        "  Alternative: sempipe map \"…\" --in 'report.pdf'"
+        "  smartpipe reads ONE binary document per run from stdin.\n"
+        "  Alternative: smartpipe map \"…\" --in 'report.pdf'"
     )
 
 
 FIELD_REF_ON_PLAIN_INPUT = """\
 error: the prompt references a {field}, but the first input line isn't JSON
   {field} substitution needs JSON Lines input (one object per line).
-  Either drop the braces, or feed JSONL — e.g.: cat tickets.jsonl | sempipe filter ..."""
+  Either drop the braces, or feed JSONL — e.g.: cat tickets.jsonl | smartpipe filter ..."""
 
 WELCOME = """\
-sempipe — semantic pipes for your terminal
+smartpipe — semantic pipes for your terminal
 PDFs, images, audio, video, and text — verbs that understand their input.
 
 Verbs (call a model):
@@ -90,10 +91,10 @@ Utilities (free — no model calls):
   config   Configure models and settings
 
 Get started:
-  sempipe config                                     Interactive setup
-  echo "hello" | sempipe map "translate to Spanish"
+  smartpipe config                                     Interactive setup
+  echo "hello" | smartpipe map "translate to Spanish"
 
-'sempipe <command> --help' shows examples for each command.
+'smartpipe <command> --help' shows examples for each command.
 """
 
 NO_MODEL = """\
@@ -102,13 +103,13 @@ error: no model configured, and no local Ollama found
   Local (free, private):
     1. Install Ollama              https://ollama.com
     2. ollama pull qwen3:8b
-    3. sempipe config model ollama/qwen3:8b
+    3. smartpipe config model ollama/qwen3:8b
 
   Cloud (paid):
-    sempipe config model claude-opus-4-8    then: export ANTHROPIC_API_KEY=sk-ant-...
-    sempipe config model gpt-5.4-mini        then: export OPENAI_API_KEY=sk-...
+    smartpipe config model claude-opus-4-8    then: export ANTHROPIC_API_KEY=sk-ant-...
+    smartpipe config model gpt-5.4-mini        then: export OPENAI_API_KEY=sk-...
 
-  Then rerun your command. 'sempipe config' walks you through this interactively."""
+  Then rerun your command. 'smartpipe config' walks you through this interactively."""
 
 
 def ollama_unreachable(host: str, model: str, reason: str) -> str:
@@ -136,7 +137,7 @@ def missing_api_key(
 ) -> str:
     return (
         f"error: model '{model}' needs {_an(provider)} {provider} API key\n"
-        f"  sempipe found no {env_var} in the environment. Keys are never stored in config.\n"
+        f"  smartpipe found no {env_var} in the environment. Keys are never stored in config.\n"
         f"  Fix: export {env_var}={key_shape}        ({note})"
     )
 
@@ -146,8 +147,8 @@ def cloud_model_missing(model: str, host: str) -> str:
     return (
         f"error: the endpoint doesn't know the model '{model}'\n"
         f"  {host} answered 404 — every item would fail identically, "
-        "so sempipe stopped at the first.\n"
-        "  Fix: check the name, or set one that exists: sempipe config model gpt-5.4-mini"
+        "so smartpipe stopped at the first.\n"
+        "  Fix: check the name, or set one that exists: smartpipe config model gpt-5.4-mini"
     )
 
 
@@ -164,8 +165,8 @@ def missing_anthropic_extra(model: str) -> str:
     return (
         f"error: model '{model}' needs the 'anthropic' extra\n"
         "  Claude models talk through the official SDK, which isn't installed\n"
-        "  (sempipe stays small by default).\n"
-        "  Fix: pip install 'sempipe[anthropic]'"
+        "  (smartpipe stays small by default).\n"
+        "  Fix: pip install 'smartpipe[anthropic]'"
     )
 
 

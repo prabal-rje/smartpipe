@@ -1,4 +1,4 @@
-"""``sempipe getschema`` — what fields does this stream even have?"""
+"""``smartpipe getschema`` — what fields does this stream even have?"""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ def getschema_command(scan_all: bool) -> None:
 
     \b
     Examples:
-      cat data.jsonl | sempipe getschema
-      sempipe getschema --all < big.jsonl
+      cat data.jsonl | smartpipe getschema
+      smartpipe getschema --all < big.jsonl
 
     A table on a terminal, NDJSON when piped. Mixed types show as unions
     (string|number) — that's the dirt worth seeing. Plain-text input gets a

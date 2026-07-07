@@ -315,8 +315,8 @@ def _load_right(path: Path) -> list[Item]:
     if str(path) == "-":
         raise UsageFault(
             "--right - reads nothing — stdin is join's left side\n"
-            "  The right side is a finite file sempipe indexes up front.\n"
-            '  Example: cat stream.jsonl | sempipe join "…" --right catalog.jsonl'
+            "  The right side is a finite file smartpipe indexes up front.\n"
+            '  Example: cat stream.jsonl | smartpipe join "…" --right catalog.jsonl'
         )
     if not path.exists():
         raise UsageFault(

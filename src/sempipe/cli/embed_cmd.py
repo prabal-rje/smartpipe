@@ -1,4 +1,4 @@
-"""``sempipe embed`` — convert items to vector embeddings."""
+"""``smartpipe embed`` — convert items to vector embeddings."""
 
 from __future__ import annotations
 
@@ -47,8 +47,8 @@ def embed_command(
 
     \b
     Examples:
-      cat docs/*.md | sempipe embed > corpus.embeddings
-      sempipe embed --in 'docs/*.pdf' > corpus.embeddings
+      cat docs/*.md | smartpipe embed > corpus.embeddings
+      smartpipe embed --in 'docs/*.pdf' > corpus.embeddings
 
     This is the only command that never touches a chat model — it uses the
     embedding model, and exists to feed 'top_k'.

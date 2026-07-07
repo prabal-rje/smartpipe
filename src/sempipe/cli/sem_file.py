@@ -1,7 +1,7 @@
 """Translate a ``.sem`` stage file into the verb argv it stands for (D17).
 
 A ``.sem`` file is TOML pinning exactly one verb invocation; the shebang line
-``#!/usr/bin/env -S sempipe run`` is legal because ``#`` opens a TOML comment.
+``#!/usr/bin/env -S smartpipe run`` is legal because ``#`` opens a TOML comment.
 The format is a public contract from day one, so validation is exhaustive and
 loud: unknown keys are *errors* (scripts run unattended — the opposite trade
 from config.toml's forward-compat ignore), types are checked with the offending
@@ -304,7 +304,7 @@ def parse_sem(path: Path) -> list[str]:
         raise UsageFault(
             f"{path}: unknown key {unknown!r} — valid keys for {verb}: {', '.join(sorted(valid))}\n"
             "  A .sem script runs unattended — a typo silently ignored would be a disaster.\n"
-            f"  Fix the key, then: sempipe run {path}"
+            f"  Fix the key, then: smartpipe run {path}"
         )
     if verb in _REQUIRES_PROMPT and "prompt" not in document and "prompt-file" not in document:
         raise UsageFault(f'{path}: {verb} needs a prompt\n  Add one: prompt = "..."')
@@ -350,7 +350,7 @@ def _wrong_type_screen(path: Path, key: str, expected: str, value: object) -> st
     return (
         f"{path}: key {key!r} should be {expected}\n"
         f"  got: {key} = {value!r}\n"
-        f"  Fix the line, then: sempipe run {path}"
+        f"  Fix the line, then: smartpipe run {path}"
     )
 
 
@@ -362,7 +362,7 @@ def _syntax_screen(path: Path, exc: tomllib.TOMLDecodeError) -> str:
     return (
         f"{path} has a syntax error\n"
         f"  {path}{location}: {detail}\n"
-        f"  Fix the line, then: sempipe run {path}"
+        f"  Fix the line, then: smartpipe run {path}"
     )
 
 

@@ -19,13 +19,13 @@ def test_bare_invocation_prints_welcome_and_exits_zero(run_cli: RunCli) -> None:
 def test_version(run_cli: RunCli) -> None:
     code, out, _err = run_cli(["--version"])
     assert code == 0
-    assert out.strip() == f"sempipe {__version__}"
+    assert out.strip() == f"smartpipe {__version__}"
 
 
 def test_help_exits_zero(run_cli: RunCli) -> None:
     code, out, _err = run_cli(["--help"])
     assert code == 0
-    assert "Usage: sempipe" in out
+    assert "Usage: smartpipe" in out
 
 
 def test_unknown_command_exits_64(run_cli: RunCli) -> None:
@@ -44,7 +44,7 @@ def test_unexpected_exception_is_the_bug_screen_exit_70(
     monkeypatch.setattr("sempipe.cli.root.cli.main", _boom)
     code, _out, err = run_cli(["--version"])
     assert code == 70
-    assert "internal error — this is a bug in sempipe" in err
+    assert "internal error — this is a bug in smartpipe" in err
     assert "ValueError: wires crossed" in err
     assert "Traceback" not in err  # hidden without --debug
 

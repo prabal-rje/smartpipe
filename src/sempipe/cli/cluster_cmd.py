@@ -1,4 +1,4 @@
-"""``sempipe cluster`` — themes with sizes and quotes."""
+"""``smartpipe cluster`` — themes with sizes and quotes."""
 
 from __future__ import annotations
 
@@ -62,9 +62,9 @@ def cluster_command(
 
     \b
     Examples:
-      cat feedback.txt | sempipe cluster
-      cat tickets.jsonl | sempipe cluster --top 8 | sempipe chart cluster
-      cat snippets.txt | sempipe cluster --explode members > coded.jsonl
+      cat feedback.txt | smartpipe cluster
+      cat tickets.jsonl | smartpipe cluster --top 8 | smartpipe chart cluster
+      cat snippets.txt | smartpipe cluster --explode members > coded.jsonl
 
     One row per cluster, largest first: {"cluster", "size", "share",
     "examples"} — the examples are the most representative quotes. The cost

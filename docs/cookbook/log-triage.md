@@ -5,18 +5,18 @@ them — using meaning, not just string matching.
 
 ## Find the real problems
 
-`grep` finds lines containing "error". `sempipe filter` finds lines that *describe a
+`grep` finds lines containing "error". `smartpipe filter` finds lines that *describe a
 problem*, even when they don't say "error":
 
 ```console
-$ cat server.log | sempipe filter "indicates a real failure, not a warning or retry"
+$ cat server.log | smartpipe filter "indicates a real failure, not a warning or retry"
 ```
 
 Combine the two — `grep` to cheaply narrow, `filter` to judge:
 
 ```console
 $ grep -i "POST /api" server.log \
-    | sempipe filter "the response indicates a bug in our code" \
+    | smartpipe filter "the response indicates a bug in our code" \
     | wc -l
 ```
 
@@ -26,7 +26,7 @@ Turn raw lines into structured records you can count and group:
 
 ```console
 $ cat errors.log \
-    | sempipe map "Extract {service, severity, root_cause_category}" --output json \
+    | smartpipe map "Extract {service, severity, root_cause_category}" --output json \
     | jq -r .root_cause_category | sort | uniq -c | sort -rn
 ```
 
@@ -43,14 +43,14 @@ if the window is far larger than the model's context (it chunks automatically):
 
 ```console
 $ sed -n '/14:30/,/15:00/p' server.log \
-    | sempipe reduce "Write a root-cause analysis: what failed, when, and the likely cause"
+    | smartpipe reduce "Write a root-cause analysis: what failed, when, and the likely cause"
 ```
 
 ## One summary per service
 
 ```console
 $ cat incidents.jsonl \
-    | sempipe reduce "Summarize the failures and their impact" --group-by service
+    | smartpipe reduce "Summarize the failures and their impact" --group-by service
 {"group": "checkout", "result": "Three payment timeouts between 14:32 and 14:41..."}
 {"group": "search", "result": "Elevated latency traced to a cache eviction storm..."}
 ```

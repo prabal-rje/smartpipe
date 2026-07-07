@@ -1,4 +1,4 @@
-"""``sempipe distinct`` — fold near-duplicates; keep the first of each."""
+"""``smartpipe distinct`` — fold near-duplicates; keep the first of each."""
 
 from __future__ import annotations
 
@@ -55,9 +55,9 @@ def distinct_command(
 
     \b
     Examples:
-      cat tickets.txt | sempipe distinct > unique.txt
-      cat alerts.jsonl | sempipe distinct --show-groups   # audit what folded
-      sempipe distinct < candidates.jsonl > train-clean.jsonl
+      cat tickets.txt | smartpipe distinct > unique.txt
+      cat alerts.jsonl | smartpipe distinct --show-groups   # audit what folded
+      smartpipe distinct < candidates.jsonl > train-clean.jsonl
 
     Exact duplicates fold for free (no model calls); the rest are embedded
     once and grouped by meaning. First occurrence wins; output keeps input

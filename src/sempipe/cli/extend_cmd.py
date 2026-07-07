@@ -1,4 +1,4 @@
-"""``sempipe extend`` — your record, plus columns."""
+"""``smartpipe extend`` — your record, plus columns."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def extend_command(
 
     \b
     Before:  {"id": 812, "body": "app crashes when saving"}
-    $ cat tickets.jsonl | sempipe extend "Add {sentiment enum(pos, neg, neutral), product string}"
+    $ cat tickets.jsonl | smartpipe extend "Add {sentiment enum(pos, neg, neutral), product string}"
     After:   {"id": 812, "body": "app crashes when saving", "sentiment": "neg", "product": "app"}
 
     Same prompt language as map (typed braces, --schema, --schema-from), but

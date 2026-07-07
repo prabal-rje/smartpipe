@@ -1,4 +1,4 @@
-"""``sempipe diff`` — what distinguishes two sets of items."""
+"""``smartpipe diff`` — what distinguishes two sets of items."""
 
 from __future__ import annotations
 
@@ -61,9 +61,9 @@ def diff_command(
 
     \b
     Examples:
-      sempipe diff --right errors-before.log < errors-during.log
-      sempipe diff --right outputs-v1.jsonl < outputs-v2.jsonl
-      sempipe diff --right v1-train.jsonl < v2-train.jsonl   # dataset drift
+      smartpipe diff --right errors-before.log < errors-during.log
+      smartpipe diff --right outputs-v1.jsonl < outputs-v2.jsonl
+      smartpipe diff --right v1-train.jsonl < v2-train.jsonl   # dataset drift
 
     Embeds both sides, groups the union by meaning, and reports the themes
     that over-index on one side — with both shares shown as evidence and

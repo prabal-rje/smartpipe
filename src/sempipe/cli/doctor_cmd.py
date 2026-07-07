@@ -1,4 +1,4 @@
-"""``sempipe doctor`` — every no-cost setup check, one screen, exit 0/1 (D18).
+"""``smartpipe doctor`` — every no-cost setup check, one screen, exit 0/1 (D18).
 
 The report is the result, so it goes to stdout. Never a paid model call: the only
 network touch is the existing free 2 s Ollama probe. Key lines report presence,
@@ -37,7 +37,7 @@ _RC_FILES = {"zsh": "~/.zshrc", "bash": "~/.bashrc"}
     help="Also send 4 tiny PAID calls to chart which modalities really work.",
 )
 def doctor_command(probe: bool) -> None:
-    """Check that sempipe is set up and ready — without spending a model call.
+    """Check that smartpipe is set up and ready — without spending a model call.
 
     \b
     Verifies: config parses · Ollama reachable · configured models installed ·
@@ -49,7 +49,7 @@ def doctor_command(probe: bool) -> None:
     click.echo(render_report(results))
     if not probe:
         click.secho(
-            "\n⚠ these checks verify SETUP, not ABILITY — run `sempipe doctor --probe`\n"
+            "\n⚠ these checks verify SETUP, not ABILITY — run `smartpipe doctor --probe`\n"
             "  to test what your models can actually see and hear (4 tiny paid calls)",
             fg="yellow",
             bold=True,
@@ -131,7 +131,7 @@ def _check_model(
 
     if configured is None:
         return CheckResult(
-            section, "fail", "no model configured — fix: sempipe config model ollama/qwen3:8b"
+            section, "fail", "no model configured — fix: smartpipe config model ollama/qwen3:8b"
         )
     try:
         ref = parse_model_ref(configured)
@@ -158,7 +158,7 @@ def _check_login(env: Mapping[str, str]) -> CheckResult:
 
     if load_oauth(credentials_path(env), "openai") is not None:
         return CheckResult("login", "ok", "ChatGPT login present (refreshes automatically)")
-    return CheckResult("login", "skip", "no ChatGPT login — optional: sempipe auth login")
+    return CheckResult("login", "skip", "no ChatGPT login — optional: smartpipe auth login")
 
 
 def _check_extras() -> CheckResult:
@@ -170,14 +170,14 @@ def _check_extras() -> CheckResult:
     marks = " · ".join(f"{extra} {'✓' if present else '✗'}" for extra, present in installed.items())
     first_missing = next(extra for extra, present in installed.items() if not present)
     return CheckResult(
-        "extras", "skip", f"{marks} — optional: pip install 'sempipe[{first_missing}]'"
+        "extras", "skip", f"{marks} — optional: pip install 'smartpipe[{first_missing}]'"
     )
 
 
 def _check_completions(env: Mapping[str, str]) -> CheckResult:
     shell = Path(env.get("SHELL", "")).name
     if shell == "fish":
-        candidate = Path("~/.config/fish/completions/sempipe.fish").expanduser()
+        candidate = Path("~/.config/fish/completions/smartpipe.fish").expanduser()
         if candidate.exists():
             return CheckResult("terminal", "ok", "completions installed for fish")
         return CheckResult("terminal", "skip", "no fish completions — optional: see install docs")
@@ -186,7 +186,8 @@ def _check_completions(env: Mapping[str, str]) -> CheckResult:
         return CheckResult("terminal", "skip", "unknown shell — completions not checked")
     rc_path = Path(rc_name).expanduser()
     try:
-        installed = "_SEMPIPE_COMPLETE" in rc_path.read_text(encoding="utf-8")
+        rc_text = rc_path.read_text(encoding="utf-8")
+        installed = "_SMARTPIPE_COMPLETE" in rc_text or "_SEMPIPE_COMPLETE" in rc_text
     except OSError:
         installed = False
     if installed:

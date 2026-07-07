@@ -1,3 +1,3 @@
 error: the endpoint doesn't know the model 'gpt-4o-mini-typo'
-  api.openai.com answered 404 — every item would fail identically, so sempipe stopped at the first.
-  Fix: check the name, or set one that exists: sempipe config model gpt-5.4-mini
+  api.openai.com answered 404 — every item would fail identically, so smartpipe stopped at the first.
+  Fix: check the name, or set one that exists: smartpipe config model gpt-5.4-mini

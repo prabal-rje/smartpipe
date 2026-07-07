@@ -1,4 +1,4 @@
-"""``sempipe cite`` — the BibTeX block is a golden-pinned contract."""
+"""``smartpipe cite`` — the BibTeX block is a golden-pinned contract."""
 
 from __future__ import annotations
 

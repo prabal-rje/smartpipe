@@ -1,16 +1,16 @@
 # Visualizing results
 
-sempipe emits data; your terminal already knows how to draw it. These recipes
+smartpipe emits data; your terminal already knows how to draw it. These recipes
 cover the views people actually reach for: distributions, ranked tables, live
 tallies, and the join threshold picker.
 
 ## A field's distribution (the 80% case)
 
-Built in twice over. `sempipe chart` draws it (free, no model calls, `--save`
+Built in twice over. `smartpipe chart` draws it (free, no model calls, `--save`
 writes a dependency-free SVG):
 
 ```console
-$ cat tickets.txt | sempipe map "Extract {label}" | sempipe chart label --save labels.svg
+$ cat tickets.txt | smartpipe map "Extract {label}" | smartpipe chart label --save labels.svg
 bug      ▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇ 14
 feature  ▇▇▇▇▇▇▇▇▇▇▇▇▇▇ 7
 question ▇▇▇▇▇▇ 3
@@ -19,7 +19,7 @@ question ▇▇▇▇▇▇ 3
 Several distributions in one pass — the analyst's first look:
 
 ```console
-$ cat tickets.jsonl | sempipe chart --facet label,severity,region --save tickets.svg
+$ cat tickets.jsonl | smartpipe chart --facet label,severity,region --save tickets.svg
 ── label ──────────────────────────────────
 bug      ▇▇▇▇▇▇▇▇▇▇▇▇▇▇ 41
 feature  ▇▇▇▇▇▇ 17
@@ -31,7 +31,7 @@ And `--tally` counts any extracted field live on the status line and as one
 final stderr line, without touching stdout:
 
 ```console
-$ cat tickets.txt | sempipe map "Extract {label: bug, feature, or question}" --tally label
+$ cat tickets.txt | smartpipe map "Extract {label: bug, feature, or question}" --tally label
 {"label":"bug"} …
 tally: bug 14 · feature 7 · question 3
 ```
@@ -39,7 +39,7 @@ tally: bug 14 · feature 7 · question 3
 Or compose it the Unix way (works for any field, any time):
 
 ```console
-$ sempipe map "Extract {label}" < tickets.txt | jq -r .label | sort | uniq -c | sort -rn
+$ smartpipe map "Extract {label}" < tickets.txt | jq -r .label | sort | uniq -c | sort -rn
   14 bug
    7 feature
    3 question
@@ -57,7 +57,7 @@ $ … | jq -r .label | sort | uniq -c | sort -rn | youplot bar -d ' ' --title "l
 it into an interactive table:
 
 ```console
-$ sempipe top_k 20 --near "billing complaints" < feedback.jsonl | vd -f jsonl
+$ smartpipe top_k 20 --near "billing complaints" < feedback.jsonl | vd -f jsonl
 ```
 
 Plain terminal version, no extra tools:
@@ -72,7 +72,7 @@ Run `join` once without `--threshold`, look at where scores cluster, then set
 the floor between the clusters:
 
 ```console
-$ sempipe join "{left.text} is about {right.name}" --right products.jsonl < tickets.txt \
+$ smartpipe join "{left.text} is about {right.name}" --right products.jsonl < tickets.txt \
     | jq ._score | sort -n | uniq -c
 $ # scores bunch at ~0.4 (noise) and ~0.75 (real) → rerun with --threshold 0.6
 ```
@@ -84,7 +84,7 @@ the worklist for a second pass with a looser predicate, a bigger `--k`, or a
 human:
 
 ```console
-$ sempipe join "…" --right kb.jsonl --unmatched leftovers.txt < tickets.txt
+$ smartpipe join "…" --right kb.jsonl --unmatched leftovers.txt < tickets.txt
 join: 34 matched · 7 unmatched → leftovers.txt
 ```
 

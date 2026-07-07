@@ -97,7 +97,7 @@ async def test_map_refuses_an_over_window_item_with_the_split_recipe(
     assert model.calls == []  # refused BEFORE any spend
     err = capsys.readouterr().err
     assert "token budget — split it first" in err
-    assert "sempipe split" in err
+    assert "smartpipe split" in err
 
 
 async def test_map_probe_can_widen_and_allow() -> None:

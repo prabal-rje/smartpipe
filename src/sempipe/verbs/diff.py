@@ -147,7 +147,7 @@ async def run_diff(
     if omitted and not request.show_all:
         diagnostics.note(f"diff: {omitted} shared theme(s) omitted — --all shows them")
     if chat is None and shown:
-        diagnostics.note("no chat model — themes are unnamed; configure one: sempipe config")
+        diagnostics.note("no chat model — themes are unnamed; configure one: smartpipe config")
     return ExitCode.OK
 
 

@@ -7,16 +7,16 @@ Semantic grep: the output is a strict, byte-for-byte subset of the input, in ord
 
 ```console
 # Semantic grep:
-$ cat reviews.txt | sempipe filter "the reviewer is sarcastic"
+$ cat reviews.txt | smartpipe filter "the reviewer is sarcastic"
 
 # Reference input fields with {braces} (JSON Lines input):
-$ cat tickets.jsonl | sempipe filter "{priority} is wrong given {description}"
+$ cat tickets.jsonl | smartpipe filter "{priority} is wrong given {description}"
 
 # Invert, like grep -v:
-$ cat emails.txt | sempipe filter --not "this is spam" > ham.txt
+$ cat emails.txt | smartpipe filter --not "this is spam" > ham.txt
 
 # Chain with the tools you already use:
-$ cat server.log | grep "POST /api" | sempipe filter "the response indicates a bug" | wc -l
+$ cat server.log | grep "POST /api" | smartpipe filter "the response indicates a bug" | wc -l
 ```
 
 ## How it works
@@ -41,14 +41,14 @@ items. Two forms:
 arrive, with a running `· N matched` tally on the stderr status line:
 
 ```console
-$ tail -f app.log | sempipe filter "a user is hitting a real error"
+$ tail -f app.log | smartpipe filter "a user is hitting a real error"
 ```
 
-Compose with `head` to wait for the first occurrence (sempipe exits cleanly when
+Compose with `head` to wait for the first occurrence (smartpipe exits cleanly when
 `head` closes the pipe):
 
 ```console
-$ tail -f app.log | sempipe filter "signals an outage" | head -1 && page-oncall
+$ tail -f app.log | smartpipe filter "signals an outage" | head -1 && page-oncall
 ```
 
 ## Options

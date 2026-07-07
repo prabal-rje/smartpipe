@@ -1,12 +1,12 @@
-# sempipe
+# smartpipe
 
-**Pipe anything with meaning through your terminal — PDFs, images, audio,
-video, and text.** Verbs that understand — `map`, `filter`,
+**Semantic pipes for your terminal.** PDFs, images, audio, video, and text —
+verbs that understand: `map`, `filter`,
 `top_k`, `reduce` — that put a language model into Unix pipelines. Text in, text out;
 local-first; composes with everything you already use.
 
 ```console
-$ cat reviews.txt | sempipe filter "the reviewer is sarcastic" | sempipe map "Extract {product, complaint}"
+$ cat reviews.txt | smartpipe filter "the reviewer is sarcastic" | smartpipe map "Extract {product, complaint}"
 ```
 
 ## Start here
@@ -51,10 +51,10 @@ around the semantic core, so paid stages only see what matters.
 - [CLI reference](reference/cli.md) — every flag, format, and exit code
 - [`.sem` stage files](reference/sem-files.md) — save a pipe stage as an executable script
 - [Troubleshooting](troubleshooting.md) — find your error message
-- [How sempipe compares](comparison.md) — where it fits among the alternatives
+- [How smartpipe compares](comparison.md) — where it fits among the alternatives
 - [Privacy & security](privacy.md) — local-first, no telemetry, no tool-use surface
 
-## Why sempipe
+## Why smartpipe
 
 It brings the semantic-operator vocabulary of data frameworks like DocETL to real
 Unix pipes — local-first, with automatic file parsing, automatic recursive chunking,

@@ -1,4 +1,4 @@
-"""sempipe — semantic pipes for your terminal."""
+"""smartpipe — semantic pipes for your terminal."""
 
 from __future__ import annotations
 

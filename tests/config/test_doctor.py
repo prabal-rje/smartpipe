@@ -1,4 +1,4 @@
-"""``sempipe doctor`` — the report contract and the no-paid-call rule (D18).
+"""``smartpipe doctor`` — the report contract and the no-paid-call rule (D18).
 
 The e2e runs under respx with ONLY `/api/tags` mocked: any chat/embedding request
 would blow up the test, which is the machine proof that doctor never spends money.

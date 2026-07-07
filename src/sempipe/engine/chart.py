@@ -1,4 +1,4 @@
-"""Bar-chart rendering for ``sempipe chart`` — pure, no plotting dependency.
+"""Bar-chart rendering for ``smartpipe chart`` — pure, no plotting dependency.
 
 Terminal bars from block characters; ``--save`` writes a hand-rolled SVG (text,
 so it costs no dependency and converts to anything). Counts in, pictures out.
@@ -36,7 +36,7 @@ _CHART_WIDTH = 640
 
 CHARTS_EXTRA_SCREEN = (
     "error: saving charts needs an optional dependency\n"
-    "  install it with:  pip install 'sempipe[charts]'"
+    "  install it with:  pip install 'smartpipe[charts]'"
 )
 
 

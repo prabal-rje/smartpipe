@@ -43,7 +43,7 @@ _PROMPT_OVERHEAD_TOKENS = 500  # instruction + wrapper + reply headroom (map's)
 
 EXTEND_NEEDS_FIELDS = (
     "extend adds fields — name them in braces or pass --schema\n"
-    '  Example: sempipe extend "Add {sentiment enum(pos, neg, neutral)}"\n'
+    '  Example: smartpipe extend "Add {sentiment enum(pos, neg, neutral)}"\n'
     "  Plain-text transformation? That's map."
 )
 

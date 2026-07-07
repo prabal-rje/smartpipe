@@ -1,4 +1,4 @@
-"""``sempipe schema`` — rung 4 of the ladder (D22): English → a validated schema file.
+"""``smartpipe schema`` — rung 4 of the ladder (D22): English → a validated schema file.
 
 Exactly one drafting call plus at most one repair. The draft is validated against
 the JSON-Schema meta-schema before stdout sees a byte: an invalid draft is exit 3
@@ -42,8 +42,8 @@ def schema_command(description: str, model_flag: str | None) -> None:
 
     \b
     Examples:
-      sempipe schema "invoice with vendor string, total number, status paid/unpaid" > invoice.json
-      cat receipts.txt | sempipe map "Extract the fields" --schema invoice.json
+      smartpipe schema "invoice with vendor string, total number, status paid/unpaid" > invoice.json
+      cat receipts.txt | smartpipe map "Extract the fields" --schema invoice.json
 
     The draft is checked against the JSON-Schema meta-schema; a failed draft
     exits 3 with NOTHING on stdout, so a broken schema can never slip into a pipe.

@@ -1,4 +1,4 @@
-"""``sempipe schema`` (rung 4, D22): one call + one repair, stdout never lies."""
+"""``smartpipe schema`` (rung 4, D22): one call + one repair, stdout never lies."""
 
 from __future__ import annotations
 

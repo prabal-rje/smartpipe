@@ -1,4 +1,4 @@
-"""``sempipe reduce`` — synthesize many items into one."""
+"""``smartpipe reduce`` — synthesize many items into one."""
 
 from __future__ import annotations
 
@@ -81,11 +81,11 @@ def reduce_command(
 
     \b
     Examples:
-      sempipe reduce "Write a one-page executive summary" --in 'notes/*.md'
-      cat reports.jsonl | sempipe reduce "Write a root-cause analysis" --schema rca.json
-      cat feedback.jsonl | sempipe reduce "Summarize sentiment" --group-by product
+      smartpipe reduce "Write a one-page executive summary" --in 'notes/*.md'
+      cat reports.jsonl | smartpipe reduce "Write a root-cause analysis" --schema rca.json
+      cat feedback.jsonl | smartpipe reduce "Summarize sentiment" --group-by product
 
-    When the input is too large for the model, sempipe chunks it and recursively
+    When the input is too large for the model, smartpipe chunks it and recursively
     summarizes — automatically. Add --verbose to see the chunking tree.
     """
     request = ReduceRequest(

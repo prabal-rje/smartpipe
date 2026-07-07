@@ -1,7 +1,7 @@
 """Where the config file lives (plan/decisions.md D09).
 
 ``~/.config/sempipe/config.toml`` on every Unix including macOS — the spec
-names this path and terminal users expect it — and ``%APPDATA%\\sempipe`` on
+names this path and terminal users expect it — and ``%APPDATA%\\smartpipe`` on
 Windows. Environment and platform are parameters so the logic is pure.
 """
 

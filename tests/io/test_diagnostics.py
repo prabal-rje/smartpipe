@@ -65,7 +65,7 @@ def test_internal_error_exits_70_and_hides_traceback_by_default(
         diagnostics.internal_error(ValueError("boom"), debug=False)
     assert _exit_code(excinfo) == 70
     err = capsys.readouterr().err
-    assert err.startswith("error: internal error — this is a bug in sempipe")
+    assert err.startswith("error: internal error — this is a bug in smartpipe")
     assert "ValueError: boom" in err
     assert "Rerun with --debug" in err
     assert "Traceback" not in err

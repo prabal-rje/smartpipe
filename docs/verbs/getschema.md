@@ -4,12 +4,12 @@ Everyone's first 30 seconds with a new file: which fields, what types, how
 complete. **Free — never calls a model.** The KQL name, kept on purpose.
 
 ```console
-$ cat data.jsonl | sempipe getschema
+$ cat data.jsonl | smartpipe getschema
 field      type            coverage  example
 id         integer|string  100%      1
 sentiment  string          67%       "neg"
 tags       array           33%       ["a"]
-try: sempipe chart id · sempipe where 'id …'
+try: smartpipe chart id · smartpipe where 'id …'
 ```
 
 A table on a terminal, NDJSON records when piped. Mixed types show as

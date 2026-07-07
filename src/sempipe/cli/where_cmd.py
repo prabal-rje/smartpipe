@@ -1,4 +1,4 @@
-"""``sempipe where`` — the free filter. Runs before anything paid."""
+"""``smartpipe where`` — the free filter. Runs before anything paid."""
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ def where_command(predicate: str) -> None:
 
     \b
     Examples:
-      tail -f app.log | sempipe where 'text has "ERROR"'
-      cat orders.jsonl | sempipe where 'total > 1000'
-      sempipe where 'level == "error" and not text contains "retry"'
+      tail -f app.log | smartpipe where 'text has "ERROR"'
+      cat orders.jsonl | smartpipe where 'total > 1000'
+      smartpipe where 'level == "error" and not text contains "retry"'
 
     \b
     Operators: has (word, case-insensitive) · contains · matches /re/

@@ -2,10 +2,10 @@
 
 ## What's a "model"?
 
-A model is the AI that reads your instruction and produces the answer. sempipe
+A model is the AI that reads your instruction and produces the answer. smartpipe
 doesn't contain one — it sends your text to a model running either **locally** (on
 your machine, via Ollama) or in the **cloud** (OpenAI, Anthropic, or any
-compatible service). You choose which; sempipe just talks to it.
+compatible service). You choose which; smartpipe just talks to it.
 
 ## Local vs. cloud
 
@@ -16,7 +16,7 @@ compatible service). You choose which; sempipe just talks to it.
 | Setup | Install Ollama, pull a model | Get an API key |
 | Speed / quality | Depends on your hardware | Usually faster and stronger |
 
-sempipe is **local-first**: with no configuration it looks for a running Ollama and
+smartpipe is **local-first**: with no configuration it looks for a running Ollama and
 uses it. It will never silently call a paid API — if nothing is configured and no
 Ollama is found, it prints a short setup screen and stops.
 
@@ -28,7 +28,7 @@ You name a model with a string. Two forms:
   `anthropic/claude-opus-4-8`, `mistral/mistral-large-latest`,
   `gemini/gemini-2.5-flash`, `openrouter/deepseek/deepseek-chat`
   (OpenRouter is explicit-only — its names are other vendors' names).
-- **Bare name:** sempipe routes by shape — `claude-*` → Anthropic, `gpt-*` / `o*` /
+- **Bare name:** smartpipe routes by shape — `claude-*` → Anthropic, `gpt-*` / `o*` /
   `text-embedding-*` → OpenAI, the Mistral family (`mistral-*`, `ministral-*`,
   `codestral-*`, `magistral-*`, `devstral-*`, `pixtral-*`, `open-mistral-*`,
   `open-mixtral-*`, `voxtral-*`) → Mistral, `gemini-*` → Gemini, anything else
@@ -41,7 +41,7 @@ Mistral cloud model.
 
 ## Cloud credentials
 
-Keys are read from the environment and **never stored** in sempipe's config:
+Keys are read from the environment and **never stored** in smartpipe's config:
 
 ```console
 $ export OPENAI_API_KEY=sk-...
@@ -51,11 +51,11 @@ $ export GEMINI_API_KEY=...             # aistudio.google.com
 $ export OPENROUTER_API_KEY=sk-or-...   # openrouter.ai/keys
 ```
 
-Claude models also need an optional package: `pip install 'sempipe[anthropic]'`.
-(sempipe tells you if it's missing.) Mistral needs nothing extra — chat,
+Claude models also need an optional package: `pip install 'smartpipe[anthropic]'`.
+(smartpipe tells you if it's missing.) Mistral needs nothing extra — chat,
 `mistral-embed` embeddings, and `pixtral-*` vision all ride the built-in adapter.
 Any *other* OpenAI-compatible endpoint — Groq, OpenRouter, a local llama.cpp
-server — works by pointing sempipe at it:
+server — works by pointing smartpipe at it:
 
 ```console
 $ export SEMPIPE_OPENAI_BASE_URL=https://api.groq.com/openai
@@ -66,8 +66,8 @@ $ export SEMPIPE_OPENAI_BASE_URL=https://api.groq.com/openai
 If you have a ChatGPT Plus/Pro plan, you can use it directly:
 
 ```console
-$ sempipe auth login              # opens your browser (or --headless for a code)
-$ echo "hi" | sempipe map "translate to French" --model gpt-5.4
+$ smartpipe auth login              # opens your browser (or --headless for a code)
+$ echo "hi" | smartpipe map "translate to French" --model gpt-5.4
 ```
 
 What to know:
@@ -78,12 +78,12 @@ What to know:
   an explicit, billable choice. Unset it to use your plan.
 - **No embeddings:** `embed`/`top_k` need an API key or a local model.
 - **Where tokens live:** `~/.config/sempipe/auth.json`, permissions `0600`,
-  refreshed automatically, removed with `sempipe auth logout`. (API keys are still
+  refreshed automatically, removed with `smartpipe auth logout`. (API keys are still
   never stored — this file holds only login tokens.)
 - **Why no login for Anthropic/Mistral:** they don't offer one to third-party
   tools. OpenAI's login uses the same public OAuth client the Codex CLI and other
-  open-source tools use, and sempipe identifies itself honestly (`originator:
-  sempipe`).
+  open-source tools use, and smartpipe identifies itself honestly (`originator:
+  smartpipe`).
 
 ## Forcing a path (D24)
 
@@ -91,9 +91,9 @@ There is deliberately no `--auth` knob and no `--api-key`/`--base-url` flags
 (argv leaks into `ps` and shell history). The environment *is* the override:
 
 ```console
-$ OPENAI_API_KEY=sk-... sempipe map …          # force the key path
-$ env -u OPENAI_API_KEY sempipe map …          # force the ChatGPT login path
-$ SEMPIPE_OPENAI_BASE_URL=https://… sempipe …  # point the wire elsewhere
+$ OPENAI_API_KEY=sk-... smartpipe map …          # force the key path
+$ env -u OPENAI_API_KEY smartpipe map …          # force the ChatGPT login path
+$ SEMPIPE_OPENAI_BASE_URL=https://… smartpipe …  # point the wire elsewhere
 ```
 
 ## Gemini rides its native wire (and watches video)
@@ -107,7 +107,7 @@ stay on the compat wire. `SEMPIPE_GEMINI_BASE_URL` still points both.
 
 ## Context windows: probed, not guessed
 
-sempipe keeps a conservative window table per provider, and when an input
+smartpipe keeps a conservative window table per provider, and when an input
 actually exceeds it, asks the provider for the real number (one cached
 metadata call — Ollama, Mistral, Gemini, and OpenRouter publish it; OpenAI and
 Anthropic don't). A live example: the table floors Gemini at 128k, but the
@@ -129,9 +129,9 @@ output) under a name. Three ship built in:
 | `local` | ollama/gemma-4-e2b | embeddinggemma | multimodal, nothing leaves the machine |
 
 ```console
-$ sempipe config profile              # list (the active one marked)
-$ sempipe config profile local        # switch
-$ SEMPIPE_PROFILE=gemini sempipe map …  # one-off, no file change (D24: env is the override)
+$ smartpipe config profile              # list (the active one marked)
+$ smartpipe config profile local        # switch
+$ SEMPIPE_PROFILE=gemini smartpipe map …  # one-off, no file change (D24: env is the override)
 ```
 
 The cloud presets are **multimodal by default**: they set
@@ -149,14 +149,14 @@ both. Profiles never hold API keys.
 ## Setting a default
 
 ```console
-$ sempipe config model ollama/qwen3:8b     # save a default
-$ sempipe config show                       # see the effective settings + where each comes from
+$ smartpipe config model ollama/qwen3:8b     # save a default
+$ smartpipe config show                       # see the effective settings + where each comes from
 ```
 
 Override the default for a single command with `--model`:
 
 ```console
-$ cat data.txt | sempipe map "summarize" --model claude-opus-4-8
+$ cat data.txt | smartpipe map "summarize" --model claude-opus-4-8
 ```
 
 ## Precedence
@@ -167,7 +167,7 @@ When the same setting is specified more than one way, the most specific wins:
 --model flag  >  SEMPIPE_MODEL env var  >  config file  >  Ollama autodetect
 ```
 
-`sempipe config show` prints each value with its origin, so precedence is never a
+`smartpipe config show` prints each value with its origin, so precedence is never a
 mystery.
 
 ## Two models: chat and embedding
@@ -176,7 +176,7 @@ Most verbs use a **chat** model. `embed` and `top_k` (coming soon) use a separat
 **embedding** model, configured independently:
 
 ```console
-$ sempipe config embed-model nomic-embed-text
+$ smartpipe config embed-model nomic-embed-text
 ```
 
 ## See also
@@ -187,12 +187,12 @@ $ sempipe config embed-model nomic-embed-text
 
 ## The stt-model role
 
-`sempipe config stt-model openai/whisper-1` names a dedicated remote
+`smartpipe config stt-model openai/whisper-1` names a dedicated remote
 transcriber. When set, it runs FIRST in the audio ladder (a configured
 transcriber signals wanting verbatim text — LLM hearing paraphrases),
 falling back to the LLM rung and local whisper on failure. It is a paid
 cloud conversion, so the `allow-captions` consent gates it like every other
-one. Unset, sempipe picks the sensible strategy automatically:
+one. Unset, smartpipe picks the sensible strategy automatically:
 
 | Your situation | Transcription |
 |---|---|
@@ -208,9 +208,9 @@ account. Only the openai wire exists today; the key accepts
 
 ## The usage ledger
 
-`sempipe usage` shows what the meter observed over the past hour, day, week,
+`smartpipe usage` shows what the meter observed over the past hour, day, week,
 month, and lifetime — runs, tokens in/out, media, audio time, paid
-conversions. `sempipe usage reset` zeroes it (printing the previous lifetime
+conversions. `smartpipe usage reset` zeroes it (printing the previous lifetime
 so the number isn't lost) and remembers the reset time. Only model-touching
 runs count; the ledger lives in `~/.local/state/sempipe/` and never leaves
 your machine.

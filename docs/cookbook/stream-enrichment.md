@@ -15,7 +15,7 @@ Tag a live event stream with the catalog rows it concerns — as it happens.
 
 ```console
 $ tail -f support-events.log \
-    | sempipe join "this event {left.text} involves the customer {right.name}" \
+    | smartpipe join "this event {left.text} involves the customer {right.name}" \
         --right customers.jsonl --k 3 \
     | jq -r 'select(.right.tier == "enterprise") | "\(.right.owner): \(.left.text)"'
 ```
@@ -35,7 +35,7 @@ First Ctrl-C drains in-flight judges and exits with the run's true outcome code.
 ## Save it as a stage
 
 ```toml
-#!/usr/bin/env -S sempipe run
+#!/usr/bin/env -S smartpipe run
 verb = "join"
 prompt = "this event {left.text} involves the customer {right.name}"
 right = "customers.jsonl"

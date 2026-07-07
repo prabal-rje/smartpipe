@@ -123,7 +123,7 @@ class GeminiNativeChatModel:
                 f"error: can't reach {self.base_url} ({exc})\n"
                 f"  The model '{self.ref}' needs that endpoint.\n"
                 f"  Check your network, or {GEMINI_WIRE.base_url_env} if you pointed "
-                "sempipe elsewhere."
+                "smartpipe elsewhere."
             ) from exc
         except httpx.HTTPError as exc:
             raise ItemError(f"request to {self.base_url} failed: {exc}") from exc

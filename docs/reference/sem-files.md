@@ -1,6 +1,6 @@
 # `.sem` files — saved pipe stages
 
-A `.sem` file captures **exactly one verb invocation** in TOML. `sempipe run
+A `.sem` file captures **exactly one verb invocation** in TOML. `smartpipe run
 stage.sem` executes it; a shebang makes it directly executable. Composition
 stays where it belongs — in the shell:
 
@@ -13,7 +13,7 @@ $ cat tickets.log | ./filter-urgent.sem | ./extract.sem > urgent.csv
 `filter-urgent.sem`:
 
 ```toml
-#!/usr/bin/env -S sempipe run
+#!/usr/bin/env -S smartpipe run
 verb = "filter"
 prompt = "describes an urgent, customer-impacting problem"
 ```
@@ -21,7 +21,7 @@ prompt = "describes an urgent, customer-impacting problem"
 `extract.sem`:
 
 ```toml
-#!/usr/bin/env -S sempipe run
+#!/usr/bin/env -S smartpipe run
 verb = "map"
 prompt = "Extract {customer, product, severity}"
 output = "csv"
@@ -73,10 +73,10 @@ skew). A `.sem` script is the opposite trade: it runs unattended, so a typo'd
 error names the key and lists the valid ones for that verb:
 
 ```console
-$ sempipe run extract.sem
+$ smartpipe run extract.sem
 error: extract.sem: unknown key 'promt' — valid keys for map: concurrency, fields, from-files, in, model, output, prompt, schema-file
   A .sem script runs unattended — a typo silently ignored would be a disaster.
-  Fix the key, then: sempipe run extract.sem
+  Fix the key, then: smartpipe run extract.sem
 ```
 
 ## Precedence
@@ -85,16 +85,16 @@ error: extract.sem: unknown key 'promt' — valid keys for map: concurrency, fie
 after the script overrides the file:
 
 ```console
-$ sempipe run extract.sem --model ollama/qwen3:8b     # wins over the file's model
+$ smartpipe run extract.sem --model ollama/qwen3:8b     # wins over the file's model
 ```
 
 ## The shebang
 
-`#!/usr/bin/env -S sempipe run` needs `env -S` (GNU coreutils ≥ 8.30, any
+`#!/usr/bin/env -S smartpipe run` needs `env -S` (GNU coreutils ≥ 8.30, any
 modern macOS). If your platform lacks it, the spelled-out form always works:
 
 ```console
-$ sempipe run extract.sem < cards.txt
+$ smartpipe run extract.sem < cards.txt
 ```
 
 ## Why one stage per file?
@@ -102,7 +102,7 @@ $ sempipe run extract.sem < cards.txt
 Multi-stage pipeline files were considered and rejected: they would re-implement
 `|` — ordering, buffering, and error propagation the shell already does better.
 One file = one stage keeps every `.sem` composable with everything else on your
-system, which is the whole point of sempipe.
+system, which is the whole point of smartpipe.
 
 
 ## Pipelines: several stages in one file
@@ -126,8 +126,8 @@ save = "themes.svg"
 ```
 
 ```console
-$ cat week.log | sempipe run triage.sem
-$ sempipe run triage.sem --dry-run      # the graph + cost posture, zero calls
+$ cat week.log | smartpipe run triage.sem
+$ smartpipe run triage.sem --dry-run      # the graph + cost posture, zero calls
 stage hot          where 'text has "ERROR"'   [free]
 stage themes       cluster --top 8            [model calls]
 stage picture      chart cluster --save …     [free]

@@ -4,14 +4,14 @@ Merge stdin against a second input wherever a plain-English predicate holds.
 The SQL join's semantic cousin: no keys, no exact equality — meaning.
 
 ```console
-$ cat tickets.jsonl | sempipe join "ticket {left.text} concerns product {right.name}" --right products.jsonl
+$ cat tickets.jsonl | smartpipe join "ticket {left.text} concerns product {right.name}" --right products.jsonl
 {"left": {"text": "the laser printer keeps smoking"}, "right": {"name": "LaserJet 9"}, "_score": 0.91}
 ```
 
 ## How it works (and why it's affordable)
 
 A naive semantic join would ask the model about every pair — 1,000 × 1,000 =
-a million calls. sempipe does **embed → block → judge**:
+a million calls. smartpipe does **embed → block → judge**:
 
 1. **Embed** the `--right` file once (it's read whole and indexed in memory).
 2. **Block**: each stdin item is embedded and matched to its `--k` nearest
@@ -20,7 +20,7 @@ a million calls. sempipe does **embed → block → judge**:
    yes/no verdict prompt.
 
 Cost is `lines × k`, never `lines × right-size`. Before the first judge call,
-sempipe tells you the worst case on stderr (when it exceeds a couple hundred):
+smartpipe tells you the worst case on stderr (when it exceeds a couple hundred):
 
 ```
 join: 1,204 left items · up to 5 candidates each = at most 6,020 model calls (cap with --max-calls)
@@ -102,7 +102,7 @@ The left side streams flag-free, like every per-item verb — so join is a live
 enrichment operator:
 
 ```console
-$ tail -f events.log | sempipe join "event {left.text} involves customer {right.name}" --right customers.jsonl
+$ tail -f events.log | smartpipe join "event {left.text} involves customer {right.name}" --right customers.jsonl
 ```
 
 The right side can never stream (an index can't be built from a tail): `--right -`
@@ -120,7 +120,7 @@ is a usage error that says so.
 matched-pairs behavior):
 
 ```console
-$ cat orders.jsonl | sempipe join "the same purchase" --right invoices.jsonl --kind anti
+$ cat orders.jsonl | smartpipe join "the same purchase" --right invoices.jsonl --kind anti
 {"id": 4411, "customer": "acme", "total": 240.0}    ← unmatched LEFT rows, verbatim
 $ … --kind leftouter | head -1
 {"left": {...}, "right": null}                       ← every left row, match or not

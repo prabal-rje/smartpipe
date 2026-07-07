@@ -32,12 +32,12 @@ TAGS = "http://localhost:11434/api/tags"
 @pytest.mark.parametrize(
     ("shell", "marker"),
     # markers per click 8.4's generated scripts (fish uses long-form flags)
-    [("bash", "complete -o"), ("zsh", "#compdef"), ("fish", "--command sempipe")],
+    [("bash", "complete -o"), ("zsh", "#compdef"), ("fish", "--command smartpipe")],
 )
 def test_completion_source_emits_a_script(shell: str, marker: str) -> None:
     proc = subprocess.run(
         [sys.executable, "-m", "sempipe"],
-        env={**os.environ, "_SEMPIPE_COMPLETE": f"{shell}_source"},
+        env={**os.environ, "_SMARTPIPE_COMPLETE": f"{shell}_source"},
         capture_output=True,
         text=True,
         timeout=30,
@@ -127,7 +127,7 @@ def test_map_model_flag_completes_through_the_callback(
     monkeypatch.delenv("SEMPIPE_MODEL", raising=False)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b"))
-    completer = ShellComplete(cli, {}, "sempipe", "_SEMPIPE_COMPLETE")
+    completer = ShellComplete(cli, {}, "smartpipe", "_SMARTPIPE_COMPLETE")
     values = [item.value for item in completer.get_completions(["map", "hi", "--model"], "")]
     assert values == ["ollama/qwen3:8b"]
 
@@ -145,6 +145,6 @@ def test_config_model_argument_completes_through_the_callback(
     monkeypatch.delenv("SEMPIPE_MODEL", raising=False)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b"))
-    completer = ShellComplete(cli, {}, "sempipe", "_SEMPIPE_COMPLETE")
+    completer = ShellComplete(cli, {}, "smartpipe", "_SMARTPIPE_COMPLETE")
     values = [item.value for item in completer.get_completions(["config", "model"], "")]
     assert values == ["ollama/qwen3:8b"]

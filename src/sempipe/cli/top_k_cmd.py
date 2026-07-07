@@ -1,4 +1,4 @@
-"""``sempipe top_k`` — rank items by similarity to a query."""
+"""``smartpipe top_k`` — rank items by similarity to a query."""
 
 from __future__ import annotations
 
@@ -52,9 +52,9 @@ def top_k_command(
 
     \b
     Examples:
-      sempipe top_k 5 --near "distributed systems engineer" --in 'resumes/*.pdf'
-      cat corpus.embeddings | sempipe top_k 10 --near "Q3 revenue strategy"
-      cat articles.jsonl | sempipe top_k --near "climate policy" --threshold 0.8
+      smartpipe top_k 5 --near "distributed systems engineer" --in 'resumes/*.pdf'
+      cat corpus.embeddings | smartpipe top_k 10 --near "Q3 revenue strategy"
+      cat articles.jsonl | smartpipe top_k --near "climate policy" --threshold 0.8
 
     Give a number (K), a --threshold, or both. Each result gains a _score (0-1).
     In file mode, each result is a filename and its score.

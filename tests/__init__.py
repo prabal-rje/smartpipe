@@ -1,1 +1,1 @@
-"""Test suite for sempipe."""
+"""Test suite for smartpipe."""

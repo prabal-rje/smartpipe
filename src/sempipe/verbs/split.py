@@ -2,8 +2,8 @@
 
 Zero model calls. One 300-page PDF becomes N records of ``{"text", "source"}``
 with provenance (``report.pdf §3/12``), each small enough for whatever verb
-comes next. The taught pipeline: ``sempipe split --in big.pdf | sempipe map … |
-sempipe reduce …``. Chunks concatenate back to the original text exactly.
+comes next. The taught pipeline: ``smartpipe split --in big.pdf | smartpipe map … |
+smartpipe reduce …``. Chunks concatenate back to the original text exactly.
 """
 
 from __future__ import annotations
@@ -173,7 +173,7 @@ async def _run_media(request: SplitRequest, context: SplitContext, *, stdout: Te
 
     if not request.input.patterns:
         raise UsageFault(
-            "--media reads document files — give it some: sempipe split --media --in 'docs/*.pdf'"
+            "--media reads document files — give it some: smartpipe split --media --in 'docs/*.pdf'"
         )
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
     produced = 0
@@ -229,7 +229,8 @@ async def _run_pages(
 
     if not request.input.patterns:
         raise UsageFault(
-            "--by pages reads PDF files — give it some: sempipe split --by pages --in 'docs/*.pdf'"
+            "--by pages reads PDF files — give it some:\n"
+            "  smartpipe split --by pages --in 'docs/*.pdf'"
         )
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
     produced = 0

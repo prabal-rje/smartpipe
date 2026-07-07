@@ -1,4 +1,4 @@
-"""``sempipe doctor`` report — the pure half (D18).
+"""``smartpipe doctor`` report — the pure half (D18).
 
 Check *gathering* is the CLI's job (it touches env, disk, and the local Ollama
 probe); this module owns the result type, the rendering, and the exit rule so the

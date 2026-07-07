@@ -1,4 +1,4 @@
-"""sempipe auth + the D19 precedence: key > login > the dual-fix screen."""
+"""smartpipe auth + the D19 precedence: key > login > the dual-fix screen."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _login(path: Path) -> None:
 def test_status_logged_out(run_cli: RunCli, home: Path) -> None:
     code, out, _err = run_cli(["auth", "status"])
     assert code == 0
-    assert out == "openai: not logged in — run: sempipe auth login\n"
+    assert out == "openai: not logged in — run: smartpipe auth login\n"
 
 
 def test_status_logged_in(run_cli: RunCli, home: Path) -> None:
@@ -96,7 +96,7 @@ def test_login_rides_the_codex_wire(
 def test_neither_shows_the_dual_fix_screen(run_cli: RunCli, home: Path) -> None:
     code, _out, err = run_cli(["map", "echo"], stdin="hi\n")
     assert code == 2
-    assert "OPENAI_API_KEY" in err and "sempipe auth login" in err  # both fixes offered
+    assert "OPENAI_API_KEY" in err and "smartpipe auth login" in err  # both fixes offered
 
 
 def test_embeddings_on_login_only_point_at_keys(

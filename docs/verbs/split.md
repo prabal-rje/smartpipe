@@ -6,9 +6,9 @@ into budget-sized chunk items, with **zero model calls**. It exists because a
 window without changing what you asked.
 
 ```console
-$ sempipe split --in '10k-filings/*.pdf' \
-    | sempipe map "list the risk factors {risk}" \
-    | sempipe reduce "merge into one deduplicated risk register"
+$ smartpipe split --in '10k-filings/*.pdf' \
+    | smartpipe map "list the risk factors {risk}" \
+    | smartpipe reduce "merge into one deduplicated risk register"
 ```
 
 ## What comes out
@@ -36,9 +36,9 @@ One JSON record per chunk:
 | `minutes` / `seconds` | `--by minutes:10` | **audio slices that stay audio** — each rides the pipe as a playable segment (`call.mp3 §00:10-00:20`), so the next verb can *hear* it natively |
 
 ```console
-$ sempipe split --by minutes:10 --in call.wav \
-    | sempipe map "what was agreed?" --model voxtral-mini-latest \
-    | sempipe reduce "merge the agreements"
+$ smartpipe split --by minutes:10 --in call.wav \
+    | smartpipe map "what was agreed?" --model voxtral-mini-latest \
+    | smartpipe reduce "merge the agreements"
 ```
 
 Notes: `--max-tokens N` is shorthand for `--by tokens:N`. `--by pages` reads PDF
@@ -54,7 +54,7 @@ provenance (`report.pdf p.7 img.2`), byte-identical, icon-floor applied. Feed
 them straight to a vision model:
 
 ```console
-$ sempipe split --media --in 'decks/*.pptx' | sempipe map "what does this chart claim? {claim}"
+$ smartpipe split --media --in 'decks/*.pptx' | smartpipe map "what does this chart claim? {claim}"
 ```
 
 ## Options

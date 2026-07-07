@@ -1,7 +1,7 @@
 """Chunking math for the recursive ``reduce`` (spec §3.5) — pure.
 
 The reduce tree "just works": when the input exceeds what the model can hold,
-sempipe splits it into chunks, summarizes each, and recurses on the summaries —
+smartpipe splits it into chunks, summarizes each, and recurses on the summaries —
 no flags, no strategy selection. This module owns the arithmetic (token estimate,
 context budget, item-boundary splitting); the verb drives the recursion, since
 each level's size isn't known until the model produces the notes.

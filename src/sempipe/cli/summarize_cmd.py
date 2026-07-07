@@ -1,4 +1,4 @@
-"""``sempipe summarize`` — the numbers, without leaving for awk."""
+"""``smartpipe summarize`` — the numbers, without leaving for awk."""
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ def summarize_command(expression: str) -> None:
 
     \b
     Examples:
-      cat orders.jsonl | sempipe summarize 'count(), avg(total), p95(total) by region'
-      cat evals.jsonl  | sempipe summarize 'count() by pass'
-      ... | sempipe summarize 'dcount(user) by day'
+      cat orders.jsonl | smartpipe summarize 'count(), avg(total), p95(total) by region'
+      cat evals.jsonl  | smartpipe summarize 'count() by pass'
+      ... | smartpipe summarize 'dcount(user) by day'
 
     \b
     Aggregations: count() · sum(f) · avg(f) · min(f) · max(f)

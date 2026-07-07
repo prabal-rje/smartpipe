@@ -67,7 +67,7 @@ class OllamaChatModel:
             # ollama's chat API carries images only — fail before any bytes leave (D20 §2)
             raise ItemError(
                 "this model can't hear audio — try an audio model "
-                "(voxtral, gemini), or install 'sempipe[audio]' to transcribe"
+                "(voxtral, gemini), or install 'smartpipe[audio]' to transcribe"
             )
         images = [part for part in request.media if isinstance(part, ImageData)]
         if images:

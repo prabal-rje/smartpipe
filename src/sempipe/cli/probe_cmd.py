@@ -116,7 +116,7 @@ def _video_local() -> Cell:
         ffmpeg_exe()
         return Cell("ok", "ffmpeg found — frames+audio")
     except SempipeError:
-        return Cell("no", "ffmpeg missing — pip install 'sempipe[video]'")
+        return Cell("no", "ffmpeg missing — pip install 'smartpipe[video]'")
 
 
 def _first_line(exc: SempipeError) -> str:

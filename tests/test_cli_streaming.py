@@ -134,7 +134,7 @@ async def test_map_emits_before_eof_in_process() -> None:
 
 
 def test_binary_stdin_document_end_to_end() -> None:
-    """The stage-07 demo, real markitdown: `sempipe map "Summarize" < report.pdf`."""
+    """The stage-07 demo, real markitdown: `smartpipe map "Summarize" < report.pdf`."""
     pytest.importorskip("markitdown")
 
     def reply(_body: dict[str, object]) -> str:

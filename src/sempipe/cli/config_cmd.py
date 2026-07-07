@@ -28,12 +28,12 @@ if TYPE_CHECKING:
 
 __all__ = ["config_command", "run_interactive_setup"]
 
-_TRY_IT = 'echo "hello world" | sempipe map "translate to Spanish"'
+_TRY_IT = 'echo "hello world" | smartpipe map "translate to Spanish"'
 _NON_TTY = (
-    "error: 'sempipe config' is interactive and needs a terminal\n"
+    "error: 'smartpipe config' is interactive and needs a terminal\n"
     "  Set a model without prompts:\n"
-    "    sempipe config model ollama/qwen3:8b        (local, free)\n"
-    "    sempipe config model gpt-5.4-mini            (cloud)"
+    "    smartpipe config model ollama/qwen3:8b        (local, free)\n"
+    "    smartpipe config model gpt-5.4-mini            (cloud)"
 )
 
 
@@ -57,9 +57,9 @@ def config_profile(name: str | None, unset: bool) -> None:
     """Show, switch, or clear the active profile.
 
     \b
-      sempipe config profile           list profiles (the active one marked)
-      sempipe config profile local     switch — local runs ollama/gemma-4-e2b
-      SEMPIPE_PROFILE=gemini sempipe … one-off, no file change
+      smartpipe config profile           list profiles (the active one marked)
+      smartpipe config profile local     switch — local runs ollama/gemma-4-e2b
+      SEMPIPE_PROFILE=gemini smartpipe … one-off, no file change
     """
     from sempipe.config.store import profile_names, set_active_profile
 
@@ -134,7 +134,7 @@ def config_set_stt(model_string: str) -> None:
 def config_set_cache(state: str) -> None:
     """Turn result caching on or off (identical calls reuse stored replies)."""
     _update(lambda c: replace(c, cache=state == "on"))
-    click.echo(f"cache {state} — stored replies live in ~/.cache/sempipe (sempipe cache clear)")
+    click.echo(f"cache {state} — stored replies live in ~/.cache/sempipe (smartpipe cache clear)")
 
 
 def _update(change: Callable[[Config], Config]) -> None:
@@ -166,7 +166,7 @@ async def run_interactive_setup(
     say: Callable[[str], None],
     save: Callable[[Config], None],
 ) -> Config:
-    say("sempipe setup — one minute, three questions\n")
+    say("smartpipe setup — one minute, three questions\n")
     if current.profile is None and current.model is None:
         say("Pick a starting profile (a named bundle you can switch any time):")
         say(
@@ -190,12 +190,12 @@ async def run_interactive_setup(
                     "  note: this profile converts images/audio to text through its"
                     " model when needed (fractions of a cent each, disclosed per row)"
                 )
-            say("  Check the setup end to end:  sempipe doctor\n")
+            say("  Check the setup end to end:  smartpipe doctor\n")
             return chosen
     names = await probe() or ()
     chat = _first_chat(names)
     say("  Tip: pick a model that can SEE images (gpt-5.4-mini, gemini-2.5-flash,")
-    say("  ollama/llava) — sempipe is multimodal; text-only models refuse image rows.")
+    say("  ollama/llava) — smartpipe is multimodal; text-only models refuse image rows.")
     if chat is not None:
         say(f"  ✓ found Ollama ({len(names)} models)\n")
         model_answer = ask("Default model?", f"ollama/{chat}")
@@ -220,7 +220,7 @@ async def run_interactive_setup(
         say("\n  Saved. Try it:")
         say(f"    {_TRY_IT}")
     else:
-        say("\n  Not saved. Set a model any time with: sempipe config model <name>")
+        say("\n  Not saved. Set a model any time with: smartpipe config model <name>")
     return updated
 
 

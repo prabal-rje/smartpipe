@@ -1,4 +1,4 @@
-"""``sempipe sample`` — the same N random rows, every run."""
+"""``smartpipe sample`` — the same N random rows, every run."""
 
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ def sample_command(count: int, seed: int) -> None:
 
     \b
     Examples:
-      cat huge.jsonl | sempipe sample 20 | sempipe map "Extract {label}"
-      cat evals.jsonl | sempipe sample 50 --seed 7 > eval-subset.jsonl
+      cat huge.jsonl | smartpipe sample 20 | smartpipe map "Extract {label}"
+      cat evals.jsonl | smartpipe sample 50 --seed 7 > eval-subset.jsonl
 
     Deterministic BY DEFAULT: the same input gives the same sample with no
     flags, so prompt comparisons compare prompts (and the sample is citable).

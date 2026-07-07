@@ -48,7 +48,7 @@ def test_fields_keep_first_seen_order() -> None:
 
 def test_footer_suggests_the_best_covered_field() -> None:
     _rows, err = _run(NDJSON)
-    assert "sempipe chart id" in err
+    assert "smartpipe chart id" in err
 
 
 def test_plain_text_gets_a_one_line_answer() -> None:

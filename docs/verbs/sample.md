@@ -4,8 +4,8 @@ Keep N random rows. **Free — never calls a model.** Reservoir sampling: one
 pass, constant memory, input order preserved in the output.
 
 ```console
-$ cat huge.jsonl | sempipe sample 20 | sempipe map "Extract {label}" --tally label
-$ cat evals.jsonl | sempipe sample 50 --seed 7 > eval-subset.jsonl
+$ cat huge.jsonl | smartpipe sample 20 | smartpipe map "Extract {label}" --tally label
+$ cat evals.jsonl | smartpipe sample 50 --seed 7 > eval-subset.jsonl
 sample: 50 of 12,408 (seed 7)
 ```
 
@@ -26,5 +26,5 @@ spend, but heads are never representative (sorted exports, time-ordered
 logs). `sample` is the representative gate; use both:
 
 ```console
-$ cat huge.jsonl | sempipe sample 20 | sempipe map "…" --max-calls 25
+$ cat huge.jsonl | smartpipe sample 20 | smartpipe map "…" --max-calls 25
 ```

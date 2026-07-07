@@ -5,13 +5,13 @@
 ## The pipeline
 
 ```console
-$ sempipe map "Extract {party_a, party_b, effective_date, total_value, governing_law}" \
+$ smartpipe map "Extract {party_a, party_b, effective_date, total_value, governing_law}" \
     --in 'contracts/*.pdf' \
     --output csv > contracts.csv
 ```
 
-That's the whole thing. Each PDF becomes one item; sempipe parses it to text
-automatically (with `sempipe[files]` installed), extracts the five fields, and writes
+That's the whole thing. Each PDF becomes one item; smartpipe parses it to text
+automatically (with `smartpipe[files]` installed), extracts the five fields, and writes
 a CSV you can open in Excel.
 
 ```
@@ -43,7 +43,7 @@ fields are dropped:
 ```
 
 ```console
-$ sempipe map "Extract the contract details" --in 'contracts/*.pdf' --schema contract.json \
+$ smartpipe map "Extract the contract details" --in 'contracts/*.pdf' --schema contract.json \
     --output csv > contracts.csv
 ```
 
@@ -55,8 +55,8 @@ retried once, then skipped with a warning — the batch never dies on one bad fi
 Chain a semantic `filter` to process only the relevant documents:
 
 ```console
-$ sempipe filter "is a signed vendor agreement" --in 'docs/**/*.pdf' \
-    | sempipe map "Extract {vendor, renewal_date, annual_cost}" --from-files --output csv
+$ smartpipe filter "is a signed vendor agreement" --in 'docs/**/*.pdf' \
+    | smartpipe map "Extract {vendor, renewal_date, annual_cost}" --from-files --output csv
 ```
 
 The `filter` emits the *paths* of matching files; `--from-files` feeds those paths to
@@ -68,7 +68,7 @@ Once the extraction works, freeze it as an executable `.sem` file so the whole
 team runs the same stage:
 
 ```toml
-#!/usr/bin/env -S sempipe run
+#!/usr/bin/env -S smartpipe run
 verb = "map"
 prompt = "Extract {vendor, renewal_date, annual_cost}"
 schema-file = "contract.json"
@@ -77,7 +77,7 @@ output = "csv"
 
 ```console
 $ chmod +x extract-contract.sem
-$ sempipe filter "is a signed vendor agreement" --in 'docs/**/*.pdf' \
+$ smartpipe filter "is a signed vendor agreement" --in 'docs/**/*.pdf' \
     | ./extract-contract.sem --from-files > contracts.csv
 ```
 

@@ -4,7 +4,7 @@ The chart IS the result, so it goes to stdout; ``--save`` additionally writes a
 dependency-free SVG. Counts a field across records (or tallies whole lines),
 which makes it the natural tail for the tools upstream:
 
-    … | sempipe map "Extract {label}" | sempipe chart label
+    … | smartpipe map "Extract {label}" | smartpipe chart label
 """
 
 from __future__ import annotations

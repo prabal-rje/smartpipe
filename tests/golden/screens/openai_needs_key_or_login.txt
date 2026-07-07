@@ -1,4 +1,5 @@
 error: model 'gpt-5.4' needs an OpenAI API key or a ChatGPT login
-  sempipe found no OPENAI_API_KEY and no ChatGPT login. Keys are never stored in config.
+  smartpipe found no OPENAI_API_KEY and no ChatGPT login. Keys are never
+  stored in config.
   Fix: export OPENAI_API_KEY=sk-...        (platform billing)
-   or: sempipe auth login                  (use your ChatGPT Plus/Pro plan)
+   or: smartpipe auth login                  (use your ChatGPT Plus/Pro plan)

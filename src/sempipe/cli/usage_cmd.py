@@ -1,4 +1,4 @@
-"""``sempipe usage`` — the ledger of what the meter observed (D41)."""
+"""``smartpipe usage`` — the ledger of what the meter observed (D41)."""
 
 from __future__ import annotations
 

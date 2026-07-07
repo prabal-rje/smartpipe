@@ -221,7 +221,7 @@ async def _messages(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[
             except (RuntimeError, concurrent.futures.CancelledError):
                 sentinel.close()  # loop gone — don't leave a never-awaited coroutine
 
-    threading.Thread(target=pump, name="sempipe-stdin-pump", daemon=True).start()
+    threading.Thread(target=pump, name="smartpipe-stdin-pump", daemon=True).start()
     while True:
         message = await _next_or_stop(queue, stop)
         if message is None:
@@ -263,7 +263,8 @@ async def _lines(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[str
         if tag != "line":
             raise SetupFault(
                 "error: --from-files expects filenames on stdin, got a binary document\n"
-                "  Pipe a list of paths in, e.g.: find . -name '*.md' | sempipe map … --from-files"
+                "  Pipe a list of paths in, e.g.:\n"
+                "  find . -name '*.md' | smartpipe map … --from-files"
             )
         assert isinstance(payload, str)
         yield payload
@@ -272,7 +273,7 @@ async def _lines(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[str
 async def stdin_items(stdin: TextIO, *, stop: asyncio.Event | None = None) -> AsyncIterator[Item]:
     """Each stdin line is one Item, yielded as it arrives (never waits for EOF).
 
-    A redirected binary document (``sempipe map … < report.pdf``) is ONE item:
+    A redirected binary document (``smartpipe map … < report.pdf``) is ONE item:
     spooled, extracted, source ``<stdin>`` (stage-07 task 4). A final line without
     a trailing newline is still an item; empty input yields nothing; CRLF and the
     line-0 BOM are handled per-item by ``item_from_line``.
@@ -327,7 +328,7 @@ async def from_files_items(
     stdin: TextIO, *, stop: asyncio.Event | None = None
 ) -> AsyncIterator[Item]:
     """``--from-files``: each non-blank stdin line names a file to read — also
-    incremental, so ``find … | sempipe … --from-files`` processes as names arrive."""
+    incremental, so ``find … | smartpipe … --from-files`` processes as names arrive."""
     from pathlib import Path
 
     warned_extras: set[str] = set()
@@ -446,8 +447,9 @@ def figure_note(name: str, text_length: int, kept: int, capped: int) -> str:
 
 
 def ensure_not_a_tty(stdin: TextIO) -> None:
-    """A kind guardrail: bare `sempipe map ...` at a terminal would silently wait."""
+    """A kind guardrail: bare `smartpipe map ...` at a terminal would silently wait."""
     if stdin.isatty():
         raise UsageFault(
-            'reading from a terminal — pipe some input in, e.g.: cat notes.txt | sempipe map "..."'
+            "reading from a terminal — pipe some input in, e.g.:\n"
+            '  cat notes.txt | smartpipe map "..."'
         )

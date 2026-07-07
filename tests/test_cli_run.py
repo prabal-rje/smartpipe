@@ -1,4 +1,4 @@
-"""``sempipe run`` — a .sem stage behaves exactly like typing the argv (D17).
+"""``smartpipe run`` — a .sem stage behaves exactly like typing the argv (D17).
 
 Equivalence is asserted against a twin invocation (same mocks, same stdin),
 precedence by wire inspection, and error paths by exit codes through the real
@@ -126,7 +126,7 @@ def test_shebang_executes_the_stage_directly(tmp_path: Path) -> None:
     with server:
         script = tmp_path / "shout.sem"
         script.write_text(
-            '#!/usr/bin/env -S sempipe run\nverb = "map"\nprompt = "shout it"\n',
+            '#!/usr/bin/env -S smartpipe run\nverb = "map"\nprompt = "shout it"\n',
             encoding="utf-8",
         )
         script.chmod(script.stat().st_mode | stat.S_IXUSR)

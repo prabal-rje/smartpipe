@@ -2,8 +2,8 @@
 
 Protocol transcribed from opencode's working implementation (context/opencode):
 OpenAI's public Codex OAuth client, PKCE S256, a localhost:1455 callback for the
-browser flow, and a device-code flow for headless machines. sempipe self-identifies
-with ``originator: sempipe`` exactly as opencode does with its own name.
+browser flow, and a device-code flow for headless machines. smartpipe self-identifies
+with ``originator: smartpipe`` exactly as opencode does with its own name.
 
 The pure pieces (PKCE, URLs, JWT claims) are unit-tested; the HTTP pieces take an
 injected ``httpx.AsyncClient`` so respx pins every wire shape.
@@ -173,7 +173,7 @@ async def start_device_flow(client: httpx.AsyncClient) -> DeviceStart:
     if response.status_code != 200:
         raise SetupFault(
             f"error: couldn't start the device login (HTTP {response.status_code})\n"
-            "  Check your network and try again: sempipe auth login --headless"
+            "  Check your network and try again: smartpipe auth login --headless"
         )
     record = as_record(response.json())
     device_id = as_str(record.get("device_auth_id")) if record is not None else None
@@ -217,7 +217,7 @@ async def poll_device(
         if response.status_code not in _DEVICE_PENDING:
             raise SetupFault(
                 f"error: device login failed (HTTP {response.status_code})\n"
-                "  Start over: sempipe auth login --headless"
+                "  Start over: smartpipe auth login --headless"
             )
         await do_sleep(start.interval_s)  # type: ignore[operator]
 
@@ -280,7 +280,7 @@ async def login_via_browser(
                 self._respond(400, f"Login failed: {message}. You can close this window.")
                 return
             resolve(code, None)
-            self._respond(200, "sempipe is logged in. You can close this window.")
+            self._respond(200, "smartpipe is logged in. You can close this window.")
 
         def _respond(self, status: int, text: str) -> None:
             body = text.encode("utf-8")
@@ -300,9 +300,9 @@ async def login_via_browser(
     except OSError as exc:
         raise SetupFault(
             f"error: couldn't open the login callback port {port} ({exc.strerror or exc})\n"
-            "  Something else is using it. Try the headless flow: sempipe auth login --headless"
+            "  Something else is using it. Try the headless flow: smartpipe auth login --headless"
         ) from exc
-    threading.Thread(target=server.serve_forever, name="sempipe-oauth", daemon=True).start()
+    threading.Thread(target=server.serve_forever, name="smartpipe-oauth", daemon=True).start()
     try:
         url = authorize_url(redirect_uri, pkce, state)
         if announce is not None:
@@ -313,7 +313,7 @@ async def login_via_browser(
             code = await asyncio.wait_for(code_future, timeout=_LOGIN_TIMEOUT_S)
         except TimeoutError:
             raise SetupFault(
-                "error: the login timed out after 5 minutes\n  Run it again: sempipe auth login"
+                "error: the login timed out after 5 minutes\n  Run it again: smartpipe auth login"
             ) from None
         return await exchange_code(client, code, redirect_uri, pkce.verifier)
     finally:
@@ -330,7 +330,7 @@ async def _token_request(client: httpx.AsyncClient, form: dict[str, str]) -> obj
     if response.status_code != 200:
         raise SetupFault(
             f"error: the login token request failed (HTTP {response.status_code})\n"
-            "  Fix: sempipe auth login"
+            "  Fix: smartpipe auth login"
         )
     return response.json()
 
@@ -338,7 +338,7 @@ async def _token_request(client: httpx.AsyncClient, form: dict[str, str]) -> obj
 def _user_agent() -> str:
     from sempipe import __version__
 
-    return f"sempipe/{__version__}"
+    return f"smartpipe/{__version__}"
 
 
 def _jwt_claims(token: str) -> dict[str, object] | None:

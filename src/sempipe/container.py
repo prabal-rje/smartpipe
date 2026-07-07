@@ -136,7 +136,7 @@ class AppContainer:
             raise SetupFault(
                 f"error: no STT wire for {ref.provider!r} yet\n"
                 "  Remote transcription supports openai models: "
-                "sempipe config stt-model openai/whisper-1"
+                "smartpipe config stt-model openai/whisper-1"
             )
         key = self.env.get("OPENAI_API_KEY", "").strip()
         if not key:
@@ -243,7 +243,7 @@ class AppContainer:
             case "jina":
                 raise SetupFault(
                     f"error: '{ref.name}' is an embedding model, not a chat model\n"
-                    "  Jina models embed; pick a chat model: sempipe config model …"
+                    "  Jina models embed; pick a chat model: smartpipe config model …"
                 )
             case "gemini":  # D34: chat rides the NATIVE wire — the one that watches video
                 from sempipe.models.gemini_native import GeminiNativeChatModel, native_base_url
@@ -296,7 +296,7 @@ class AppContainer:
                 raise SetupFault(
                     f"error: '{ref.name}' is a chat model, not an embedding model\n"
                     "  Claude models don't provide embeddings. Use a local one:\n"
-                    "  sempipe config embed-model nomic-embed-text"
+                    "  smartpipe config embed-model nomic-embed-text"
                 )
             case "mistral":  # mistral-embed rides the same /v1/embeddings wire
                 return self._wire_embed(ref, MISTRAL_WIRE)

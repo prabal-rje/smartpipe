@@ -1,4 +1,4 @@
-"""``sempipe join`` — the CLI surface: flags in, verb out (D21)."""
+"""``smartpipe join`` — the CLI surface: flags in, verb out (D21)."""
 
 from __future__ import annotations
 
@@ -117,9 +117,9 @@ def join_command(
 
     \b
     Examples:
-      cat tickets.jsonl | sempipe join "{left.text} concerns {right.name}" --right products.jsonl
-      tail -f events.log | sempipe join "{left.text} involves {right.name}" --right people.jsonl
-      cat orders.jsonl | sempipe join "the same purchase" --right invoices.jsonl --kind anti
+      cat tickets.jsonl | smartpipe join "{left.text} concerns {right.name}" --right products.jsonl
+      tail -f events.log | smartpipe join "{left.text} involves {right.name}" --right people.jsonl
+      cat orders.jsonl | smartpipe join "the same purchase" --right invoices.jsonl --kind anti
 
     Each brace names a side's field ({left.x} / {right.x}; .text is the whole
     item). The right side is embedded once and indexed; each left item is

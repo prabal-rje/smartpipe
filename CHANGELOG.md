@@ -12,6 +12,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   previous lifetime, and remembers the reset time. Local state only.
 
 ### Changed
+- **The command is `smartpipe` now** (`sempipe` remains a working alias, so
+  nothing breaks and old docs/scripts keep running). Help, screens, docs,
+  and the QA pass all say smartpipe; shell completion installs under
+  `_SMARTPIPE_COMPLETE` (doctor recognizes old rc lines too). Per the
+  internals rule, `SEMPIPE_*` env vars, `~/.config/sempipe`, and the import
+  name are unchanged.
 - **The pitch is multimodality-first.** README, docs front page, the repo
   description, `--help`, and the welcome screen now lead with what makes
   sempipe different — PDFs (figures included), scans, images, audio, and

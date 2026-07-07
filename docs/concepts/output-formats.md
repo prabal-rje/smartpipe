@@ -1,18 +1,18 @@
 # Output formats
 
-sempipe adapts its output to where it's going, and lets you override that with
+smartpipe adapts its output to where it's going, and lets you override that with
 `--output`. The goal: readable at your terminal, machine-clean in a pipe.
 
 ## The default: `auto`
 
-With no `--output` flag, sempipe looks at whether stdout is a terminal:
+With no `--output` flag, smartpipe looks at whether stdout is a terminal:
 
 | Result kind | At a terminal | Piped / redirected |
 |---|---|---|
 | Plain text | the text | the text |
 | Structured (JSON) | a readable key/value view | NDJSON (one object per line) |
 
-So `sempipe map "Extract {name, role}"` shows you a tidy view on screen, but the
+So `smartpipe map "Extract {name, role}"` shows you a tidy view on screen, but the
 moment you pipe it into `jq` or a file, it becomes clean NDJSON — no flags needed.
 
 ## Explicit formats
@@ -31,7 +31,7 @@ You can also set a default with the `SEMPIPE_OUTPUT` environment variable.
 Point structured output straight into a spreadsheet:
 
 ```console
-$ cat cards.txt | sempipe map "Extract {name, email, role}" --output csv > people.csv
+$ cat cards.txt | smartpipe map "Extract {name, email, role}" --output csv > people.csv
 ```
 
 ```
@@ -58,7 +58,7 @@ fields with braces or `--schema`; a plain-text prompt with `--output csv` is a
 usage error that tells you so.
 
 ```console
-$ echo hi | sempipe map "shout" --output csv
+$ echo hi | smartpipe map "shout" --output csv
 error: --output csv needs structured output — a table needs named columns
   add braces to the prompt (e.g. "Extract {name, email}") or pass --schema
 ```
@@ -70,7 +70,7 @@ that order. It works the same in every format — NDJSON, the terminal view, CSV
 and TSV — on `map`, `embed`, `top_k`, and `reduce`:
 
 ```console
-$ cat cards.txt | sempipe map "Extract {name, email, role}" --fields name,email --output tsv
+$ cat cards.txt | smartpipe map "Extract {name, email, role}" --fields name,email --output tsv
 name	email
 Ada Lovelace	ada@example.com
 Grace Hopper	grace@example.com
@@ -90,7 +90,7 @@ The projection rules:
   never has the flag — its output is a byte-faithful subset of its input.)
 
 ```console
-$ cat notes.txt | sempipe map "shout" --fields name
+$ cat notes.txt | smartpipe map "shout" --fields name
 error: --fields selects columns from structured output
   This run produces plain text — there are no named fields to pick from.
   Add braces to the prompt (e.g. "Extract {name, email}") or pass --schema.

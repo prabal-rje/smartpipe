@@ -184,7 +184,7 @@ async def _label_clusters(
     if chat is None:
         diagnostics.note(
             "no chat model — clusters are unnamed (cluster 1, 2, …); "
-            "configure one for real labels: sempipe config"
+            "configure one for real labels: smartpipe config"
         )
         return [f"cluster {number}" for number in range(1, len(clusters) + 1)]
     labels: list[str] = []

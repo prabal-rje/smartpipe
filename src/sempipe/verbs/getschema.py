@@ -65,7 +65,7 @@ def run_getschema(request: GetSchemaRequest, *, stdin: TextIO, stdout: TextIO) -
         stdout.write(
             f"plain text lines (no fields) — {scanned:,} lines · median {median:,} chars\n"
         )
-        diagnostics.note('try: sempipe map "Extract {label}" · sempipe cluster')
+        diagnostics.note('try: smartpipe map "Extract {label}" · smartpipe cluster')
         return ExitCode.OK
 
     rows = [
@@ -104,7 +104,7 @@ def run_getschema(request: GetSchemaRequest, *, stdin: TextIO, stdout: TextIO) -
         default=None,
     )
     if best is not None:
-        diagnostics.note(f"try: sempipe chart {best} · sempipe where '{best} …'")
+        diagnostics.note(f"try: smartpipe chart {best} · smartpipe where '{best} …'")
     return ExitCode.OK
 
 

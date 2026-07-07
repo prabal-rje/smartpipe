@@ -1,4 +1,4 @@
-"""``sempipe cache`` — maintenance for the result cache (D38/15)."""
+"""``smartpipe cache`` — maintenance for the result cache (D38/15)."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def _cache_dir() -> Path:
 
 @click.group(name="cache")
 def cache_command() -> None:
-    """Inspect or clear the result cache (enable with: sempipe config cache on)."""
+    """Inspect or clear the result cache (enable with: smartpipe config cache on)."""
 
 
 @cache_command.command(name="clear")

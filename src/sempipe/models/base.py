@@ -82,7 +82,7 @@ MediaData = ImageData | AudioData | VideoData
 @dataclass(frozen=True, slots=True)
 class ModelRef:
     provider: Provider
-    name: str  # passed through to the backend verbatim — sempipe keeps no registry
+    name: str  # passed through to the backend verbatim — smartpipe keeps no registry
 
     def __str__(self) -> str:
         return f"{self.provider}/{self.name}"

@@ -73,7 +73,7 @@ async def run_embed(
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     if (total is None or total > 0) and tty.stdout_is_tty():
         diagnostics.note(
-            "embeddings are large — redirect to a file: sempipe embed > corpus.embeddings"
+            "embeddings are large — redirect to a file: smartpipe embed > corpus.embeddings"
         )
     writer = make_writer(
         WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=request.fields), stdout

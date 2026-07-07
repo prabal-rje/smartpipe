@@ -8,14 +8,14 @@ end you'll have run a real semantic transform over your own text.
 A one-line pipeline that reads text and rewrites every line through an AI model:
 
 ```console
-$ cat notes.txt | sempipe map "translate to French"
+$ cat notes.txt | smartpipe map "translate to French"
 ```
 
 `map` is the verb: it applies your instruction to each line and prints the result.
-To make it work you need two things — sempipe (the tool) and a **model** (the AI
+To make it work you need two things — smartpipe (the tool) and a **model** (the AI
 that does the thinking). Let's get both.
 
-## 1. Install sempipe
+## 1. Install smartpipe
 
 ```console
 $ pip install smartpipe
@@ -25,7 +25,7 @@ $ pip install smartpipe
 
 ## 2. Get a model
 
-A "model" is the AI that reads your instruction and produces the answer. sempipe
+A "model" is the AI that reads your instruction and produces the answer. smartpipe
 doesn't include one; it talks to a model running locally or in the cloud. Pick a
 path:
 
@@ -38,30 +38,30 @@ API key, nothing leaves your computer.
 $ # 1. Install Ollama from https://ollama.com
 $ # 2. Download a small, capable model (~5 GB):
 $ ollama pull qwen3:8b
-$ # 3. Tell sempipe to use it:
-$ sempipe config model ollama/qwen3:8b
+$ # 3. Tell smartpipe to use it:
+$ smartpipe config model ollama/qwen3:8b
 ```
 
 ### Path B — cloud
 
-If you have an API key (OpenAI, Anthropic, Mistral, Gemini, or OpenRouter), point sempipe at a cloud model.
+If you have an API key (OpenAI, Anthropic, Mistral, Gemini, or OpenRouter), point smartpipe at a cloud model.
 Cloud models are typically faster and stronger, and cost a small amount per use.
 
 ```console
-$ sempipe config model gpt-5.4-mini
-$ export OPENAI_API_KEY=sk-...           # sempipe never stores your key
+$ smartpipe config model gpt-5.4-mini
+$ export OPENAI_API_KEY=sk-...           # smartpipe never stores your key
 ```
 
-Either way, `sempipe config` (with no arguments) walks you through this
+Either way, `smartpipe config` (with no arguments) walks you through this
 interactively if you'd rather answer a few questions.
 
-Not sure everything took? `sempipe doctor` checks the whole setup in one
+Not sure everything took? `smartpipe doctor` checks the whole setup in one
 screen — without spending a model call.
 
 ## 3. Your first transform
 
 ```console
-$ echo "hello world" | sempipe map "translate to Spanish"
+$ echo "hello world" | smartpipe map "translate to Spanish"
 hola mundo
 ```
 
@@ -69,7 +69,7 @@ hola mundo
 file:
 
 ```console
-$ printf "good morning\nthank you\n" | sempipe map "translate to French"
+$ printf "good morning\nthank you\n" | smartpipe map "translate to French"
 bonjour
 merci
 ```
@@ -78,12 +78,12 @@ One line in, one line out — in the same order, always.
 
 ## 4. Your first extraction
 
-Put field names in `{braces}` and sempipe asks the model for structured data back,
+Put field names in `{braces}` and smartpipe asks the model for structured data back,
 as JSON:
 
 ```console
 $ echo "Invoice from Acme Corp, dated 2026-01-15, total $1250" \
-    | sempipe map "Extract {vendor, date, total}"
+    | smartpipe map "Extract {vendor, date, total}"
 {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 ```
 
@@ -91,20 +91,20 @@ Because that's JSON, it composes with `jq`:
 
 ```console
 $ echo "Invoice from Acme Corp, total $1250" \
-    | sempipe map "Extract {vendor, total}" | jq -r .total
+    | smartpipe map "Extract {vendor, total}" | jq -r .total
 1250
 ```
 
-That's the whole idea: sempipe turns messy text into structured data you can pipe
+That's the whole idea: smartpipe turns messy text into structured data you can pipe
 into the tools you already use.
 
 ## Where to next
 
 
-- **Working with files?** `sempipe map "summarize" --in 'reports/*.pdf'` —
+- **Working with files?** `smartpipe map "summarize" --in 'reports/*.pdf'` —
   PDFs, images, audio, and video are first-class ([inputs](inputs/files.md)).
-- **Cutting costs?** Put the free verbs first: `sempipe where 'level == "error"'`
-  before any paid stage, `sempipe sample 20` while iterating, and watch the
+- **Cutting costs?** Put the free verbs first: `smartpipe where 'level == "error"'`
+  before any paid stage, `smartpipe sample 20` while iterating, and watch the
   live token/media counts in the status bar ([models & providers](concepts/models-and-providers.md)).
 - **Prepping data at scale?** `distinct` to fold near-duplicates, `extend` to
   add judge scores, `summarize`/`chart` for the balance tables — the

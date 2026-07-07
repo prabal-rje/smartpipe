@@ -1,4 +1,4 @@
-"""``sempipe auth`` — log in with ChatGPT, check the login, log out (D19)."""
+"""``smartpipe auth`` — log in with ChatGPT, check the login, log out (D19)."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def status() -> None:
 
     credential = load_oauth(credentials_path(os.environ), "openai")
     if credential is None:
-        click.echo("openai: not logged in — run: sempipe auth login")
+        click.echo("openai: not logged in — run: smartpipe auth login")
         raise SystemExit(int(ExitCode.OK))
     account = credential.account_id or "unknown account"
     click.echo(

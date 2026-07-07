@@ -1,4 +1,4 @@
-"""``sempipe run`` — execute a ``.sem`` file: one stage, or a pipeline (D17/D38-14).
+"""``smartpipe run`` — execute a ``.sem`` file: one stage, or a pipeline (D17/D38-14).
 
 Single-stage files trampoline into their verb unchanged. Pipeline files
 ([stage.NAME] tables) run stages sequentially in-process: each stage's stdout
@@ -68,9 +68,9 @@ def run_command(script: Path, dry_run: bool, extra: tuple[str, ...]) -> None:
 
     \b
     Examples:
-      sempipe run extract.sem < cards.txt
-      sempipe run triage.sem --dry-run        # the graph + cost posture, zero calls
-      cat tickets.log | sempipe run triage.sem > report.txt
+      smartpipe run extract.sem < cards.txt
+      smartpipe run triage.sem --dry-run        # the graph + cost posture, zero calls
+      cat tickets.log | smartpipe run triage.sem > report.txt
 
     A single-stage file is TOML pinning one verb invocation. A pipeline file
     holds [stage.NAME] tables run in order — each stage reads the previous
@@ -82,7 +82,7 @@ def run_command(script: Path, dry_run: bool, extra: tuple[str, ...]) -> None:
 
 
 def execute_script(script: Path, *, extra: tuple[str, ...] = (), dry_run: bool = False) -> None:
-    """Run a .sem file (single stage or pipeline) — shared by ``sempipe run``
+    """Run a .sem file (single stage or pipeline) — shared by ``smartpipe run``
     and user-named custom verbs (D39/06)."""
     stages = parse_pipeline(script)
     if stages is None:

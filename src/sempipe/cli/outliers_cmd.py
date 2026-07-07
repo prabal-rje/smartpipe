@@ -1,4 +1,4 @@
-"""``sempipe outliers`` — the items least like the rest."""
+"""``smartpipe outliers`` — the items least like the rest."""
 
 from __future__ import annotations
 
@@ -47,8 +47,8 @@ def outliers_command(
 
     \b
     Examples:
-      cat today.log | sempipe outliers 5        # the failure shapes you HAVEN'T seen
-      cat train.jsonl | sempipe outliers 20     # label noise and template glitches
+      cat today.log | smartpipe outliers 5        # the failure shapes you HAVEN'T seen
+      cat train.jsonl | smartpipe outliers 20     # label noise and template glitches
 
     top_k's mirror: farthest from everything instead of nearest to a query.
     Embeddings only — no chat calls. Each row carries _distance, and the

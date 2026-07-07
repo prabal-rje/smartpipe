@@ -133,7 +133,7 @@ async def _run_stream(
     if request.k is None:
         raise UsageFault(
             "top_k --stream needs K (a live leaderboard has a size)\n"
-            '  Example: tail -f tickets.jsonl | sempipe top_k 5 --stream --near "billing dispute"'
+            '  Example: tail -f tickets.jsonl | smartpipe top_k 5 --stream --near "billing dispute"'
         )
     if request.input.patterns or request.input.from_files:
         raise UsageFault(

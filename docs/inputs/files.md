@@ -1,23 +1,23 @@
 # File inputs
 
 Every verb can read files instead of stdin lines. Point it at documents and each
-*file* becomes one item — sempipe figures out how to read it.
+*file* becomes one item — smartpipe figures out how to read it.
 
 ## `--in` — a glob of files
 
 ```console
 # Each PDF is one item; summarize each:
-$ sempipe map "Summarize this document" --in 'reports/*.pdf'
+$ smartpipe map "Summarize this document" --in 'reports/*.pdf'
 
 # Rank résumés by relevance (the classic):
-$ sempipe top_k 5 --near "distributed systems engineer" --in 'resumes/*.pdf'
+$ smartpipe top_k 5 --near "distributed systems engineer" --in 'resumes/*.pdf'
 
 # Keep the documents that mention a topic:
-$ sempipe filter "discusses budget cuts" --in 'board-notes/**/*.md'
+$ smartpipe filter "discusses budget cuts" --in 'board-notes/**/*.md'
 ```
 
 > **Quote the pattern.** Write `--in '*.pdf'` with quotes so your shell passes the
-> pattern to sempipe instead of expanding it first. `**` recurses into
+> pattern to smartpipe instead of expanding it first. `**` recurses into
 > subdirectories.
 
 ## `--from-files` — filenames on stdin
@@ -25,22 +25,22 @@ $ sempipe filter "discusses budget cuts" --in 'board-notes/**/*.md'
 Compose with `find`, `ls`, `git`, or anything that lists paths:
 
 ```console
-$ find . -name '*.md' -mtime -7 | sempipe map "Summarize" --from-files
-$ git ls-files '*.py' | sempipe filter "has a TODO comment" --from-files
+$ find . -name '*.md' -mtime -7 | smartpipe map "Summarize" --from-files
+$ git ls-files '*.py' | smartpipe filter "has a TODO comment" --from-files
 ```
 
 Each stdin line is treated as a filename; each file becomes one item.
 
 ## The user never names a parser
 
-This is the point: you don't tell sempipe *how* to read a file. It detects the kind
+This is the point: you don't tell smartpipe *how* to read a file. It detects the kind
 and extracts the text automatically.
 
-| You point at… | sempipe does… |
+| You point at… | smartpipe does… |
 |---|---|
 | `.txt` `.md` `.csv` `.json` | reads it as text |
-| `.pdf` `.docx` `.pptx` `.xlsx` `.html` `.epub` | extracts the text (needs `sempipe[files]`) |
-| `.mp3` `.wav` `.flac` … | transcribes it (needs `sempipe[audio]`) |
+| `.pdf` `.docx` `.pptx` `.xlsx` `.html` `.epub` | extracts the text (needs `smartpipe[files]`) |
+| `.mp3` `.wav` `.flac` … | transcribes it (needs `smartpipe[audio]`) |
 | anything unreadable | skips it with a warning — never crashes |
 
 Detection is by extension first, with a magic-byte fallback for files whose name
@@ -52,12 +52,12 @@ Parsing documents and audio needs extra packages, kept optional so a plain insta
 stays tiny:
 
 ```console
-$ pip install 'sempipe[files]'    # PDF, Word, PowerPoint, Excel, HTML, EPUB
-$ pip install 'sempipe[audio]'    # audio transcription
-$ pip install 'sempipe[all]'      # everything
+$ pip install 'smartpipe[files]'    # PDF, Word, PowerPoint, Excel, HTML, EPUB
+$ pip install 'smartpipe[audio]'    # audio transcription
+$ pip install 'smartpipe[all]'      # everything
 ```
 
-If you point `--in` at PDFs without `sempipe[files]` installed, sempipe tells you
+If you point `--in` at PDFs without `smartpipe[files]` installed, smartpipe tells you
 exactly what to install (once), then skips those files.
 
 ## What file mode returns
@@ -80,8 +80,8 @@ Point `map` at images and each one is sent — bytes and all — to the model, w
 prompt applied to what it *sees*:
 
 ```console
-$ sempipe map "Describe the product shown" --in 'photos/*.jpg' --model ollama/qwen3-vl
-$ sempipe map "Extract {brand, color}" --in shelf.png --model gpt-5.4-mini
+$ smartpipe map "Describe the product shown" --in 'photos/*.jpg' --model ollama/qwen3-vl
+$ smartpipe map "Extract {brand, color}" --in shelf.png --model gpt-5.4-mini
 ```
 
 The chat model must be vision-capable; if it isn't, the item is skipped with a
@@ -90,11 +90,11 @@ with a pointer to `map`.
 
 ## A binary document on stdin
 
-Redirect a single document and it becomes one item — sempipe sniffs the bytes,
+Redirect a single document and it becomes one item — smartpipe sniffs the bytes,
 spools, and parses it exactly as `--in` would:
 
 ```console
-$ sempipe map "Summarize this document" < report.pdf
+$ smartpipe map "Summarize this document" < report.pdf
 ```
 
 One document per run (stdin is one stream); for many documents use `--in`.
@@ -106,7 +106,7 @@ Unrecognizable binary data stops with a clear message instead of garbling.
 stdin lines, one run:
 
 ```console
-$ cat extra-notes.txt | sempipe map "Summarize" --in 'reports/*.pdf'
+$ cat extra-notes.txt | smartpipe map "Summarize" --in 'reports/*.pdf'
 ```
 
 ## Video: frames + soundtrack
@@ -114,7 +114,7 @@ $ cat extra-notes.txt | sempipe map "Summarize" --in 'reports/*.pdf'
 A video file becomes an item carrying its bytes. On `gemini-2.5-*` models the
 video rides the native wire whole — the model watches it, soundtrack included.
 Everywhere else `map` converts it locally
-(ffmpeg, via `pip install 'sempipe[video]'` or PATH): six evenly-sampled frames
+(ffmpeg, via `pip install 'smartpipe[video]'` or PATH): six evenly-sampled frames
 plus the audio track, sent natively when the model can see/hear, with a whisper
 transcript as the fallback rung. Every conversion is announced on its row
 (`⚠ degraded: demo.mp4 video → frames+audio (6 frames + audio)`). Text verbs
@@ -129,8 +129,8 @@ up to 8 figures per document (a stderr note counts them:
 Per page, fused:
 
 ```console
-$ sempipe split --by pages --media --in report.pdf \
-    | sempipe map "summarize this page, including what each figure shows"
+$ smartpipe split --by pages --media --in report.pdf \
+    | smartpipe map "summarize this page, including what each figure shows"
 ```
 
 One item per page with that page's text and figures together. Text verbs
@@ -145,7 +145,7 @@ don't ride along implicitly (a 100-page deck can carry 300 decorative logos —
 an item explosion you should choose, not inherit). When you want them:
 
 ```console
-$ sempipe split --media --in report.pdf | sempipe map "describe this figure"
+$ smartpipe split --media --in report.pdf | smartpipe map "describe this figure"
 {"image_b64": "…", "mime": "image/jpeg", "source": "report.pdf p.7 img.2"}
 ```
 
@@ -162,7 +162,7 @@ its **bytes**, not an eager transcript:
 
 - `map` with an audio-capable model (`gemini-2.5-*`, `voxtral-*`) sends
   the sound itself — tone and speaker changes included.
-- With any other model, sempipe transcribes **locally** when the `[audio]`
+- With any other model, smartpipe transcribes **locally** when the `[audio]`
   extra is installed (a one-time stderr note says so), then retries as text.
   The transcriber is faster-whisper, `tiny` by default: fast, but rough on
   names and noisy audio. `SEMPIPE_WHISPER_MODEL=small` (or `medium`,
@@ -179,7 +179,7 @@ its **bytes**, not an eager transcript:
 
 ## Scanned documents
 
-Scanned PDFs have no text layer. sempipe detects the thin layer, keeps the
+Scanned PDFs have no text layer. smartpipe detects the thin layer, keeps the
 page images on the item, and says so:
 
 ```
@@ -192,4 +192,4 @@ OCR); text verbs caption them through the conversion ladder (consent rules
 apply). For long scans, `split --by pages --media` processes every page —
 the whole-document item caps at 8 images for request-size sanity. Pick a
 model that can see (`gpt-5.4-mini`, `gemini-2.5-flash`, `ollama/llava`);
-`sempipe doctor --probe` verifies actual ability.
+`smartpipe doctor --probe` verifies actual ability.

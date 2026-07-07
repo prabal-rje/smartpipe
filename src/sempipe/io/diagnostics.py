@@ -34,7 +34,7 @@ __all__ = [
 
 _RED = "\x1b[31m"
 _RESET = "\x1b[0m"
-_ISSUES_URL = "https://github.com/prabal-rje/sempipe/issues/new"
+_ISSUES_URL = "https://github.com/prabal-rje/smartpipe/issues/new"
 
 
 def warn(message: str) -> None:
@@ -100,7 +100,7 @@ class DegradationLog:
 
 def report_error(screen: str) -> None:
     """Emit a full error screen without exiting — for commands that own their
-    exit code after cleanup (e.g. ``sempipe schema``'s empty-stdout guarantee)."""
+    exit code after cleanup (e.g. ``smartpipe schema``'s empty-stdout guarantee)."""
     _emit_error(screen if screen.startswith("error:") else f"error: {screen}")
 
 
@@ -125,7 +125,7 @@ def die(fault: SempipeError, *, debug: bool = False) -> NoReturn:
 
 def internal_error(exc: BaseException, *, debug: bool) -> NoReturn:
     summary = f"{type(exc).__name__}: {exc}".splitlines()[0]
-    _emit_error("error: internal error — this is a bug in sempipe, not in your usage")
+    _emit_error("error: internal error — this is a bug in smartpipe, not in your usage")
     sys.stderr.write(f"  {summary}\n")
     if debug:
         sys.stderr.write("".join(traceback.format_exception(exc)))

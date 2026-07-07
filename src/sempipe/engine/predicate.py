@@ -35,7 +35,7 @@ WHERE_MENU = (
     '             FIELD == VALUE · != · > · >= · < · <=   (numbers or "strings")\n'
     "  Combine:   and · or · not · ( )     FIELD is a record field, or text\n"
     '  Example:   text has "ERROR" and not text contains "retry"\n'
-    "  Semantic condition instead? sempipe filter judges with a model."
+    "  Semantic condition instead? smartpipe filter judges with a model."
 )
 
 

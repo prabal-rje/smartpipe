@@ -1,4 +1,4 @@
-sempipe — semantic pipes for your terminal
+smartpipe — semantic pipes for your terminal
 PDFs, images, audio, video, and text — verbs that understand their input.
 
 Verbs (call a model):
@@ -25,7 +25,7 @@ Utilities (free — no model calls):
   config   Configure models and settings
 
 Get started:
-  sempipe config                                     Interactive setup
-  echo "hello" | sempipe map "translate to Spanish"
+  smartpipe config                                     Interactive setup
+  echo "hello" | smartpipe map "translate to Spanish"
 
-'sempipe <command> --help' shows examples for each command.
+'smartpipe <command> --help' shows examples for each command.

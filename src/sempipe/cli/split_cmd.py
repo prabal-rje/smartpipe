@@ -1,4 +1,4 @@
-"""``sempipe split`` — break oversized items into chunk items. No model calls."""
+"""``smartpipe split`` — break oversized items into chunk items. No model calls."""
 
 from __future__ import annotations
 
@@ -47,9 +47,9 @@ def split_command(
 
     \b
     Examples:
-      sempipe split --in '10k-filings/*.pdf' | sempipe map "list the risk factors {risk}"
-      sempipe split --by pages:5 --in report.pdf | sempipe map "summarize these pages"
-      sempipe split --by minutes:10 --in call.mp3 | sempipe map "what was agreed?"
+      smartpipe split --in '10k-filings/*.pdf' | smartpipe map "list the risk factors {risk}"
+      smartpipe split --by pages:5 --in report.pdf | smartpipe map "summarize these pages"
+      smartpipe split --by minutes:10 --in call.mp3 | smartpipe map "what was agreed?"
 
     Each chunk is a JSON record: {"text": …, "source": "report.pdf §3/12"} —
     paragraph-boundary aware, and the chunks of a document concatenate back to

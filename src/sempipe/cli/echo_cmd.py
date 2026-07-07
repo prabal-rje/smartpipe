@@ -1,8 +1,8 @@
 """Hidden debug verb: pass input through the io spine untouched.
 
 Not listed in help on purpose — it exists so anyone (including future us,
-debugging a support question) can see exactly how sempipe itemizes and
-serializes a given input: ``cat mystery.jsonl | sempipe echo --output json``.
+debugging a support question) can see exactly how smartpipe itemizes and
+serializes a given input: ``cat mystery.jsonl | smartpipe echo --output json``.
 It is also the standing integration test of the whole io layer.
 """
 
@@ -30,7 +30,7 @@ __all__ = ["echo_command"]
     help="Output format.",
 )
 def echo_command(output_format: str) -> None:
-    """Pass stdin through sempipe's item pipeline unchanged (debugging aid)."""
+    """Pass stdin through smartpipe's item pipeline unchanged (debugging aid)."""
     asyncio.run(_run(OutputFormat(output_format)))
 
 

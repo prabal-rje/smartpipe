@@ -1,4 +1,4 @@
-"""Support ``python -m sempipe``."""
+"""Support ``python -m smartpipe``."""
 
 from __future__ import annotations
 

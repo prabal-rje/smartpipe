@@ -5,7 +5,7 @@ representative quotes. The Monday slide, the phishing lure families, and the
 qualitative codebook in one verb.
 
 ```console
-$ cat feedback.txt | sempipe cluster
+$ cat feedback.txt | smartpipe cluster
 cluster: ~612 embeddings + one label call per cluster (typically < 20)
 {"cluster": "checkout fails on mobile", "size": 41, "share": 0.31, "examples": ["payment dies on iPhone", "…", "…"]}
 {"cluster": "praise for dark mode", "size": 17, "share": 0.13, "examples": ["…"]}
@@ -30,7 +30,7 @@ same clusters: your slide doesn't change under you.
   or a training file:
 
 ```console
-$ cat snippets.txt | sempipe cluster --explode members > coded.jsonl
+$ cat snippets.txt | smartpipe cluster --explode members > coded.jsonl
 ```
 
 Without a chat model configured the clusters still form, just numbered

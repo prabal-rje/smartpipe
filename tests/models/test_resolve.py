@@ -53,7 +53,7 @@ async def test_autodetect_picks_first_non_embed_model_with_notice() -> None:
     assert str(resolved.ref) == "ollama/qwen3:8b"  # embed model skipped
     assert resolved.notice is not None
     assert "no model configured" in resolved.notice
-    assert "sempipe config model ollama/qwen3:8b" in resolved.notice
+    assert "smartpipe config model ollama/qwen3:8b" in resolved.notice
 
 
 async def test_no_model_and_no_ollama_is_the_screen() -> None:

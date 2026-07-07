@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "smartpipe"
 version = "1.2.0"
-description = "Pipe PDFs, images, audio, video, and text through Unix verbs that understand — local-first semantic pipelines."
+description = "Semantic pipes for your terminal — PDFs, images, audio, video, and text through Unix verbs that understand. Local-first."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -40,8 +40,8 @@ charts = ["svgwrite>=1.4"]  # --save for sempipe chart (pure-python, zero deps)
 all = ["smartpipe[anthropic,files,audio,video,charts]"]
 
 [project.scripts]
-sempipe = "sempipe.cli.root:main"
-smartpipe = "sempipe.cli.root:main"  # the distribution name works as a command too
+smartpipe = "sempipe.cli.root:main"
+sempipe = "sempipe.cli.root:main"  # compat alias — the old name keeps working
 
 [project.urls]
 Homepage = "https://github.com/prabal-rje/smartpipe"

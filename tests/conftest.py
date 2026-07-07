@@ -1,6 +1,6 @@
 """Shared fixtures.
 
-``run_cli`` is the canonical way every test invokes sempipe: it exercises the real
+``run_cli`` is the canonical way every test invokes smartpipe: it exercises the real
 ``main()`` entry point (including its exception-to-exit-code mapping, which click's
 ``CliRunner`` would bypass) while capturing stdout/stderr separately.
 """

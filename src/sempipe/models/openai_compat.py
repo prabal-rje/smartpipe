@@ -141,7 +141,7 @@ class OpenAIChatModel:
             payload["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "sempipe_output",
+                    "name": "smartpipe_output",
                     "schema": schema,
                     # claiming strict for a schema with optional fields draws a 400;
                     # non-strict stays schema-guided, validate_and_coerce is the backstop
@@ -233,7 +233,8 @@ async def _post(
         raise SetupFault(
             f"error: can't reach {model.base_url} ({exc})\n"
             f"  The model '{model.ref}' needs that endpoint.\n"
-            f"  Check your network, or {model.wire.base_url_env} if you pointed sempipe elsewhere."
+            f"  Check your network, or {model.wire.base_url_env} if you pointed\n"
+            "  smartpipe elsewhere."
         ) from exc
     except httpx.HTTPError as exc:
         raise ItemError(f"request to {model.base_url} failed: {exc}") from exc
@@ -279,7 +280,7 @@ def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
                     raise ItemError(
                         f"audio format {part.mime} isn't sendable — "
                         "wav or mp3 reach audio models natively; "
-                        "install 'sempipe[audio]' to transcribe others"
+                        "install 'smartpipe[audio]' to transcribe others"
                     )
                 encoded = base64.b64encode(part.data).decode()
                 parts.append(

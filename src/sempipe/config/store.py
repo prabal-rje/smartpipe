@@ -2,7 +2,7 @@
 
 Rules (plan/decisions.md D09 + DEFER-1): the file is optional; unknown keys are
 *ignored* on read (forward compatibility) but *preserved* on write — an older
-sempipe never strips a newer one's settings; wrong-typed values fail loudly
+smartpipe never strips a newer one's settings; wrong-typed values fail loudly
 with the key named; API keys are never stored here. Writes are atomic
 (same-directory temp file + ``os.replace``), so a concurrent reader can never
 see a torn file. Comments do not survive a rewrite: tomli-w cannot round-trip
@@ -138,7 +138,7 @@ def _active_profile(
         raise SetupFault(
             f"error: profile {name!r} doesn't exist\n"
             f"  Known profiles: {', '.join(sorted(known))}\n"
-            "  Pick one: sempipe config profile NAME — or define [profiles."
+            "  Pick one: smartpipe config profile NAME — or define [profiles."
             f"{name}] in {human_path(path)}"
         )
     return name
@@ -240,7 +240,7 @@ def _broken_screen(path: Path, exc: tomllib.TOMLDecodeError) -> str:
     return (
         "error: config file has a syntax error\n"
         f"  {human_path(path)}{location}: {detail}\n"
-        "  Fix the line, or start fresh: sempipe config"
+        "  Fix the line, or start fresh: smartpipe config"
     )
 
 
@@ -248,5 +248,5 @@ def _wrong_type_screen(path: Path, key: str, expected: str, value: object) -> st
     return (
         f"error: config value '{key}' should be {expected}\n"
         f"  {human_path(path)} has: {key} = {value!r}\n"
-        f"  Fix the line, or reset it: sempipe config"
+        f"  Fix the line, or reset it: smartpipe config"
     )

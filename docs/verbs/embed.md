@@ -7,10 +7,10 @@ Turns each item into a vector embedding. This is a utility verb — it exists to
 
 ```console
 # Embed a corpus and save it for reuse:
-$ cat docs/*.md | sempipe embed > corpus.embeddings
+$ cat docs/*.md | smartpipe embed > corpus.embeddings
 
 # Embed a single query (useful in scripts):
-$ echo "senior Python backend engineer" | sempipe embed | jq '.vector | length'
+$ echo "senior Python backend engineer" | smartpipe embed | jq '.vector | length'
 768
 ```
 
@@ -75,10 +75,10 @@ much lower than the others).
 
 ## Notes
 
-- **Embeddings are transient by design.** sempipe has no vector database — the
+- **Embeddings are transient by design.** smartpipe has no vector database — the
   embeddings live in the pipe. Redirect to a file if you want to keep them.
 - **The embedding model is separate from the chat model.** Set it with
-  `sempipe config embed-model …` or `--embed-model`. Whatever you embed a corpus
+  `smartpipe config embed-model …` or `--embed-model`. Whatever you embed a corpus
   with, use the *same* model when you query it with `top_k`.
 
 ## See also

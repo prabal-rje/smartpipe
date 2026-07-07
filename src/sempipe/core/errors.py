@@ -29,7 +29,7 @@ class ExitCode(IntEnum):
 
 
 class SempipeError(Exception):
-    """Base of all *expected* sempipe failures. Never raised directly."""
+    """Base of all *expected* smartpipe failures. Never raised directly."""
 
 
 class UsageFault(SempipeError):

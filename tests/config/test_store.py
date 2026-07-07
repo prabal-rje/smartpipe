@@ -76,7 +76,7 @@ def test_broken_toml_is_a_setup_fault_with_location_and_fix(tmp_path: Path) -> N
     message = str(excinfo.value)
     assert message.startswith("error: config file has a syntax error")
     assert "line 1" in message
-    assert "sempipe config" in message  # the fix is in the message
+    assert "smartpipe config" in message  # the fix is in the message
 
 
 def test_wrong_value_type_is_a_setup_fault_naming_the_key(tmp_path: Path) -> None:

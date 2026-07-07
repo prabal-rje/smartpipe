@@ -26,7 +26,7 @@ _BUCKETS: dict[str, int] = {
 BUCKETS_MENU = (
     "error: unknown time bucket\n"
     "  Buckets: 1m · 5m · 15m · 1h · 6h · 1d\n"
-    "  Example: sempipe chart --by-time ts:1h"
+    "  Example: smartpipe chart --by-time ts:1h"
 )
 
 _EPOCH_MILLIS_FLOOR = 1e11  # numbers past this are milliseconds, not seconds

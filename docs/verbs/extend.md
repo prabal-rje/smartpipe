@@ -8,7 +8,7 @@ pipeline that produced them.
 ```console
 $ head -1 tickets.jsonl
 {"id": 812, "customer": "acme", "body": "app crashes when saving"}
-$ cat tickets.jsonl | sempipe extend "Add {sentiment enum(pos, neg, neutral), product string}"
+$ cat tickets.jsonl | smartpipe extend "Add {sentiment enum(pos, neg, neutral), product string}"
 {"id": 812, "customer": "acme", "body": "app crashes when saving", "sentiment": "neg", "product": "app"}
 ```
 

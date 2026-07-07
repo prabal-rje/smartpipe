@@ -95,7 +95,7 @@ def resolve_format(
                 requested = OutputFormat(env_value)
             except ValueError:
                 raise UsageFault(
-                    f"SEMPIPE_OUTPUT={env_value!r} isn't a format sempipe knows\n"
+                    f"SEMPIPE_OUTPUT={env_value!r} isn't a format smartpipe knows\n"
                     "  valid values: auto, text, json, csv, tsv"
                 ) from None
     match requested:

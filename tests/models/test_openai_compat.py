@@ -102,7 +102,7 @@ async def test_response_format_present_iff_schema(
     sent = json.loads(route.calls.last.request.content)
     assert sent["response_format"] == {
         "type": "json_schema",
-        "json_schema": {"name": "sempipe_output", "schema": strict_schema, "strict": True},
+        "json_schema": {"name": "smartpipe_output", "schema": strict_schema, "strict": True},
     }
 
     # a schema strict mode would 400 on (optional field) must NOT claim strict

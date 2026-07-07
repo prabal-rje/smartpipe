@@ -32,7 +32,7 @@ SUMMARIZE_MENU = (
     "  Shape:        AGG[, AGG…] [by FIELD[, FIELD…]]\n"
     "  Aggregations: count() · sum(f) · avg(f) · min(f) · max(f)\n"
     "                p50(f) · p90(f) · p95(f) · p99(f) · dcount(f)\n"
-    "  Example:      sempipe summarize 'count(), avg(total), p95(total) by region'"
+    "  Example:      smartpipe summarize 'count(), avg(total), p95(total) by region'"
 )
 
 _FUNCTIONS = ("count", "sum", "avg", "min", "max", "p50", "p90", "p95", "p99", "dcount")

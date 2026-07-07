@@ -36,7 +36,7 @@ def _container(
     # XDG pinned to nowhere: these tests must never see the developer's real
     # ~/.config/sempipe (a stored ChatGPT login there satisfies key-or-login
     # and silently flips the no-key tests)
-    isolated = {"XDG_CONFIG_HOME": "/nonexistent-sempipe-tests", **(env or {})}
+    isolated = {"XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests", **(env or {})}
     return AppContainer(env=isolated, config=config or Config(), http_client=client, retry=FAST)
 
 

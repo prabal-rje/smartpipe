@@ -8,7 +8,7 @@ meaning, not keyword.
 The classic: rank a stack of résumés against a role.
 
 ```console
-$ sempipe top_k 5 --near "senior distributed systems engineer, Rust, Kubernetes" \
+$ smartpipe top_k 5 --near "senior distributed systems engineer, Rust, Kubernetes" \
     --in 'resumes/*.pdf'
 ```
 
@@ -30,10 +30,10 @@ If you'll run several queries against the same corpus, embed it once and reuse t
 vectors — much cheaper than re-embedding every time:
 
 ```console
-$ sempipe embed --in 'docs/**/*.md' > corpus.embeddings
+$ smartpipe embed --in 'docs/**/*.md' > corpus.embeddings
 
-$ cat corpus.embeddings | sempipe top_k 10 --near "our data retention policy"
-$ cat corpus.embeddings | sempipe top_k 10 --near "incident response runbook"
+$ cat corpus.embeddings | smartpipe top_k 10 --near "our data retention policy"
+$ cat corpus.embeddings | smartpipe top_k 10 --near "incident response runbook"
 ```
 
 `top_k` sees the precomputed `vector` in each record and skips re-embedding.
@@ -43,9 +43,9 @@ $ cat corpus.embeddings | sempipe top_k 10 --near "incident response runbook"
 Feed the top files straight into `map` to pull structured data from just the winners:
 
 ```console
-$ sempipe top_k 20 --near "indemnification clause" --in 'legal/*.pdf' \
+$ smartpipe top_k 20 --near "indemnification clause" --in 'legal/*.pdf' \
     | cut -f1 \
-    | sempipe map "Extract {clause_text, liability_cap}" --from-files --output csv
+    | smartpipe map "Extract {clause_text, liability_cap}" --from-files --output csv
 ```
 
 `cut -f1` drops the score column, leaving filenames; `--from-files` feeds them to
@@ -56,7 +56,7 @@ $ sempipe top_k 20 --near "indemnification clause" --in 'legal/*.pdf' \
 Don't know how many are relevant? Keep everything above a similarity bar:
 
 ```console
-$ sempipe top_k --near "GDPR compliance" --threshold 0.8 --in 'policies/*.pdf'
+$ smartpipe top_k --near "GDPR compliance" --threshold 0.8 --in 'policies/*.pdf'
 ```
 
 ## See also

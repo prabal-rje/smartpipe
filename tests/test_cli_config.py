@@ -84,7 +84,7 @@ def test_bare_config_without_tty_is_setup_fault(run_cli: RunCli, config_home: Pa
     code, _out, err = run_cli(["config"], stdin="")
     assert code == 2
     assert "interactive and needs a terminal" in err
-    assert "sempipe config model ollama/qwen3:8b" in err
+    assert "smartpipe config model ollama/qwen3:8b" in err
 
 
 # --- interactive setup (unit, injected I/O) -----------------------------------
@@ -248,4 +248,4 @@ async def test_wizard_offers_profiles_first_on_a_fresh_setup(tmp_path: Path) -> 
     assert result.profile == "local"
     assert saved and saved[0].profile == "local"
     assert any("gemma-4-e2b" in line for line in said)
-    assert any("sempipe doctor" in line for line in said)
+    assert any("smartpipe doctor" in line for line in said)

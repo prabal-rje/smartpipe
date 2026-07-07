@@ -1,7 +1,7 @@
 """The OAuth token store (plan/decisions.md D19) — ``auth.json`` beside the config.
 
 The narrowest amendment to "nothing stored": one file, mode 0600, one purpose
-(login tokens that must persist to refresh), removable with ``sempipe auth
+(login tokens that must persist to refresh), removable with ``smartpipe auth
 logout``. API keys never live here. Unknown provider entries are preserved on
 rewrite (forward compatibility, same spirit as the config store).
 """
@@ -93,7 +93,7 @@ def _read_raw(path: Path) -> dict[str, object]:
         raise SetupFault(
             f"error: the login store is unreadable\n"
             f"  {human_path(path)}: {exc}\n"
-            "  Fix the file, or remove it and log in again: sempipe auth login"
+            "  Fix the file, or remove it and log in again: smartpipe auth login"
         ) from exc
     record = as_record(parsed)
     return dict(record) if record is not None else {}

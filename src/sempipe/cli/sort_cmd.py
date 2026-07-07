@@ -1,4 +1,4 @@
-"""``sempipe sort`` — order records by a field, without the jq incantation."""
+"""``smartpipe sort`` — order records by a field, without the jq incantation."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ def sort_command(by: str, descending: bool) -> None:
 
     \b
     Examples:
-      cat scored.ndjson | sempipe sort --by _score --desc | head -5
-      sempipe map "…{confidence number}" --in 'docs/*.pdf' | sempipe sort --by confidence --desc
+      cat scored.ndjson | smartpipe sort --by _score --desc | head -5
+      smartpipe map "…{confidence number}" --in 'docs/*.pdf' | smartpipe sort --by confidence --desc
 
     Numbers sort numerically, strings lexically (numbers first when mixed);
     rows missing the field always land LAST, in both directions, with a

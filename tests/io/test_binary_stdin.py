@@ -116,7 +116,7 @@ async def test_multibyte_char_split_at_the_boundary(pipe: _BytePipe) -> None:
 async def test_binary_garbage_is_a_setup_fault(pipe: _BytePipe) -> None:
     pipe.write(b"\x00\x01\x02\xff\x87\x00\x00garbage")
     pipe.close_write()
-    with pytest.raises(SetupFault, match="binary data sempipe can't parse"):
+    with pytest.raises(SetupFault, match="binary data smartpipe can't parse"):
         await _collect(pipe)
 
 

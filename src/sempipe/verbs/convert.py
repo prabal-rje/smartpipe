@@ -225,7 +225,7 @@ async def embed_video_halves(
 
 
 AUDIO_NEEDS_TEXT = (
-    "audio items need text here — install 'sempipe[audio]' to transcribe, "
+    "audio items need text here — install 'smartpipe[audio]' to transcribe, "
     "or use map with an audio model"
 )
 

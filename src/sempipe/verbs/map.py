@@ -107,7 +107,7 @@ async def run_map(
         if not structured:
             raise UsageFault(
                 "--tally needs structured output — name fields in braces or pass --schema\n"
-                '  Example: sempipe map "Extract {label}" --tally label'
+                '  Example: smartpipe map "Extract {label}" --tally label'
             )
         from sempipe.engine.tally import Tally
 
@@ -115,7 +115,7 @@ async def run_map(
     if request.explode_field is not None and not structured:
         raise UsageFault(
             "--explode needs structured output — name fields in braces or pass --schema\n"
-            '  Example: sempipe map "Extract {risks}" --explode risks'
+            '  Example: smartpipe map "Extract {risks}" --explode risks'
         )
 
     spinner = make_stderr_spinner()

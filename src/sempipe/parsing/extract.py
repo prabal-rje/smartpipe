@@ -74,7 +74,7 @@ def extract(path: Path, kind: FileKind) -> Extracted:
             return Extracted(text=_via_markitdown(path, extra="audio", noun="audio"))
         case "video":
             raise ItemError(
-                "video reaches text extraction unconverted — this is a sempipe bug"
+                "video reaches text extraction unconverted — this is a smartpipe bug"
             )  # readers hand video BYTES to the verbs; conversion is per-verb (D27)
         case "image":
             return Extracted(text="", image=_read_image(path))
@@ -106,7 +106,7 @@ def pdf_page_texts(path: Path) -> list[str]:
         raise MissingExtra(
             "files",
             "error: parsing documents needs an optional dependency\n"
-            "  install it with:  pip install 'sempipe[files]'",
+            "  install it with:  pip install 'smartpipe[files]'",
         ) from exc
     try:
         with path.open("rb") as handle:
@@ -169,7 +169,7 @@ def _slice_via_ffmpeg(audio: AudioData, *, seconds: int) -> list[AudioData]:
     import subprocess
     import tempfile
 
-    workdir = tempfile.mkdtemp(prefix="sempipe-slice-")
+    workdir = tempfile.mkdtemp(prefix="smartpipe-slice-")
     source = os.path.join(workdir, "source")
     pattern = os.path.join(workdir, "slice-%04d.wav")
     try:
@@ -275,7 +275,7 @@ def _pdf_images(path: Path) -> EmbeddedMedia:
         raise MissingExtra(
             "files",
             "error: parsing documents needs an optional dependency\n"
-            "  install it with:  pip install 'sempipe[files]'",
+            "  install it with:  pip install 'smartpipe[files]'",
         ) from exc
     images: list[EmbeddedImage] = []
     dropped = 0
@@ -338,7 +338,7 @@ def _pdf_lookup(mapping: object, key: str) -> object:
 
 _VIDEO_NEEDS_FFMPEG = (
     "working with video needs ffmpeg\n"
-    "  install the extra:  pip install 'sempipe[video]'   (bundles a static ffmpeg)\n"
+    "  install the extra:  pip install 'smartpipe[video]'   (bundles a static ffmpeg)\n"
     "  or put ffmpeg on PATH"
 )
 
@@ -390,7 +390,7 @@ def video_to_parts(video: VideoData, *, max_frames: int = 24) -> VideoParts:
     from pathlib import Path
 
     exe = ffmpeg_exe()
-    workdir = tempfile.mkdtemp(prefix="sempipe-video-")
+    workdir = tempfile.mkdtemp(prefix="smartpipe-video-")
     source = os.path.join(workdir, "source")
     try:
         with open(source, "wb") as handle:
@@ -469,7 +469,7 @@ def slice_video(video: VideoData, *, seconds: int) -> list[VideoData]:
     from pathlib import Path
 
     exe = ffmpeg_exe()
-    workdir = tempfile.mkdtemp(prefix="sempipe-vslice-")
+    workdir = tempfile.mkdtemp(prefix="smartpipe-vslice-")
     source = os.path.join(workdir, "source.mp4")
     pattern = os.path.join(workdir, "slice-%04d.mp4")
     try:
@@ -531,7 +531,7 @@ def transcribe_audio(audio: AudioData) -> str:
         from faster_whisper import WhisperModel
     except ImportError as exc:
         raise MissingExtra(
-            "audio", "transcribing audio needs: pip install 'sempipe[audio]'"
+            "audio", "transcribing audio needs: pip install 'smartpipe[audio]'"
         ) from exc
 
     size = whisper_size(os.environ)
@@ -559,7 +559,7 @@ def _via_markitdown(path: Path, *, extra: str, noun: str) -> str:
         raise MissingExtra(
             extra,
             f"error: parsing {noun} needs an optional dependency\n"
-            f"  install it with:  pip install 'sempipe[{extra}]'",
+            f"  install it with:  pip install 'smartpipe[{extra}]'",
         ) from exc
     try:
         result = MarkItDown().convert(str(path))

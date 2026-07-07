@@ -5,7 +5,7 @@ everything**. Novelty, surfaced — the failure shape you haven't seen, the
 mislabeled training row, the alert that isn't like the others.
 
 ```console
-$ cat today.log | sempipe outliers 5
+$ cat today.log | smartpipe outliers 5
 outliers: median neighbor distance 0.21 — these are 3.1x-3.9x out
 {"text": "kernel: watchdog: BUG: soft lockup CPU#3", "_distance": 0.81, "source": "line 48122"}
 ```
@@ -22,6 +22,6 @@ lines) — learning one verb teaches the other.
 Small print: needs at least 3 items; rows that fail to embed are excluded
 with a warning (an unexamined item can't be scored).
 
-Typical loops: `sempipe where 'level has "error"' | sempipe outliers 5`
-(triage novel failures), `sempipe outliers 20 < train.jsonl` (hunt label
+Typical loops: `smartpipe where 'level has "error"' | smartpipe outliers 5`
+(triage novel failures), `smartpipe outliers 20 < train.jsonl` (hunt label
 noise before a training run).

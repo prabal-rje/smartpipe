@@ -84,7 +84,7 @@ def test_payload_shape_is_pinned() -> None:
     assert payload["text"] == {
         "format": {
             "type": "json_schema",
-            "name": "sempipe_output",
+            "name": "smartpipe_output",
             "schema": schema,
             "strict": True,
         }
@@ -153,7 +153,7 @@ async def test_complete_pins_headers_and_endpoint(
     assert sent_header(route, "authorization") == "Bearer at-1"
     assert sent_header(route, "chatgpt-account-id") == "acct"
     assert sent_header(route, "originator") == "sempipe"
-    assert sent_header(route, "user-agent").startswith("sempipe/")
+    assert sent_header(route, "user-agent").startswith("smartpipe/")
 
 
 async def test_expired_token_refreshes_first_and_persists(
@@ -187,7 +187,7 @@ async def test_persistent_401_is_the_login_expired_screen(
     respx_mock.post(f"{ISSUER}/oauth/token").mock(return_value=httpx.Response(200, json=TOKENS))
     respx_mock.post(CODEX_ENDPOINT).mock(return_value=httpx.Response(401))
     model = _model(client, tmp_path / "auth.json")
-    with pytest.raises(SetupFault, match="sempipe auth login"):
+    with pytest.raises(SetupFault, match="smartpipe auth login"):
         await model.complete(CompletionRequest(system=None, user="hi"))
 
 
@@ -196,7 +196,7 @@ async def test_refresh_failure_is_the_login_expired_screen(
 ) -> None:
     respx_mock.post(f"{ISSUER}/oauth/token").mock(return_value=httpx.Response(400))
     model = _model(client, tmp_path / "auth.json", expires_ms=STALE_MS)
-    with pytest.raises(SetupFault, match="sempipe auth login"):
+    with pytest.raises(SetupFault, match="smartpipe auth login"):
         await model.complete(CompletionRequest(system=None, user="hi"))
 
 

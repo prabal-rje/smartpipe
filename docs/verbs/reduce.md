@@ -7,16 +7,16 @@ actually read — a summary, a synthesis, a report drawn from everything at once
 
 ```console
 # Summarize a pile of notes:
-$ cat meeting-notes/*.md | sempipe reduce "Write a one-page executive summary"
+$ cat meeting-notes/*.md | smartpipe reduce "Write a one-page executive summary"
 
 # Structured synthesis:
-$ cat incidents.jsonl | sempipe reduce "Write a root-cause analysis" --schema rca.json
+$ cat incidents.jsonl | smartpipe reduce "Write a root-cause analysis" --schema rca.json
 
 # One summary per group:
-$ cat feedback.jsonl | sempipe reduce "Summarize the sentiment" --group-by product
+$ cat feedback.jsonl | smartpipe reduce "Summarize the sentiment" --group-by product
 
 # See how it chunks a large input:
-$ cat book.txt | sempipe reduce "List the main themes" --verbose
+$ cat book.txt | smartpipe reduce "List the main themes" --verbose
 ```
 
 ## The headline feature: it just handles large inputs
@@ -44,7 +44,7 @@ With JSON Lines input, `--group-by FIELD` runs a separate reduction for each
 distinct value of `FIELD`, emitting one record per group:
 
 ```console
-$ cat reviews.jsonl | sempipe reduce "Summarize complaints" --group-by product
+$ cat reviews.jsonl | smartpipe reduce "Summarize complaints" --group-by product
 {"group": "Widget", "result": "Users report..."}
 {"group": "Gadget", "result": "The main issue..."}
 ```
@@ -60,7 +60,7 @@ Point `--schema` at a JSON Schema to get a validated object instead of prose —
 same enforcement and one-shot repair as [`map`](map.md):
 
 ```console
-$ cat reports.jsonl | sempipe reduce "Synthesize findings" --schema summary.json
+$ cat reports.jsonl | smartpipe reduce "Synthesize findings" --schema summary.json
 ```
 
 ## Streaming: `--window`
@@ -70,7 +70,7 @@ lines and emits each result immediately; `--every M` makes the windows slide (a
 fresh take on the last N lines after every M new ones):
 
 ```console
-$ tail -f server.log | sempipe reduce --window 100 --every 20 "current error trend?"
+$ tail -f server.log | smartpipe reduce --window 100 --every 20 "current error trend?"
 {"window_end": 100, "result": "…"}
 ```
 
@@ -98,7 +98,7 @@ doesn't combine with `--group-by`.
   `reduce` warns (naming the item range), drops it, and continues with the rest —
   the exit code is `1` to signal the partial result. Only if *every* chunk fails do
   you get an empty result and exit `3`.
-- **Token estimates are deliberately conservative.** sempipe errs toward smaller
+- **Token estimates are deliberately conservative.** smartpipe errs toward smaller
   chunks, which means an extra level of summarization now and then — never a
   truncated call that silently loses your data.
 

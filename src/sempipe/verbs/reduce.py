@@ -1,7 +1,7 @@
 """The ``reduce`` verb: synthesize many items into one (spec §3.5).
 
 The headline feature is invisible recursion: when the input exceeds the model's
-context, sempipe chunks it, summarizes each chunk into dense notes, and recurses on
+context, smartpipe chunks it, summarizes each chunk into dense notes, and recurses on
 the notes — no flags, no strategy to choose. ``--group-by`` runs one reduction per
 group; ``--schema`` shapes the final output; ``--verbose`` shows the chunking tree.
 """
@@ -113,7 +113,7 @@ async def run_reduce(
         raise UsageFault(
             "--every only makes sense with --window\n"
             "  --window N summarizes every N lines; --every M makes those windows slide.\n"
-            '  Example: tail -f app.log | sempipe reduce --window 100 --every 20 "error trend?"'
+            '  Example: tail -f app.log | smartpipe reduce --window 100 --every 20 "error trend?"'
         )
     if request.window is not None:
         return await _run_windowed(request, tokens, schema, context, stdin, stdout, stop)

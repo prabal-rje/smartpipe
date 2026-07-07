@@ -24,7 +24,7 @@ SEMPIPE = f"{sys.executable} -m sempipe"
 
 def test_downstream_close_is_silent_141() -> None:
     # seq floods far past the 64 KiB pipe buffer; head exits after one line, so
-    # sempipe's next flushed write hits a closed pipe → it must die like grep: 141,
+    # smartpipe's next flushed write hits a closed pipe → it must die like grep: 141,
     # nothing on stderr, never the BUG screen.
     script = f"seq 100000 | {SEMPIPE} echo | head -1; echo code=${{PIPESTATUS[1]}} >&2"
     proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60)

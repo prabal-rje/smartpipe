@@ -9,17 +9,17 @@ Applies a prompt to every input item. One item in, one result out.
 
 ```console
 # Plain transform — each line becomes a prompt, one result per line:
-$ cat notes.txt | sempipe map "Translate to French"
+$ cat notes.txt | smartpipe map "Translate to French"
 
 # Structured extraction — braces name the fields you want back (NDJSON out):
-$ cat receipts.txt | sempipe map "Extract {vendor, date, total}"
+$ cat receipts.txt | smartpipe map "Extract {vendor, date, total}"
 {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 
 # Use a cloud model just for this run:
-$ cat data.txt | sempipe map "Classify the sentiment" --model gpt-5.4-mini
+$ cat data.txt | smartpipe map "Classify the sentiment" --model gpt-5.4-mini
 
 # Compose with the tools you already have:
-$ cat receipts.txt | sempipe map "Extract {vendor, total}" | jq -r '.total' | paste -sd+ | bc
+$ cat receipts.txt | smartpipe map "Extract {vendor, total}" | jq -r '.total' | paste -sd+ | bc
 ```
 
 ## How it decides plain vs. structured
@@ -48,7 +48,7 @@ without one, the item skips with a hint.
 sources work with no flag:
 
 ```console
-$ tail -f app.log | sempipe map "Classify: {severity, category}" | tee incidents.jsonl
+$ tail -f app.log | smartpipe map "Classify: {severity, category}" | tee incidents.jsonl
 ```
 
 ## Options
@@ -68,7 +68,7 @@ When a field is a list, `--explode FIELD` emits one row per element with the
 sibling fields copied — `jq -c '.risks[]'`, but provenance-aware and schema-checked:
 
 ```console
-$ cat filings.txt | sempipe map "Extract {vendor, risks}" --explode risks
+$ cat filings.txt | smartpipe map "Extract {vendor, risks}" --explode risks
 {"vendor":"Acme","risks":"late delivery"}
 {"vendor":"Acme","risks":"currency exposure"}
 ```
@@ -82,7 +82,7 @@ Composes with `--tally` (counted per exploded row) and `--fields`.
 
 ```
 ⚠ skipped: report.pdf (~87,886 tokens is past gpt-5.4-mini's ~76,300-token budget —
-  split it first: sempipe split --in FILE | sempipe map "..." | sempipe reduce "...")
+  split it first: smartpipe split --in FILE | smartpipe map "..." | smartpipe reduce "...")
 ```
 
 Silently chunking would change what you asked, so the recipe is explicit:
@@ -93,7 +93,7 @@ recombines.
 
 `map` is the multimodal verb: image items reach vision models as images, audio
 items reach audio models as sound (`--in 'calls/*.wav'`). A model that can't
-hear falls back to local transcription when `pip install 'sempipe[audio]'` is
+hear falls back to local transcription when `pip install 'smartpipe[audio]'` is
 present; details in [File inputs](../inputs/files.md#audio-heard-natively-or-transcribed).
 
 ## Inline braces vs. `--schema`
@@ -115,7 +115,7 @@ present; details in [File inputs](../inputs/files.md#audio-heard-natively-or-tra
   skipped, `0` when all succeeded.
 - **stdout is only results.** Warnings and the progress spinner go to stderr, so
   `| jq` and `> file` always see clean data.
-- **Empty input is success.** `cat empty | sempipe map …` prints nothing and exits
+- **Empty input is success.** `cat empty | smartpipe map …` prints nothing and exits
   `0`, just like `grep`.
 
 ## See also

@@ -1,4 +1,4 @@
-"""``sempipe filter`` — keep items matching a semantic condition."""
+"""``smartpipe filter`` — keep items matching a semantic condition."""
 
 from __future__ import annotations
 
@@ -51,9 +51,9 @@ def filter_command(
 
     \b
     Examples:
-      cat reviews.txt | sempipe filter "the reviewer is sarcastic"
-      cat tickets.jsonl | sempipe filter "{priority} is wrong given {description}"
-      sempipe filter "mentions a security issue" --in 'logs/*.txt'
+      cat reviews.txt | smartpipe filter "the reviewer is sarcastic"
+      cat tickets.jsonl | smartpipe filter "{priority} is wrong given {description}"
+      smartpipe filter "mentions a security issue" --in 'logs/*.txt'
 
     Output is the matching input items, unchanged and in order (in file mode, the
     matching filenames). Zero matches is a successful (exit 0) empty result.

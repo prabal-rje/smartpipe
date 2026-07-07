@@ -5,8 +5,8 @@ incantation. **Free — never calls a model.** Reads the whole input
 (sorting is inherently whole-set).
 
 ```console
-$ cat scored.ndjson | sempipe sort --by _score --desc | head -5
-$ … | sempipe sort --by confidence --desc
+$ cat scored.ndjson | smartpipe sort --by _score --desc | head -5
+$ … | smartpipe sort --by confidence --desc
 ```
 
 Semantics: numbers sort numerically and come before strings when a field

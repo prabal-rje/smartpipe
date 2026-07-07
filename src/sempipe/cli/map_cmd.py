@@ -1,4 +1,4 @@
-"""``sempipe map`` — the CLI surface: flags in, verb out."""
+"""``smartpipe map`` — the CLI surface: flags in, verb out."""
 
 from __future__ import annotations
 
@@ -92,10 +92,10 @@ def map_command(
 
     \b
     Examples:
-      echo "hello" | sempipe map "translate to Spanish"
-      cat reviews.jsonl | sempipe map "Extract {product, sentiment}"
-      sempipe map "Summarize this document" --in 'reports/*.pdf'
-      sempipe map "What does the caller want?" --in 'calls/*.mp3'
+      echo "hello" | smartpipe map "translate to Spanish"
+      cat reviews.jsonl | smartpipe map "Extract {product, sentiment}"
+      smartpipe map "Summarize this document" --in 'reports/*.pdf'
+      smartpipe map "What does the caller want?" --in 'calls/*.mp3'
 
     You usually need NO flags: braces in the prompt name the JSON fields you
     want back; plain prompts return plain text; and media is first-class —

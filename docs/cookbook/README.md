@@ -1,6 +1,6 @@
 # Cookbook
 
-Real pipelines, copy-pasteable. Each recipe is a small composition of sempipe verbs
+Real pipelines, copy-pasteable. Each recipe is a small composition of smartpipe verbs
 with the Unix tools you already use.
 
 | Recipe | What it does |
@@ -14,14 +14,14 @@ with the Unix tools you already use.
 
 ## The shape of every recipe
 
-sempipe verbs are filters — they read stdin (or files), write stdout, and compose:
+smartpipe verbs are filters — they read stdin (or files), write stdout, and compose:
 
 ```console
-$ cat data | sempipe filter "..." | sempipe map "Extract {...}" | jq ... > out.csv
+$ cat data | smartpipe filter "..." | smartpipe map "Extract {...}" | jq ... > out.csv
 ```
 
 Because structured output is NDJSON, everything downstream of a `map` speaks `jq`,
-`csv`, spreadsheets, or another `sempipe` verb. Because plain output is just text,
+`csv`, spreadsheets, or another `smartpipe` verb. Because plain output is just text,
 everything upstream can be `grep`, `head`, `find`, or `git`.
 
 ## A note on cost
@@ -30,7 +30,7 @@ Every verb calls a model once per item (plus a repair retry only when structured
 output needs fixing). If you're on a paid API, `head`-limit while you iterate:
 
 ```console
-$ cat big.jsonl | head -20 | sempipe map "..."    # test on 20 before running 20,000
+$ cat big.jsonl | head -20 | smartpipe map "..."    # test on 20 before running 20,000
 ```
 
 Or stay free with a local Ollama model — see [Models & providers](../concepts/models-and-providers.md).

@@ -1,4 +1,4 @@
-"""The sempipe entry point: root command group and exit-code mapping.
+"""The smartpipe entry point: root command group and exit-code mapping.
 
 click's built-in usage-error exit code (2) collides with the spec's "no model
 configured" (plan/decisions.md D12), so ``main`` maps click exceptions onto the
@@ -95,7 +95,7 @@ def _user_sem_names() -> list[str]:
 
 def _user_sem_command(name: str) -> click.Command | None:
     """Leg 1 of the custom-verb contract (D39/06): ~/.config/sempipe/verbs/
-    NAME.sem becomes `sempipe NAME` — full key validation, zero machinery."""
+    NAME.sem becomes `smartpipe NAME` — full key validation, zero machinery."""
     script = _verbs_dir() / f"{name}.sem"
     if not script.is_file():
         return None
@@ -140,9 +140,9 @@ def _entry_point_command(name: str) -> click.Command | None:
 
 
 @click.group(cls=_RootGroup)
-@click.version_option(__version__, prog_name="sempipe", message="%(prog)s %(version)s")
+@click.version_option(__version__, prog_name="smartpipe", message="%(prog)s %(version)s")
 def cli() -> None:
-    """sempipe — pipe documents, images, audio, video, and text through verbs that understand."""
+    """smartpipe — semantic pipes for your terminal: documents, images, audio, video, text."""
 
 
 cli.add_command(map_command)
@@ -184,7 +184,7 @@ def main() -> None:
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     debug = "SEMPIPE_DEBUG" in os.environ
     try:
-        result = cli.main(standalone_mode=False, prog_name="sempipe")
+        result = cli.main(standalone_mode=False, prog_name="smartpipe")
     except BrokenPipeError:  # Windows / buffered-flush edge; POSIX rarely reaches here
         with contextlib.suppress(OSError, ValueError):  # silence the shutdown flush
             os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())

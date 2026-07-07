@@ -7,7 +7,7 @@ within a major version.
 ## Synopsis
 
 ```
-sempipe <verb> [PROMPT] [OPTIONS]
+smartpipe <verb> [PROMPT] [OPTIONS]
 ```
 
 Input comes from stdin (each line an item — or ONE redirected binary document),
@@ -87,24 +87,24 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 ## `config`
 
 ```console
-$ sempipe config                     # interactive first-run setup
-$ sempipe config show                # effective settings + where each comes from
-$ sempipe config model MODEL         # set the default chat model
-$ sempipe config embed-model MODEL   # set the default embedding model
+$ smartpipe config                     # interactive first-run setup
+$ smartpipe config show                # effective settings + where each comes from
+$ smartpipe config model MODEL         # set the default chat model
+$ smartpipe config embed-model MODEL   # set the default embedding model
 ```
 
 API keys are **never** stored — they're read from the environment.
 
-Edits via `sempipe config` rewrite the file atomically; unknown keys are
+Edits via `smartpipe config` rewrite the file atomically; unknown keys are
 preserved, comments are not.
 
 ## `auth`
 
 ```console
-$ sempipe auth login             # log in with ChatGPT (browser)
-$ sempipe auth login --headless  # device-code flow for remote machines
-$ sempipe auth status            # logged in? which account?
-$ sempipe auth logout            # remove the stored tokens
+$ smartpipe auth login             # log in with ChatGPT (browser)
+$ smartpipe auth login --headless  # device-code flow for remote machines
+$ smartpipe auth status            # logged in? which account?
+$ smartpipe auth logout            # remove the stored tokens
 ```
 
 With a login and no `OPENAI_API_KEY`, OpenAI models ride your ChatGPT plan
@@ -113,13 +113,13 @@ With a login and no `OPENAI_API_KEY`, OpenAI models ride your ChatGPT plan
 ## `cite`
 
 ```console
-$ sempipe cite                       # print a BibTeX entry for citing sempipe
+$ smartpipe cite                       # print a BibTeX entry for citing smartpipe
 ```
 
 ## `doctor`
 
 ```console
-$ sempipe doctor        # config · Ollama · models · keys · login · extras · completions
+$ smartpipe doctor        # config · Ollama · models · keys · login · extras · completions
 ```
 
 One line per check with its fix inline; exit 0 all-green, 1 if anything needs
@@ -128,12 +128,12 @@ attention. Never makes a paid model call; key lines report presence, never value
 ## `run`
 
 ```console
-$ sempipe run extract.sem < cards.txt        # execute a saved stage
-$ sempipe run extract.sem --model ollama/qwen3:8b   # flags override the file
+$ smartpipe run extract.sem < cards.txt        # execute a saved stage
+$ smartpipe run extract.sem --model ollama/qwen3:8b   # flags override the file
 ```
 
 A `.sem` file pins one verb invocation in TOML; with a
-`#!/usr/bin/env -S sempipe run` shebang it runs directly (`./extract.sem`).
+`#!/usr/bin/env -S smartpipe run` shebang it runs directly (`./extract.sem`).
 Unknown keys in the file are errors (scripts run unattended). Full format:
 [.sem stage files](sem-files.md).
 
@@ -149,7 +149,7 @@ identically in every format.
 
 Tab completion for bash, zsh, and fish — including live model-name suggestions on
 `--model`/`--embed-model` and `config model`. One-liners per shell in
-[Installing sempipe → Tab completion](../install.md#tab-completion).
+[Installing smartpipe → Tab completion](../install.md#tab-completion).
 
 ## Environment variables
 
@@ -181,7 +181,7 @@ Chosen so a script can branch on *how* a run went, not just pass/fail:
 | `64` | USAGE — bad flags or input. |
 | `70` | BUG — an internal error (please report it). |
 | `130` | INTERRUPTED — Ctrl-C (before anything finished, or pressed twice). |
-| `141` | SIGPIPE — downstream closed the pipe (normal in `\| head` pipelines); sempipe prints nothing. |
+| `141` | SIGPIPE — downstream closed the pipe (normal in `\| head` pipelines); smartpipe prints nothing. |
 
 ### What Ctrl-C does
 

@@ -7,17 +7,17 @@ Sorts items by semantic closeness to a query and returns the best matches. Like
 
 ```console
 # Find the 5 most relevant résumés:
-$ cat resumes/*.txt | sempipe top_k 5 --near "distributed systems engineer"
+$ cat resumes/*.txt | smartpipe top_k 5 --near "distributed systems engineer"
 
 # Rank a precomputed corpus (embed once, query many times):
-$ cat corpus.embeddings | sempipe top_k 10 --near "Q3 revenue strategy"
+$ cat corpus.embeddings | smartpipe top_k 10 --near "Q3 revenue strategy"
 
 # Threshold mode: everything above a similarity of 0.8, no fixed count:
-$ cat articles.jsonl | sempipe top_k --near "climate policy" --threshold 0.8
+$ cat articles.jsonl | smartpipe top_k --near "climate policy" --threshold 0.8
 
 # The three-stage pipeline: embed, rank, extract:
-$ cat legal/*.txt | sempipe embed | sempipe top_k 20 --near "indemnification" \
-    | sempipe map "Extract {clause_text, liability_cap}"
+$ cat legal/*.txt | smartpipe embed | smartpipe top_k 20 --near "indemnification" \
+    | smartpipe map "Extract {clause_text, liability_cap}"
 ```
 
 ## How it works
@@ -34,14 +34,14 @@ JSON items, or a trailing tab-separated column for plain text.
 
 ## Reusing embeddings
 
-If an item already carries a `vector` (because it came from `sempipe embed`),
+If an item already carries a `vector` (because it came from `smartpipe embed`),
 `top_k` uses it directly instead of re-embedding — so you can embed a large corpus
 once and run many queries against it cheaply:
 
 ```console
-$ cat docs/*.md | sempipe embed > corpus.embeddings
-$ cat corpus.embeddings | sempipe top_k 5 --near "first question"
-$ cat corpus.embeddings | sempipe top_k 5 --near "second question"
+$ cat docs/*.md | smartpipe embed > corpus.embeddings
+$ cat corpus.embeddings | smartpipe top_k 5 --near "first question"
+$ cat corpus.embeddings | smartpipe top_k 5 --near "second question"
 ```
 
 The `vector` field is plumbing, so `top_k` drops it from the output and keeps the
@@ -52,7 +52,7 @@ rest of the record plus `_score`.
 Keep a running top-K over a live stream:
 
 ```console
-$ tail -f tickets.jsonl | sempipe top_k 5 --stream --near "billing dispute"
+$ tail -f tickets.jsonl | smartpipe top_k 5 --stream --near "billing dispute"
 ```
 
 At a terminal the K-line board repaints in place as better matches arrive. In a
@@ -79,7 +79,7 @@ than dies on) a record whose embedding dimensions don't match the query.
 ## Performance
 
 Items that need embedding are sent in chunks of up to 64 texts per call
-(precomputed `vector` fields from `sempipe embed` records are reused, never
+(precomputed `vector` fields from `smartpipe embed` records are reused, never
 re-embedded). A failed chunk is retried item by item, so one bad item skips
 alone. `--stream` stays one item per call — a live leaderboard wants latency.
 
