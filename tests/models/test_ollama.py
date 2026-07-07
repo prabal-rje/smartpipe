@@ -225,3 +225,24 @@ async def test_penalties_ride_the_options_when_set(
         "presence_penalty": 0.5,
         "frequency_penalty": 0.5,
     }
+
+
+async def test_usage_fields_feed_the_meter(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    from sempipe.io import metering
+
+    metering.reset()
+    respx_mock.post(f"{HOST}/api/chat").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "message": {"role": "assistant", "content": "hola"},
+                "prompt_eval_count": 120,
+                "eval_count": 8,
+            },
+        )
+    )
+    await _chat(client).complete(CompletionRequest(system="s", user="u"))
+    view = metering.snapshot()
+    assert (view.tokens_in, view.tokens_out) == (120, 8)

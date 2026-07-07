@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from sempipe.core.errors import ItemError, SetupFault
+from sempipe.io import metering
 from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.retry import RetryPolicy, with_retries
 
@@ -46,6 +47,7 @@ class RemoteTranscriber:
         files = {"file": (f"audio.{extension}", audio.data, audio.mime)}
         data = {"model": self.ref.name, "response_format": "text"}
         headers = {"Authorization": f"Bearer {self.api_key}"}
+        metering.add_request_media((audio,))
 
         async def attempt() -> str:
             response = await self.client.post(

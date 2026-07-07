@@ -15,6 +15,7 @@ import httpx
 
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_float_vector, as_items, as_record
+from sempipe.io import metering
 from sempipe.models.base import ImageData
 from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.retry import RetryPolicy, with_retries
@@ -48,11 +49,16 @@ class JinaClipEmbeddingModel:
             else:
                 entries.append({"text": part})
         payload: dict[str, object] = {"model": self.ref.name, "input": entries}
+        metering.add_request_media(tuple(part for part in parts if not isinstance(part, str)))
         data = await self._post("/v1/embeddings", payload)
         record = as_record(data)
         rows = as_items(record.get("data")) if record is not None else None
         if rows is None:
             raise ItemError("jina embedding endpoint returned an unexpected shape")
+        usage = as_record(record.get("usage")) if record is not None else None
+        if usage is not None:
+            total = usage.get("total_tokens")
+            metering.add_tokens(tokens_in=total if isinstance(total, int) else 0)
         indexed: list[tuple[int, tuple[float, ...]]] = []
         for position, row in enumerate(rows):
             entry = as_record(row)

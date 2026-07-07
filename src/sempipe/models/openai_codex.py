@@ -25,6 +25,7 @@ import httpx
 from sempipe.config.credentials import OAuthCredential, load_oauth, save_oauth
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_items, as_record, as_str
+from sempipe.io import metering
 from sempipe.models.openai_oauth import refresh_tokens
 
 if TYPE_CHECKING:
@@ -179,6 +180,7 @@ def accumulate_sse(body: str) -> str:
             raise ItemError(f"the model reported a failure: {_failure_detail(dict(event))}")
         elif kind == "response.completed":
             completed = _completed_text(event) or completed
+            _meter_completed(event)
     return completed if completed is not None else "".join(deltas)
 
 
@@ -219,3 +221,17 @@ def _user_agent() -> str:
     from sempipe import __version__
 
     return f"sempipe/{__version__}"
+
+
+def _meter_completed(event: object) -> None:
+    record = as_record(event)
+    response = as_record(record.get("response")) if record is not None else None
+    usage = as_record(response.get("usage")) if response is not None else None
+    if usage is None:
+        return
+    tokens_in = usage.get("input_tokens")
+    tokens_out = usage.get("output_tokens")
+    metering.add_tokens(
+        tokens_in=tokens_in if isinstance(tokens_in, int) else 0,
+        tokens_out=tokens_out if isinstance(tokens_out, int) else 0,
+    )

@@ -109,6 +109,11 @@ class Spinner:
         else:
             eta = (self.total - self._done) / rate if self._done >= _ETA_WARMUP and rate else None
             line = render_known(frame, done=self._done, total=self.total, eta_seconds=eta)
+        from sempipe.io import metering
+
+        consumed = metering.status_segment()  # D40: live observed units
+        if consumed:
+            line += f"   {consumed}"
         self.stream.write(f"\r{line}{_CLEAR_LINE}")
         self.stream.flush()
         self._drew = True

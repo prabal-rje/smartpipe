@@ -373,6 +373,9 @@ async def build_container(
     limit = _resolve_max_calls(environ, max_calls)
     config = load_config(config_path(environ), environ)
     client = make_client()
+    from sempipe.io import metering
+
+    metering.reset()  # a fresh run's meter (D40)
     container = AppContainer(
         env=dict(environ),
         config=config,
@@ -384,6 +387,9 @@ async def build_container(
         yield container
     finally:
         await client.aclose()
+        totals = metering.receipt()
+        if totals is not None:
+            diagnostics.note(totals)  # D40: the number that goes in the report
         _cache_receipt(container)
 
 

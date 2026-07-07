@@ -17,6 +17,7 @@ from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
 from sempipe.engine.schema import is_strict_compatible
+from sempipe.io import metering
 from sempipe.models.base import AudioData, ImageData, VideoData
 from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.retry import RetryPolicy, with_retries
@@ -147,6 +148,7 @@ class OpenAIChatModel:
                     "strict": is_strict_compatible(schema),
                 },
             }
+        metering.add_request_media(request.media)
         try:
             data = await _post(self, "/v1/chat/completions", payload)
         except ItemError as exc:
@@ -162,6 +164,7 @@ class OpenAIChatModel:
         content = as_str(first.get("content")) if first is not None else None
         if content is None:
             raise ItemError(f"{self.ref.provider} returned an unexpected reply shape")
+        _meter_chat_usage(record)
         return content
 
 
@@ -190,6 +193,7 @@ class OpenAIEmbeddingModel:
             index = entry.get("index")
             # live-caught: Gemini's compat endpoint omits "index" — arrival order then
             indexed.append((index if isinstance(index, int) else position, vector))
+        _meter_chat_usage(record)
         return tuple(vector for _, vector in sorted(indexed))
 
 
@@ -289,3 +293,15 @@ def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)
     return parts
+
+
+def _meter_chat_usage(record: Mapping[str, object] | None) -> None:
+    usage = as_record(record.get("usage")) if record is not None else None
+    if usage is None:
+        return
+    tokens_in = usage.get("prompt_tokens")
+    tokens_out = usage.get("completion_tokens")
+    metering.add_tokens(
+        tokens_in=tokens_in if isinstance(tokens_in, int) else 0,
+        tokens_out=tokens_out if isinstance(tokens_out, int) else 0,
+    )

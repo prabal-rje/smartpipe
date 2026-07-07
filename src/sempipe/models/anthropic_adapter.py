@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_str, record_at
+from sempipe.io import metering
 from sempipe.models.base import AudioData, ImageData
 
 if TYPE_CHECKING:
@@ -63,6 +64,7 @@ class AnthropicChatModel:
 
         kwargs = build_kwargs(self.ref.name, request)
         try:
+            metering.add_request_media(request.media)
             message = await self.client.messages.create(**kwargs)
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
             raise SetupFault(_key_screen(self.ref.name)) from exc
@@ -128,6 +130,13 @@ def _reply_text(name: str, message: Any) -> str:
     text = "".join(block.text for block in blocks if getattr(block, "type", None) == "text")
     if not text:
         raise ItemError(f"the model '{name}' returned an empty reply")
+    usage = getattr(message, "usage", None)
+    tokens_in = getattr(usage, "input_tokens", None)
+    tokens_out = getattr(usage, "output_tokens", None)
+    metering.add_tokens(
+        tokens_in=tokens_in if isinstance(tokens_in, int) else 0,
+        tokens_out=tokens_out if isinstance(tokens_out, int) else 0,
+    )
     return text
 
 

@@ -158,3 +158,23 @@ def test_schema_dialect_is_recursive() -> None:
     assert rows is not None
     items = as_record(rows.get("items"))
     assert items is not None and items.get("type") == "STRING"
+
+
+async def test_usage_metadata_feeds_the_meter(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    from sempipe.io import metering
+
+    metering.reset()
+    respx_mock.post(url__regex=r".*generateContent.*").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "candidates": [{"content": {"parts": [{"text": "hola"}]}}],
+                "usageMetadata": {"promptTokenCount": 90, "candidatesTokenCount": 7},
+            },
+        )
+    )
+    await _model(client).complete(CompletionRequest(system="s", user="u"))
+    view = metering.snapshot()
+    assert (view.tokens_in, view.tokens_out) == (90, 7)

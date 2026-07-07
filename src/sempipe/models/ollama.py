@@ -16,6 +16,7 @@ import httpx
 from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
+from sempipe.io import metering
 from sempipe.models.base import AudioData, ImageData, VideoData
 from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.retry import RetryPolicy, with_retries
@@ -88,6 +89,7 @@ class OllamaChatModel:
         }
         if request.json_schema is not None:
             payload["format"] = dict(request.json_schema)
+        metering.add_request_media(request.media)
         try:
             data = await _post(self, "/api/chat", payload)
         except ItemError as exc:
@@ -100,6 +102,7 @@ class OllamaChatModel:
         content = as_str(message.get("content")) if message is not None else None
         if content is None:
             raise ItemError("ollama returned an unexpected reply shape")
+        _meter_usage(data)
         return content
 
 
@@ -185,3 +188,17 @@ def _error_detail(response: httpx.Response) -> str:
         record = None
     detail = as_str(record.get("error")) if record is not None else None
     return detail if detail is not None else response.text[:200].strip() or "no detail"
+
+
+def _meter_usage(data: object) -> None:
+    from sempipe.core.jsontools import as_record
+
+    record = as_record(data)
+    if record is None:
+        return
+    tokens_in = record.get("prompt_eval_count")
+    tokens_out = record.get("eval_count")
+    metering.add_tokens(
+        tokens_in=tokens_in if isinstance(tokens_in, int) else 0,
+        tokens_out=tokens_out if isinstance(tokens_out, int) else 0,
+    )

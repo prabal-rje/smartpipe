@@ -20,6 +20,7 @@ import httpx
 from sempipe.cli import screens
 from sempipe.core.errors import ItemError, SetupFault
 from sempipe.core.jsontools import as_items, as_record, as_str
+from sempipe.io import metering
 from sempipe.models.base import AudioData, ImageData, VideoData
 from sempipe.models.http_support import is_retryable_http, retry_after_seconds
 from sempipe.models.openai_compat import GEMINI_WIRE, resolve_base_url
@@ -60,6 +61,7 @@ class GeminiNativeChatModel:
             config["responseMimeType"] = "application/json"
             config["responseSchema"] = to_gemini_schema(request.json_schema)
         payload["generationConfig"] = config
+        metering.add_request_media(request.media)
         data = await self._post(payload)
         record = as_record(data)
         candidates = as_items(record.get("candidates")) if record is not None else None
@@ -76,6 +78,14 @@ class GeminiNativeChatModel:
         ]
         if not texts:
             raise ItemError("gemini returned an unexpected reply shape")
+        usage = as_record(record.get("usageMetadata")) if record is not None else None
+        if usage is not None:
+            tokens_in = usage.get("promptTokenCount")
+            tokens_out = usage.get("candidatesTokenCount")
+            metering.add_tokens(
+                tokens_in=tokens_in if isinstance(tokens_in, int) else 0,
+                tokens_out=tokens_out if isinstance(tokens_out, int) else 0,
+            )
         return "".join(texts)
 
     async def _post(self, payload: Mapping[str, object]) -> object:

@@ -40,6 +40,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   on the first colon only, verified).
 
 ### Added
+- **Run telemetry (D40): observed units, never estimated dollars.** Every
+  wire's usage fields now feed a per-run meter (ollama eval counts, compat
+  and jina `usage`, gemini `usageMetadata`, anthropic and codex usage) along
+  with real media bytes and WAV durations; the status line grows a live
+  segment (`↑2.1M ↓340k tok · 38 MB img · 12m audio`) and every run ends
+  with a receipt on stderr (`run: 423 in · 75 out tokens · …`) — the number
+  that goes in the training report. Paid conversions are counted; local
+  whisper is free and uncounted; absent usage under-counts rather than lies.
 - **Custom verbs — the contract (D39/06).** Two legs: any `.sem` file
   (stage or pipeline) in `~/.config/sempipe/verbs/` becomes `sempipe NAME`
   (validated, shareable, listed in --help), and Python packages can expose

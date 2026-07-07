@@ -68,6 +68,12 @@ class Converter:
     log: DegradationLog
     stt: RemoteTranscriber | None = None  # the stt-model role (D39/05): verbatim rung 0
 
+    def _meter_paid(self) -> None:
+        from sempipe.io import metering
+
+        if self.chat is None or self.chat.ref.provider != "ollama":
+            metering.add_conversion()  # cloud conversions bill; local ones don't
+
     def _model_may_convert(self) -> bool:
         if self.chat is None:
             return False
@@ -87,6 +93,7 @@ class Converter:
             except ItemError:
                 transcript = ""  # the wire hiccuped — the ladder continues below
             if transcript:
+                self._meter_paid()
                 self.log.note(
                     where,
                     "audio → text",
@@ -109,6 +116,7 @@ class Converter:
             except ItemError:
                 text = None  # the model can't hear — fall through to whisper
             if text is not None and text.strip():
+                self._meter_paid()
                 self.log.note(where, "audio → text", f"heard by {self._rung_name()}")
                 return text.strip()
         import asyncio
@@ -143,6 +151,7 @@ class Converter:
                 visual = str(halves.get("visual") or "").strip() or None
                 speech = str(halves.get("transcript") or "").strip() or None
                 if visual or speech:
+                    self._meter_paid()
                     self.log.note(where, "video → text", f"watched by {self._rung_name()}")
                     return visual, speech
             except ItemError:
@@ -188,6 +197,7 @@ class Converter:
                 frequency_penalty=0.5,
             )
         )
+        self._meter_paid()
         self.log.note(where, "image → text", f"described by {self._rung_name()}")
         return text.strip()
 
