@@ -37,8 +37,17 @@ _RESET = "\x1b[0m"
 _ISSUES_URL = "https://github.com/prabal-rje/smartpipe/issues/new"
 
 
+def _paint(text: str, code: str) -> str:
+    """stderr color, honestly gated: TTY only, NO_COLOR wins (D42)."""
+    import os
+
+    if not tty.stderr_is_tty() or os.environ.get("NO_COLOR"):
+        return text
+    return f"\x1b[{code}m{text}{_RESET}"
+
+
 def warn(message: str) -> None:
-    sys.stderr.write(f"⚠ {message}\n")
+    sys.stderr.write(_paint(f"⚠ {message}", "33") + "\n")  # yellow — worth a glance
     sys.stderr.flush()
 
 
@@ -50,13 +59,15 @@ def preview(message: str) -> None:
 
 
 def note(message: str) -> None:
-    sys.stderr.write(f"note: {message}\n")
+    sys.stderr.write(_paint(f"note: {message}", "2") + "\n")  # dim — informative, calm
     sys.stderr.flush()
 
 
 def interrupted_summary(*, processed: int, skipped: int) -> None:
     """The ux.md §12 drain summary — exact wording is contract."""
-    sys.stderr.write(f"done: interrupted — {processed} processed · {skipped} skipped\n")
+    sys.stderr.write(
+        _paint(f"done: interrupted — {processed} processed · {skipped} skipped", "33") + "\n"
+    )
     sys.stderr.flush()
 
 

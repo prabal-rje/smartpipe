@@ -63,34 +63,73 @@ error: the prompt references a {field}, but the first input line isn't JSON
   {field} substitution needs JSON Lines input (one object per line).
   Either drop the braces, or feed JSONL — e.g.: cat tickets.jsonl | smartpipe filter ..."""
 
-WELCOME = """\
-smartpipe — semantic pipes for your terminal
-PDFs, images, audio, video, and text — verbs that understand their input.
 
-Verbs (call a model):
-  map      Transform each item with a prompt
-  extend   Add extracted fields to each record
-  filter   Keep items matching a semantic condition
-  embed    Convert items to vector embeddings
-  top_k    Rank items by similarity to a query
-  reduce   Synthesize many items into one
-  join     Match stdin against a second input, semantically
-  cluster  Group items by meaning; label each group
-  diff     What distinguishes two sets of items
-  distinct Fold near-duplicate items (embeddings only)
-  outliers Rank the items least like the rest (embeddings only)
+def tint(text: str, code: str) -> str:
+    """Style stdout REPORT text (headers, marks): TTY-only, NO_COLOR wins.
+    click.echo also strips ANSI when piped, so goldens stay plain (D42)."""
+    import os
+    import sys
 
-Utilities (free — no model calls):
-  where    Keep rows matching a deterministic predicate
-  summarize Aggregate records: count/avg/percentiles by field
-  sample   Keep N random rows (seeded, reproducible)
-  getschema Report the stream's fields, types, coverage
-  sort     Order records by a field (numbers, then strings)
-  split    Break oversized items into chunks
-  chart    Draw a bar chart of results (--save writes SVG)
-  config   Configure models and settings
+    if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+        return text
+    return f"\x1b[{code}m{text}\x1b[0m"
 
-Get started:
+
+def heading(text: str) -> str:
+    return tint(text, "1;36")  # bold cyan — every section/column title, one voice
+
+
+def good(text: str) -> str:
+    return tint(text, "32")
+
+
+def bad(text: str) -> str:
+    return tint(text, "31")
+
+
+def _c(text: str, code: str) -> str:
+    """Bake ANSI into the welcome — click.echo strips it when piped, and the
+    NO_COLOR gate lives at the echo site (D42)."""
+    return f"\x1b[{code}m{text}\x1b[0m"
+
+
+_ART = (
+    _c("  ────╢", "2;36")
+    + _c(" ◆ ", "33")
+    + _c("╟────╢", "2;36")
+    + _c(" ◆ ", "33")
+    + _c("╟────▶", "2;36")
+)
+
+WELCOME = f"""\
+{_ART}
+{_c("smartpipe", "1")} — semantic pipes for your terminal
+{_c("PDFs, images, audio, video, and text — verbs that understand their input.", "2")}
+
+{_c("Verbs (call a model):", "1;36")}
+  {_c("map", "32")}      Transform each item with a prompt
+  {_c("extend", "32")}   Add extracted fields to each record
+  {_c("filter", "32")}   Keep items matching a semantic condition
+  {_c("embed", "32")}    Convert items to vector embeddings
+  {_c("top_k", "32")}    Rank items by similarity to a query
+  {_c("reduce", "32")}   Synthesize many items into one
+  {_c("join", "32")}     Match stdin against a second input, semantically
+  {_c("cluster", "32")}  Group items by meaning; label each group
+  {_c("diff", "32")}     What distinguishes two sets of items
+  {_c("distinct", "32")} Fold near-duplicate items (embeddings only)
+  {_c("outliers", "32")} Rank the items least like the rest (embeddings only)
+
+{_c("Utilities (free — no model calls):", "1;36")}
+  {_c("where", "32")}    Keep rows matching a deterministic predicate
+  {_c("summarize", "32")} Aggregate records: count/avg/percentiles by field
+  {_c("sample", "32")}   Keep N random rows (seeded, reproducible)
+  {_c("getschema", "32")} Report the stream's fields, types, coverage
+  {_c("sort", "32")}     Order records by a field (numbers, then strings)
+  {_c("split", "32")}    Break oversized items into chunks
+  {_c("chart", "32")}    Draw a bar chart of results (--save writes SVG)
+  {_c("config", "32")}   Configure models and settings
+
+{_c("Get started:", "1;36")}
   smartpipe config                                     Interactive setup
   echo "hello" | smartpipe map "translate to Spanish"
 

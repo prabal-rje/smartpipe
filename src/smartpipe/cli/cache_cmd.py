@@ -47,6 +47,14 @@ def cache_stats() -> None:
     total = sum(p.stat().st_size for p in entries)
     oldest = min(p.stat().st_mtime for p in entries)
     days = (time.time() - oldest) / 86_400
-    click.echo(f"entries   {len(entries):,}")
-    click.echo(f"size      {total / 1_048_576:.1f} MB   (cap 500 MB default — cache-max-mb)")
-    click.echo(f"oldest    {days:.0f} days   (ttl 30 days default — cache-days)")
+    from smartpipe.cli.screens import tint
+
+    click.echo(f"{tint('entries', '2')}   {len(entries):,}")
+    click.echo(
+        f"{tint('size', '2')}      {total / 1_048_576:.1f} MB   "
+        f"{tint('(cap 500 MB default — cache-max-mb)', '2')}"
+    )
+    click.echo(
+        f"{tint('oldest', '2')}    {days:.0f} days   "
+        f"{tint('(ttl 30 days default — cache-days)', '2')}"
+    )

@@ -15,7 +15,7 @@ from smartpipe.core.errors import ExitCode
 from smartpipe.io.text import display_width
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 __all__ = ["CheckResult", "doctor_exit_code", "render_report"]
 
@@ -31,9 +31,17 @@ class CheckResult:
 
 def render_report(results: Sequence[CheckResult]) -> str:
     """One line per check: padded section, mark, detail (the ux.md doctor screen)."""
+    from smartpipe.cli.screens import bad, good, tint
+
     width = max(display_width(result.section) for result in results) + 2
+
+    def dim_mark(mark: str) -> str:
+        return tint(mark, "2")
+
+    paint: dict[str, Callable[[str], str]] = {"ok": good, "fail": bad, "skip": dim_mark}
     lines = (
-        f"{_pad(result.section, width)}{_MARKS[result.status]} {result.detail}"
+        f"{tint(_pad(result.section, width), '2')}"
+        f"{paint[result.status](_MARKS[result.status])} {result.detail}"
         for result in results
     )
     return "\n".join(lines)

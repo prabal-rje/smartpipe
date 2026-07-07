@@ -1,3 +1,4 @@
+  ────╢ ◆ ╟────╢ ◆ ╟────▶
 smartpipe — semantic pipes for your terminal
 PDFs, images, audio, video, and text — verbs that understand their input.
 

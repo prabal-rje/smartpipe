@@ -96,6 +96,11 @@ class Spinner:
             self.stream.write(f"\r{_CLEAR_LINE}")
             self.stream.flush()
 
+    def _color(self) -> bool:
+        import os
+
+        return self.enabled and not os.environ.get("NO_COLOR")
+
     def _draw(self, now: float) -> None:
         frames = _ASCII if self.ascii_only else _BRAILLE
         frame = frames[self._frame % len(frames)]
@@ -112,7 +117,11 @@ class Spinner:
         from smartpipe.io import metering
 
         consumed = metering.status_segment()  # D40: live observed units
-        if consumed:
+        if self._color():
+            line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
+            if consumed:
+                line += f"   \x1b[2m{consumed}\x1b[0m"
+        elif consumed:
             line += f"   {consumed}"
         self.stream.write(f"\r{line}{_CLEAR_LINE}")
         self.stream.flush()

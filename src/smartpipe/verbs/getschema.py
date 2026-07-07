@@ -82,11 +82,13 @@ def run_getschema(request: GetSchemaRequest, *, stdin: TextIO, stdout: TextIO) -
             key: max(len(key), *(len(str(row[key])) for row in rows))
             for key in ("field", "type", "coverage")
         }
+        from smartpipe.cli.screens import heading
+
         header = (
             f"{'field'.ljust(widths['field'])}  {'type'.ljust(widths['type'])}  "
             f"{'coverage'.ljust(widths['coverage'])}  example"
         )
-        stdout.write(header + "\n")
+        stdout.write(heading(header) + "\n")
         for row in rows:
             stdout.write(
                 f"{str(row['field']).ljust(widths['field'])}  "

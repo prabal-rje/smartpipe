@@ -127,9 +127,28 @@ _MARKS = {"ok": "✓", "no": "✗", "na": "–"}  # noqa: RUF001 — the pinned 
 
 
 def render_matrix(rows: Mapping[str, tuple[Cell, Cell]]) -> str:
-    lines = [f"  {'':10s}  {'chat':34s}{'embed'}"]
+    from smartpipe.cli.screens import bad, good, heading, tint
+
+    def mark(cell: Cell) -> str:
+        painter = good if cell.verdict == "ok" else bad if cell.verdict == "fail" else str
+        return painter(_MARKS[cell.verdict])
+
+    chat_title = heading(_pad_plain("chat", 34))
+    lines = [f"  {'':10s}  {chat_title}{heading('embed')}"]
     for modality, (chat_cell, embed_cell) in rows.items():
-        left = f"{_MARKS[chat_cell.verdict]} {chat_cell.detail}"
-        right = f"{_MARKS[embed_cell.verdict]} {embed_cell.detail}"
-        lines.append(f"  {modality:10s}  {left:34s}{right}")
+        left = f"{mark(chat_cell)} {chat_cell.detail}"
+        right = f"{mark(embed_cell)} {embed_cell.detail}"
+        lines.append(f"  {tint(f'{modality:10s}', '2')}  {_pad_ansi(left, 34)}{right}")
     return "\n".join(lines)
+
+
+def _pad_plain(text: str, width: int) -> str:
+    return f"{text:{width}s}"
+
+
+def _pad_ansi(text: str, width: int) -> str:
+    """Pad by VISIBLE length — ANSI escapes are zero-width."""
+    import re
+
+    visible = len(re.sub(r"\x1b\[[0-9;]*m", "", text))
+    return text + " " * max(0, width - visible)

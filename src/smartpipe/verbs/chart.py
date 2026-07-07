@@ -91,8 +91,12 @@ def _run_facets(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> Exit
         if dropped > 0:
             diagnostics.note(f"{facet}: {dropped} more values below the top {len(ranked)}")
     rule_width = 46
+    from smartpipe.cli.screens import heading
+
     sections = [
-        f"── {facet} {'─' * max(1, rule_width - len(facet) - 4)}\n" + render_bars(ranked)
+        heading(f"── {facet} {'─' * max(1, rule_width - len(facet) - 4)}")
+        + "\n"
+        + render_bars(ranked)
         for facet, ranked in panels
     ]
     stdout.write("\n".join(sections) + "\n")

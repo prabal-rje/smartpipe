@@ -28,20 +28,23 @@ def usage_command(ctx: click.Context) -> None:
     if windows["lifetime"].runs == 0:
         click.echo("no model usage recorded yet")
         return
+    from smartpipe.cli.screens import heading, tint
+
     header = (
         f"{'':<12}{'runs':>6}{'tokens in':>12}{'tokens out':>12}"
         f"{'media':>10}{'audio':>9}{'conv':>6}"
     )
-    click.echo(header)
+    click.echo(heading(header))
     for name in ("past hour", "past day", "past week", "past month", "lifetime"):
-        click.echo(_row(name, windows[name]))
+        row = _row(name, windows[name])
+        click.echo(tint(row, "1") if name == "lifetime" else row)
     notes: list[str] = []
     if last_reset is not None:
         notes.append(f"last reset {stamp(last_reset)}")
     if first_seen is not None:
         notes.append(f"first use {stamp(first_seen)}")
     if notes:
-        click.echo("since: " + " · ".join(notes))
+        click.echo(tint("since: " + " · ".join(notes), "2"))
 
 
 def _row(name: str, totals: Totals) -> str:

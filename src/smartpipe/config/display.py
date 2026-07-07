@@ -46,8 +46,14 @@ def settings_with_origin(env: Mapping[str, str], config: Config) -> tuple[Settin
 def render_show(settings: Sequence[Setting], config_file: str) -> str:
     key_width = max(display_width(s.key) for s in (*settings, Setting("config file", "", ""))) + 2
     value_width = max(display_width(s.value) for s in settings) + 2
-    lines = [f"{_pad(s.key, key_width)}{_pad(s.value, value_width)}({s.origin})" for s in settings]
-    lines.append(f"{_pad('config file', key_width)}{config_file}")
+    from smartpipe.cli.screens import tint
+
+    lines = [
+        f"{tint(_pad(s.key, key_width), '2')}{_pad(s.value, value_width)}"
+        f"{tint(f'({s.origin})', '2')}"
+        for s in settings
+    ]
+    lines.append(f"{tint(_pad('config file', key_width), '2')}{config_file}")
     return "\n".join(lines)
 
 

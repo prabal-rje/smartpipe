@@ -46,6 +46,9 @@ from smartpipe.cli.top_k_cmd import top_k_command
 from smartpipe.cli.usage_cmd import usage_command
 from smartpipe.cli.where_cmd import where_command
 from smartpipe.core.errors import ExitCode, SempipeError, UsageFault
+
+if True:  # typing-only import kept runtime-cheap
+    from collections.abc import Sequence
 from smartpipe.io import diagnostics
 
 if TYPE_CHECKING:
@@ -57,12 +60,47 @@ __all__ = ["cli", "main"]
 _ALIASES = {"top-k": "top_k", "topk": "top_k"}
 
 
+class _StyledHelpFormatter(click.HelpFormatter):
+    """Color in --help (D42): headings cyan, commands/options green. ANSI is
+    stripped by click when piped; NO_COLOR turns it off entirely."""
+
+    @staticmethod
+    def _on() -> bool:
+        return sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+
+    def write_usage(self, prog: str, args: str = "", prefix: str | None = None) -> None:
+        if self._on():
+            prog = click.style(prog, bold=True)
+            prefix = click.style(prefix if prefix is not None else "Usage: ", fg="cyan", bold=True)
+        super().write_usage(prog, args, prefix)
+
+    def write_heading(self, heading: str) -> None:
+        if self._on():
+            heading = click.style(heading, fg="cyan", bold=True)
+        super().write_heading(heading)
+
+    def write_dl(
+        self,
+        rows: Sequence[tuple[str, str]],
+        col_max: int = 30,
+        col_spacing: int = 2,
+    ) -> None:
+        if self._on():
+            rows = [(click.style(term, fg="green"), body) for term, body in rows]
+        super().write_dl(rows, col_max, col_spacing)
+
+
+class _StyledContext(click.Context):
+    formatter_class = _StyledHelpFormatter
+
+
 class _RootGroup(click.Group):
     """Print the welcome screen when invoked bare (plan/ux.md, spec §14)."""
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         if not args:
-            click.echo(WELCOME, nl=False)
+            plain = bool(os.environ.get("NO_COLOR"))
+            click.echo(WELCOME, nl=False, color=False if plain else None)
             ctx.exit(int(ExitCode.OK))
         return super().parse_args(ctx, args)
 
@@ -174,6 +212,16 @@ cli.add_command(cite_command)
 cli.add_command(echo_command)
 
 
+def _stylize(command: click.Command) -> None:
+    command.context_class = _StyledContext
+    if isinstance(command, click.Group):
+        for sub in command.commands.values():
+            _stylize(sub)
+
+
+_stylize(cli)
+
+
 def main() -> None:
     # standalone_mode=False so *we* own exit codes. In this mode click does not
     # sys.exit(): a ctx.exit(n) / --version / --help comes back as a plain int
@@ -190,7 +238,12 @@ def main() -> None:
             os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         raise SystemExit(int(ExitCode.PIPE_CLOSED)) from None
     except click.UsageError as exc:
-        click.echo(f"error: {exc.format_message()}", err=True)
+        prefix = (
+            click.style("error:", fg="red")
+            if sys.stderr.isatty() and not os.environ.get("NO_COLOR")
+            else "error:"
+        )
+        click.echo(f"{prefix} {exc.format_message()}", err=True)
         command_path = exc.ctx.command_path if exc.ctx is not None else "smartpipe"
         click.echo(f"  try: {command_path} --help", err=True)
         raise SystemExit(int(ExitCode.USAGE)) from exc

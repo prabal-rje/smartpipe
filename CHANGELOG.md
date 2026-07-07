@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **The CLI got a face (D42).** A small pipe-flow banner on the bare
+  invocation, color in every `--help` (cyan headings, green options and
+  commands), colored doctor/probe marks and column titles, styled
+  `config show`/`getschema`/`usage`/cache tables, a cyan spinner with a dim
+  live-telemetry segment, yellow warnings, and dim notes — one voice, zero
+  new dependencies. TTY-only, `NO_COLOR` always wins, pipes never see ANSI,
+  and goldens pin the plain text so styling is never contract.
 - **`smartpipe usage` — the resettable usage ledger (D41).** Hour, day, week,
   month, and lifetime windows over what the meter observed (runs, tokens,
   media, audio time, paid conversions); `usage reset` zeroes it, prints the

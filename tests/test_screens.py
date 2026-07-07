@@ -68,12 +68,19 @@ _SCREENS: dict[str, str] = {
 def test_screen_matches_golden(name: str) -> None:
     rendered = _SCREENS[name]
     path = GOLDEN / f"{name}.txt"
+    rendered = _strip_ansi(rendered)  # goldens pin PLAIN text; styling is never contract (D42)
     if os.environ.get("UPDATE_GOLDEN"):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(rendered, encoding="utf-8")
     assert rendered == path.read_text(encoding="utf-8"), (
         f"screen '{name}' drifted from its golden; if intended, run: make golden"
     )
+
+
+def _strip_ansi(text: str) -> str:
+    import re
+
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 def test_every_screen_export_is_pinned() -> None:
