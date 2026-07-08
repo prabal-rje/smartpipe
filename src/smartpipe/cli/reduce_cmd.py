@@ -14,6 +14,7 @@ from smartpipe.cli.input_options import (
     fields_option,
     input_options,
     input_spec,
+    ocr_model_option,
     positional_paths,
     resolve_prompt,
 )
@@ -61,9 +62,11 @@ __all__ = ["reduce_command"]
     is_flag=True,
     help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
 )
+@ocr_model_option
 @input_options
 def reduce_command(
     prompt: str | None,
+    ocr_model_flag: str | None,
     prompt_file: Path | None,
     schema_path: Path | None,
     schema_dsl: str | None,
@@ -95,6 +98,7 @@ def reduce_command(
     """
     request = ReduceRequest(
         allow_captions=allow_captions,
+        ocr_model_flag=ocr_model_flag,
         prompt=resolve_prompt(prompt, prompt_file),
         schema_path=schema_path,
         schema_dsl=schema_dsl,

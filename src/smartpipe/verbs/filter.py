@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, ModelRef
+    from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import RemoteTranscriber
 
 __all__ = ["FilterContext", "FilterRequest", "run_filter"]
@@ -70,10 +71,12 @@ class FilterRequest:
     allow_captions: bool = False  # cloud conversions opt-in (D33)
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
     whole: bool = False  # --whole: refuse oversized items instead of chunk-judging (D26 v2)
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 40)
 
 
 class FilterContext(Protocol):
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
     async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
@@ -94,7 +97,10 @@ async def run_filter(
 ) -> ExitCode:
     tokens = parse_prompt(request.condition)  # UsageFault on bad grammar
     reject_comma_groups(tokens)  # UsageFault: comma-braces are map-only
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 40)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     model = await context.chat_model(request.model_flag)
     slot = ModelSlot(model)
     fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
@@ -118,9 +124,12 @@ async def run_filter(
 
     spinner.start(total=total)
 
-    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     converter = make_converter(
-        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber(model.ref)
+        model,
+        allow_paid=request.allow_captions,
+        log=log,
+        stt=context.remote_transcriber(model.ref),
+        ocr=parser,
     )
     gate = WindowGate(
         provider=model.ref.provider,

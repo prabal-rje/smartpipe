@@ -1,7 +1,9 @@
 """The ``embed`` verb: turn each item into a vector (spec §3.3).
 
 The only verb that never touches a chat LLM — it uses the embedding model and
-emits one JSONL record per item: ``{"text", "vector", "source"}``. Output is
+emits one JSONL record per item: ``{"text", "vector", "__embedder",
+"__source"}`` (item 40: the honest spine — the stamp names the space the
+vector lives in, and ``top_k`` refuses a corpus from another one). Output is
 always JSONL (a vector has no human view), so it feeds ``top_k`` or a file.
 
 Two execution shapes (plan/post-1.0/06, DEFER-3): a finite file corpus is
@@ -20,15 +22,19 @@ from smartpipe.core.errors import ExitCode
 from smartpipe.engine.runner import Done, FailurePolicy, run_ordered
 from smartpipe.io import diagnostics, readers, tty
 from smartpipe.io.inputs import STDIN
-from smartpipe.io.items import describe_source
+from smartpipe.io.items import describe_source, project_content, source_record
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 from smartpipe.models.base import VideoData
 from smartpipe.verbs.common import (
+    GeometryFence,
     embed_in_batches,
     ensure_text,
     interrupted_exit_code,
+    media_embedder,
+    native_route,
     outcome_exit_code,
+    row_embedder,
 )
 from smartpipe.verbs.convert import Converter, embed_video_halves, make_converter
 
@@ -38,9 +44,17 @@ if TYPE_CHECKING:
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import RemoteTranscriber
 
-__all__ = ["EmbedContext", "EmbedRequest", "optional_chat", "run_embed"]
+__all__ = ["ChatSource", "EmbedContext", "EmbedRequest", "optional_chat", "run_embed"]
+
+
+class ChatSource(Protocol):
+    """The one method ``optional_chat`` needs — narrower than any verb context,
+    so every embedding verb's context satisfies it structurally."""
+
+    async def chat_model(self, flag: str | None = None) -> ChatModel: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,13 +63,17 @@ class EmbedRequest:
     concurrency_flag: int | None
     allow_captions: bool = False  # cloud conversions opt-in (D33)
     input: InputSpec = STDIN
-    fields: tuple[str, ...] | None = None  # --fields: project the {text, vector, source} records
+    fields: tuple[str, ...] | None = None  # --fields: project the output records
+    media_model_flag: str | None = None  # --media-embed-model: the joint-space role
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion
 
 
 class EmbedContext(Protocol):
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
+    async def media_embedding_model(self, flag: str | None = None) -> EmbeddingModel | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
 
 
@@ -68,9 +86,14 @@ async def run_embed(
     stop: asyncio.Event | None = None,
 ) -> ExitCode:
     model = await context.embedding_model(request.model_flag)
+    media_model = await context.media_embedding_model(request.media_model_flag)
+    fence = _fence(model, media_model)
     concurrency = context.concurrency(request.concurrency_flag)
 
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     if (total is None or total > 0) and tty.stdout_is_tty():
         diagnostics.note(
             "embeddings are large — redirect to a file: smartpipe embed > corpus.embeddings"
@@ -82,13 +105,13 @@ async def run_embed(
         spinner.guard(stdout),
     )
     spinner.start(total=total)
-    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     converter_chat = await optional_chat(context)
     converter = make_converter(
         converter_chat,
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
+        ocr=parser,
     )
 
     done = 0
@@ -97,7 +120,9 @@ async def run_embed(
         # finite --in corpus: chunked calls, run_ordered bypassed on purpose —
         # batching ≠ per-item workers (order from sequential chunks, isolation
         # from the per-item fallback inside embed_in_batches)
-        collected = [item async for item in items_iter]
+        collected = [project_content(item) async for item in items_iter]
+        for entry in collected:  # the geometry fence fires BEFORE any spend here
+            fence.admit(media=native_route(entry, media_embedder(model, media_model)) is not None)
         outcomes = embed_in_batches(
             model,
             collected,
@@ -105,12 +130,13 @@ async def run_embed(
             stop=stop,
             log=log,
             converter=converter,
+            media_model=media_model,
         )
     else:
         # live stream: one item per call — latency beats throughput
 
         async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
-            return await _embed_one(model, item, log, converter)
+            return await _embed_one(model, item, log, converter, media_model, fence)
 
         outcomes = run_ordered(
             items_iter,
@@ -127,7 +153,8 @@ async def run_embed(
                     {
                         "text": item.text,
                         "vector": list(vector),
-                        "source": item.source.name,
+                        "__embedder": row_embedder(item, model, media_model),
+                        "__source": source_record(item.source),
                     }
                 )
                 done += 1
@@ -145,7 +172,7 @@ async def run_embed(
     return outcome_exit_code(done=done, skipped=skipped)
 
 
-async def optional_chat(context: EmbedContext) -> ChatModel | None:
+async def optional_chat(context: ChatSource) -> ChatModel | None:
     """The converter's LLM rung — absent when no chat model is configured;
     embedding never fails because chat isn't set up (D33)."""
     try:
@@ -154,22 +181,35 @@ async def optional_chat(context: EmbedContext) -> ChatModel | None:
         return None
 
 
+def _fence(model: EmbeddingModel, media_model: EmbeddingModel | None) -> GeometryFence:
+    """The run's one-vector-space gate: equal refs can never trip it."""
+    return GeometryFence(
+        text_ref=str(model.ref), media_ref=str(media_embedder(model, media_model).ref)
+    )
+
+
 async def _embed_one(
     model: EmbeddingModel,
     item: Item,
     log: diagnostics.DegradationLog,
     converter: Converter,
+    media_model: EmbeddingModel | None = None,
+    fence: GeometryFence | None = None,
 ) -> tuple[Item, tuple[float, ...]]:
     # D39/04: a media-native embedder takes image items as PIXELS on the
     # streaming path too — the first live jina call caption-pivoted because
     # only the finite-corpus branch checked this route (live-caught)
-    from smartpipe.verbs.common import native_route, note_native_once
+    from smartpipe.verbs.common import note_native_once
 
-    native = native_route(item, model)
+    item = project_content(item)  # a record embeds its content, never its wrapper
+    effective = media_embedder(model, media_model)
+    native = native_route(item, effective)
+    if fence is not None:
+        fence.admit(media=native is not None)
     if native is not None:
-        media_model, image = native
-        note_native_once(model)
-        vectors = await media_model.embed_parts([image])
+        narrowed, image = native
+        note_native_once(effective)
+        vectors = await narrowed.embed_parts([image])
         return item, vectors[0]
     video = next((part for part in item.media if isinstance(part, VideoData)), None)
     if video is not None and converter.chat is not None:

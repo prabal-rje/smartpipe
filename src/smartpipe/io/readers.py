@@ -27,15 +27,18 @@ from smartpipe.parsing.extract import MissingExtra, extract
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
-    from typing import TextIO
+    from typing import Literal, TextIO
 
     from smartpipe.io.inputs import InputSpec
+    from smartpipe.models.ocr import DocumentParser
 
 __all__ = [
+    "OcrIngest",
     "ensure_not_a_tty",
     "figure_note",
     "file_items",
     "from_files_items",
+    "ocr_route",
     "resolve_items",
     "stdin_items",
 ]
@@ -44,8 +47,34 @@ _HEAD_BYTES = 8192
 _QUEUE_MAX = 1024  # lines buffered ahead of consumption — memory stays bounded
 
 
+@dataclass(frozen=True, slots=True)
+class OcrIngest:
+    """The ``ocr-model`` role at ingestion (item 40): the parser plus the
+    verb's degradation log, so every parsed page is disclosed per row."""
+
+    parser: DocumentParser
+    log: diagnostics.DegradationLog
+
+
+def ocr_route(kind: FileKind, as_mode: str | None) -> Literal["image", "pdf"] | None:
+    """Whether a configured ``ocr-model`` parses this file: whole-crate PDFs
+    and images only — the lines/jsonl dials read text rows, and every other
+    kind keeps today's extraction ladder. Pure: the routing decision itself."""
+    if as_mode in ("lines", "jsonl"):
+        return None
+    if kind is FileKind.PDF:
+        return "pdf"
+    if kind is FileKind.IMAGE:
+        return "image"
+    return None
+
+
 def resolve_items(
-    spec: InputSpec, stdin: TextIO, *, stop: asyncio.Event | None = None
+    spec: InputSpec,
+    stdin: TextIO,
+    *,
+    stop: asyncio.Event | None = None,
+    ocr: OcrIngest | None = None,
 ) -> tuple[AsyncIterator[Item], int | None]:
     """The single entry point every verb uses: dispatch on the input flags.
 
@@ -54,7 +83,10 @@ def resolve_items(
     spinner shows count+rate instead of an ETA. Only the stdin paths guard
     against a bare terminal. ``spec.as_mode`` is the granularity dial (item
     15): file = whole crates, lines = text rows, jsonl = strict records;
-    None = auto (extension defaults for paths, the per-line sniff on stdin)."""
+    None = auto (extension defaults for paths, the per-line sniff on stdin).
+    ``ocr`` (item 40): a configured ocr-model parses PDF/image crates — page
+    counts are unknown before parsing, so those runs report ``total=None``.
+    Unset, every path below is byte-identical to before the role existed."""
     from smartpipe.io.inputs import expand_globs
 
     if spec.patterns and spec.from_files:
@@ -66,17 +98,122 @@ def resolve_items(
         paths = expand_globs(spec.patterns)  # UsageFault if no match
         if spec.as_mode in ("lines", "jsonl"):
             _refuse_uncuttable(paths, spec.as_mode)  # every matched file must honor it
+        if ocr is not None and _any_ocr_eligible(paths, spec.as_mode):
+            chained = None if stdin.isatty() else stdin
+            return _ocr_path_items(paths, spec.as_mode, ocr, chained, stop), None
         loaded = _path_items(paths, spec.as_mode)
         if stdin.isatty():  # files only — no pipe to chain
             return _iter_list(loaded), len(loaded)
         # spec §8: mixed input is files first (glob-sorted), then stdin lines
-        return _chain_files_then_stdin(loaded, stdin, stop, spec.as_mode), None
+        return _chain_files_then_stdin(loaded, stdin, stop, spec.as_mode, ocr), None
     ensure_not_a_tty(stdin)
     if spec.from_files:
-        return from_files_items(stdin, stop=stop, as_mode=spec.as_mode), None
+        return from_files_items(stdin, stop=stop, as_mode=spec.as_mode, ocr=ocr), None
     if spec.as_mode == "file":
         return _stdin_as_one_item(stdin, stop), None  # slurp: the whole pipe is one crate
-    return stdin_items(stdin, stop=stop, as_mode=spec.as_mode, strict_rows=spec.strict_rows), None
+    return stdin_items(
+        stdin, stop=stop, as_mode=spec.as_mode, strict_rows=spec.strict_rows, ocr=ocr
+    ), None
+
+
+def _any_ocr_eligible(paths: Sequence[Path], as_mode: str | None) -> bool:
+    """Only an actually-parseable file flips ingestion onto the OCR path —
+    text-only corpora keep their known total (and embed's batched calls)."""
+    for path in paths:
+        try:
+            with path.open("rb") as handle:
+                head = handle.read(_HEAD_BYTES)
+        except OSError:
+            continue
+        if ocr_route(detect_kind(path, head), as_mode) is not None:
+            return True
+    return False
+
+
+async def _ocr_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item] | None:
+    """The named file through the configured parser — ``None`` means "not
+    OCR's case, or the parse failed (disclosed)": the caller falls back to
+    today's extraction ladder, never a hard stop."""
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(_HEAD_BYTES)
+    except OSError:
+        return None  # _load_file owns the cannot-read warning
+    kind = detect_kind(path, head)
+    route_to = ocr_route(kind, None)
+    if route_to is None:
+        return None
+    name = path.name
+    detail = f"parsed by {ocr.parser.ref}"
+    try:
+        if route_to == "image":
+            from smartpipe.parsing.detect import image_mime
+
+            markdown = await ocr.parser.parse_image(
+                ImageData(data=path.read_bytes(), mime=image_mime(path))
+            )
+            ocr.log.note(name, "document → markdown", detail)
+            return [item_from_file(markdown, str(path), ordinal)]
+        pages = await ocr.parser.parse_pdf(path)
+        items: list[Item] = []
+        for page in pages:
+            marker = name if len(pages) == 1 else f"{name} p.{page.index + 1}"
+            ocr.log.note(marker, "document → markdown", detail)
+            items.append(
+                Item(
+                    raw=page.markdown,
+                    text=page.markdown,
+                    data=None,
+                    source=ItemSource(
+                        kind="file",
+                        name=marker,
+                        index=page.index,
+                        cut="pages",
+                        path=str(path),
+                        label=marker,
+                    ),
+                )
+            )
+        return items
+    except ItemError as exc:
+        diagnostics.warn(f"ocr failed: {name} ({exc}) — falling back to local extraction")
+        return None
+
+
+async def _ocr_path_items(
+    paths: Sequence[Path],
+    as_mode: str | None,
+    ocr: OcrIngest,
+    stdin: TextIO | None,
+    stop: asyncio.Event | None,
+) -> AsyncIterator[Item]:
+    """Path ingestion with the ocr-model set: PDF/image crates parse through
+    the role (one item per page); everything else loads exactly as before."""
+    warned_extras: set[str] = set()
+    ordinal = 0
+    for path in paths:
+        if stop is not None and stop.is_set():
+            return
+        mode = as_mode
+        if mode is None:
+            mode = "jsonl" if path.suffix.lower() in _JSONL_SUFFIXES else "file"
+        if mode != "file":
+            for row in _text_rows(path, mode):
+                yield row
+            continue
+        parsed = await _ocr_file(path, ordinal, ocr)
+        if parsed is None:
+            item = _load_file(path, ordinal, warned_extras)
+            if item is not None:
+                yield item
+                ordinal += 1
+            continue
+        for item in parsed:
+            yield item
+        ordinal += 1
+    if stdin is not None:
+        async for item in stdin_items(stdin, stop=stop, as_mode=as_mode, ocr=ocr):
+            yield item
 
 
 async def _chain_files_then_stdin(
@@ -84,10 +221,11 @@ async def _chain_files_then_stdin(
     stdin: TextIO,
     stop: asyncio.Event | None,
     as_mode: str | None,
+    ocr: OcrIngest | None = None,
 ) -> AsyncIterator[Item]:
     for item in loaded:
         yield item
-    async for item in stdin_items(stdin, stop=stop, as_mode=as_mode):
+    async for item in stdin_items(stdin, stop=stop, as_mode=as_mode, ocr=ocr):
         yield item
 
 
@@ -286,6 +424,7 @@ async def stdin_items(
     stop: asyncio.Event | None = None,
     as_mode: str | None = None,
     strict_rows: bool = False,
+    ocr: OcrIngest | None = None,
 ) -> AsyncIterator[Item]:
     """Each stdin line is one Item, yielded as it arrives (never waits for EOF).
 
@@ -295,7 +434,8 @@ async def stdin_items(
     line-0 BOM are handled per-item by ``item_from_line``. ``as_mode`` (item 15):
     ``lines`` reads every line as TEXT (no JSON sniff); ``jsonl`` demands one
     record per line, loudly; both refuse a binary stdin — a document or clip has
-    no lines to cut.
+    no lines to cut. ``ocr`` (item 40): a redirected PDF or image parses
+    through the configured ocr-model, falling back to today's ladder on failure.
     """
 
     index = 0
@@ -316,9 +456,20 @@ async def stdin_items(
             index += 1
         elif tag == "document":
             assert isinstance(payload, _StdinDocument)
+            if ocr is not None and payload.kind is FileKind.PDF:
+                pages = await _ocr_stdin_document(payload, ocr)
+                if pages is not None:
+                    for item in pages:
+                        yield item
+                    continue
             yield await asyncio.to_thread(_extract_stdin_document, payload.tmp_name, payload.kind)
         elif tag == "image":
             assert isinstance(payload, ImageData)
+            if ocr is not None:
+                parsed = await _ocr_stdin_image(payload, ocr)
+                if parsed is not None:
+                    yield parsed
+                    continue
             item = item_from_file("", "<stdin>", 0)
             yield replace(item, media=(payload,))
         elif tag == "audio":
@@ -348,6 +499,50 @@ def _report_census(records: int, plain: int, *, strict: bool) -> None:
             "or --as lines (text)."
         )
     diagnostics.note(line)
+
+
+async def _ocr_stdin_document(payload: _StdinDocument, ocr: OcrIngest) -> list[Item] | None:
+    """A redirected PDF through the ocr-model — ``None`` (spool intact) means
+    the parse failed, disclosed, and the local ladder takes over."""
+    path = Path(payload.tmp_name)
+    try:
+        pages = await ocr.parser.parse_pdf(path)
+    except ItemError as exc:
+        diagnostics.warn(f"ocr failed: <stdin> ({exc}) — falling back to local extraction")
+        return None
+    with contextlib.suppress(OSError):
+        path.unlink()  # statelessness: the spool never outlives the run
+    detail = f"parsed by {ocr.parser.ref}"
+    items: list[Item] = []
+    for page in pages:
+        marker = "<stdin>" if len(pages) == 1 else f"<stdin> p.{page.index + 1}"
+        ocr.log.note(marker, "document → markdown", detail)
+        items.append(
+            Item(
+                raw=page.markdown,
+                text=page.markdown,
+                data=None,
+                source=ItemSource(
+                    kind="file",
+                    name=marker,
+                    index=page.index,
+                    cut="pages",
+                    path="<stdin>",
+                    label=marker,
+                ),
+            )
+        )
+    return items
+
+
+async def _ocr_stdin_image(payload: ImageData, ocr: OcrIngest) -> Item | None:
+    try:
+        markdown = await ocr.parser.parse_image(payload)
+    except ItemError as exc:
+        diagnostics.warn(f"ocr failed: <stdin> ({exc}) — falling back to local extraction")
+        return None
+    ocr.log.note("<stdin>", "document → markdown", f"parsed by {ocr.parser.ref}")
+    return item_from_file(markdown, "<stdin>", 0)
 
 
 def _extract_stdin_document(tmp_name: str, kind: FileKind) -> Item:
@@ -513,7 +708,11 @@ async def _stdin_as_one_item(stdin: TextIO, stop: asyncio.Event | None) -> Async
 
 
 async def from_files_items(
-    stdin: TextIO, *, stop: asyncio.Event | None = None, as_mode: str | None = None
+    stdin: TextIO,
+    *,
+    stop: asyncio.Event | None = None,
+    as_mode: str | None = None,
+    ocr: OcrIngest | None = None,
 ) -> AsyncIterator[Item]:
     """``--from-files``: each non-blank stdin line names a file to read — also
     incremental, so ``find … | smartpipe … --from-files`` processes as names
@@ -534,6 +733,13 @@ async def from_files_items(
         if mode is None:
             mode = "jsonl" if path.suffix.lower() in _JSONL_SUFFIXES else "file"
         if mode == "file":
+            if ocr is not None:
+                parsed = await _ocr_file(path, index, ocr)
+                if parsed is not None:
+                    for item in parsed:
+                        yield item
+                    index += 1
+                    continue
             item = _load_file(path, index, warned_extras)
             if item is not None:
                 yield item

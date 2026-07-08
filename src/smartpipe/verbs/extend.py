@@ -77,6 +77,7 @@ class ExtendRequest:
     bare: bool = False  # --bare: strip __ metadata from record output (item 18)
     full: bool = False  # --full: disable the TTY preview's truncation (item 19)
     whole: bool = False  # --whole: refuse oversized items instead of auto-chunking (D26 v2)
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 40)
 
 
 async def run_extend(
@@ -93,9 +94,13 @@ async def run_extend(
     if plan.mode != "structured":
         raise UsageFault(EXTEND_NEEDS_FIELDS)  # exit 64, zero model calls
     instruction = to_instruction(tokens)
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     if request.dry_run:  # before model resolution: a dry run is free even pre-setup
+        items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
         return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
+    log = diagnostics.DegradationLog()
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 40)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     model = await context.chat_model(request.model_flag)
     slot = ModelSlot(model)
     fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
@@ -119,7 +124,6 @@ async def run_extend(
 
     spinner.start(total=total)
 
-    log = diagnostics.DegradationLog()
     gate = WindowGate(
         provider=model.ref.provider,
         model_name=model.ref.name,

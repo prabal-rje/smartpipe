@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.io.writers import ResultWriter
     from smartpipe.models.base import ChatModel, ModelRef
+    from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import RemoteTranscriber
 
 __all__ = ["ReduceContext", "ReduceRequest", "Reducer", "run_reduce"]
@@ -78,10 +79,12 @@ class ReduceRequest:
     fields: tuple[str, ...] | None = None  # --fields: project structured output
     schema_dsl: str | None = None  # --schema-from (rung 3, D22)
     allow_captions: bool = False  # cloud conversions opt-in (D33)
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 40)
 
 
 class ReduceContext(Protocol):
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
@@ -119,14 +122,20 @@ async def run_reduce(
         )
     if request.window is not None:
         return await _run_windowed(request, tokens, schema, context, stdin, stdout, stop)
-    items_iter, _total = readers.resolve_items(request.input, stdin)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 40)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, _total = readers.resolve_items(request.input, stdin, ocr=ocr)
     collected = [item async for item in items_iter]  # whole-set verbs need everything
     items: list[Item] = []
     media_skipped = 0
-    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     model = await context.chat_model(request.model_flag)
     converter = make_converter(
-        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber(model.ref)
+        model,
+        allow_paid=request.allow_captions,
+        log=log,
+        stt=context.remote_transcriber(model.ref),
+        ocr=parser,
     )
     for candidate in collected:
         try:
@@ -219,8 +228,13 @@ async def _run_windowed(
         window_budget=_window_budget(context, model),
     )
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 40)
     converter = make_converter(
-        model, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber(model.ref)
+        model,
+        allow_paid=request.allow_captions,
+        log=log,
+        stt=context.remote_transcriber(model.ref),
+        ocr=parser,
     )
     buffer: WindowBuffer[str] = WindowBuffer(policy)
     produced = 0
@@ -240,7 +254,8 @@ async def _run_windowed(
         writer.write_record(record)
         produced += 1
 
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     try:
         async for item in items_iter:
             if item.media:

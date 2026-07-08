@@ -223,3 +223,24 @@ def test_source_record_uses_page_and_segment_keys() -> None:
     assert source_record(pages) == {"path": "r.pdf", "as": "pages", "page": 2}
     seconds = ItemSource(kind="stdin", name="call.wav", index=0, cut="seconds")
     assert source_record(seconds) == {"path": "call.wav", "as": "seconds", "segment": 1}
+
+
+def test_legacy_embed_row_source_is_adopted() -> None:
+    """Pre-1.5 embed rows carried `"source": "name"` — read for one release."""
+    item = item_from_line('{"text": "t", "vector": [1.0, 0.0], "source": "a.md"}', 4)
+    assert item.source.name == "a.md"
+    assert item.source.path == "a.md"
+    assert describe_source(item.source) == "a.md"
+
+
+def test_plain_source_field_without_vector_stays_user_data() -> None:
+    item = item_from_line('{"text": "t", "source": "a.md"}', 0)
+    assert item.source.name == "-"  # no vector → not an embed row; never hijack user fields
+
+
+def test_embedder_stamp_is_known_meta(capsys: pytest.CaptureFixture[str]) -> None:
+    from smartpipe.io import items as items_module
+
+    items_module._warned_meta.clear()  # pyright: ignore[reportPrivateUsage] — test isolation
+    item_from_line('{"text": "t", "__embedder": "jina/jina-clip-v2"}', 0)
+    assert "__embedder" not in capsys.readouterr().err  # a known field never warns

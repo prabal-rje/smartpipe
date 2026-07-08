@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, MediaData, ModelRef
+    from smartpipe.models.ocr import DocumentParser
 
 __all__ = ["MapContext", "MapRequest", "invalid_row", "map_one", "print_dry_run", "run_map"]
 
@@ -78,11 +79,13 @@ class MapRequest:
     bare: bool = False  # --bare: strip __ metadata from record output (item 18)
     full: bool = False  # --full: disable the TTY preview's truncation (item 19)
     whole: bool = False  # --whole: refuse oversized items instead of auto-chunking (D26 v2)
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 40)
 
 
 class MapContext(Protocol):
     """The slice of the container ``map`` needs — a DI seam so tests inject fakes."""
 
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
     async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
@@ -112,9 +115,13 @@ async def run_map(
     schema = resolve_schema(request.schema_path, request.schema_dsl, loader=load_schema)
     plan = plan_map(tokens, schema=schema)
     instruction = to_instruction(tokens)
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     if request.dry_run:  # before model resolution: a dry run is free even pre-setup
+        items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
         return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 40)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
     slot = ModelSlot(model)
     fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
@@ -154,7 +161,6 @@ async def run_map(
 
     spinner.start(total=total)
 
-    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     gate = WindowGate(
         provider=model.ref.provider,
         model_name=model.ref.name,

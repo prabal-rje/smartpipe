@@ -563,3 +563,17 @@ def test_update_check_junk_value_is_usage_error(run_cli: RunCli, config_home: Pa
     code, _out, err = run_cli(["config", "update-check", "maybe"])
     assert code == 64
     assert "on" in err and "off" in err
+
+
+def test_set_ocr_model(run_cli: RunCli, config_home: Path) -> None:
+    code, out, _err = run_cli(["config", "ocr-model", "mistral-ocr-latest"])
+    assert code == 0
+    assert "ocr-model set to mistral/mistral-ocr-latest" in out
+    assert load_config(config_home).ocr_model == "mistral/mistral-ocr-latest"
+
+
+def test_set_media_embed_model(run_cli: RunCli, config_home: Path) -> None:
+    code, out, _err = run_cli(["config", "media-embed-model", "jina/jina-clip-v2"])
+    assert code == 0
+    assert "media-embed-model set to jina/jina-clip-v2" in out
+    assert load_config(config_home).media_embed_model == "jina/jina-clip-v2"

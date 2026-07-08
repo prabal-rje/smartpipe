@@ -217,6 +217,53 @@ account. Only the `openai` wire exists today; the key accepts
 `provider/model` so more can land behind the same seam.
 
 
+## The ocr-model role
+
+`smartpipe config ocr-model mistral-ocr-latest` names a dedicated document
+parser. When set, ingested PDFs and images run through it instead of the
+local extraction ladder - page markdown becomes the item text, and a
+multi-page PDF becomes one item per page (the `__source` spine carries the
+page cut, exactly like `split --by pages`). Setting the role is the consent;
+every parsed page is disclosed per row:
+
+```text
+⚠ degraded: report.pdf p.3 document → markdown (parsed by mistral/mistral-ocr-latest)
+```
+
+The role is provider-agnostic:
+
+- A **mistral** ref rides the dedicated `/v1/ocr` wire (needs
+  `MISTRAL_API_KEY`; the endpoint charges per page).
+- **Any other ref** reads pages through the normal chat-vision wire with an
+  extract-the-text framing - `smartpipe config ocr-model ollama/llava` is a
+  free local OCR. For PDFs on this rung, pages with a healthy text layer
+  keep their locally extracted text (zero calls); only thin, image-bearing
+  pages (scans) go through the model.
+
+Inside the conversion ladder, a configured `ocr-model` also outranks the
+vision-chat rung for page images, so scanned documents read as text
+everywhere. If a parse fails, the item falls back to the local extraction
+ladder with a note - never a hard stop. `--ocr-model` (per run) >
+`SMARTPIPE_OCR_MODEL` > the config key. Unset: nothing changes.
+
+## The media-embed-model role
+
+`smartpipe config media-embed-model jina/jina-clip-v2` names a JOINT
+text+image embedder. When set, `embed` and `top_k` route media items to it
+as pixels while text items keep using `embed-model` - and a text query can
+rank an image corpus, because both live in the same space.
+
+One vector space per run is the law: if a run holds BOTH text and media
+items while the two roles name different models, smartpipe refuses loudly
+(vectors from two models can't be compared). The fix it names: set
+`embed-model` to the joint model too, or feed media-only input. Unset, media
+items keep today's behavior (native embedding when `embed-model` itself is
+media-capable, the caption pivot otherwise).
+
+`--media-embed-model` (per run) > `SMARTPIPE_MEDIA_EMBED_MODEL` > the config
+key.
+
+
 ## The usage ledger
 
 `smartpipe usage` shows what the meter observed over the past hour, day, week,

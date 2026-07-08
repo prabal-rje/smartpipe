@@ -43,6 +43,12 @@ class FakeContext:
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
+    async def media_embedding_model(self, flag: str | None = None) -> None:
+        return None
+
 
 def _request(near: str, k: int | None = None, threshold: float | None = None) -> TopKRequest:
     return TopKRequest(near=near, k=k, threshold=threshold, model_flag=None, concurrency_flag=None)
@@ -116,6 +122,41 @@ async def test_precomputed_vector_skips_reembedding() -> None:
     assert record["text"] == "doc a"
     assert record["_score"] == 1.0
     assert "vector" not in record  # the plumbing vector is dropped from output
+
+
+async def test_matching_embedder_stamp_passes() -> None:
+    stdin = '{"text": "doc", "vector": [1.0, 0.0], "__embedder": "ollama/fake-embed"}\n'
+    code, out = await _run(_request("q", k=1), stdin, {"q": (1.0, 0.0)})
+    assert code == ExitCode.OK
+    assert json.loads(out.strip())["text"] == "doc"
+
+
+async def test_mismatched_embedder_stamp_is_setup_fault() -> None:
+    # same dimensions, different model — the stamp is the only honest witness
+    stdin = '{"text": "doc", "vector": [1.0, 0.0], "__embedder": "openai/text-embedding-3-small"}\n'
+    with pytest.raises(SetupFault) as caught:
+        await _run(_request("q", k=1), stdin, {"q": (1.0, 0.0)})
+    assert "openai/text-embedding-3-small" in str(caught.value)
+    assert "ollama/fake-embed" in str(caught.value)
+
+
+async def test_unstamped_corpus_works_with_one_note(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stdin = '{"text": "a", "vector": [1.0, 0.0]}\n{"text": "b", "vector": [0.0, 1.0]}\n'
+    code, _out = await _run(_request("q", k=1), stdin, {"q": (1.0, 0.0)})
+    assert code == ExitCode.OK
+    err = capsys.readouterr().err
+    assert err.count("__embedder") == 1  # one calm note, not one per row
+
+
+async def test_reader_fed_record_embeds_its_text_not_the_wrapper() -> None:
+    """Deliverable 4 pin for top_k: a spined record ranks by its text content."""
+    stdin = '{"text": "kubernetes", "__source": {"path": "n.txt", "as": "lines", "line": 1}}\n'
+    table = {"q": (1.0, 0.0), "kubernetes": (1.0, 0.0)}
+    code, out = await _run(_request("q", k=1), stdin, table)  # KeyError if the wrapper embeds
+    assert code == ExitCode.OK
+    assert json.loads(out.strip())["text"] == "kubernetes"
 
 
 async def test_dimension_mismatch_is_setup_fault() -> None:

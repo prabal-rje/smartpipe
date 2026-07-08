@@ -111,6 +111,9 @@ class FakeContext:
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
     def writer(
         self,
         output_flag: OutputFormat,

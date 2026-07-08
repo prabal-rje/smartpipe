@@ -55,6 +55,12 @@ cat corpus.embeddings \
 The `vector` field is an internal field, so `top_k` drops it from the output and keeps the
 rest of the record plus `_score`.
 
+Embed rows also carry an **`__embedder`** stamp - the model that produced the
+vector. `top_k` refuses a corpus whose stamp differs from the model this run
+resolves to (same dimensions or not, two models' vectors live in different
+spaces), naming both models and the fix. Rows from older releases without the
+stamp keep working, with one calm note.
+
 ## Streaming: `--stream` (the live leaderboard)
 
 Keep a running top-K over a live stream:
@@ -80,6 +86,8 @@ than fails on) a record whose embedding dimensions don't match the query.
 | `--threshold FLOAT` | Keep everything at or above this similarity (0-1) |
 | `--stream` | Live leaderboard over a stream (needs `K`) |
 | `--embed-model TEXT` | The embedding model |
+| `--media-embed-model TEXT` | A JOINT text+image embedder for media items - a text query then ranks an image corpus in its space ([the role](../concepts/models-and-providers.md#the-media-embed-model-role)) |
+| `--ocr-model TEXT` | Parse ingested PDFs/images with a document parsing model ([the role](../concepts/models-and-providers.md#the-ocr-model-role)) |
 | `--concurrency N` | Max parallel model calls |
 | `--fields A,B` | Select + order columns of JSON results (incl. `_score`) ([details](../concepts/output-formats.md)) |
 
@@ -96,9 +104,9 @@ alone. `--stream` stays one item per call - streaming processes one item at a ti
 ## Gotchas
 
 - **Use one embedding model for a corpus and its queries.** If the corpus was
-  embedded with a different model than the query, the vector dimensions won't
-  match and `top_k` stops with an error explaining the dimension mismatch. (Same-dimension but different
-  models can't be detected - keep them consistent.)
+  embedded with a different model than the query, `top_k` stops with an error
+  naming both models (the `__embedder` stamp catches even same-dimension
+  mismatches; older unstamped corpora fall back to the dimension check).
 - **`top_k` buffers everything.** Unlike `map`/`filter`, it must see every item to
   rank, so it isn't a streaming operation.
 

@@ -22,12 +22,21 @@ echo "senior Python backend engineer" \
 One JSONL object per item, always (a vector has no human-readable view):
 
 ```json
-{"text": "the item text", "vector": [0.12, -0.03, ...], "source": "-"}
+{"text": "the item text", "vector": [0.12, -0.03, ...], "__embedder": "ollama/nomic-embed-text", "__source": {"path": "-", "as": "lines", "line": 1}}
 ```
 
-- `text` - the item's content.
+- `text` - the item's meaningful content (a record embeds its content, never
+  its serialized wrapper).
 - `vector` - the embedding, an array of floats.
-- `source` - where it came from (`-` for stdin).
+- `__embedder` - the resolved model that produced the vector. `top_k` checks
+  this stamp against its own resolved model and refuses a mismatched corpus -
+  vectors from two models live in different spaces.
+- `__source` - the provenance spine every verb carries
+  ([the item](../concepts/the-item.md)).
+
+Rows written by older releases (`"source": "-"` and no stamp) still feed
+`top_k` for one release - unstamped rows get one calm note instead of a
+refusal.
 
 Because it's JSONL, you redirect it to a file and feed that file to `top_k` later -
 which skips re-embedding items that already carry a `vector`.
@@ -37,8 +46,10 @@ which skips re-embedding items that already carry a `vector`.
 | Option | Meaning |
 |---|---|
 | `--embed-model TEXT` | The embedding model (default `local/nomic-embed-text-v1.5` when `fastembed` is available; configured separately from the chat model) |
+| `--media-embed-model TEXT` | A JOINT text+image embedder for media items (e.g. `jina/jina-clip-v2`); text items keep `--embed-model` ([the role](../concepts/models-and-providers.md#the-media-embed-model-role)) |
+| `--ocr-model TEXT` | Parse ingested PDFs/images with a document parsing model ([the role](../concepts/models-and-providers.md#the-ocr-model-role)) |
 | `--concurrency N` | Max parallel model calls (default 4) |
-| `--fields A,B` | Select + order the `{text, vector, source}` record fields ([details](../concepts/output-formats.md)) |
+| `--fields A,B` | Select + order the output record fields ([details](../concepts/output-formats.md)) |
 
 ## Performance
 
@@ -70,6 +81,14 @@ Swapping embedding models changes none of this: the converter runs before
 embedding and belongs to the *chat* model's capabilities, so the embedder only
 ever sees words. The `local` profile anchors the space with `embeddinggemma`
 (multilingual, 2k context, ~20 ms/item).
+
+Two exceptions skip the ladder entirely:
+
+- a media-capable `--embed-model` (e.g. `jina/jina-clip-v2`) embeds
+  image-only items as pixels, natively;
+- a configured `--media-embed-model` routes image-only items to that joint
+  space while text keeps `--embed-model`. Mixing text and media in one run
+  with two DIFFERENT models is refused loudly - one run, one vector space.
 
 ## Items bigger than the embedding window
 

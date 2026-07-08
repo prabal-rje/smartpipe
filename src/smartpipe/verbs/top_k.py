@@ -18,14 +18,18 @@ from smartpipe.engine.ranking import board_insert, cosine, rank, select, unit_sc
 from smartpipe.engine.runner import Done, FailurePolicy, run_ordered
 from smartpipe.io import diagnostics, readers, tty
 from smartpipe.io.inputs import STDIN
-from smartpipe.io.items import describe_source
+from smartpipe.io.items import describe_source, project_content
 from smartpipe.io.leaderboard import LiveBoard
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 from smartpipe.verbs.common import (
+    GeometryFence,
     embed_in_batches,
     ensure_text,
     interrupted_exit_code,
+    media_embedder,
+    native_route,
+    note_native_once,
     outcome_exit_code,
 )
 from smartpipe.verbs.convert import Converter, make_converter
@@ -37,6 +41,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.io.writers import ResultWriter
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import RemoteTranscriber
 
 __all__ = ["TopKContext", "TopKRequest", "run_top_k"]
@@ -53,12 +58,16 @@ class TopKRequest:
     stream: bool = False  # --stream: the live leaderboard (a different output protocol)
     fields: tuple[str, ...] | None = None  # --fields: project structured records
     allow_captions: bool = False  # cloud conversions opt-in (D33)
+    media_model_flag: str | None = None  # --media-embed-model: the joint-space role
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion
 
 
 class TopKContext(Protocol):
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
+    async def media_embedding_model(self, flag: str | None = None) -> EmbeddingModel | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
 
 
@@ -75,24 +84,44 @@ async def run_top_k(
     if request.k is None and request.threshold is None:
         raise UsageFault("top_k needs a number (K), --threshold, or both")
     model = await context.embedding_model(request.model_flag)
+    media_model = await context.media_embedding_model(request.media_model_flag)
     # still validates the flag; batch embedding is chunked (≤64/call), not per-item-parallel
     context.concurrency(request.concurrency_flag)
 
-    items_iter, _total = readers.resolve_items(request.input, stdin)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, _total = readers.resolve_items(request.input, stdin, ocr=ocr)
     items = [item async for item in items_iter]  # whole-set verbs need everything
     if not items:
         return ExitCode.OK
 
-    query_vector = (await model.embed([request.near]))[0]
-    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    effective = media_embedder(model, media_model)
+    fence = GeometryFence(text_ref=str(model.ref), media_ref=str(effective.ref))
+    any_native = False
+    for item in items:
+        if _precomputed_vector(item) is not None:
+            continue  # already embedded — its __embedder stamp is the witness
+        is_media = native_route(item, effective) is not None
+        any_native = any_native or is_media
+        fence.admit(media=is_media)  # fires before any spend
+    # the query follows the corpus's space: media-native corpora rank text
+    # queries in the JOINT space (that is the point of a media embedder)
+    query_model = effective if (media_model is not None and any_native) else model
+    query_vector = (await query_model.embed([request.near]))[0]
+    stamps = _StampGate(query_ref=str(query_model.ref))
     converter_chat = await _optional_chat(context)
     converter = make_converter(
         converter_chat,
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
+        ocr=parser,
     )
-    vectors, skipped = await _collect_vectors(model, items, log, converter)
+    vectors, skipped = await _collect_vectors(
+        model, items, log, converter, media_model=media_model, stamps=stamps
+    )
+    stamps.finish()
     log.finish()
     _check_dimensions(query_vector, vectors)
 
@@ -142,27 +171,41 @@ async def _run_stream(
         )
     k = request.k
     model = await context.embedding_model(request.model_flag)
+    media_model = await context.media_embedding_model(request.media_model_flag)
+    effective = media_embedder(model, media_model)
     concurrency = context.concurrency(request.concurrency_flag)
     query_vector = (await model.embed([request.near]))[0]
+    # a stream's composition is unknowable up front, so the query leads in the
+    # TEXT space; a media item arriving under a split-role setup trips the fence
+    fence = GeometryFence(text_ref=str(model.ref), media_ref=str(effective.ref), saw_text=True)
+    stamps = _StampGate(query_ref=str(model.ref))
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)
     converter_chat = await _optional_chat(context)
     converter = make_converter(
         converter_chat,
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
+        ocr=parser,
     )
 
     async def worker(item: Item) -> tuple[Item, tuple[float, ...]]:
+        item = project_content(item)  # a record ranks by its content, not its wrapper
+        native = native_route(item, effective)
+        fence.admit(media=native is not None)
+        if native is not None:
+            narrowed, image = native
+            note_native_once(effective)
+            vector = (await narrowed.embed_parts([image]))[0]
+            return item, _query_sized(vector, query_vector)
         item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
         vector = _precomputed_vector(item)
-        if vector is None:
+        if vector is not None:
+            stamps.check(item)
+        else:
             vector = (await model.embed([item.text]))[0]
-        if len(vector) != len(query_vector):
-            raise ItemError(
-                f"embedding dimensions {len(vector)} don't match the query ({len(query_vector)})"
-            )
-        return item, vector
+        return item, _query_sized(vector, query_vector)
 
     board: tuple[tuple[float, int], ...] = ()
     by_arrival: dict[int, Item] = {}
@@ -173,7 +216,8 @@ async def _run_stream(
     snapshot_seq = 0
     scored = 0
     skipped = 0
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     outcomes = run_ordered(
         items_iter, worker, concurrency=concurrency, failure_policy=FailurePolicy(), stop=stop
     )
@@ -202,6 +246,7 @@ async def _run_stream(
         if live is not None:
             live.paint(_board_rows(board, by_arrival), force=True)  # final state stays visible
         writer.flush()
+        stamps.finish()
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=scored, skipped=skipped)
         return interrupted_exit_code(done=scored, skipped=skipped)
@@ -249,11 +294,54 @@ async def _optional_chat(context: TopKContext) -> ChatModel | None:
         return None
 
 
+@dataclass(slots=True)
+class _StampGate:
+    """The ``__embedder`` witness (item 40): a precomputed vector must come
+    from the space this run's query lives in. Old unstamped rows keep working
+    behind one calm note — they predate the stamp, not the geometry."""
+
+    query_ref: str
+    unstamped: int = 0
+
+    def check(self, item: Item) -> None:
+        stamp = item.data.get("__embedder") if item.data is not None else None
+        if not isinstance(stamp, str):
+            self.unstamped += 1
+            return
+        if stamp != self.query_ref:
+            raise SetupFault(
+                f"error: the corpus was embedded with {stamp}, "
+                f"but this run embeds with {self.query_ref}\n"
+                "  Vectors from two models live in different spaces — similarity across "
+                "them is noise.\n"
+                f"  Re-run with --embed-model {stamp}, or rebuild the corpus: "
+                f"smartpipe embed --embed-model {self.query_ref}"
+            )
+
+    def finish(self) -> None:
+        if not self.unstamped:
+            return
+        rows = "row" if self.unstamped == 1 else "rows"
+        diagnostics.note(
+            f"{self.unstamped} corpus {rows} carry no __embedder stamp (older embed "
+            f"output) — assuming they match {self.query_ref}"
+        )
+
+
+def _query_sized(vector: tuple[float, ...], query: tuple[float, ...]) -> tuple[float, ...]:
+    if len(vector) != len(query):
+        raise ItemError(f"embedding dimensions {len(vector)} don't match the query ({len(query)})")
+    return vector
+
+
 async def _collect_vectors(
     model: EmbeddingModel,
     items: list[Item],
     log: diagnostics.DegradationLog,
     converter: Converter,
+    *,
+    media_model: EmbeddingModel | None = None,
+    stamps: _StampGate | None = None,
 ) -> tuple[dict[int, tuple[float, ...]], int]:
     """Embed everything that needs embedding — chunked (≤64/call, DEFER-3),
     run_ordered bypassed on purpose: batching ≠ per-item workers (order comes
@@ -263,15 +351,22 @@ async def _collect_vectors(
     for item in items:
         precomputed = _precomputed_vector(item)
         if precomputed is not None:
+            if stamps is not None:
+                stamps.check(item)
             vectors[item.source.index] = precomputed
         else:
-            to_embed.append(item)
+            to_embed.append(project_content(item))
 
     spinner = make_stderr_spinner()
     spinner.start(total=len(to_embed))
     skipped = 0
     outcomes = embed_in_batches(
-        model, to_embed, failure_policy=FailurePolicy(), log=log, converter=converter
+        model,
+        to_embed,
+        failure_policy=FailurePolicy(),
+        log=log,
+        converter=converter,
+        media_model=media_model,
     )
     try:
         async for outcome in outcomes:

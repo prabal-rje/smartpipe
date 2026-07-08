@@ -50,6 +50,12 @@ class FakeContext:
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
+    async def media_embedding_model(self, flag: str | None = None) -> None:
+        return None
+
 
 async def _run(stdin: str, *, fail_text: str | None = None) -> tuple[ExitCode, str, FakeEmbed]:
     model = FakeEmbed(fail_text=fail_text)
@@ -67,13 +73,39 @@ async def test_emits_ndjson_record_per_item_in_order() -> None:
     code, out, _model = await _run("ab\ncde\n")
     assert code == ExitCode.OK
     lines = out.splitlines()
-    assert json.loads(lines[0]) == {"text": "ab", "vector": [2.0, 1.0], "source": "-"}
-    assert json.loads(lines[1]) == {"text": "cde", "vector": [3.0, 1.0], "source": "-"}
+    assert json.loads(lines[0]) == {
+        "text": "ab",
+        "vector": [2.0, 1.0],
+        "__embedder": "ollama/fake-embed",
+        "__source": {"path": "-", "as": "lines", "line": 1},
+    }
+    assert json.loads(lines[1]) == {
+        "text": "cde",
+        "vector": [3.0, 1.0],
+        "__embedder": "ollama/fake-embed",
+        "__source": {"path": "-", "as": "lines", "line": 2},
+    }
 
 
 async def test_always_ndjson_even_for_one_item() -> None:
     _code, out, _model = await _run("x\n")
-    assert out == '{"text":"x","vector":[1.0,1.0],"source":"-"}\n'
+    assert out == (
+        '{"text":"x","vector":[1.0,1.0],"__embedder":"ollama/fake-embed",'
+        '"__source":{"path":"-","as":"lines","line":1}}\n'
+    )
+
+
+async def test_reader_fed_record_embeds_its_text_not_the_wrapper() -> None:
+    """Deliverable 4 pin: `smartpipe FILE | smartpipe embed` must embed the
+    record's meaningful text — never the serialized JSON, spine and all."""
+    spine = '"__source": {"path": "notes.txt", "as": "lines", "line": 7}'
+    wrapped = '{"text": "hello world", ' + spine + "}\n"
+    _code, out_wrapped, model_wrapped = await _run(wrapped)
+    _code2, _out_direct, model_direct = await _run("hello world\n")
+    assert model_wrapped.batches == model_direct.batches  # identical text reached the wire
+    record = json.loads(out_wrapped)
+    assert record["text"] == "hello world"
+    assert record["__source"] == {"path": "notes.txt", "as": "lines", "line": 7}
 
 
 async def test_empty_input_is_ok_silent() -> None:

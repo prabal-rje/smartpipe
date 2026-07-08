@@ -33,8 +33,18 @@ def test_embed_emits_ndjson(run_cli: RunCli, respx_mock: respx.MockRouter) -> No
     code, out, _err = run_cli(["embed", "--concurrency", "1"], stdin="alpha\nbeta\n")
     assert code == 0
     lines = out.splitlines()
-    assert json.loads(lines[0]) == {"text": "alpha", "vector": [0.1, 0.2], "source": "-"}
-    assert json.loads(lines[1]) == {"text": "beta", "vector": [0.3, 0.4], "source": "-"}
+    assert json.loads(lines[0]) == {
+        "text": "alpha",
+        "vector": [0.1, 0.2],
+        "__embedder": "ollama/nomic-embed-text",
+        "__source": {"path": "-", "as": "lines", "line": 1},
+    }
+    assert json.loads(lines[1]) == {
+        "text": "beta",
+        "vector": [0.3, 0.4],
+        "__embedder": "ollama/nomic-embed-text",
+        "__source": {"path": "-", "as": "lines", "line": 2},
+    }
 
 
 def test_top_k_ranks(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:

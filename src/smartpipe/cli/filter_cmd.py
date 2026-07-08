@@ -10,7 +10,13 @@ from pathlib import Path
 import click
 
 from smartpipe.cli.completions import complete_chat_models
-from smartpipe.cli.input_options import input_options, input_spec, positional_paths, resolve_prompt
+from smartpipe.cli.input_options import (
+    input_options,
+    input_spec,
+    ocr_model_option,
+    positional_paths,
+    resolve_prompt,
+)
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.filter import FilterRequest, run_filter
@@ -49,9 +55,11 @@ __all__ = ["filter_command"]
     is_flag=True,
     help="Never chunk-judge oversized items: judge whole or skip with an error.",
 )
+@ocr_model_option
 @input_options
 def filter_command(
     condition: str | None,
+    ocr_model_flag: str | None,
     prompt_file: Path | None,
     invert: bool,
     model_flag: str | None,
@@ -86,6 +94,7 @@ def filter_command(
         fallback_flag=fallback_flag,
         concurrency_flag=concurrency_flag,
         whole=whole,
+        ocr_model_flag=ocr_model_flag,
         input=input_spec(
             positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
         ),

@@ -63,6 +63,7 @@ if TYPE_CHECKING:
 
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, EmbeddingModel
+    from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import RemoteTranscriber
 
 __all__ = ["AppContainer", "build_container"]
@@ -151,6 +152,61 @@ class AppContainer:
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel:
         model = self._build_embed(resolve_embed_ref(flag, self.env, self.config))
         return model if self.budget is None else budgeted_embed(model, self.budget)
+
+    async def media_embedding_model(self, flag: str | None = None) -> EmbeddingModel | None:
+        """The ``media-embed-model`` role (item 40): a JOINT text+image space
+        that media items route to while text items keep ``embed-model``. Unset
+        = None (today's resolution). A text-only ref is refused here, before
+        any spend — pixels through a text embedder are a category error."""
+        raw = (
+            (flag or "").strip()
+            or self.env.get("SMARTPIPE_MEDIA_EMBED_MODEL", "").strip()
+            or (self.config.media_embed_model or "").strip()
+        )
+        if not raw:
+            return None
+        from smartpipe.models.base import supports_media_embedding
+
+        model = self._build_embed(parse_model_ref(raw))
+        probe: object = model  # narrow a VIEW, not the binding — the return stays typed
+        if not supports_media_embedding(probe):
+            raise SetupFault(
+                f"error: media-embed-model needs a joint text+image embedder — "
+                f"'{raw}' reads text only\n"
+                "  Media items embed as pixels only in a joint space "
+                "(e.g. jina/jina-clip-v2).\n"
+                "  Set one: smartpipe config media-embed-model jina/jina-clip-v2 — "
+                "or unset the role."
+            )
+        return model if self.budget is None else budgeted_embed(model, self.budget)
+
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None:
+        """The ``ocr-model`` role (item 40): when set, ingested PDFs and images
+        parse through it (owner ruling — configuring the role IS the consent;
+        every use is disclosed per row). A mistral ref rides the dedicated
+        ``/v1/ocr`` wire; any other ref reads pages through the normal
+        chat-vision wire with an extract-the-text framing."""
+        raw = (
+            (flag or "").strip()
+            or self.env.get("SMARTPIPE_OCR_MODEL", "").strip()
+            or (self.config.ocr_model or "").strip()
+        )
+        if not raw:
+            return None
+        ref = parse_model_ref(raw)
+        if ref.provider == "mistral":
+            from smartpipe.models.ocr import MistralOcrParser
+
+            return MistralOcrParser(
+                ref=ref,
+                client=self.http_client,
+                api_key=require_api_key(self.env, ref.name, MISTRAL_WIRE),
+                base_url=resolve_base_url(self.env, MISTRAL_WIRE),
+                retry=self.retry,
+            )
+        from smartpipe.models.ocr import VisionOcrParser
+
+        return VisionOcrParser(chat=self._wrap_chat(self._build_chat(ref)))
 
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None:
         """The stt-model role (D39/05): explicit env/config wins; otherwise the
