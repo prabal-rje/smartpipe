@@ -62,13 +62,13 @@ paid stage:
 
 ## Recipes & reference
 
-- [Cookbook](cookbook/README.md) — contract extraction, log triage, ranking, live monitoring
+- [Cookbook](cookbook/README.md) — invoice reconciliation, video RAG, meeting
+  digests, log triage, training-data prep, live monitoring, and more
 - [CLI reference](reference/cli.md) — every flag, format, and exit code
 - [`.sem` stage files](reference/sem-files.md) — save a pipe stage as an executable script
 - [Troubleshooting](troubleshooting.md) — find your error message
 - [Comparison](comparison.md) — where smartpipe fits among the alternatives
 - [Privacy & security](privacy.md) — where data goes
-
 ## Background
 
 smartpipe brings the semantic-operator vocabulary of data frameworks like DocETL

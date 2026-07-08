@@ -65,6 +65,27 @@ pipe, each change emits a JSONL *snapshot*: a `{"_snapshot": N}` marker line
 followed by the K records in rank order, each with `_score` and `_rank` - split on
 the markers to consume programmatically. No change, no output.
 
+## The on-call tail, end to end
+
+The pieces above compose into the shift-long triage assistant - the upgrade
+to the `tail -f | grep` every SRE already lives in:
+
+```console
+# The on-call tail -f: free grep first, judgment second, a fresh digest every 20 lines
+$ tail -f /var/log/api/api.log \
+    | smartpipe where 'text has "error" or text has "timeout"' \
+    | smartpipe filter "a real production failure, not a retry, health check, or graceful shutdown" \
+    | tee triage.log \
+    | smartpipe reduce --window 50 --every 20 "What is failing right now, which service, and is it getting worse or better?"
+```
+
+Reading it stage by stage: `where` is the free gate that keeps the paid calls
+to a trickle, `filter` judges meaning (a retry storm is noise; a graceful
+shutdown is not a page), `tee` keeps the raw matched lines for the postmortem,
+and the sliding `reduce` narrates what is failing and whether it is getting
+worse - a fresh written digest of the last 50 judged lines after every 20 new
+ones.
+
 ## Ending a live pipeline
 
 Two natural exits, both clean:
