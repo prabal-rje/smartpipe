@@ -121,6 +121,7 @@ _UTILITIES: tuple[tuple[str, str], ...] = (
     ("getschema", "Report the stream's fields, types, coverage"),
     ("sort", "Order records by a field (numbers, then strings)"),
     ("split", "Break oversized items into chunks"),
+    ("write", "Route items to files (the egress door)"),
     ("chart", "Draw a bar chart of results (--save writes SVG)"),
     ("config", "Configure models and settings"),
 )

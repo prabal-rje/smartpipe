@@ -45,6 +45,7 @@ from smartpipe.cli.summarize_cmd import summarize_command
 from smartpipe.cli.top_k_cmd import top_k_command
 from smartpipe.cli.usage_cmd import usage_command
 from smartpipe.cli.where_cmd import where_command
+from smartpipe.cli.write_cmd import write_command
 from smartpipe.core.errors import ExitCode, SempipeError, UsageFault
 
 if True:  # typing-only import kept runtime-cheap
@@ -220,6 +221,7 @@ cli.add_command(schema_command)
 cli.add_command(split_command)
 cli.add_command(chart_command)
 cli.add_command(where_command)
+cli.add_command(write_command)
 cli.add_command(summarize_command)
 cli.add_command(sample_command)
 cli.add_command(getschema_command)
