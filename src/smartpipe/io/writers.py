@@ -24,7 +24,7 @@ from smartpipe.io.text import clip_to_width, display_width
 if TYPE_CHECKING:
     from smartpipe.io.items import Item
 
-_TRAILING_COLUMNS = ("_score", "_rank")  # ranking metadata sorts to the right of the sheet
+_TRAILING_COLUMNS = ("_score", "_rank", "__score")  # ranking metadata sorts right of the sheet
 
 __all__ = [
     "OutputFormat",

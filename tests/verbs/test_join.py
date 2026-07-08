@@ -172,7 +172,7 @@ async def test_matches_pair_and_nests_both_sides(tmp_path: Path) -> None:
         {
             "left": {"text": "printer smoking"},
             "right": {"name": "LaserJet 9"},
-            "_score": pytest.approx(0.9969, abs=1e-3),
+            "__score": pytest.approx(0.9969, abs=1e-3),
         }
     ]
 
@@ -292,13 +292,13 @@ async def test_dotted_fields_project_the_nested_record(tmp_path: Path) -> None:
     embed = FakeEmbed(TABLE)
     judge = FakeJudge(matches=[("printer smoking", "LaserJet 9")])
     code, records, _ = await _run(
-        _request(_right_file(tmp_path, RIGHT_LINES), fields=("right.name", "_score")),
+        _request(_right_file(tmp_path, RIGHT_LINES), fields=("right.name", "__score")),
         "printer smoking\n",
         embed,
         judge,
     )
     assert code is ExitCode.OK
-    assert list(records[0]) == ["right.name", "_score"]
+    assert list(records[0]) == ["right.name", "__score"]
     assert records[0]["right.name"] == "LaserJet 9"
 
 
@@ -456,7 +456,7 @@ async def test_oversized_right_is_judged_on_its_best_chunk(
         stdout=out,
     )
     assert code is ExitCode.OK
-    assert '"_score"' in out.getvalue()  # the pair matched — no skip
+    assert '"__score"' in out.getvalue()  # the pair matched — no skip
     assert len(judge.seen) == 1
     statement = judge.seen[0]
     assert "EspressoPro Nine thousand" in statement  # the needle chunk was chosen
@@ -498,7 +498,7 @@ async def test_leftouter_keeps_every_left_row(tmp_path: Path) -> None:
     assert len(records) == 2
     nulls = [record for record in records if record["right"] is None]
     assert len(nulls) == 1
-    assert "_score" not in nulls[0]
+    assert "__score" not in nulls[0]
 
 
 async def test_anti_with_unmatched_file_is_a_usage_fault(tmp_path: Path) -> None:

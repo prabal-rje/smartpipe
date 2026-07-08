@@ -132,7 +132,7 @@ def join_command(
     item). The right side is embedded once and indexed; each left item is
     compared to its --k nearest candidates and only those pairs are judged by
     the chat model — so cost is lines x k, never lines x right-size.
-    Output: {"left": {...}, "right": {...}, "_score": ...} per matched pair.
+    Output: {"left": {...}, "right": {...}, "__score": ...} per matched pair.
     """
     request = JoinRequest(
         allow_captions=allow_captions,

@@ -50,8 +50,9 @@ EXTEND_NEEDS_FIELDS = (
     "  Plain-text transformation? That's map."
 )
 
-# media transport keys (D27/D32): consumed by the model, poison to re-emit
-_TRANSPORT_KEYS = frozenset({"audio_b64", "image_b64", "video_b64", "parts", "mime"})
+# the media transport field (D27/D32, item 12): consumed by the model, poison
+# to re-emit (megabytes of base64 in every output row)
+_TRANSPORT_KEYS = frozenset({"__media"})
 
 
 @dataclass(frozen=True, slots=True)

@@ -233,7 +233,7 @@ async def run_join(
                             {
                                 "left": _payload(left),
                                 "right": _payload(kept_right[position]),
-                                "_score": round(score, 4),
+                                "__score": round(score, 4),
                             }
                         )
                 matched_pairs += len(matches)

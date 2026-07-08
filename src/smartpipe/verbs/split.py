@@ -87,8 +87,11 @@ def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
             )
             writer.write_record(
                 {
-                    "video_b64": base64.b64encode(part.data).decode("ascii"),
-                    "mime": part.mime,
+                    "__media": {
+                        "kind": "video",
+                        "mime": part.mime,
+                        "data_b64": base64.b64encode(part.data).decode("ascii"),
+                    },
                     "source": marker,
                 }
             )
@@ -107,11 +110,14 @@ def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
                 if total == 1
                 else f"{origin} §{_clock(position * step)}-{_clock((position + 1) * step)}"
             )
-            # audio rides NDJSON as base64 so the next verb can HEAR the slice
+            # audio rides JSONL as base64 so the next verb can HEAR the slice
             writer.write_record(
                 {
-                    "audio_b64": base64.b64encode(part.data).decode("ascii"),
-                    "mime": part.mime,
+                    "__media": {
+                        "kind": "audio",
+                        "mime": part.mime,
+                        "data_b64": base64.b64encode(part.data).decode("ascii"),
+                    },
                     "source": marker,
                 }
             )
@@ -128,8 +134,11 @@ def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
         for position, figure in enumerate(figures, start=1):
             writer.write_record(
                 {
-                    "image_b64": base64.b64encode(figure.data).decode("ascii"),
-                    "mime": figure.mime,
+                    "__media": {
+                        "kind": "image",
+                        "mime": figure.mime,
+                        "data_b64": base64.b64encode(figure.data).decode("ascii"),
+                    },
                     "source": f"{origin} img.{position}",
                 }
             )
@@ -194,8 +203,11 @@ async def _run_media(request: SplitRequest, context: SplitContext, *, stdout: Te
             for found in media.images:
                 writer.write_record(
                     {
-                        "image_b64": base64.b64encode(found.image.data).decode("ascii"),
-                        "mime": found.image.mime,
+                        "__media": {
+                            "kind": "image",
+                            "mime": found.image.mime,
+                            "data_b64": base64.b64encode(found.image.data).decode("ascii"),
+                        },
                         "source": f"{name} {found.where}",
                     }
                 )
@@ -264,14 +276,15 @@ async def _run_pages(
                 }
                 attached = [
                     {
-                        "image_b64": base64.b64encode(figure.data).decode("ascii"),
+                        "kind": "image",
                         "mime": figure.mime,
+                        "data_b64": base64.b64encode(figure.data).decode("ascii"),
                     }
                     for page in range(first, last + 1)
                     for figure in figures_by_page.get(page, ())
                 ]
                 if attached:
-                    record["parts"] = attached
+                    record["__media"] = attached
                 writer.write_record(record)
             produced += 1
     finally:

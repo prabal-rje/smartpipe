@@ -204,10 +204,14 @@ def test_base_fields_drops_media_transport_keys() -> None:
     from smartpipe.io.items import item_from_line
 
     line = json.dumps(
-        {"image_b64": "aGk=", "mime": "image/png", "source": "fig.png", "text": "a chart"}
+        {
+            "__media": {"kind": "image", "mime": "image/png", "data_b64": "aGk="},
+            "source": "fig.png",
+            "text": "a chart",
+        }
     )
     item = item_from_line(line, 0)
     assert item.media  # the record carried media
     base = base_fields(replace(item))
-    assert "image_b64" not in base and "mime" not in base  # transport dropped
+    assert "__media" not in base  # transport dropped
     assert base["source"] == "fig.png"  # provenance survives

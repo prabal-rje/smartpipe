@@ -16,9 +16,24 @@ from typing import TYPE_CHECKING, Literal, TypeGuard
 if TYPE_CHECKING:
     from smartpipe.models.base import MediaData
 
-__all__ = ["Item", "ItemSource", "describe_source", "item_from_file", "item_from_line"]
+__all__ = [
+    "KNOWN_META",
+    "Item",
+    "ItemSource",
+    "describe_source",
+    "item_from_file",
+    "item_from_line",
+]
 
 _BOM = "﻿"
+
+# The reserved double-underscore namespace (wave 2, item 12): tool metadata.
+# KNOWN fields are adopted on ingestion (round-tripping); unknown `__` fields
+# warn once per name and carry through untouched — user data owns at most one
+# leading underscore, so a stray `__x` is worth a heads-up, never a hard error.
+KNOWN_META = frozenset({"__source", "__media", "__score", "__invalid", "__error", "__raw"})
+
+_warned_meta: set[str] = set()  # once per field name per process, like the degradation cap
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +57,7 @@ def item_from_line(line: str, index: int) -> Item:
     if index == 0:
         raw = raw.removeprefix(_BOM)
     data = _sniff_json_object(raw)
+    _warn_unknown_meta(data)
     media = _sniff_media(data)
     text = raw
     if media and data is not None:
@@ -74,28 +90,51 @@ def _named_source(data: Mapping[str, object] | None, index: int) -> ItemSource:
     return ItemSource(kind="stdin", name=name if isinstance(name, str) else "-", index=index)
 
 
+def _warn_unknown_meta(data: Mapping[str, object] | None) -> None:
+    """Unknown `__` fields warn once per name and carry through (item 12)."""
+    if data is None:
+        return
+    from smartpipe.io import diagnostics
+
+    for key in data:
+        if key.startswith("__") and key not in KNOWN_META and key not in _warned_meta:
+            _warned_meta.add(key)
+            diagnostics.warn(
+                f"unknown {key!r} field carried through "
+                "(double-underscore fields are reserved for smartpipe metadata)"
+            )
+
+
 def _sniff_media(data: Mapping[str, object] | None) -> tuple[MediaData, ...]:
-    """``split`` ships media as base64 NDJSON (audio/video slices, figures, and
-    multi-part page items) — rebuild the bytes so the next verb can hear or see
-    them (D27/D32)."""
+    """``split`` ships media under the ``__media`` spine field (item 12): one
+    ``{kind, mime, data_b64}`` object, or a list of them for multi-part page
+    items — rebuild the bytes so the next verb can hear or see them (D27/D32)."""
     if data is None:
         return ()
     from smartpipe.core.jsontools import as_items, as_record
 
-    entries = as_items(data.get("parts"))
+    carried = data.get("__media")
+    if carried is None:
+        return ()
+    entries = as_items(carried)
     if entries is not None:
         return tuple(
             part for entry in entries if (part := _one_media(as_record(entry))) is not None
         )
-    single = _one_media(data)
+    single = _one_media(as_record(carried))
     return (single,) if single is not None else ()
+
+
+_MEDIA_KINDS = ("audio", "image", "video")
 
 
 def _one_media(data: Mapping[str, object] | None) -> MediaData | None:
     if data is None:
         return None
     mime = data.get("mime")
-    if not isinstance(mime, str):
+    kind = data.get("kind")
+    encoded = data.get("data_b64")
+    if not (isinstance(mime, str) and isinstance(encoded, str) and kind in _MEDIA_KINDS):
         return None
     import base64
     import binascii
@@ -106,19 +145,11 @@ def _one_media(data: Mapping[str, object] | None) -> MediaData | None:
         VideoData,
     )
 
-    for key, build in (
-        ("audio_b64", AudioData),
-        ("image_b64", ImageData),
-        ("video_b64", VideoData),
-    ):
-        encoded = data.get(key)
-        if not isinstance(encoded, str):
-            continue
-        try:
-            return build(base64.b64decode(encoded, validate=True), mime)
-        except (binascii.Error, ValueError):
-            return None  # not ours — treat as a plain JSON line
-    return None
+    build = {"audio": AudioData, "image": ImageData, "video": VideoData}[str(kind)]
+    try:
+        return build(base64.b64decode(encoded, validate=True), mime)
+    except (binascii.Error, ValueError):
+        return None  # not ours — treat as a plain JSON line
 
 
 def describe_source(source: ItemSource) -> str:

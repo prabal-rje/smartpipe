@@ -58,7 +58,7 @@ def test_join_end_to_end(run_cli: RunCli, respx_mock: respx.MockRouter, tmp_path
     record = json.loads(out.splitlines()[0])
     assert record["left"] == {"text": "printer smoking"}
     assert record["right"] == {"name": "LaserJet 9"}
-    assert 0.0 <= record["_score"] <= 1.0
+    assert 0.0 <= record["__score"] <= 1.0
 
 
 def test_bare_brace_is_exit_64_before_any_call(

@@ -159,7 +159,14 @@ async def test_image_only_items_route_natively_no_captions() -> None:
             return None
 
     line = json.dumps(
-        {"image_b64": base64.b64encode(b"pixels").decode(), "mime": "image/png", "source": "a.png"}
+        {
+            "__media": {
+                "kind": "image",
+                "mime": "image/png",
+                "data_b64": base64.b64encode(b"pixels").decode(),
+            },
+            "source": "a.png",
+        }
     )
     context = MediaContext()
     out = io_module.StringIO()

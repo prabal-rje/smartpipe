@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -87,3 +88,78 @@ def test_never_raises_and_never_keeps_trailing_newline(
 def test_multi_newline_input_strips_exactly_one_terminator() -> None:
     # documents the single-strip semantics for inputs outside the reader contract
     assert item_from_line("\n\n", 0).raw == "\n"
+
+
+# --- the __ metadata namespace (wave 2, item 12) --------------------------------
+
+
+def _media_line(kind: str, data: bytes, mime: str, **extra: object) -> str:
+    import base64
+    import json
+
+    record: dict[str, object] = {
+        "__media": {"kind": kind, "mime": mime, "data_b64": base64.b64encode(data).decode()},
+        **extra,
+    }
+    return json.dumps(record) + "\n"
+
+
+def test_media_spine_rebuilds_audio_bytes() -> None:
+    from smartpipe.models.base import AudioData
+
+    item = item_from_line(_media_line("audio", b"RIFFfake", "audio/wav", source="call.wav"), 0)
+    assert len(item.media) == 1 and isinstance(item.media[0], AudioData)
+    assert item.media[0].data == b"RIFFfake"
+    assert item.media[0].mime == "audio/wav"
+
+
+def test_media_spine_list_rebuilds_every_part() -> None:
+    import base64
+    import json
+
+    from smartpipe.models.base import ImageData
+
+    parts = [
+        {"kind": "image", "mime": "image/png", "data_b64": base64.b64encode(b"one").decode()},
+        {"kind": "image", "mime": "image/jpeg", "data_b64": base64.b64encode(b"two").decode()},
+    ]
+    item = item_from_line(json.dumps({"__media": parts, "text": "page"}) + "\n", 0)
+    assert [type(part) for part in item.media] == [ImageData, ImageData]
+    assert item.text == "page"  # the record's text field, not the raw JSON
+
+
+def test_media_spine_bad_payload_reads_as_plain_record() -> None:
+    import json
+
+    line = json.dumps({"__media": {"kind": "audio", "mime": "x", "data_b64": "@@@"}}) + "\n"
+    item = item_from_line(line, 0)
+    assert item.media == ()
+
+
+def test_unknown_meta_field_warns_once_and_carries_through(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import smartpipe.io.items as items_module
+
+    items_module._warned_meta.clear()  # pyright: ignore[reportPrivateUsage] — test isolation
+    first = item_from_line('{"__custom": 1, "a": 2}\n', 0)
+    second = item_from_line('{"__custom": 3}\n', 1)
+    assert first.data is not None and first.data["__custom"] == 1  # carried, never dropped
+    assert second.data is not None
+    err = capsys.readouterr().err
+    assert err.count("__custom") == 1  # warned once, not per line
+    assert "reserved" in err
+
+
+def test_known_meta_fields_never_warn(capsys: pytest.CaptureFixture[str]) -> None:
+    import smartpipe.io.items as items_module
+
+    items_module._warned_meta.clear()  # pyright: ignore[reportPrivateUsage] — test isolation
+    item_from_line('{"__score": 0.5, "__invalid": true, "__error": "e", "__raw": "r"}\n', 0)
+    assert capsys.readouterr().err == ""
+
+
+def test_single_underscore_fields_are_user_data(capsys: pytest.CaptureFixture[str]) -> None:
+    item = item_from_line('{"_mine": 1}\n', 0)
+    assert item.data is not None
+    assert capsys.readouterr().err == ""  # one leading underscore belongs to the user

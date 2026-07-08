@@ -212,7 +212,9 @@ async def test_sliced_audio_round_trips_into_hearable_items() -> None:
 
     payload = base64.b64encode(b"RIFFfakewav").decode("ascii")
     line = (
-        '{"audio_b64": "' + payload + '", "mime": "audio/wav", "source": "call.wav §00:00-00:02"}\n'
+        '{"__media": {"kind": "audio", "mime": "audio/wav", "data_b64": "'
+        + payload
+        + '"}, "source": "call.wav §00:00-00:02"}\n'
     )
     item = item_from_line(line, 0)
     assert len(item.media) == 1 and isinstance(item.media[0], AudioData)
@@ -288,8 +290,9 @@ async def test_media_extracts_docx_images_and_drops_icons(
     records = [json.loads(line) for line in out.getvalue().splitlines()]
     assert len(records) == 1
     assert records[0]["source"] == "deck.docx img.1"
-    assert records[0]["mime"] == "image/png"
-    assert base64.b64decode(records[0]["image_b64"]) == real  # byte-identical
+    assert records[0]["__media"]["mime"] == "image/png"
+    assert records[0]["__media"]["kind"] == "image"
+    assert base64.b64decode(records[0]["__media"]["data_b64"]) == real  # byte-identical
     assert "skipped 1 embedded image under 4 KB" in capsys.readouterr().err
 
 
@@ -313,7 +316,7 @@ async def test_media_extracts_pdf_jpegs_with_page_provenance(
     assert code is ExitCode.OK
     records = [json.loads(line) for line in out.getvalue().splitlines()]
     assert [r["source"] for r in records] == ["report.pdf p.1 img.1"]
-    assert base64.b64decode(records[0]["image_b64"]) == jpeg
+    assert base64.b64decode(records[0]["__media"]["data_b64"]) == jpeg
 
 
 async def test_media_image_items_round_trip_into_vision_items() -> None:
@@ -323,9 +326,9 @@ async def test_media_image_items_round_trip_into_vision_items() -> None:
     from smartpipe.models.base import ImageData
 
     line = (
-        '{"image_b64": "'
+        '{"__media": {"kind": "image", "mime": "image/png", "data_b64": "'
         + base64.b64encode(b"\x89PNGfake").decode("ascii")
-        + '", "mime": "image/png", "source": "deck.docx img.1"}\n'
+        + '"}, "source": "deck.docx img.1"}\n'
     )
     item = item_from_line(line, 0)
     assert len(item.media) == 1 and isinstance(item.media[0], ImageData)
@@ -358,8 +361,8 @@ async def test_pages_media_fuses_text_and_figures_per_page(
     assert len(records) == 1
     record = records[0]
     assert record["source"] == "r.pdf"
-    assert len(record["parts"]) == 1
-    assert base64.b64decode(record["parts"][0]["image_b64"]) == jpeg
+    assert len(record["__media"]) == 1
+    assert base64.b64decode(record["__media"][0]["data_b64"]) == jpeg
     # and the record round-trips into ONE multimodal item downstream
     item = item_from_line(json.dumps(record) + "\n", 0)
     assert len(item.media) == 1 and isinstance(item.media[0], ImageData)
