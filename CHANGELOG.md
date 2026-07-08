@@ -5,7 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
-The identity release, staged: everything below ships together as v2.0.0.
+The identity release, staged: everything below ships together as v1.4.0.
 
 ### The item — one law for everything in a pipe
 - **The `__` metadata spine.** Tool metadata lives in a reserved
