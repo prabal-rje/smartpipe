@@ -17,6 +17,7 @@ __all__ = [
     "fields_option",
     "input_options",
     "input_spec",
+    "ocr_model_option",
     "parse_fields",
     "positional_paths",
     "resolve_prompt",
@@ -94,6 +95,17 @@ def positional_paths(paths: tuple[str, ...], in_patterns: tuple[str, ...]) -> tu
             '  A multi-word prompt needs quotes: smartpipe map "summarize this" notes.txt'
         )
     return (*paths, *in_patterns)
+
+
+def ocr_model_option(command: _Command) -> _Command:
+    """Attach ``--ocr-model`` — the document parsing role for ingested files."""
+    return click.option(
+        "--ocr-model",
+        "ocr_model_flag",
+        metavar="MODEL",
+        help="Parse ingested PDFs/images with this model "
+        "(mistral-ocr-latest, or any vision model; each use is disclosed).",
+    )(command)
 
 
 def fields_option(command: _Command) -> _Command:

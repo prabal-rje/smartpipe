@@ -406,3 +406,110 @@ async def test_fallback_chat_model_missing_key_is_setup_fault(client: httpx.Asyn
     assert ref is not None
     with pytest.raises(SetupFault):
         await container.fallback_chat_model(ref)
+
+
+# --- the media-embed-model role (item 40) ---------------------------------------
+
+
+async def test_media_embed_role_unset_is_none(client: httpx.AsyncClient) -> None:
+    assert await _container(client).media_embedding_model() is None
+
+
+async def test_media_embed_role_builds_a_joint_embedder(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.base import supports_media_embedding
+
+    container = _container(
+        client,
+        env={"JINA_API_KEY": "jk-x"},
+        config=Config(media_embed_model="jina/jina-clip-v2"),
+    )
+    model = await container.media_embedding_model()
+    assert model is not None
+    assert supports_media_embedding(model)
+    assert str(model.ref) == "jina/jina-clip-v2"
+
+
+async def test_media_embed_env_overrides_config(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client,
+        env={"JINA_API_KEY": "jk-x", "SMARTPIPE_MEDIA_EMBED_MODEL": "jina/jina-clip-v2"},
+        config=Config(media_embed_model="jina/other"),
+    )
+    model = await container.media_embedding_model()
+    assert model is not None
+    assert model.ref.name == "jina-clip-v2"
+
+
+async def test_media_embed_role_refuses_a_text_only_embedder(client: httpx.AsyncClient) -> None:
+    container = _container(client, config=Config(media_embed_model="nomic-embed-text"))
+    with pytest.raises(SetupFault, match="joint"):
+        await container.media_embedding_model()
+
+
+async def test_media_embed_role_keeps_capability_under_the_budget(
+    client: httpx.AsyncClient,
+) -> None:
+    from smartpipe.models.base import supports_media_embedding
+    from smartpipe.models.budget import CallBudget
+
+    container = AppContainer(
+        env={"JINA_API_KEY": "jk-x", "XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests"},
+        config=Config(media_embed_model="jina/jina-clip-v2"),
+        http_client=client,
+        retry=FAST,
+        budget=CallBudget(limit=3, stop=None),
+    )
+    model = await container.media_embedding_model()
+    assert model is not None
+    assert supports_media_embedding(model)  # the belt must not strip embed_parts
+
+
+# --- the ocr-model role (item 40) -------------------------------------------------
+
+
+def test_ocr_role_unset_is_none(client: httpx.AsyncClient) -> None:
+    assert _container(client).document_parser() is None
+
+
+def test_ocr_role_mistral_rides_the_dedicated_wire(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.ocr import MistralOcrParser
+
+    container = _container(
+        client, env={"MISTRAL_API_KEY": "mk-x"}, config=Config(ocr_model="mistral-ocr-latest")
+    )
+    parser = container.document_parser()
+    assert isinstance(parser, MistralOcrParser)
+    assert str(parser.ref) == "mistral/mistral-ocr-latest"
+
+
+def test_ocr_role_mistral_without_key_is_setup_fault(client: httpx.AsyncClient) -> None:
+    container = _container(client, config=Config(ocr_model="mistral-ocr-latest"))
+    with pytest.raises(SetupFault, match="MISTRAL_API_KEY"):
+        container.document_parser()
+
+
+def test_ocr_role_other_refs_ride_the_vision_wire(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.ocr import VisionOcrParser
+
+    container = _container(client, config=Config(ocr_model="ollama/llava"))
+    parser = container.document_parser()
+    assert isinstance(parser, VisionOcrParser)
+    assert str(parser.ref) == "ollama/llava"
+
+
+def test_ocr_role_flag_beats_env_beats_config(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client,
+        env={"SMARTPIPE_OCR_MODEL": "ollama/from-env"},
+        config=Config(ocr_model="ollama/from-config"),
+    )
+    parser = container.document_parser()
+    assert parser is not None and parser.ref.name == "from-env"
+    flagged = container.document_parser("ollama/from-flag")
+    assert flagged is not None and flagged.ref.name == "from-flag"
+
+
+def test_ocr_role_refuses_an_embedding_ref(client: httpx.AsyncClient) -> None:
+    container = _container(client, config=Config(ocr_model="jina/jina-clip-v2"))
+    with pytest.raises(SetupFault, match="embedding model"):
+        container.document_parser()

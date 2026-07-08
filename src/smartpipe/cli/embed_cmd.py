@@ -9,7 +9,13 @@ import sys
 import click
 
 from smartpipe.cli.completions import complete_embed_models
-from smartpipe.cli.input_options import fields_option, input_options, input_spec, positional_paths
+from smartpipe.cli.input_options import (
+    fields_option,
+    input_options,
+    input_spec,
+    ocr_model_option,
+    positional_paths,
+)
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.embed import EmbedRequest, run_embed
@@ -25,6 +31,11 @@ __all__ = ["embed_command"]
     shell_complete=complete_embed_models,
     help="Embedding model (e.g. nomic-embed-text).",
 )
+@click.option(
+    "--media-embed-model",
+    "media_model_flag",
+    help="Joint text+image embedder for media items (e.g. jina/jina-clip-v2).",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @fields_option
@@ -34,9 +45,12 @@ __all__ = ["embed_command"]
     is_flag=True,
     help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
 )
+@ocr_model_option
 @input_options
 def embed_command(
     model_flag: str | None,
+    ocr_model_flag: str | None,
+    media_model_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
     allow_captions: bool,
@@ -60,6 +74,8 @@ def embed_command(
     request = EmbedRequest(
         allow_captions=allow_captions,
         model_flag=model_flag,
+        media_model_flag=media_model_flag,
+        ocr_model_flag=ocr_model_flag,
         concurrency_flag=concurrency_flag,
         input=input_spec(
             positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode

@@ -130,6 +130,24 @@ def config_set_stt(model_string: str) -> None:
     click.echo(f"stt-model set to {ref} (runs first in the audio ladder; consent rules apply)")
 
 
+@config_command.command(name="ocr-model")
+@click.argument("model_string")
+def config_set_ocr(model_string: str) -> None:
+    """Set the document parsing model (e.g. mistral-ocr-latest) for PDFs and images."""
+    ref = parse_model_ref(model_string)
+    _update(lambda c: replace(c, ocr_model=str(ref)))
+    click.echo(f"ocr-model set to {ref} (parses ingested PDFs/images; each use is disclosed)")
+
+
+@config_command.command(name="media-embed-model")
+@click.argument("model_string")
+def config_set_media_embed(model_string: str) -> None:
+    """Set the joint text+image embedder (e.g. jina/jina-clip-v2) for media items."""
+    ref = parse_model_ref(model_string)
+    _update(lambda c: replace(c, media_embed_model=str(ref)))
+    click.echo(f"media-embed-model set to {ref} (media items embed as pixels in its space)")
+
+
 @config_command.command(name="cache")
 @click.argument("state", type=click.Choice(["on", "off"]))
 def config_set_cache(state: str) -> None:

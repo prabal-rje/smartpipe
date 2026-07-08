@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from smartpipe.io.diagnostics import DegradationLog
     from smartpipe.io.items import Item
     from smartpipe.models.base import ChatModel, EmbeddingModel
+    from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import RemoteTranscriber
 
 __all__ = ["IMAGE_NEEDS_CAPTION", "Converter", "embed_video_halves", "make_converter"]
@@ -67,6 +68,7 @@ class Converter:
     allow_paid: bool  # --allow-captions
     log: DegradationLog
     stt: RemoteTranscriber | None = None  # the stt-model role (D39/05): verbatim rung 0
+    ocr: DocumentParser | None = None  # the ocr-model role (item 40): outranks vision-chat
 
     def _meter_paid(self) -> None:
         from smartpipe.io import metering
@@ -183,7 +185,16 @@ class Converter:
         return visual, speech
 
     async def image_to_text(self, image: ImageData, where: str) -> str:
-        """LLM rung or nothing — there is no free non-LLM rung for images."""
+        """ocr-model rung (item 40, when configured — that IS the consent) →
+        LLM rung → nothing: there is no free non-LLM rung for images."""
+        if self.ocr is not None:
+            try:
+                read = await self.ocr.parse_image(image)
+            except ItemError:
+                read = ""  # the parser hiccuped — the vision-chat rung continues below
+            if read.strip():
+                self.log.note(where, "image → text", f"parsed by {self.ocr.ref}")
+                return read.strip()
         if not self._model_may_convert():
             raise ItemError(IMAGE_NEEDS_CAPTION)
         assert self.chat is not None
@@ -247,5 +258,6 @@ def make_converter(
     allow_paid: bool,
     log: DegradationLog,
     stt: RemoteTranscriber | None = None,
+    ocr: DocumentParser | None = None,
 ) -> Converter:
-    return Converter(chat=chat, allow_paid=allow_paid, log=log, stt=stt)
+    return Converter(chat=chat, allow_paid=allow_paid, log=log, stt=stt, ocr=ocr)

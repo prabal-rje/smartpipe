@@ -65,6 +65,9 @@ class FakeContext:
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
     async def context_window(self, ref: object) -> int | None:
         return None  # the static table stands in these tests
 

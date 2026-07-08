@@ -9,7 +9,13 @@ import sys
 import click
 
 from smartpipe.cli.completions import complete_embed_models
-from smartpipe.cli.input_options import fields_option, input_options, input_spec, positional_paths
+from smartpipe.cli.input_options import (
+    fields_option,
+    input_options,
+    input_spec,
+    ocr_model_option,
+    positional_paths,
+)
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.top_k import TopKRequest, run_top_k
@@ -25,6 +31,11 @@ __all__ = ["top_k_command"]
 @click.option(
     "--embed-model", "model_flag", shell_complete=complete_embed_models, help="Embedding model."
 )
+@click.option(
+    "--media-embed-model",
+    "media_model_flag",
+    help="Joint text+image embedder for media items (e.g. jina/jina-clip-v2).",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @click.option("--stream", "stream", is_flag=True, help="Live leaderboard over a stream.")
@@ -35,12 +46,15 @@ __all__ = ["top_k_command"]
     is_flag=True,
     help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
 )
+@ocr_model_option
 @input_options
 def top_k_command(
     k: int | None,
+    ocr_model_flag: str | None,
     near: str,
     threshold: float | None,
     model_flag: str | None,
+    media_model_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
     allow_captions: bool,
@@ -69,6 +83,8 @@ def top_k_command(
         k=k,
         threshold=threshold,
         model_flag=model_flag,
+        media_model_flag=media_model_flag,
+        ocr_model_flag=ocr_model_flag,
         concurrency_flag=concurrency_flag,
         stream=stream,
         input=input_spec(

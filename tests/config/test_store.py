@@ -204,3 +204,31 @@ def test_update_check_wrong_type_fails_loudly(tmp_path: Path) -> None:
     path.write_text('update-check = "yes"\n', encoding="utf-8")
     with pytest.raises(SetupFault, match="update-check"):
         load_config(path)
+
+
+def test_role_keys_round_trip(tmp_path: Path) -> None:
+    """Item 40: the two new roles persist as dashed keys and load back."""
+    from dataclasses import replace
+
+    path = tmp_path / "config.toml"
+    save_config(
+        path,
+        replace(
+            Config(),
+            ocr_model="mistral/mistral-ocr-latest",
+            media_embed_model="jina/jina-clip-v2",
+        ),
+    )
+    raw = path.read_text(encoding="utf-8")
+    assert 'ocr-model = "mistral/mistral-ocr-latest"' in raw
+    assert 'media-embed-model = "jina/jina-clip-v2"' in raw
+    loaded = load_config(path)
+    assert loaded.ocr_model == "mistral/mistral-ocr-latest"
+    assert loaded.media_embed_model == "jina/jina-clip-v2"
+
+
+def test_role_keys_wrong_type_is_loud(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("ocr-model = 3\n", encoding="utf-8")
+    with pytest.raises(SetupFault, match="ocr-model"):
+        load_config(path)

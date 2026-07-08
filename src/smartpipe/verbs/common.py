@@ -31,6 +31,7 @@ __all__ = [
     "AUDIO_NEEDS_TEXT",
     "EMBED_BATCH_SIZE",
     "IMAGE_NEEDS_MAP",
+    "GeometryFence",
     "ModelSlot",
     "Oversize",
     "WindowGate",
@@ -41,10 +42,13 @@ __all__ = [
     "ensure_text",
     "interrupted_exit_code",
     "make_failover",
+    "media_embedder",
     "native_route",
+    "note_native_once",
     "outcome_exit_code",
     "prepend",
     "resolve_schema",
+    "row_embedder",
     "transcribe",
 ]
 
@@ -396,6 +400,50 @@ def note_native_once(model: object) -> None:
         )
 
 
+def media_embedder(model: EmbeddingModel, media_model: EmbeddingModel | None) -> EmbeddingModel:
+    """The model that media items route to: the ``media-embed-model`` role
+    when configured, else the run's embedding model (D39/04 unchanged)."""
+    return media_model if media_model is not None else model
+
+
+def row_embedder(item: Item, model: EmbeddingModel, media_model: EmbeddingModel | None) -> str:
+    """The resolved ref that embedded THIS row — the ``__embedder`` stamp.
+    Media-native rows carry the media role's ref; everything else (text, and
+    every caption/transcript pivot) carries the text embedder's."""
+    effective = media_embedder(model, media_model)
+    if native_route(item, effective) is not None:
+        return str(effective.ref)
+    return str(model.ref)
+
+
+@dataclass(slots=True)
+class GeometryFence:
+    """One run, one vector space (deliverable 2's law): when text items embed
+    with one model and media items with another, the vectors are mutually
+    meaningless — refuse loudly the moment both kinds have been seen. Equal
+    refs (the joint-model setup) can never trip it."""
+
+    text_ref: str
+    media_ref: str
+    saw_text: bool = False
+    saw_media: bool = False
+
+    def admit(self, *, media: bool) -> None:
+        if media:
+            self.saw_media = True
+        else:
+            self.saw_text = True
+        if self.saw_text and self.saw_media and self.text_ref != self.media_ref:
+            raise UsageFault(
+                "one run, one vector space — text items embed with "
+                f"{self.text_ref}, media items with {self.media_ref}\n"
+                "  Vectors from two models can't be compared, so smartpipe refuses to mix them.\n"
+                f"  Fix: use the joint model for everything (smartpipe config embed-model "
+                f"{self.media_ref}),\n"
+                "  or feed media-only input when media-embed-model stands apart."
+            )
+
+
 def native_route(item: Item, model: object) -> tuple[MediaEmbeddingModel, ImageData] | None:
     """The native-path test (D39/04): a media-capable embedder + an
     image-ONLY item (no meaningful text). Text-bearing items keep embedding
@@ -423,6 +471,7 @@ async def embed_in_batches(
     transcriber: Callable[[AudioData], str] = transcribe,
     log: diagnostics.DegradationLog | None = None,
     converter: Converter | None = None,
+    media_model: EmbeddingModel | None = None,
 ) -> AsyncIterator[ItemOutcome[tuple[Item, tuple[float, ...]]]]:
     """Embed a finite corpus in ≤``batch_size`` chunks, sequentially (DEFER-3).
 
@@ -513,16 +562,17 @@ async def embed_in_batches(
         if stop is not None and stop.is_set():
             return
         if item.media:
-            native = native_route(item, model)
+            effective = media_embedder(model, media_model)
+            native = native_route(item, effective)
             if native is not None:
-                media_model, image = native
+                narrowed, image = native
                 # D39/04: the embedder takes images natively — no captions
                 for outcome in await _drain(embed_batch(pending)):
                     yield outcome
                 pending = []
-                note_native_once(model)
+                note_native_once(effective)
                 try:
-                    vectors = await media_model.embed_parts([image])
+                    vectors = await narrowed.embed_parts([image])
                 except ItemError as exc:
                     skip = Skipped(item.source.index, str(exc), item.source)
                     account(skip)

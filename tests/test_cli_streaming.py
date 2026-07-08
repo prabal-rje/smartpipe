@@ -97,6 +97,9 @@ async def test_map_emits_before_eof_in_process() -> None:
         def remote_transcriber(self, chat_ref: object | None = None) -> None:
             return None
 
+        def document_parser(self, flag: str | None = None) -> None:
+            return None
+
         def writer(
             self,
             output_flag: OutputFormat,

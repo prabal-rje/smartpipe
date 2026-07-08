@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 import pytest
 
 from smartpipe.core.errors import ItemError
 from smartpipe.io.diagnostics import DegradationLog
 from smartpipe.models.base import AudioData, CompletionRequest, ImageData, ModelRef
+from smartpipe.models.ocr import OcrPage
 from smartpipe.verbs.convert import IMAGE_NEEDS_CAPTION, make_converter
 
 AUDIO = AudioData(b"RIFFfake", "audio/wav")
@@ -184,3 +186,44 @@ async def test_stt_failure_falls_down_the_ladder() -> None:
     converter = make_converter(hears, allow_paid=True, log=log, stt=VerbatimStt(reply=""))  # type: ignore[arg-type]
     text = await converter.audio_to_text(AudioData(b"x", "audio/wav"), "call.wav")
     assert text == "a steady 440 Hz tone"  # the wire hiccuped; the LLM rung caught it
+
+
+class PageParser:
+    """A fake DocumentParser for the ocr rung (item 40)."""
+
+    ref = ModelRef("mistral", "mistral-ocr-latest")
+
+    def __init__(self, reply: str = "# The page's markdown") -> None:
+        self.reply = reply
+        self.calls = 0
+
+    async def parse_image(self, image: ImageData) -> str:
+        self.calls += 1
+        if not self.reply:
+            raise ItemError("ocr wire down")
+        return self.reply
+
+    async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+        raise AssertionError("the converter never sends whole PDFs")
+
+
+async def test_configured_ocr_outranks_the_vision_chat_rung(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    log = DegradationLog()
+    vision = Hears("ollama")  # the chat rung that WOULD caption
+    converter = make_converter(vision, allow_paid=False, log=log, ocr=PageParser())
+    text = await converter.image_to_text(IMAGE, "scan.png")
+    assert text == "# The page's markdown"
+    assert vision.calls == []  # the role outranks the vision-chat rung (D39/03)
+    assert "image → text (parsed by mistral/mistral-ocr-latest)" in capsys.readouterr().err
+
+
+async def test_ocr_failure_falls_to_the_vision_chat_rung() -> None:
+    log = DegradationLog()
+    vision = Hears("ollama")
+    parser = PageParser(reply="")
+    converter = make_converter(vision, allow_paid=False, log=log, ocr=parser)
+    text = await converter.image_to_text(IMAGE, "scan.png")
+    assert parser.calls == 1  # the role hiccuped —
+    assert text == "a steady 440 Hz tone"  # — the free local rung caught it

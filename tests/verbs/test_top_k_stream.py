@@ -99,6 +99,12 @@ class FakeContext:
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
+    async def media_embedding_model(self, flag: str | None = None) -> None:
+        return None
+
 
 def _request(k: int | None = 2, **kw: object) -> TopKRequest:
     defaults: dict[str, object] = {

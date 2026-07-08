@@ -14,6 +14,7 @@ from smartpipe.cli.input_options import (
     fields_option,
     input_options,
     input_spec,
+    ocr_model_option,
     positional_paths,
     resolve_prompt,
 )
@@ -115,9 +116,11 @@ __all__ = ["extend_command"]
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @fields_option
+@ocr_model_option
 @input_options
 def extend_command(
     prompt: str | None,
+    ocr_model_flag: str | None,
     frame_every: float | None,
     max_frames: int | None,
     prompt_file: Path | None,
@@ -171,6 +174,7 @@ def extend_command(
         dry_run=dry_run,
         keep_invalid=keep_invalid,
         whole=whole,
+        ocr_model_flag=ocr_model_flag,
         concurrency_flag=concurrency_flag,
         fields=fields,
         input=input_spec(
