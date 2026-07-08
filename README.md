@@ -135,6 +135,12 @@ Numbers 7 and 8 are full recipes -
 New to this? The [Learn track][quickstart] starts at zero and assumes nothing, including
 what a "model" is.
 
+## For AI agents
+
+Driving smartpipe from an agent? [SKILL.md](SKILL.md) is the operating
+manual - invocation patterns, the cost model, machine-output contracts,
+and quoting gotchas, written for programmatic use.
+
 ## Where your data goes
 
 Some steps run locally no matter which chat model you pick: embeddings
