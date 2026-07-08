@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, MediaData, ModelRef
 
-__all__ = ["MapContext", "MapRequest", "map_one", "run_map"]
+__all__ = ["MapContext", "MapRequest", "invalid_row", "map_one", "run_map"]
 
 _PROMPT_OVERHEAD_TOKENS = 500  # instruction + wrapper + reply headroom
 
@@ -66,6 +66,7 @@ class MapRequest:
     explode_field: str | None = None  # --explode FIELD: one row per list element
     frame_every: float | None = None  # --frame-every SECONDS: video density guarantee (D43)
     max_frames: int | None = None  # --max-frames N: video frame budget (D43)
+    keep_invalid: bool = False  # --keep-invalid: failed validations become marker rows
 
 
 class MapContext(Protocol):
@@ -121,6 +122,11 @@ async def run_map(
             "--explode needs structured output — name fields in braces or pass --schema\n"
             '  Example: smartpipe map "Extract {risks}" --explode risks'
         )
+    if request.keep_invalid and not structured:
+        raise UsageFault(
+            "--keep-invalid needs structured output — name fields in braces or pass --schema\n"
+            "  Only schema validation can fail a row; plain text has nothing to validate."
+        )
 
     spinner.start(total=total)
 
@@ -145,6 +151,7 @@ async def run_map(
             log,
             frame_every=request.frame_every,
             max_frames=request.max_frames,
+            keep_invalid=request.keep_invalid,
         )
 
     done = 0
@@ -190,6 +197,7 @@ async def map_one(
     *,
     frame_every: float | None = None,
     max_frames: int | None = None,
+    keep_invalid: bool = False,
 ) -> str | Mapping[str, object]:
     video = next((part for part in item.media if isinstance(part, VideoData)), None)
     if video is not None:
@@ -202,9 +210,12 @@ async def map_one(
             log,
             frame_every=frame_every,
             max_frames=max_frames,
+            keep_invalid=keep_invalid,
         )
     try:
-        return await _attempt(model, plan, instruction, item.text, item.media)
+        return await _attempt(
+            model, plan, instruction, item.text, item.media, keep_invalid=keep_invalid
+        )
     except ItemError as native_failure:
         audio = next((part for part in item.media if isinstance(part, AudioData)), None)
         if audio is None:
@@ -215,7 +226,9 @@ async def map_one(
         log.note(describe_source(item.source), "audio → text", _whisper_note())
         spoken = f"{item.text}\n\n{transcript}".strip() if item.text else transcript
         remaining = tuple(part for part in item.media if not isinstance(part, AudioData))
-        return await _attempt(model, plan, instruction, spoken, remaining)
+        return await _attempt(
+            model, plan, instruction, spoken, remaining, keep_invalid=keep_invalid
+        )
 
 
 async def _map_video(
@@ -228,6 +241,7 @@ async def _map_video(
     *,
     frame_every: float | None = None,
     max_frames: int | None = None,
+    keep_invalid: bool = False,
 ) -> str | Mapping[str, object]:
     """Video ladder (D27/D34): the real thing where the wire watches it (gemini
     native accepts video; every other adapter refuses pre-send at zero cost),
@@ -252,7 +266,7 @@ async def _map_video(
     log.note(describe_source(item.source), "video → frames+audio", detail)
     media: tuple[MediaData, ...] = (*parts.frames, track) if track is not None else parts.frames
     try:
-        return await _attempt(model, plan, instruction, item.text, media)
+        return await _attempt(model, plan, instruction, item.text, media, keep_invalid=keep_invalid)
     except ItemError as native_failure:
         if track is None:
             raise
@@ -260,7 +274,9 @@ async def _map_video(
         transcript = await asyncio.to_thread(_transcribe_or_skip, track, native_failure)
         log.note(describe_source(item.source), "video audio → text", _whisper_note())
         spoken = f"{item.text}\n\n[audio track transcript]\n{transcript}".strip()
-        return await _attempt(model, plan, instruction, spoken, parts.frames)
+        return await _attempt(
+            model, plan, instruction, spoken, parts.frames, keep_invalid=keep_invalid
+        )
 
 
 def _whisper_note() -> str:
@@ -277,6 +293,8 @@ async def _attempt(
     instruction: str,
     text: str,
     media: tuple[MediaData, ...],
+    *,
+    keep_invalid: bool = False,
 ) -> str | Mapping[str, object]:
     request = build_map_request(plan, instruction, text, media=media)
     reply = await model.complete(request)
@@ -287,7 +305,19 @@ async def _attempt(
     except ItemError as first_error:
         repair = build_repair_request(request, bad_reply=reply, error=str(first_error))
         repaired = await model.complete(repair)
-        return validate_and_coerce(repaired, plan.schema)  # a second failure → Skipped
+        try:
+            return validate_and_coerce(repaired, plan.schema)  # a second failure → Skipped
+        except ItemError as second_error:
+            if not keep_invalid:
+                raise
+            # --keep-invalid: the failure becomes data — one valid row the user
+            # can filter on (and rerun through another model) instead of a skip
+            return invalid_row(error=str(second_error), raw=repaired)
+
+
+def invalid_row(*, error: str, raw: str) -> dict[str, object]:
+    """The --keep-invalid marker row: what failed, why, and the model's words."""
+    return {"_invalid": True, "_error": error, "_raw": raw}
 
 
 def _transcribe_or_skip(audio: AudioData, native_failure: ItemError) -> str:

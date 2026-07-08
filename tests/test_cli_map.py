@@ -62,6 +62,19 @@ def test_partial_failure_exits_1(run_cli: RunCli, respx_mock: respx.MockRouter) 
     assert "skipped: line 2" in err
 
 
+def test_keep_invalid_keeps_the_row_and_exits_clean(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.post(CHAT).side_effect = [_reply("not json"), _reply("still not json")]
+    code, out, err = run_cli(["map", "Extract {v}", "--keep-invalid"], stdin="a\n")
+    assert code == 0
+    row = json.loads(out)
+    assert row["_invalid"] is True
+    assert row["_raw"] == "still not json"
+    assert row["_error"]
+    assert "skipped" not in err
+
+
 def test_bad_grammar_is_usage_error_before_any_model_call(
     run_cli: RunCli, respx_mock: respx.MockRouter
 ) -> None:

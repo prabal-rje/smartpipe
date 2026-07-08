@@ -143,3 +143,40 @@ def test_human_writer_plain_text_is_unstyled() -> None:
     stream, writer = _writer(RenderMode.HUMAN, color=True)
     writer.write_text("result line")
     assert stream.getvalue() == "result line\n"
+
+
+# --- --keep-invalid rows --------------------------------------------------------
+
+
+def test_human_writer_renders_invalid_rows_as_one_dim_compact_line() -> None:
+    stream, writer = _writer(RenderMode.HUMAN, color=True)
+    writer.write_record({"_invalid": True, "_error": "'v' is required", "_raw": "x" * 100})
+    body = [line for line in stream.getvalue().splitlines() if line]
+    assert len(body) == 1  # never a key/value block
+    line = body[0]
+    assert line.startswith("\x1b[2m✗ invalid: 'v' is required · ")
+    assert line.endswith("…\x1b[0m")
+    assert "x" * 70 in line  # first ~70 chars of the raw reply survive
+    assert "x" * 71 not in line
+
+
+def test_human_writer_invalid_line_is_plain_without_color() -> None:
+    stream, writer = _writer(RenderMode.HUMAN)
+    writer.write_record({"_invalid": True, "_error": "boom", "_raw": "short reply"})
+    assert stream.getvalue() == "✗ invalid: boom · short reply\n\n"
+
+
+def test_human_writer_invalid_raw_flattens_to_one_line() -> None:
+    stream, writer = _writer(RenderMode.HUMAN)
+    writer.write_record({"_invalid": True, "_error": "boom", "_raw": "a\nb\tc"})
+    assert stream.getvalue() == "✗ invalid: boom · a b c\n\n"
+
+
+def test_ndjson_invalid_rows_bypass_fields_projection() -> None:
+    # piped output stays the full machine-readable failure row, even under --fields
+    stream = io.StringIO()
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=("v",)), stream
+    )
+    writer.write_record({"_invalid": True, "_error": "e", "_raw": "r"})
+    assert stream.getvalue() == '{"_invalid":true,"_error":"e","_raw":"r"}\n'

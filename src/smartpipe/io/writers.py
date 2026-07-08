@@ -159,6 +159,13 @@ def _compact_json(value: object) -> str:
 
 
 _ABSENT = object()  # sentinel: "no such field", distinct from a genuine null
+_RAW_PREVIEW_CELLS = 70  # --keep-invalid TTY line: this much of the raw reply
+
+
+def _is_invalid_row(record: Mapping[str, object]) -> bool:
+    """A --keep-invalid marker row — projection and block rendering both step
+    aside for these: the row IS the failure report, not extracted data."""
+    return record.get("_invalid") is True
 
 
 def _lookup(record: Mapping[str, object], name: str) -> object:
@@ -202,7 +209,7 @@ class _TextWriter:
         self.stream.flush()
 
     def write_record(self, record: Mapping[str, object]) -> None:
-        if self.fields is not None:
+        if self.fields is not None and not _is_invalid_row(record):
             record = _project(record, self.fields, self.warned)
         self.write_text(_compact_json(dict(record)))
 
@@ -223,7 +230,7 @@ class _NdjsonWriter:
         self.write_record({"result": line})
 
     def write_record(self, record: Mapping[str, object]) -> None:
-        if self.fields is not None:
+        if self.fields is not None and not _is_invalid_row(record):
             record = _project(record, self.fields, self.warned)
         self.stream.write(f"{_compact_json(dict(record))}\n")
         self.stream.flush()
@@ -328,6 +335,9 @@ class _HumanWriter:
         self.stream.flush()
 
     def write_record(self, record: Mapping[str, object]) -> None:
+        if _is_invalid_row(record):
+            self._write_invalid(record)
+            return
         if self.fields is not None:
             record = _project(record, self.fields, self.warned)
         for key, value in record.items():
@@ -342,6 +352,20 @@ class _HumanWriter:
             label = f"{_DIM}{key}:{_RESET}" if self.color else f"{key}:"
             self.stream.write(f"{label} {rendered}\n")
         self.stream.write("\n")
+        self.stream.flush()
+
+    def _write_invalid(self, record: Mapping[str, object]) -> None:
+        """A --keep-invalid row at the terminal: one dim compact line — marker,
+        the validator's complaint, the first ~70 cells of the raw reply. The
+        full JSON row is a pipe thing; a human wants the gist, not the wreckage."""
+        error = str(record.get("_error", ""))
+        raw = " ".join(str(record.get("_raw", "")).split())  # flatten to one line
+        if display_width(raw) > _RAW_PREVIEW_CELLS:
+            raw = clip_to_width(raw, _RAW_PREVIEW_CELLS) + _ELLIPSIS
+        line = f"✗ invalid: {error} · {raw}"
+        if self.color:
+            line = f"{_DIM}{line}{_RESET}"
+        self.stream.write(f"{line}\n\n")
         self.stream.flush()
 
     def write_passthrough(self, item: Item) -> None:

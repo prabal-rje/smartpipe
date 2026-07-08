@@ -143,6 +143,36 @@ async def test_explode_copies_original_fields_onto_every_row() -> None:
     ]
 
 
+async def test_keep_invalid_merges_markers_onto_the_base_record() -> None:
+    """extend --keep-invalid: the original fields survive; the failure markers
+    land beside them; no extracted fields appear."""
+
+    class BrokenModel(SentimentModel):
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls += 1
+            return "not json, ever"
+
+    out = io.StringIO()
+    import contextlib
+
+    model = BrokenModel()
+    with contextlib.redirect_stderr(io.StringIO()):
+        code = await run_extend(
+            _request("Add {sentiment}", keep_invalid=True),
+            FakeContext(model),
+            stdin=io.StringIO('{"id": 7, "body": "crashes"}\n'),
+            stdout=out,
+        )
+    assert code is ExitCode.OK
+    (row,) = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert row["id"] == 7 and row["body"] == "crashes"  # the base record survives
+    assert row["_invalid"] is True
+    assert row["_raw"] == "not json, ever"
+    assert row["_error"]
+    assert "sentiment" not in row  # no extracted fields on a failed row
+    assert model.calls == 2  # original + the one repair retry
+
+
 def test_base_fields_drops_media_transport_keys() -> None:
     from dataclasses import replace
 

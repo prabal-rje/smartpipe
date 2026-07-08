@@ -80,6 +80,7 @@ def _request(prompt: str, **kw: object) -> MapRequest:
         model_flag=None,
         output=OutputFormat.AUTO,
         concurrency_flag=None,
+        keep_invalid=bool(kw.get("keep_invalid", False)),
     )
 
 
@@ -156,6 +157,51 @@ async def test_second_failure_skips_the_item() -> None:
     assert code == ExitCode.ALL_FAILED  # the only item failed
     assert out == ""
     assert len(model.calls) == 2  # original + one repair, then give up
+
+
+# --- --keep-invalid -------------------------------------------------------------
+
+
+async def test_keep_invalid_emits_a_marker_row_instead_of_a_skip() -> None:
+    import json
+
+    model = FakeChat(replies=["bad once", "bad twice"])
+    context = FakeContext(model=model)
+    out = io.StringIO()
+    code = await run_map(
+        _request("Extract {v}", keep_invalid=True), context, stdin=io.StringIO("x\n"), stdout=out
+    )
+    assert code == ExitCode.OK  # a kept row is a result, not a failure
+    row = json.loads(out.getvalue())
+    assert row["_invalid"] is True
+    assert row["_raw"] == "bad twice"
+    assert row["_error"]  # the validator's message rides along
+    assert len(model.calls) == 2  # the one repair retry still ran first
+
+
+async def test_keep_invalid_leaves_valid_rows_untouched() -> None:
+    model = FakeChat(replies=['{"v": "ok"}'])
+    context = FakeContext(model=model)
+    out = io.StringIO()
+    code = await run_map(
+        _request("Extract {v}", keep_invalid=True), context, stdin=io.StringIO("x\n"), stdout=out
+    )
+    assert code == ExitCode.OK
+    assert out.getvalue() == '{"v":"ok"}\n'
+
+
+async def test_keep_invalid_requires_structured_output() -> None:
+    from smartpipe.core.errors import UsageFault
+
+    context = FakeContext(model=FakeChat(replies=["x"]))
+    with pytest.raises(UsageFault, match="--keep-invalid"):
+        await run_map(
+            _request("just summarize", keep_invalid=True),
+            context,
+            stdin=io.StringIO("x\n"),
+            stdout=io.StringIO(),
+        )
+    assert context.model.calls == []  # fails before any model call
 
 
 # --- exit codes & skips -------------------------------------------------------

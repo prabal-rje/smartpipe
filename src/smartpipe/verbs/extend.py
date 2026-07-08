@@ -65,6 +65,7 @@ class ExtendRequest:
     explode_field: str | None = None
     frame_every: float | None = None  # D43
     max_frames: int | None = None  # D43
+    keep_invalid: bool = False  # --keep-invalid: failure markers merge onto the base record
 
 
 async def run_extend(
@@ -118,6 +119,7 @@ async def run_extend(
             log,
             frame_every=request.frame_every,
             max_frames=request.max_frames,
+            keep_invalid=request.keep_invalid,
         )
         assert isinstance(result, Mapping)  # structured mode: validated against the schema
         return item, result

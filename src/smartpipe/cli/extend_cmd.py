@@ -74,6 +74,12 @@ __all__ = ["extend_command"]
     type=int,
     help="Video frame budget (default 24; the smaller of the two flags wins).",
 )
+@click.option(
+    "--keep-invalid",
+    "keep_invalid",
+    is_flag=True,
+    help='Failed extractions become {"_invalid": true, "_error": …, "_raw": …} rows, not skips.',
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @fields_option
@@ -89,6 +95,7 @@ def extend_command(
     explode_field: str | None,
     model_flag: str | None,
     output: str,
+    keep_invalid: bool,
     concurrency_flag: int | None,
     max_calls: int | None,
     fields: tuple[str, ...] | None,
@@ -118,6 +125,7 @@ def extend_command(
         max_frames=max_frames,
         model_flag=model_flag,
         output=OutputFormat(output),
+        keep_invalid=keep_invalid,
         concurrency_flag=concurrency_flag,
         fields=fields,
         input=input_spec(in_patterns, from_files=from_files),
