@@ -326,7 +326,7 @@ class WindowGate:
         return (
             f"~{estimate_tokens(text):,} tokens is past {self.model_name}'s "
             f"~{budget:,}-token budget — split it first: "
-            'smartpipe split --in FILE | smartpipe map "..." | smartpipe reduce "..."'
+            'smartpipe split FILE | smartpipe map "..." | smartpipe reduce "..."'
         )
 
 

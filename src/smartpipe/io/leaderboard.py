@@ -2,7 +2,7 @@
 
 ``render_frame`` is pure (goldens pin it); ``LiveBoard`` adds the clock, the
 ≤4-repaints/s throttle, and the ANSI cursor-up block rewrite. TTY only — pipe
-mode uses NDJSON snapshots through the ordinary writer instead.
+mode uses JSONL snapshots through the ordinary writer instead.
 """
 
 from __future__ import annotations

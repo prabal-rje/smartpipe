@@ -1,8 +1,8 @@
 """The ``embed`` verb: turn each item into a vector (spec §3.3).
 
 The only verb that never touches a chat LLM — it uses the embedding model and
-emits one NDJSON record per item: ``{"text", "vector", "source"}``. Output is
-always NDJSON (a vector has no human view), so it feeds ``top_k`` or a file.
+emits one JSONL record per item: ``{"text", "vector", "source"}``. Output is
+always JSONL (a vector has no human view), so it feeds ``top_k`` or a file.
 
 Two execution shapes (plan/post-1.0/06, DEFER-3): a finite file corpus is
 embedded in ≤64-text chunks (64x fewer round-trips, poison chunks re-run

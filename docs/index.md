@@ -21,7 +21,7 @@ cat reviews.txt \
 
 ## Verbs
 
-A **verb** is one operation on your data. Each reads `stdin` (or `--in FILES`)
+A **verb** is one operation on your data. Each reads `stdin` (or named FILES)
 and writes `stdout`, so verbs pipe into each other and into ordinary Unix tools.
 
 **Semantic verbs** call a model:

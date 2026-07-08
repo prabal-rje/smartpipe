@@ -4,7 +4,7 @@ Two vocabularies on purpose: ``OutputFormat`` is what users say (``--output`` /
 ``SMARTPIPE_OUTPUT``); ``RenderMode`` is what a writer does. ``resolve_format``
 maps one to the other using the TTY matrix in plan/ux.md — notably, AUTO on a
 terminal renders structured results as a human view, while an *explicit*
-``--output json`` forces NDJSON even there (spec §5.2).
+``--output json`` forces JSONL even there (spec §5.2).
 """
 
 from __future__ import annotations

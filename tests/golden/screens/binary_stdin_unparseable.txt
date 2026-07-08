@@ -1,3 +1,3 @@
 error: stdin looks like binary data smartpipe can't parse
   Recognized on stdin: text lines, or a single PDF/DOCX/PPTX/XLSX/audio/image document.
-  For files on disk use --in: smartpipe map "Summarize" --in 'report.pdf'
+  For files on disk, name the file: smartpipe map "Summarize" report.pdf

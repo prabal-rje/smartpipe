@@ -140,9 +140,7 @@ def _content(item: Item, request: WriteRequest) -> bytes | str:
         return _field_text(item, request.field)
     if item.media and not _payload_fields(item):
         return item.media[0].data  # the crate IS the bytes
-    if item.data is None:
-        return item.raw
-    return _record_row(item, keep_meta=request.keep_meta)
+    return _row_text(item, request)
 
 
 def _row_text(item: Item, request: WriteRequest) -> str:
@@ -150,7 +148,23 @@ def _row_text(item: Item, request: WriteRequest) -> str:
         return _field_text(item, request.field)
     if item.data is None:
         return item.raw
+    text_only = _text_only(item)
+    if text_only is not None and not request.keep_meta:
+        # law 5 at the write edge: a text-only record leaves as plain text —
+        # the reader's lines round-trip byte-identically through the mirror
+        return text_only
     return _record_row(item, keep_meta=request.keep_meta)
+
+
+def _text_only(item: Item) -> str | None:
+    """The record's text when text is ALL it carries (spine aside), else None."""
+    if item.data is None:
+        return None
+    payload = {key for key in item.data if not key.startswith("__")}
+    if payload != {"text"}:
+        return None
+    value = item.data.get("text")
+    return value if isinstance(value, str) else None
 
 
 def _payload_fields(item: Item) -> dict[str, object]:

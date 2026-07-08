@@ -149,8 +149,8 @@ def map_command(
     Examples:
       echo "hello" | smartpipe map "translate to Spanish"
       cat reviews.jsonl | smartpipe map "Extract {product, sentiment}"
-      smartpipe map "Summarize this document" --in 'reports/*.pdf'
-      smartpipe map "What does the caller want?" --in 'calls/*.mp3'
+      smartpipe map "Summarize this document" 'reports/*.pdf'
+      smartpipe map "What does the caller want?" 'calls/*.mp3'
 
     You usually need NO flags: braces in the prompt name the JSON fields you
     want back; plain prompts return plain text; and media is first-class —

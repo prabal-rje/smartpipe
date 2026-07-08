@@ -8,7 +8,7 @@ meaning, not keyword.
 A common case: rank a stack of résumés against a role.
 
 ```bash
-smartpipe top_k 5 --near "senior distributed systems engineer, Rust, Kubernetes" --in 'resumes/*.pdf'
+smartpipe top_k 5 --near "senior distributed systems engineer, Rust, Kubernetes" 'resumes/*.pdf'
 ```
 
 Output is the five closest files, best first, each with a similarity score:
@@ -29,7 +29,7 @@ If you'll run several queries against the same corpus, embed it once and reuse t
 vectors - much cheaper than re-embedding every time:
 
 ```bash
-smartpipe embed --in 'docs/**/*.md' > corpus.embeddings
+smartpipe embed 'docs/**/*.md' > corpus.embeddings
 
 cat corpus.embeddings \
 | smartpipe top_k 10 --near "our data retention policy"
@@ -44,7 +44,7 @@ cat corpus.embeddings \
 Feed the top files straight into `map` to pull structured data from just the winners:
 
 ```bash
-smartpipe top_k 20 --near "indemnification clause" --in 'legal/*.pdf' \
+smartpipe top_k 20 --near "indemnification clause" 'legal/*.pdf' \
 | cut -f1 \
 | smartpipe map "Extract {clause_text, liability_cap}" --from-files --output csv
 ```
@@ -57,7 +57,7 @@ smartpipe top_k 20 --near "indemnification clause" --in 'legal/*.pdf' \
 Don't know how many are relevant? Keep everything above a similarity bar:
 
 ```bash
-smartpipe top_k --near "GDPR compliance" --threshold 0.8 --in 'policies/*.pdf'
+smartpipe top_k --near "GDPR compliance" --threshold 0.8 'policies/*.pdf'
 ```
 
 ## See also

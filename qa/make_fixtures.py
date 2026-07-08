@@ -161,9 +161,10 @@ def _orders_and_invoices(rng: random.Random) -> tuple[list[str], list[str]]:
     orders: list[str] = []
     invoices: list[str] = []
     for number, product in enumerate(PRODUCTS * 4, start=1):
-        orders.append(json.dumps({"id": 4000 + number, "desc": product}))
+        sku = f"SKU-{number:03d}"  # shared key: join --on finds the same gaps for free
+        orders.append(json.dumps({"id": 4000 + number, "sku": sku, "desc": product}))
         if number % 7 != 0:  # every 7th order has NO invoice — anti-join finds them
-            invoices.append(json.dumps({"invoice": f"A-{number}", "item": product}))
+            invoices.append(json.dumps({"invoice": f"A-{number}", "sku": sku, "item": product}))
     rng.shuffle(orders)
     return orders, invoices
 
@@ -172,8 +173,18 @@ def _media(assets: Path) -> list[str]:
     wav = base64.b64encode((assets / "probe.wav").read_bytes()).decode()
     png = base64.b64encode((assets / "probe.png").read_bytes()).decode()
     return [
-        json.dumps({"audio_b64": wav, "mime": "audio/wav", "source": "probe.wav"}),
-        json.dumps({"image_b64": png, "mime": "image/png", "source": "probe.png"}),
+        json.dumps(
+            {
+                "__media": {"kind": "audio", "mime": "audio/wav", "data_b64": wav},
+                "__source": {"path": "probe.wav", "as": "file"},
+            }
+        ),
+        json.dumps(
+            {
+                "__media": {"kind": "image", "mime": "image/png", "data_b64": png},
+                "__source": {"path": "probe.png", "as": "file"},
+            }
+        ),
         json.dumps({"text": "a plain text row mixed in with the media"}),
     ]
 

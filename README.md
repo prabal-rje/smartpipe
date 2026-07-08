@@ -32,10 +32,10 @@ No ChatGPT plan? Use local [Ollama][ollama] or a cloud API key - see
 
 ```bash
 # summarize each filing, figures included
-smartpipe map "summarize the key risk" --in 'filings/*.pdf'
+smartpipe map "summarize the key risk" 'filings/*.pdf'
 
 # keep only the calls that sound frustrated - audio, understood
-smartpipe filter "the caller sounds frustrated" --in 'calls/*.mp3'
+smartpipe filter "the caller sounds frustrated" 'calls/*.mp3'
 
 # text on stdin works the same way
 echo "hello world" \
@@ -54,7 +54,7 @@ one item at a time.
 ## Verbs
 
 A **verb** is one operation on your data - `map`, `filter`, `cluster`. Each reads
-`stdin` (or `--in FILES`) and writes `stdout`, so verbs pipe into each other and
+`stdin` (or named FILES) and writes `stdout`, so verbs pipe into each other and
 into ordinary Unix tools. Every verb is documented at
 [prabal-rje.github.io/smartpipe][docs].
 
@@ -98,7 +98,7 @@ braces/DSL expression. Each stays at zero model calls by construction.
 smartpipe config
 
 # 2. ask one question across a folder of mixed documents
-smartpipe map "What does this say about pricing?" --in 'docs/*.pdf'
+smartpipe map "What does this say about pricing?" 'docs/*.pdf'
 
 # 3. typed extraction - braces carry names, types, and guidance
 cat tickets.jsonl \
@@ -118,12 +118,12 @@ cat app.log \
 smartpipe run triage.sem --dry-run   # prints the stage graph and cost, makes zero calls
 
 # 7. month-end close: the vision model IS the OCR; the anti-join is the worklist
-smartpipe map "Extract {vendor string, invoice_number string, total number}" --in 'invoices/2026-06/*.pdf' \
+smartpipe map "Extract {vendor string, invoice_number string, total number}" 'invoices/2026-06/*.pdf' \
 | tee june-invoices.ndjson \
 | smartpipe join "the same payment" --right ledger.jsonl --kind anti > missing-from-ledger.jsonl
 
 # 8. video RAG, no vector database: index a folder of recordings once, ask any day
-smartpipe embed --in 'sessions/**/*.mp4' > sessions.embeddings
+smartpipe embed 'sessions/**/*.mp4' > sessions.embeddings
 smartpipe top_k 3 --near "user gives up after the coupon fails" < sessions.embeddings
 ```
 

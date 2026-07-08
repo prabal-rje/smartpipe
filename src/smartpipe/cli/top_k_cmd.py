@@ -56,7 +56,7 @@ def top_k_command(
 
     \b
     Examples:
-      smartpipe top_k 5 --near "distributed systems engineer" --in 'resumes/*.pdf'
+      smartpipe top_k 5 --near "distributed systems engineer" 'resumes/*.pdf'
       cat corpus.embeddings | smartpipe top_k 10 --near "Q3 revenue strategy"
       cat articles.jsonl | smartpipe top_k --near "climate policy" --threshold 0.8
 

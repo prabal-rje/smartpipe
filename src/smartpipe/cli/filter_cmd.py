@@ -65,7 +65,7 @@ def filter_command(
     Examples:
       cat reviews.txt | smartpipe filter "the reviewer is sarcastic"
       cat tickets.jsonl | smartpipe filter "{priority} is wrong given {description}"
-      smartpipe filter "mentions a security issue" --in 'logs/*.txt'
+      smartpipe filter "mentions a security issue" 'logs/*.txt'
 
     Output is the matching input items, unchanged and in order (in file mode, the
     matching filenames). Zero matches is a successful (exit 0) empty result.

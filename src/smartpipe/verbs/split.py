@@ -199,7 +199,7 @@ async def _run_media(request: SplitRequest, context: SplitContext, *, stdout: Te
 
     if not request.input.patterns:
         raise UsageFault(
-            "--media reads document files — give it some: smartpipe split --media --in 'docs/*.pdf'"
+            "--media reads document files — give it some: smartpipe split --media 'docs/*.pdf'"
         )
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
     produced = 0
@@ -262,8 +262,7 @@ async def _run_pages(
 
     if not request.input.patterns:
         raise UsageFault(
-            "--by pages reads PDF files — give it some:\n"
-            "  smartpipe split --by pages --in 'docs/*.pdf'"
+            "--by pages reads PDF files — give it some:\n  smartpipe split --by pages 'docs/*.pdf'"
         )
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
     produced = 0

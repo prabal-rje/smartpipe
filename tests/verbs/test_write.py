@@ -147,3 +147,27 @@ async def test_field_missing_on_a_row_is_loud(
     monkeypatch.chdir(tmp_path)
     with pytest.raises(UsageFault, match="has no 'body'"):
         await _run("all.txt", json.dumps({"text": "x"}) + "\n", field="body")
+
+
+async def test_text_only_records_mirror_back_as_plain_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # law 5 at the write edge: reader lines round-trip byte-identically
+    monkeypatch.chdir(tmp_path)
+    rows = [
+        json.dumps({"text": "first", "__source": {"path": "notes.txt", "as": "lines", "line": 1}}),
+        json.dumps({"text": "second", "__source": {"path": "notes.txt", "as": "lines", "line": 2}}),
+    ]
+    code, _out = await _run("out/{name}", "\n".join(rows) + "\n")
+    assert code is ExitCode.OK
+    assert (tmp_path / "out" / "notes.txt").read_text() == "first\nsecond\n"
+
+
+async def test_keep_meta_forces_jsonl_even_for_text_only_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    row = json.dumps({"text": "kept", "__source": {"path": "n.txt", "as": "lines", "line": 1}})
+    await _run("out/{name}", row + "\n", keep_meta=True)
+    written = json.loads((tmp_path / "out" / "n.txt").read_text())
+    assert written["__source"]["line"] == 1  # meta can't ride plain text

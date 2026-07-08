@@ -3,7 +3,7 @@
 Contract (plan/architecture.md "Core types"): ``raw`` preserves the input line
 byte-for-byte (minus the trailing newline) so ``filter``/``top_k`` can honor the
 passthrough-fidelity guarantee; ``data`` is set only when the line is a JSON
-*object* (an NDJSON record) — scalars and arrays are just text.
+*object* (a JSONL record) — scalars and arrays are just text.
 """
 
 from __future__ import annotations

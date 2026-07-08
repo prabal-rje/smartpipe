@@ -110,7 +110,7 @@ SMARTPIPE_OPENAI_BASE_URL=https://… smartpipe …  # point the wire elsewhere
 ## Gemini rides its native wire (and watches video)
 
 Gemini chat uses Google's native endpoint, the only wired endpoint that takes
-**video input**: `map "what happens?" --in demo.mp4 --model gemini-3.1-flash-lite`
+**video input**: `map "what happens?" demo.mp4 --model gemini-3.1-flash-lite`
 sends the actual video (visuals and soundtrack heard together, no conversion).
 On every other model the video ladder converts to frames + audio automatically.
 Structured output translates to Gemini's response-schema dialect; embeddings

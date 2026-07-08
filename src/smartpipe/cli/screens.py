@@ -47,14 +47,14 @@ def openai_needs_key_or_login(model: str) -> str:
 BINARY_STDIN_UNPARSEABLE = """\
 error: stdin looks like binary data smartpipe can't parse
   Recognized on stdin: text lines, or a single PDF/DOCX/PPTX/XLSX/audio/image document.
-  For files on disk use --in: smartpipe map "Summarize" --in 'report.pdf'"""
+  For files on disk, name the file: smartpipe map "Summarize" report.pdf"""
 
 
 def stdin_document_failed(reason: str) -> str:
     return (
         f"error: stdin looks like a document, but it couldn't be read ({reason})\n"
         "  smartpipe reads ONE binary document per run from stdin.\n"
-        "  Alternative: smartpipe map \"…\" --in 'report.pdf'"
+        '  Alternative: smartpipe map "…" report.pdf'
     )
 
 

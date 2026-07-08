@@ -41,6 +41,6 @@ def expand_globs(patterns: tuple[str, ...]) -> list[Path]:
         joined = " ".join(patterns)
         raise UsageFault(
             f"no files matched: {joined}\n"
-            "  check the pattern, and quote it so the shell doesn't expand it first: --in '*.pdf'"
+            "  check the pattern, and quote it so the shell doesn't expand it first: '*.pdf'"
         )
     return list(seen.values())

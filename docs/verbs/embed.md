@@ -42,7 +42,7 @@ which skips re-embedding items that already carry a `vector`.
 
 ## Performance
 
-Batching is automatic. A file corpus (`--in 'docs/*'`) is embedded in chunks of
+Batching is automatic. A file corpus (`'docs/*'`) is embedded in chunks of
 up to 64 texts per call - 64× fewer round-trips, and if a chunk fails it is
 retried one item at a time so a single bad item skips alone. Piped input stays
 one item per call: on a live stream, latency beats throughput.

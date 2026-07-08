@@ -107,7 +107,7 @@ into the tools you already use.
 ## Where to next
 
 
-- **Working with files?** `smartpipe map "summarize" --in 'reports/*.pdf'` -
+- **Working with files?** `smartpipe map "summarize" 'reports/*.pdf'` -
   PDFs, images, audio, and video are first-class ([inputs](inputs/files.md)).
 - **Cutting costs?** Put the free verbs first: `smartpipe where 'level == "error"'`
   before any paid stage, `smartpipe sample 20` while iterating, and watch the

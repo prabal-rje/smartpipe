@@ -1,24 +1,29 @@
 # File inputs
 
-Every verb can read files instead of stdin lines. Point it at documents and each
-*file* becomes one item - smartpipe figures out how to read it.
+Every verb can read files instead of stdin lines. Name them after the prompt
+and each *file* becomes one item - smartpipe figures out how to read it.
 
-## `--in` - a glob of files
+## Files as arguments
 
 ```bash
 # Each PDF is one item; summarize each:
-smartpipe map "Summarize this document" --in 'reports/*.pdf'
+smartpipe map "Summarize this document" 'reports/*.pdf'
 
 # Rank résumés by relevance (the classic):
-smartpipe top_k 5 --near "distributed systems engineer" --in 'resumes/*.pdf'
+smartpipe top_k 5 --near "distributed systems engineer" 'resumes/*.pdf'
 
 # Keep the documents that mention a topic:
-smartpipe filter "discusses budget cuts" --in 'board-notes/**/*.md'
+smartpipe filter "discusses budget cuts" 'board-notes/**/*.md'
 ```
 
-> **Quote the pattern.** Write `--in '*.pdf'` with quotes so your shell passes the
+> **Quote the pattern.** Write `'*.pdf'` with quotes so your shell passes the
 > pattern to smartpipe instead of expanding it first. `**` recurses into
-> subdirectories.
+> subdirectories. (`--in GLOB` still works as a compatibility alias.)
+
+Granularity is a dial: a named `.jsonl` file cuts into records, everything
+else is one whole-file item, and `--as file|lines|jsonl` overrides either way -
+[the item](../concepts/the-item.md) has the full ladder. With no verb at all,
+`smartpipe PATH…` is the reader: it emits the files' items as JSONL records.
 
 ## `--from-files` - filenames on stdin
 
@@ -160,9 +165,10 @@ don't ride along implicitly (a 100-page deck can carry 300 decorative logos -
 which would explode one document into hundreds of items). When you want them:
 
 ```bash
-smartpipe split --media --in report.pdf \
+smartpipe split --media report.pdf \
 | smartpipe map "describe this figure"
-# → {"image_b64": "…", "mime": "image/jpeg", "source": "report.pdf p.7 img.2"}
+# → {"__media": {"kind": "image", "mime": "image/jpeg", "data_b64": "…"},
+#    "__source": {"path": "report.pdf", "as": "file", "label": "report.pdf p.7 img.2"}}
 ```
 
 Each embedded image becomes an item with page provenance, byte-identical

@@ -47,12 +47,12 @@ def embed_command(
     strict_rows: bool,
     paths: tuple[str, ...],
 ) -> None:
-    """Convert each item to a vector embedding (NDJSON out).
+    """Convert each item to a vector embedding (JSONL out).
 
     \b
     Examples:
       cat docs/*.md | smartpipe embed > corpus.embeddings
-      smartpipe embed --in 'docs/*.pdf' > corpus.embeddings
+      smartpipe embed 'docs/*.pdf' > corpus.embeddings
 
     This is the only command that never touches a chat model — it uses the
     embedding model, and exists to feed 'top_k'.
