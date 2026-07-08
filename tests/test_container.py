@@ -36,7 +36,11 @@ def _container(
     # XDG pinned to nowhere: these tests must never see the developer's real
     # ~/.config/smartpipe (a stored ChatGPT login there satisfies key-or-login
     # and silently flips the no-key tests)
-    isolated = {"XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests", **(env or {})}
+    isolated = {
+        "XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests",
+        "APPDATA": "/nonexistent-smartpipe-tests",  # the windows config root (D09)
+        **(env or {}),
+    }
     return AppContainer(env=isolated, config=config or Config(), http_client=client, retry=FAST)
 
 
@@ -163,7 +167,7 @@ async def test_build_container_surfaces_broken_config(tmp_path: Path) -> None:
     cfg_dir = tmp_path / "smartpipe"
     cfg_dir.mkdir()
     (cfg_dir / "config.toml").write_text("model =\n", encoding="utf-8")
-    env = {"XDG_CONFIG_HOME": str(tmp_path)}
+    env = {"XDG_CONFIG_HOME": str(tmp_path), "APPDATA": str(tmp_path)}
     with pytest.raises(SetupFault, match="syntax error"):
         async with build_container(env):
             pass

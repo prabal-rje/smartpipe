@@ -23,8 +23,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with: { python-version: "${{ matrix.python }}" }
       - run: uv sync --all-extras
-      - run: uv run coverage run -m pytest -q
-      - run: uv run coverage report
+      # behavior verification only - the coverage contract lives in ci `checks`
+      - run: uv run pytest -q --tb=short -o faulthandler_timeout=120
 
   publish:
     needs: verify

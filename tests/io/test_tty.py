@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -32,6 +34,7 @@ def test_always_and_never_are_constant(is_tty: bool, env: dict[str, str]) -> Non
     assert supports_color(is_tty, mode=ColorMode.NEVER, env=env) is False
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="tests the off-windows path")
 def test_enable_windows_vt_is_a_noop_success_off_windows() -> None:
     from smartpipe.io.tty import enable_windows_vt
 

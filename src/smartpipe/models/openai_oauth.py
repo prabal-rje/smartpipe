@@ -235,6 +235,7 @@ async def login_via_browser(
     lands in an ``asyncio`` future via ``call_soon_threadsafe`` — same shutdown
     discipline as the stdin pump (nothing can wedge exit).
     """
+    import sys
     import threading
     import webbrowser
     from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -293,10 +294,16 @@ async def login_via_browser(
         def log_message(self, format: str, *args: object) -> None:  # noqa: A002
             del format, args  # the CLI narrates; the server stays quiet
 
+    class LoopbackServer(HTTPServer):
+        # POSIX: rebind through TIME_WAIT so back-to-back logins work. Windows:
+        # SO_REUSEADDR means HIJACK a live port - a second login would silently
+        # steal the callback instead of erroring - so the flag stays off there.
+        allow_reuse_address = sys.platform != "win32"
+
     try:
         # bind the v4 loopback explicitly: "localhost" resolution order varies by
         # host (macOS CI resolves ::1 first) while browsers try both families
-        server = HTTPServer(("127.0.0.1", port), Handler)
+        server = LoopbackServer(("127.0.0.1", port), Handler)
     except OSError as exc:
         raise SetupFault(
             f"error: couldn't open the login callback port {port} ({exc.strerror or exc})\n"

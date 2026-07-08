@@ -76,6 +76,7 @@ def test_no_model_configured_is_setup_screen(
 ) -> None:
     monkeypatch.delenv("SMARTPIPE_MODEL", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", "/nonexistent-config-dir")
+    monkeypatch.setenv("APPDATA", "/nonexistent-config-dir")  # the windows config root (D09)
     respx_mock.get("http://localhost:11434/api/tags").mock(
         side_effect=httpx.ConnectError("refused")
     )

@@ -104,7 +104,8 @@ def test_inner_setup_fault_still_exits_2(
 ) -> None:
     # the verb's SetupFault propagates to main()'s one exit-code mapping — no
     # double handling inside run
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))  # no stored login either
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path)
+    monkeypatch.setenv("APPDATA", str(tmp_path)  # the windows config root (D09))  # no stored login either
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     script = _sem(tmp_path, 'verb = "map"\nprompt = "x"\nmodel = "gpt-4o-mini"\n')
     code, _out, err = run_cli(["run", str(script)], stdin="hi\n")

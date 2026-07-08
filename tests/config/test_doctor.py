@@ -56,7 +56,8 @@ def test_exit_one_on_any_failure() -> None:
 
 @pytest.fixture()
 def isolated_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path)
+    monkeypatch.setenv("APPDATA", str(tmp_path)  # the windows config root (D09))
     for var in (
         "SMARTPIPE_MODEL",
         "SMARTPIPE_EMBED_MODEL",

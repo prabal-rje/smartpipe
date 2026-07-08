@@ -125,7 +125,9 @@ def test_map_model_flag_completes_through_the_callback(
 
     from smartpipe.cli.root import cli
 
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path)
+
+    monkeypatch.setenv("APPDATA", str(tmp_path)  # the windows config root (D09))
     monkeypatch.delenv("SMARTPIPE_MODEL", raising=False)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b"))
@@ -143,7 +145,9 @@ def test_config_model_argument_completes_through_the_callback(
 
     from smartpipe.cli.root import cli
 
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path)
+
+    monkeypatch.setenv("APPDATA", str(tmp_path)  # the windows config root (D09))
     monkeypatch.delenv("SMARTPIPE_MODEL", raising=False)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b"))

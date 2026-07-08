@@ -15,7 +15,8 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def verbs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path)
+    monkeypatch.setenv("APPDATA", str(tmp_path)  # the windows config root (D09))
     directory = tmp_path / "smartpipe" / "verbs"
     directory.mkdir(parents=True)
     return directory

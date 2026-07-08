@@ -23,7 +23,8 @@ FRESH_MS = int(time.time() * 1000) + 3_600_000
 
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))  # the store lands under tmp
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path)
+    monkeypatch.setenv("APPDATA", str(tmp_path)  # the windows config root (D09))  # the store lands under tmp
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("SMARTPIPE_MODEL", "openai/gpt-5.4")
     return tmp_path / "smartpipe" / "auth.json"
