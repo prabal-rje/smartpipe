@@ -11,9 +11,9 @@
 Run PDFs, images, audio, video, and text through Unix verbs that understand
 their input. Use Ollama for local models, or choose a cloud provider explicitly.
 
-![smartpipe demo - folders of PDFs, recordings, and screenshots, one question at a time](https://github.com/prabal-rje/smartpipe/releases/download/demo-assets/smartpipe-demo.gif)
+[![smartpipe demo - click to play with sound and controls](https://github.com/prabal-rje/smartpipe/releases/download/demo-assets/smartpipe-teaser.gif)](https://prabal-rje.github.io/smartpipe/demo/)
 
-*[▶ full demo with sound (mp4)](https://github.com/prabal-rje/smartpipe/releases/download/demo-assets/smartpipe-demo.mp4)*
+*[▶ Watch the full 70-second demo](https://prabal-rje.github.io/smartpipe/demo/) - sound, controls, no download.*
 
 ## Install
 
