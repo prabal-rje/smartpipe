@@ -45,9 +45,9 @@ $ uv add smartpipe-cli
 One install gives you the entire multimodal surface - documents (PDF, DOCX,
 PPTX, XLSX, HTML, EPUB), video (a static ffmpeg is bundled), charts with
 `--save`, Claude models, local Whisper transcription, and local embeddings.
-There are no optional extras to remember; the extra names still exist as
-empty aliases, so `pip install 'smartpipe-cli[files]'` and friends install
-the same thing instead of erroring.
+There are no optional extras at all - one name installs everything. (If an
+old guide tells you `pip install 'smartpipe-cli[something]'`, pip will warn
+about the unknown extra and install the same complete package anyway.)
 
 Two local models download once on first use and cache on disk: whisper
 (~75 MB) and the local embedder (~130 MB). Every download is announced.

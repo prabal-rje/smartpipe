@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from importlib.util import find_spec
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
@@ -18,9 +19,16 @@ EMBED = "http://localhost:11434/api/embed"
 
 
 @pytest.fixture(autouse=True)
-def local_models(monkeypatch: pytest.MonkeyPatch) -> None:
+def local_models(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("SMARTPIPE_MODEL", "ollama/qwen3:8b")
     monkeypatch.setenv("SMARTPIPE_EMBED_MODEL", "nomic-embed-text")
+    # FULL isolation - without these the test read the developer's real
+    # ~/.config and ambient OPENAI_API_KEY, flipping the audio row to the
+    # whisper-1 auto path (the order-dependent flake seen twice in gates)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path))  # the windows config root (D09)
+    for var in ("OPENAI_API_KEY", "SMARTPIPE_STT_MODEL"):
+        monkeypatch.delenv(var, raising=False)
 
 
 def test_probe_charts_the_matrix(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:

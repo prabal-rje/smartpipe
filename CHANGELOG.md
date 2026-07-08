@@ -5,6 +5,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-07-08
+
+### Fixed
+- **PyPI no longer advertises phantom extras.** 1.3.0 kept the old extra
+  names (`[files]`, `[video]`, …) as empty compat aliases - but nothing was
+  ever published under the old name, so they protected nobody while the
+  PyPI sidebar listed six extras that contradict the everything-in-the-box
+  install story. The optional-dependencies table is gone entirely; pip
+  warns on an unknown extra and installs the complete package regardless.
+  Keywords now carry the multimodal story (pdf, audio, video, embeddings).
+
 ## [1.3.0] — 2026-07-07
 
 Installs from PyPI as **`smartpipe-cli`** (the plain name was too close to
@@ -26,9 +37,9 @@ that degrade per-item with the provider's real reason quoted.
   (PDF/DOCX/PPTX/XLSX/HTML/EPUB), video (bundled static ffmpeg), and chart
   `--save` all ship in the core install now, joining D44's whisper and local
   embeddings. One `pip install smartpipe-cli` is the entire multimodal surface.
-  The old extra names (`[files]`, `[video]`, `[charts]`, `[anthropic]`,
-  `[audio]`, `[all]`) remain as empty aliases so historical commands keep
-  working. `doctor`'s extras row now verifies the bundled components and
+  The old extra names briefly remained as empty aliases (removed for real
+  in 1.3.1 - nothing was ever published under the old name, so they only
+  advertised a false install story). `doctor`'s extras row now verifies the bundled components and
   FAILS on a broken install instead of suggesting installs.
 - **The gemini profile's default chat model is `gemini-3.1-flash-lite` (D45).**
   Verified against the live catalog (GA, not a preview) and through the
