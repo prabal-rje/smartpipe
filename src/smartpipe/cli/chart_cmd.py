@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 
 from smartpipe.core.errors import ExitCode
+from smartpipe.io.tty import stdout_supports_color, terminal_width
 from smartpipe.verbs.chart import ChartRequest, run_chart
 
 __all__ = ["chart_command"]
@@ -52,7 +53,16 @@ def chart_command(
     """
     facets = tuple(name.strip() for name in facet.split(",") if name.strip()) if facet else ()
     code = run_chart(
-        ChartRequest(field=field, top=top, save=save, title=title, facets=facets, by_time=by_time),
+        ChartRequest(
+            field=field,
+            top=top,
+            save=save,
+            title=title,
+            facets=facets,
+            by_time=by_time,
+            color=stdout_supports_color(),  # piped or NO_COLOR stays plain ASCII
+            width=terminal_width(),
+        ),
         stdin=sys.stdin,
         stdout=sys.stdout,
     )

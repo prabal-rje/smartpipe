@@ -1,33 +1,81 @@
-"""Bar-chart rendering for ``smartpipe chart`` — pure, no plotting dependency.
+"""Bar-chart rendering for ``smartpipe chart`` — counts in, pictures out.
 
-Terminal bars from block characters; ``--save`` writes a hand-rolled SVG (text,
-so it costs no dependency and converts to anything). Counts in, pictures out.
+Two terminal voices: piped or NO_COLOR output stays plain ASCII (aligned
+labels, ``#`` bars, exact counts — downstream tools keep parsing it); a real
+color TTY gets plotext canvases, cyan for distributions and green for time
+series. The plotext import stays function-local so startup never pays for it.
 """
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = ["CHARTS_EXTRA_SCREEN", "render_bars", "render_svg", "render_svg_panels"]
+__all__ = [
+    "CHARTS_EXTRA_SCREEN",
+    "render_bars",
+    "render_bars_tty",
+    "render_svg",
+    "render_svg_panels",
+    "render_timeseries_tty",
+]
 
-_BLOCK = "▇"
+_EMPTY = "(nothing to chart)"
+_MARKER = "#"  # piped output is plain ASCII — parseable, greppable
 _BAR_WIDTH = 40  # cells for the longest bar; the rest scale
+# plotext's simple_bar hardcodes counts as `3.00`; strip the fake decimals from
+# the value token at each line's end (labels sit at line start, never matched).
+_SIMPLE_BAR_DECIMALS = re.compile(r"\.00(?=\x1b\[0m\x1b\[0m$)", re.MULTILINE)
+_TIMESERIES_ROWS = 12  # canvas height: frame + bars + tick labels
+_TIMESERIES_TICKS = 6  # at most this many time labels along the x axis
 
 
 def render_bars(counts: Sequence[tuple[str, int]], *, width: int = _BAR_WIDTH) -> str:
-    """Horizontal unicode bars, widest value = ``width`` cells, labels aligned."""
+    """Horizontal ASCII bars, widest value = ``width`` cells, labels aligned."""
     if not counts:
-        return "(nothing to chart)"
+        return _EMPTY
     label_width = max(len(label) for label, _ in counts)
     top = max(count for _, count in counts) or 1
     lines: list[str] = []
     for label, count in counts:
         cells = max(1, round(count / top * width)) if count else 0
-        lines.append(f"{label.ljust(label_width)}  {_BLOCK * cells} {count:,}")
+        lines.append(f"{label.ljust(label_width)}  {_MARKER * cells} {count:,}")
     return "\n".join(lines)
+
+
+def render_bars_tty(counts: Sequence[tuple[str, int]], *, width: int) -> str:
+    """Cyan plotext bars for a color TTY — labels, bars, and exact counts."""
+    if not counts:
+        return _EMPTY
+    import plotext
+
+    plotext.clear_figure()
+    labels = [label for label, _ in counts]
+    values = [count for _, count in counts]
+    plotext.simple_bar(labels, values, width=width, color="cyan")
+    return _SIMPLE_BAR_DECIMALS.sub("", plotext.build().rstrip("\n"))
+
+
+def render_timeseries_tty(rows: Sequence[tuple[str, int]], *, width: int) -> str:
+    """Green vertical plotext bars over time — gaps in the buckets stay visible."""
+    if not rows:
+        return _EMPTY
+    import plotext
+
+    plotext.clear_figure()
+    plotext.theme("clear")
+    values = [count for _, count in rows]
+    plotext.bar(list(range(len(rows))), values, color="green", width=0.6)
+    step = max(1, -(-len(rows) // _TIMESERIES_TICKS))
+    positions = list(range(0, len(rows), step))
+    plotext.xticks(positions, [rows[position][0] for position in positions])
+    top = max(values)
+    plotext.yticks(sorted({0, top // 2, top}))
+    plotext.plot_size(width, _TIMESERIES_ROWS)
+    return plotext.build().rstrip("\n")
 
 
 _ROW_HEIGHT = 28

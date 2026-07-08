@@ -14,11 +14,18 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import ExitCode, UsageFault
-from smartpipe.engine.chart import render_bars, render_svg, render_svg_panels
+from smartpipe.engine.chart import (
+    render_bars,
+    render_bars_tty,
+    render_svg,
+    render_svg_panels,
+    render_timeseries_tty,
+)
 from smartpipe.io import diagnostics
 from smartpipe.io.items import item_from_line
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
     from typing import TextIO
 
@@ -35,6 +42,16 @@ class ChartRequest:
     title: str | None = None
     facets: tuple[str, ...] = ()  # --facet a,b,c: several panels, one pass
     by_time: str | None = None  # --by-time FIELD:BUCKET — chronological bars (D38/13)
+    # Decided once at the CLI edge (stdout TTY + NO_COLOR) and injected, so the
+    # verb stays pure: True draws plotext canvases, False stays plain ASCII.
+    color: bool = False
+    width: int = 80  # terminal columns, for the plotext canvases
+
+
+def _render_ranked(counts: Sequence[tuple[str, int]], request: ChartRequest) -> str:
+    if request.color:
+        return render_bars_tty(counts, width=request.width)
+    return render_bars(counts)
 
 
 class ChartContext(Protocol):
@@ -62,7 +79,7 @@ def run_chart(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCo
             counts[item.text.strip()] += 1
     ranked = counts.most_common(request.top or _DEFAULT_TOP)
     dropped = len(counts) - len(ranked)
-    stdout.write(render_bars(ranked) + "\n")
+    stdout.write(_render_ranked(ranked, request) + "\n")
     if dropped > 0:
         diagnostics.note(f"{dropped} more values below the top {len(ranked)} (--top widens)")
     if request.save is not None:
@@ -96,7 +113,7 @@ def _run_facets(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> Exit
     sections = [
         heading(f"── {facet} {'─' * max(1, rule_width - len(facet) - 4)}")
         + "\n"
-        + render_bars(ranked)
+        + _render_ranked(ranked, request)
         for facet, ranked in panels
     ]
     stdout.write("\n".join(sections) + "\n")
@@ -139,7 +156,10 @@ def _run_by_time(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> Exi
             (bucket_label(float(moment), bucket), counts.get(moment, 0))
             for moment in range(first, last + bucket, bucket)
         ]
-        stdout.write(render_bars(rows) + "\n")
+        rendered = (
+            render_timeseries_tty(rows, width=request.width) if request.color else render_bars(rows)
+        )
+        stdout.write(rendered + "\n")
         if request.save is not None:
             request.save.write_text(
                 render_svg(rows, title=request.title or field), encoding="utf-8"
