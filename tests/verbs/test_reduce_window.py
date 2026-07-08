@@ -161,6 +161,7 @@ async def test_interrupt_on_a_paused_stream_flushes_the_buffered_partial(
                 break
             await asyncio.sleep(0.01)
         assert '"window_end":2' in out.getvalue().replace(" ", "")
+        await asyncio.sleep(0.2)  # let the reader thread buffer 'c' (windows needs the beat)
         stop.set()  # ^C while the (open, quiet) stream has 'c' buffered
         code = await asyncio.wait_for(task, timeout=5)
     finally:

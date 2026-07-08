@@ -36,7 +36,7 @@ def test_map_reads_each_file_as_an_item(
     code, out, _err = run_cli(
         ["map", "First letter", "--in", str(tmp_path / "*.txt"), "--concurrency", "1"]
     )
-    assert code == 0
+    assert code == 0, _err
     assert out == "A\nB\n"  # two files → two items, sorted
 
 
@@ -55,7 +55,7 @@ def test_filter_file_mode_emits_paths(
     code, out, _err = run_cli(
         ["filter", "about security", "--in", str(tmp_path / "*.txt"), "--concurrency", "1"]
     )
-    assert code == 0
+    assert code == 0, _err
     assert out == f"{keep}\n"  # the matching FILENAME, not the document text
 
 
@@ -73,7 +73,7 @@ def test_top_k_file_mode_ranks_filenames(
     code, out, _err = run_cli(
         ["top_k", "1", "--near", "infra engineer", "--in", glob, "--concurrency", "1"]
     )
-    assert code == 0
+    assert code == 0, _err
     assert out.splitlines()[0].startswith(f"{tmp_path / 'close.txt'}\t")
 
 
@@ -86,7 +86,7 @@ def test_from_files_reads_named_files(
         return_value=httpx.Response(200, json={"message": {"content": "ok"}})
     )
     code, out, _err = run_cli(["map", "Summarize", "--from-files"], stdin=f"{doc}\n")
-    assert code == 0
+    assert code == 0, _err
     assert out == "ok\n"
 
 
@@ -112,7 +112,7 @@ def test_map_describes_an_image_via_vision(
         return_value=httpx.Response(200, json={"message": {"content": "a red bicycle"}})
     )
     code, out, _err = run_cli(["map", "Describe", "--in", str(tmp_path / "*.png")])
-    assert code == 0
+    assert code == 0, _err
     assert out == "a red bicycle\n"
     from smartpipe.core.jsontools import as_items, as_record, as_str
     from tests.helpers.wire import sent_json

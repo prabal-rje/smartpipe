@@ -55,7 +55,8 @@ def _tags(*names: str) -> httpx.Response:
 
 
 def _env(tmp_path: Path, **extra: str) -> dict[str, str]:
-    return {"XDG_CONFIG_HOME": str(tmp_path), **extra}
+    # both config roots — XDG everywhere, APPDATA on windows (D09)
+    return {"XDG_CONFIG_HOME": str(tmp_path), "APPDATA": str(tmp_path), **extra}
 
 
 def test_success_suggests_configured_then_ollama(

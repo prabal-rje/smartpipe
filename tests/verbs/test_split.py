@@ -60,7 +60,9 @@ async def test_big_file_becomes_provenance_chunks(
 
     monkeypatch.chdir(tmp_path)
     paragraphs = "\n\n".join(f"paragraph {i} " + "x" * 100 for i in range(20))
-    (tmp_path / "big.md").write_text(paragraphs, encoding="utf-8")
+    (tmp_path / "big.md").write_bytes(
+        paragraphs.encode()
+    )  # exact bytes - write_text CRLFs on windows
     out = io.StringIO()
     code = await run_split(
         SplitRequest(

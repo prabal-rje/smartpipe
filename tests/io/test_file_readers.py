@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import io
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 from smartpipe.core.errors import UsageFault
 from smartpipe.io.inputs import InputSpec
 from smartpipe.io.readers import file_items, resolve_items
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 async def _collect(spec: InputSpec, stdin: str = "") -> list[str]:
@@ -81,7 +78,7 @@ async def test_image_file_becomes_an_image_item(tmp_path: Path) -> None:
     items_iter, _total = resolve_items(spec, io.StringIO(""))  # empty piped stdin leg
     items = [item async for item in items_iter]
     assert len(items) == 2
-    by_name = {item.source.name.rsplit("/", 1)[-1]: item for item in items}
+    by_name = {Path(str(item.source.name)).name: item for item in items}  # portable basename
     photo = by_name["photo.png"]
     assert photo.media  # bytes carried to the vision path
     assert photo.media[0].mime == "image/png"
