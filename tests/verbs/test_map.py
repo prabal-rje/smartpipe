@@ -360,3 +360,77 @@ async def test_terminal_stdin_is_a_usage_fault() -> None:
     model = FakeChat(replies=["x"])
     with pytest.raises(UsageFault, match="terminal"):
         await run_map(_request("x"), FakeContext(model=model), stdin=_Tty(), stdout=io.StringIO())
+
+
+# --- circuit breaker (problems.md #6) --------------------------------------------
+
+
+class DownModel(FakeChat):
+    """Every call dies on the wire — a provider that's down."""
+
+    async def complete(self, request: CompletionRequest) -> str:
+        from smartpipe.core.errors import TransportError
+
+        self.calls.append(request)
+        raise TransportError("openai error 503: overloaded")
+
+
+async def test_five_consecutive_transport_failures_stop_the_run(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from smartpipe.core.errors import SetupFault
+
+    context = FakeContext(model=DownModel(replies=[]), concurrency=1)
+    with pytest.raises(SetupFault, match="ollama looks down — 5 consecutive transport failures"):
+        await run_map(
+            _request("x"),
+            context,
+            stdin=io.StringIO("a\nb\nc\nd\ne\nf\ng\n"),
+            stdout=io.StringIO(),
+        )
+    assert len(context.model.calls) == 5  # stopped early, items f and g never paid
+    assert capsys.readouterr().err.count("skipped:") == 5  # the window was reported
+
+
+async def test_breaker_env_zero_disables(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SMARTPIPE_BREAKER", "0")
+    context = FakeContext(model=DownModel(replies=[]), concurrency=1)
+    out = io.StringIO()
+    # 6 failures, no breaker — but the doomed-run guardrail (TooManyFailures)
+    # is a different rule and would fire at 5 consecutive with zero successes,
+    # so feed a success first to disarm it.
+    model = context.model
+
+    async def sometimes(request: CompletionRequest) -> str:
+        model.calls.append(request)
+        if len(model.calls) == 1:
+            return "ok"
+        from smartpipe.core.errors import TransportError
+
+        raise TransportError("openai error 503: overloaded")
+
+    monkeypatch.setattr(model, "complete", sometimes)
+    code = await run_map(
+        _request("x"), context, stdin=io.StringIO("a\nb\nc\nd\ne\nf\ng\n"), stdout=out
+    )
+    assert code == ExitCode.PARTIAL
+    assert len(model.calls) == 7  # every item attempted; nothing tripped
+
+
+async def test_breaker_env_overrides_the_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
+    from smartpipe.core.errors import SetupFault
+
+    monkeypatch.setenv("SMARTPIPE_BREAKER", "2")
+    context = FakeContext(model=DownModel(replies=[]), concurrency=1)
+    with pytest.raises(SetupFault, match="2 consecutive transport failures"):
+        await run_map(_request("x"), context, stdin=io.StringIO("a\nb\nc\n"), stdout=io.StringIO())
+    assert len(context.model.calls) == 2
+
+
+async def test_breaker_env_junk_is_a_usage_fault(monkeypatch: pytest.MonkeyPatch) -> None:
+    from smartpipe.core.errors import UsageFault
+
+    monkeypatch.setenv("SMARTPIPE_BREAKER", "many")
+    context = FakeContext(model=FakeChat(replies=["ok"]))
+    with pytest.raises(UsageFault, match="SMARTPIPE_BREAKER must be a whole number"):
+        await run_map(_request("x"), context, stdin=io.StringIO("a\n"), stdout=io.StringIO())

@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from smartpipe.config.credentials import OAuthCredential, load_oauth, save_oauth
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, SetupFault, TransportError
 from smartpipe.core.jsontools import as_items, as_record, as_str
 from smartpipe.io import metering
 from smartpipe.models.openai_oauth import refresh_tokens
@@ -75,6 +75,8 @@ class CodexChatModel:
                 from smartpipe.cli import screens
 
                 raise SetupFault(screens.schema_rejected("the ChatGPT wire", detail))
+            if response.status_code >= 500:  # the wire, not the content
+                raise TransportError(f"chatgpt wire error {response.status_code}: {detail}")
             raise ItemError(f"chatgpt wire error {response.status_code}: {detail}")
         text = accumulate_sse(response.text)
         if not text:

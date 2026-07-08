@@ -39,6 +39,7 @@ from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import ItemSource, describe_source, item_from_line
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.verbs.common import (
+    breaker_policy,
     embed_budget,
     embed_in_batches,
     ensure_text,
@@ -192,7 +193,11 @@ async def run_join(
     done = 0
     skipped = 0
     outcomes = run_ordered(
-        items_iter, worker, concurrency=concurrency, failure_policy=FailurePolicy(), stop=stop
+        items_iter,
+        worker,
+        concurrency=concurrency,
+        failure_policy=breaker_policy(chat.ref.provider),
+        stop=stop,
     )
     matched_pairs = 0
     unmatched_count = 0

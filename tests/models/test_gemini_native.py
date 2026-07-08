@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from smartpipe.core.errors import SetupFault
+from smartpipe.core.errors import SetupFault, TransportError
 from smartpipe.core.jsontools import as_items, as_record
 from smartpipe.models.base import (
     CompletionRequest,
@@ -189,3 +189,15 @@ def test_scalar_union_drops_type_but_keeps_shape() -> None:
     # no dialect equivalent for a multi-type union - local validation guards it
     out = to_gemini_schema({"type": ["string", "number", "integer", "boolean"]})
     assert "type" not in out and "nullable" not in out
+
+
+async def test_server_error_after_retries_is_a_transport_skip(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    # 5xx that survives the retries is the wire failing — the breaker counts it
+    route = respx_mock.post(URL).mock(
+        return_value=httpx.Response(503, json={"error": {"message": "overloaded"}})
+    )
+    with pytest.raises(TransportError, match="gemini error 503"):
+        await _model(client).complete(CompletionRequest(system=None, user="x"))
+    assert route.call_count == 2  # FAST retries exhausted first

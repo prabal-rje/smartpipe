@@ -23,7 +23,7 @@ from smartpipe.engine.prompts import (
     plan_map,
     to_instruction,
 )
-from smartpipe.engine.runner import Done, FailurePolicy, run_ordered
+from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import load_schema, validate_and_coerce
 from smartpipe.io import diagnostics, readers
 from smartpipe.io.inputs import STDIN
@@ -32,6 +32,7 @@ from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.models.base import AudioData, VideoData
 from smartpipe.verbs.common import (
     WindowGate,
+    breaker_policy,
     interrupted_exit_code,
     outcome_exit_code,
     resolve_schema,
@@ -164,7 +165,7 @@ async def run_map(
         items_iter,
         worker,
         concurrency=concurrency,
-        failure_policy=FailurePolicy(),
+        failure_policy=breaker_policy(model.ref.provider),
         stop=stop,
     )
     try:

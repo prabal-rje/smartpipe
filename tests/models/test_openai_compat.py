@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, SetupFault, TransportError
 from smartpipe.models.base import CompletionRequest, parse_model_ref
 from smartpipe.models.openai_compat import (
     MISTRAL_WIRE,
@@ -148,7 +148,7 @@ async def test_server_error_exhausts_retries_then_skips_item(
     route = respx_mock.post(f"{BASE}/v1/chat/completions").mock(
         return_value=httpx.Response(500, json={"error": {"message": "boom"}})
     )
-    with pytest.raises(ItemError, match="openai error 500: boom"):
+    with pytest.raises(TransportError, match="openai error 500: boom"):
         await _chat(client).complete(CompletionRequest(system=None, user="x"))
     assert route.call_count == 3
 
@@ -167,14 +167,15 @@ async def test_connect_timeout_retries_then_maps_to_unreachable_screen(
     assert route.call_count == 3  # retried before giving up
 
 
-async def test_read_timeout_after_retries_is_an_item_skip(
+async def test_read_timeout_after_retries_is_a_transport_skip(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:
-    # a slow response (endpoint reachable) is a per-item problem, not setup.
+    # a slow response (endpoint reachable) is a per-item problem, not setup —
+    # and a TransportError, so the circuit breaker can count it.
     route = respx_mock.post(f"{BASE}/v1/chat/completions").mock(
         side_effect=httpx.ReadTimeout("slow")
     )
-    with pytest.raises(ItemError, match="failed"):
+    with pytest.raises(TransportError, match="failed"):
         await _chat(client).complete(CompletionRequest(system=None, user="x"))
     assert route.call_count == 3
 

@@ -13,6 +13,7 @@ __all__ = [
     "SempipeError",
     "SetupFault",
     "TooManyFailures",
+    "TransportError",
     "UsageFault",
 ]
 
@@ -45,6 +46,13 @@ class SetupFault(SempipeError):
 
 class ItemError(SempipeError):
     """One item failed; the runner turns this into a skip-and-warn, never a crash."""
+
+
+class TransportError(ItemError):
+    """The wire failed, not the content: connect errors, timeouts, and 5xx that
+    survived the retries. Still a per-item skip — but the runner's circuit
+    breaker counts consecutive ones, because a dead provider fails every item
+    identically and each failure costs a full retry ladder."""
 
 
 class TooManyFailures(SempipeError):

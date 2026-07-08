@@ -32,6 +32,7 @@ __all__ = [
     "IMAGE_NEEDS_MAP",
     "WindowGate",
     "batched",
+    "breaker_policy",
     "embed_budget",
     "embed_in_batches",
     "ensure_text",
@@ -45,6 +46,30 @@ __all__ = [
 T = TypeVar("T")
 
 EMBED_BATCH_SIZE = 64  # texts per embed call on finite corpora (plan/post-1.0/06)
+
+
+_DEFAULT_BREAKER_LIMIT = 5  # consecutive transport failures before "provider looks down"
+
+
+def breaker_policy(provider: str) -> FailurePolicy:
+    """The chat verbs' failure policy, circuit breaker armed (problems.md #6):
+    SMARTPIPE_BREAKER sets the consecutive-transport-failure threshold
+    (default 5, 0 disables), and the provider-down screen is rendered here so
+    the pure runner only ever raises it."""
+    import os
+
+    from smartpipe.cli import screens
+
+    raw = os.environ.get("SMARTPIPE_BREAKER", "").strip()
+    if not raw:
+        limit = _DEFAULT_BREAKER_LIMIT
+    elif raw.isdigit():
+        limit = int(raw)
+    else:
+        raise UsageFault(f"SMARTPIPE_BREAKER must be a whole number >= 0, got {raw!r}")
+    return FailurePolicy(
+        transport_limit=limit, transport_screen=screens.provider_down(provider, limit)
+    )
 
 
 def outcome_exit_code(*, done: int, skipped: int) -> ExitCode:

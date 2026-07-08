@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from smartpipe.cli import screens
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, SetupFault, TransportError
 from smartpipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
 from smartpipe.io import metering
 from smartpipe.models.base import AudioData, ImageData, VideoData
@@ -176,9 +176,12 @@ async def _post(
         )
     except httpx.HTTPStatusError as exc:
         detail = _error_detail(exc.response)
-        raise ItemError(f"ollama error {exc.response.status_code}: {detail}") from exc
-    except httpx.HTTPError as exc:
-        raise ItemError(f"ollama request failed: {exc}") from exc
+        status = exc.response.status_code
+        if status >= 500:  # the wire, not the content — the breaker counts these
+            raise TransportError(f"ollama error {status}: {detail}") from exc
+        raise ItemError(f"ollama error {status}: {detail}") from exc
+    except httpx.HTTPError as exc:  # read/write timeouts, protocol errors — transport
+        raise TransportError(f"ollama request failed: {exc}") from exc
 
 
 def _error_detail(response: httpx.Response) -> str:

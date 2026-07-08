@@ -218,6 +218,18 @@ def schema_rejected(host: str, detail: str) -> str:
     )
 
 
+def provider_down(provider: str, failures: int) -> str:
+    """The circuit breaker screen (problems.md #6): consecutive wire-level
+    failures mean the provider is down — stop paying a retry ladder per item."""
+    return (
+        f"error: {provider} looks down — {failures} consecutive transport failures\n"
+        "  Every recent call died on the wire (timeouts, connection errors, 5xx),\n"
+        "  so smartpipe stopped early instead of failing the rest one by one.\n"
+        "  Work already done is safe — rerunning is cheap (cached answers are free).\n"
+        "  Try again in a minute, or pick another model: --model …"
+    )
+
+
 def missing_anthropic_extra(model: str) -> str:
     return (
         f"error: the SDK for '{model}' is unavailable\n"

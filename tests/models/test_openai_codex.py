@@ -11,7 +11,7 @@ import pytest
 import respx
 
 from smartpipe.config.credentials import OAuthCredential, load_oauth, save_oauth
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, SetupFault, TransportError
 from smartpipe.models.base import CompletionRequest, ImageData, ModelRef
 from smartpipe.models.http_support import make_client
 from smartpipe.models.openai_codex import (
@@ -206,6 +206,16 @@ async def test_other_statuses_skip_the_item(
     respx_mock.post(CODEX_ENDPOINT).mock(return_value=httpx.Response(429, text="slow down"))
     model = _model(client, tmp_path / "auth.json")
     with pytest.raises(ItemError, match="429"):
+        await model.complete(CompletionRequest(system=None, user="hi"))
+
+
+async def test_server_errors_are_transport_skips(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    # 5xx is the wire failing, not the content — the circuit breaker counts it
+    respx_mock.post(CODEX_ENDPOINT).mock(return_value=httpx.Response(502, text="bad gateway"))
+    model = _model(client, tmp_path / "auth.json")
+    with pytest.raises(TransportError, match="502"):
         await model.complete(CompletionRequest(system=None, user="hi"))
 
 

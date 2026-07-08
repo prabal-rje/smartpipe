@@ -8,7 +8,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from smartpipe.core.errors import ItemError, TooManyFailures
+from smartpipe.core.errors import ItemError, SetupFault, TooManyFailures, TransportError
 from smartpipe.engine.runner import (
     Done,
     FailurePolicy,
@@ -296,3 +296,80 @@ async def test_one_success_disarms_the_consecutive_rule_forever() -> None:
         )
     ]
     assert len(outcomes) == 12  # ran to completion; only the ratio policy applies now
+
+
+# --- circuit breaker (problems.md #6): consecutive transport failures ----------
+
+BREAKER_SCREEN = "error: fake looks down — 3 consecutive transport failures"
+
+
+def _breaker_policy(limit: int = 3) -> FailurePolicy:
+    return FailurePolicy(
+        halt_ratio=1.0,
+        min_sample=10**9,
+        consecutive_limit=10**9,
+        transport_limit=limit,
+        transport_screen=BREAKER_SCREEN,
+    )
+
+
+def _scripted_worker(script: str) -> Callable[[Item], Awaitable[object]]:
+    """'t' = TransportError, 'c' = content ItemError, '.' = success, per index."""
+
+    async def worker(item: Item) -> str:
+        match script[item.source.index]:
+            case "t":
+                raise TransportError("connect timeout after retries")
+            case "c":
+                raise ItemError("model returned invalid JSON after retry")
+            case _:
+                return item.text
+
+    return worker
+
+
+async def test_breaker_trips_on_consecutive_transport_failures() -> None:
+    items = [_item(i) for i in range(6)]
+    with pytest.raises(SetupFault, match="looks down"):
+        await _collect(items, _scripted_worker("tttttt"), concurrency=1, policy=_breaker_policy())
+
+
+async def test_breaker_yields_the_window_skips_before_dying() -> None:
+    items = [_item(i) for i in range(6)]
+    seen: list[ItemOutcome[object]] = []
+    with pytest.raises(SetupFault):
+        async for outcome in run_ordered(
+            _stream(items),
+            _scripted_worker("tttttt"),
+            concurrency=1,
+            failure_policy=_breaker_policy(),
+        ):
+            seen.append(outcome)
+    assert len(seen) == 3  # the window's skips were reported, then the screen
+    assert all(isinstance(outcome, Skipped) for outcome in seen)
+
+
+async def test_a_success_resets_the_transport_streak() -> None:
+    # 2 transport failures, a success, 2 more — never 3 consecutive
+    items = [_item(i) for i in range(6)]
+    outcomes = await _collect(
+        items, _scripted_worker("tt.tt."), concurrency=1, policy=_breaker_policy()
+    )
+    assert len(outcomes) == 6
+
+
+async def test_a_content_failure_resets_the_transport_streak() -> None:
+    # a validation failure proves the provider answered — the wire is up
+    items = [_item(i) for i in range(6)]
+    outcomes = await _collect(
+        items, _scripted_worker("ttcttc"), concurrency=1, policy=_breaker_policy()
+    )
+    assert len(outcomes) == 6
+
+
+async def test_breaker_zero_disables() -> None:
+    items = [_item(i) for i in range(8)]
+    outcomes = await _collect(
+        items, _scripted_worker("tttttttt"), concurrency=1, policy=_breaker_policy(limit=0)
+    )
+    assert len(outcomes) == 8  # unlimited transport failures, no breaker

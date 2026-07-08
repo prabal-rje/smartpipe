@@ -25,7 +25,7 @@ from smartpipe.engine.prompts import (
     parse_prompt,
     reject_comma_groups,
 )
-from smartpipe.engine.runner import Done, FailurePolicy, run_ordered
+from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import validate_and_coerce
 from smartpipe.io import diagnostics, readers
 from smartpipe.io.inputs import STDIN
@@ -34,6 +34,7 @@ from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.io.writers import OutputFormat
 from smartpipe.verbs.common import (
     WindowGate,
+    breaker_policy,
     ensure_text,
     interrupted_exit_code,
     outcome_exit_code,
@@ -136,7 +137,7 @@ async def run_filter(
         items_iter,
         worker,
         concurrency=concurrency,
-        failure_policy=FailurePolicy(),
+        failure_policy=breaker_policy(model.ref.provider),
         stop=stop,
     )
     try:
