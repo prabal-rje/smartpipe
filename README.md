@@ -67,9 +67,9 @@ into ordinary Unix tools. Every verb is documented at
 | [`filter`][filter] | keep items matching a plain-English condition | `grep`, but semantic |
 | [`embed`][embed] / [`top_k`][top_k] | vectors; rank by similarity | `sort \| head`, by meaning |
 | [`reduce`][reduce] | synthesize many items into one | `awk` END, but literate |
-| [`join`][join] | match two inputs (`--kind inner\|leftouter\|anti`) | SQL join, but semantic |
+| [`join`][join] | match two inputs (`--kind inner\|leftouter\|anti`); `--on` alone is free | SQL join, but semantic |
 | [`cluster`][cluster] | group by meaning, label each group | themes with sizes and quotes |
-| [`distinct`][distinct] | fold near-duplicates | `sort -u`, by meaning |
+| [`distinct`][distinct] | fold near-duplicates; `--exact` is free | `sort -u`, by meaning |
 | [`diff`][diff] | what distinguishes two sets | the post-incident answer |
 | [`outliers`][outliers] | the items least like the rest | novelty, surfaced |
 
@@ -85,6 +85,11 @@ paid stage:
 | [`getschema`][getschema] | list fields, types, and coverage | `head`, for structure |
 | [`split`][split] | break items into pieces (pages, minutes) | `split` |
 | [`chart`][cli] | terminal bars, SVG, facets, time series | quick plots |
+
+Some semantic verbs have a **conditionally free mode**: `join --on` (key
+equality, no prompt), `distinct --exact` (hash-only folding), `map`/`extend`
+`--dry-run` (compose without sending), and `smartpipe schema` with a
+braces/DSL expression. Each stays at zero model calls by construction.
 
 ## A one-minute tour
 

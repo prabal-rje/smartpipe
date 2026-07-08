@@ -35,7 +35,7 @@ and writes `stdout`, so verbs pipe into each other and into ordinary Unix tools.
 | [`reduce`](verbs/reduce.md) | synthesize many items into one | `awk` END, but literate |
 | [`join`](verbs/join.md) | match two inputs semantically | SQL join, but semantic |
 | [`cluster`](verbs/cluster.md) | group by meaning, label each group | themes with sizes and quotes |
-| [`distinct`](verbs/distinct.md) | fold near-duplicates | `sort -u`, by meaning |
+| [`distinct`](verbs/distinct.md) | fold near-duplicates; `--exact` is free | `sort -u`, by meaning |
 | [`diff`](verbs/diff.md) | what distinguishes two sets | the post-incident answer |
 | [`outliers`](verbs/outliers.md) | the items least like the rest | novelty, surfaced |
 
@@ -51,6 +51,11 @@ paid stage:
 | [`getschema`](verbs/getschema.md) | list fields, types, and coverage | `head`, for structure |
 | [`split`](verbs/split.md) | break items into pieces (pages, minutes) | `split` |
 | [`chart`](reference/cli.md) | terminal bars, SVG, facets, time series | quick plots |
+
+Some semantic verbs have a **conditionally free mode**: `join --on` (key
+equality, no prompt), `distinct --exact` (hash-only folding), `map`/`extend`
+`--dry-run` (compose without sending), and `smartpipe schema` with a
+braces/DSL expression. Each stays at zero model calls by construction.
 
 ## Concepts
 
