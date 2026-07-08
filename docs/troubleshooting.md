@@ -198,6 +198,36 @@ The chat model you're using has no vision. Pick one that does:
 That's a smartpipe bug, not your fault. The screen tells you how to report it; re-run
 with `SMARTPIPE_DEBUG=1` for a traceback to include.
 
+## Installing tab completion by hand
+
+The `smartpipe config` wizard offers to install completions for `zsh` and
+`bash`; if you declined, use a different shell, or manage your rc files
+yourself, it's one line per shell. Completions cover verbs and flags - and
+`--model` / `--embed-model` suggest your configured model plus whatever
+Ollama has installed (if Ollama doesn't answer within 150 ms, you just get
+no suggestions).
+
+**zsh** - add to `~/.zshrc`:
+
+```bash
+eval "$(_SMARTPIPE_COMPLETE=zsh_source smartpipe)"
+```
+
+**bash** (4.4+) - add to `~/.bashrc`:
+
+```bash
+eval "$(_SMARTPIPE_COMPLETE=bash_source smartpipe)"
+```
+
+**fish** - write it once to your completions directory:
+
+```bash
+_SMARTPIPE_COMPLETE=fish_source smartpipe > ~/.config/fish/completions/smartpipe.fish
+```
+
+For a faster shell startup, redirect the script to a file and `source` it
+instead of `eval`-ing on every new shell.
+
 ## See also
 
 - [CLI reference](reference/cli.md) - every flag and exit code

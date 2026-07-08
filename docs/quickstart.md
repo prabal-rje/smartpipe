@@ -22,7 +22,7 @@ that does the thinking). Let's get both.
 pip install smartpipe-cli
 ```
 
-(Details and alternatives - `pipx`, `uv` - are in [install.md](install.md).)
+Prefer an isolated install? The [install guide](install.md) covers `pipx` and `uv`.
 
 ## 2. Get a model
 

@@ -16,19 +16,19 @@ smartpipe --version
 # → smartpipe 1.1.0
 ```
 
-## Recommended: pipx
+## Recommended: `pipx`
 
 If you want smartpipe available everywhere without adding it to any project's
-dependencies, use [pipx](https://pipx.pypa.io) - it installs command-line tools
+dependencies, use [`pipx`](https://pipx.pypa.io) - it installs command-line tools
 into isolated environments:
 
 ```bash
 pipx install smartpipe-cli
 ```
 
-## With uv
+## With `uv`
 
-If you use [uv](https://docs.astral.sh/uv):
+If you use [`uv`](https://docs.astral.sh/uv):
 
 ```bash
 uv tool install smartpipe-cli   # like pipx
@@ -36,9 +36,7 @@ uv tool install smartpipe-cli   # like pipx
 uv add smartpipe-cli
 ```
 
-> **Name note:** the PyPI *distribution* is `smartpipe-cli` (the plain name
-> was too close to an existing project). Everything you actually type stays
-> `smartpipe` - the command, `import smartpipe`, the config paths, all of it.
+PyPI package: `smartpipe-cli`. The command you type is `smartpipe`.
 
 ## Everything ships in the box
 
@@ -46,7 +44,7 @@ One install gives you everything smartpipe supports - documents (PDF, DOCX,
 PPTX, XLSX, HTML, EPUB), video (a static `ffmpeg` is bundled), charts with
 `--save`, Claude models, local Whisper transcription, and local embeddings.
 There are no optional extras at all - one name installs everything. (If an
-old guide tells you `pip install 'smartpipe-cli[something]'`, pip will warn
+old guide tells you `pip install 'smartpipe-cli[something]'`, `pip` will warn
 about the unknown extra and install the same complete package anyway.)
 
 Two local models download once on first use and cache on disk: `whisper`
@@ -60,30 +58,8 @@ to Ollama's `nomic` model. Python 3.11-3.13 has the complete box today.
 
 ## Tab completion
 
-One line per shell. Completions cover verbs and flags - and `--model` /
-`--embed-model` suggest your configured model plus whatever Ollama has installed
-(if Ollama doesn't answer within 150 ms, you just get no suggestions).
-
-**zsh** - add to `~/.zshrc`:
-
-```bash
-eval "$(_SMARTPIPE_COMPLETE=zsh_source smartpipe)"
-```
-
-**bash** (4.4+) - add to `~/.bashrc`:
-
-```bash
-eval "$(_SMARTPIPE_COMPLETE=bash_source smartpipe)"
-```
-
-**fish** - write it once to your completions directory:
-
-```bash
-_SMARTPIPE_COMPLETE=fish_source smartpipe > ~/.config/fish/completions/smartpipe.fish
-```
-
-(For a faster shell startup, redirect the script to a file and `source` it
-instead of `eval`-ing on every new shell.)
+The `smartpipe config` wizard offers to set this up for you; the manual
+per-shell lines live in [troubleshooting](troubleshooting.md#installing-tab-completion-by-hand).
 
 ## Next
 
