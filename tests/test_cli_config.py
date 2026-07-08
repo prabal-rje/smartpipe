@@ -43,6 +43,21 @@ def test_set_model_preserves_other_fields(run_cli: RunCli, config_home: Path) ->
     assert config.embed_model == "ollama/nomic-embed-text"
 
 
+def test_media_previews_off_persists_the_kill_switch(run_cli: RunCli, config_home: Path) -> None:
+    code, out, _err = run_cli(["config", "media-previews", "off"])
+    assert code == 0
+    assert "media-previews off" in out
+    assert load_config(config_home).media_previews is False
+
+
+def test_media_previews_on_turns_it_back(run_cli: RunCli, config_home: Path) -> None:
+    run_cli(["config", "media-previews", "off"])
+    code, out, _err = run_cli(["config", "media-previews", "on"])
+    assert code == 0
+    assert "media-previews on" in out
+    assert load_config(config_home).media_previews is True
+
+
 def test_set_bad_model_is_a_usage_error(run_cli: RunCli, config_home: Path) -> None:
     code, _out, err = run_cli(["config", "model", "   "])
     assert code == 64

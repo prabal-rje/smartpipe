@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from collections.abc import Mapping
 
 import pytest
 
@@ -171,6 +172,74 @@ def test_human_writer_plain_text_is_unstyled() -> None:
     stream, writer = _writer(RenderMode.HUMAN, color=True)
     writer.write_text("result line")
     assert stream.getvalue() == "result line\n"
+
+
+# --- media previews: the injected hook (item: terminal media previews) -----------
+
+
+_MEDIA_ROW: dict[str, object] = {
+    "result": "a chart",
+    "__media": {"kind": "image", "mime": "image/png", "data_b64": "A" * 64},
+    "__source": {"path": "deck.pptx", "as": "file"},
+}
+
+
+def test_human_writer_renders_preview_lines_under_the_media_summary() -> None:
+    seen: list[Mapping[str, object]] = []
+
+    def fake_preview(record: Mapping[str, object]) -> list[str]:
+        seen.append(record)
+        return ["  [thumbnail]"]
+
+    stream = io.StringIO()
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.HUMAN, color=False, width=80, media_lines=fake_preview),
+        stream,
+    )
+    writer.write_record(_MEDIA_ROW)
+    lines = stream.getvalue().splitlines()
+    media_at = next(index for index, line in enumerate(lines) if line.startswith("__media:"))
+    assert lines[media_at + 1] == "  [thumbnail]"  # directly under the summary line
+    assert lines[media_at + 2].startswith("__source:")  # the spine continues below
+    assert seen == [_MEDIA_ROW]  # the hook sees the whole record (it needs __source)
+
+
+def test_preview_hook_is_never_called_without_media() -> None:
+    def explode(record: Mapping[str, object]) -> list[str]:
+        raise AssertionError("no __media, no preview call")
+
+    stream = io.StringIO()
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.HUMAN, color=False, width=80, media_lines=explode), stream
+    )
+    writer.write_record({"result": "plain"})
+    assert stream.getvalue() == "result: plain\n\n"
+
+
+def test_ndjson_pipes_stay_byte_identical_with_the_hook_wired() -> None:
+    # stdout is sacred: piped record output never grows preview bytes
+    def explode(record: Mapping[str, object]) -> list[str]:
+        raise AssertionError("NDJSON must never render previews")
+
+    stream = io.StringIO()
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, media_lines=explode), stream
+    )
+    writer.write_record(_MEDIA_ROW)
+    assert stream.getvalue() == (
+        '{"result":"a chart",'
+        '"__media":{"kind":"image","mime":"image/png","data_b64":"' + "A" * 64 + '"},'
+        '"__source":{"path":"deck.pptx","as":"file"}}\n'
+    )
+
+
+def test_human_writer_without_a_hook_is_byte_identical_to_today() -> None:
+    # NO_COLOR / kill-switch path: media_lines stays None and nothing changes
+    stream, writer = _writer(RenderMode.HUMAN)
+    writer.write_record(_MEDIA_ROW)
+    assert stream.getvalue() == (
+        "result: a chart\n__media: image/png (48 B)\n__source:\n  path: deck.pptx\n  as: file\n\n"
+    )
 
 
 # --- --keep-invalid rows --------------------------------------------------------

@@ -26,7 +26,13 @@ from smartpipe.config.store import Config, load_config
 from smartpipe.core.errors import SetupFault, UsageFault
 from smartpipe.io import diagnostics, tty
 from smartpipe.io.tty import ColorMode
-from smartpipe.io.writers import OutputFormat, WriterConfig, make_writer, resolve_format
+from smartpipe.io.writers import (
+    OutputFormat,
+    RenderMode,
+    WriterConfig,
+    make_writer,
+    resolve_format,
+)
 from smartpipe.models.anthropic_adapter import build_anthropic_chat_model
 from smartpipe.models.base import ModelRef, parse_model_ref
 from smartpipe.models.budget import CallBudget, budgeted_chat, budgeted_embed
@@ -212,13 +218,25 @@ class AppContainer:
             structured=structured,
             fields=fields,
         )
+        color = tty.stdout_supports_color(self.color_mode)
+        width = tty.terminal_width()
+        media_lines = None
+        if mode is RenderMode.HUMAN:  # previews exist only where the block preview does
+            from smartpipe.io.preview import maybe_preview
+
+            media_lines = maybe_preview(
+                enabled=self.config.media_previews is not False,  # unset = on
+                color=color,
+                width=width,
+            )
         config = WriterConfig(
             mode=mode,
-            color=tty.stdout_supports_color(self.color_mode),
-            width=tty.terminal_width(),
+            color=color,
+            width=width,
             fields=fields,
             bare=bare,
             full=full,
+            media_lines=media_lines,
         )
         return make_writer(config, stdout)
 

@@ -54,6 +54,7 @@ class Config:
     cache_days: int | None = None  # sweep TTL (D39/02); default 30
     cache_max_mb: int | None = None  # LRU size cap (D39/02); default 500
     update_check: bool | None = None  # daily PyPI release check + notice; default on
+    media_previews: bool | None = None  # TTY media previews kill switch; unset = on
 
 
 _EMPTY_PROFILE: Mapping[str, object] = {}
@@ -103,6 +104,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Config:
         cache_days=_positive_int(merged, "cache-days", path),
         cache_max_mb=_positive_int(merged, "cache-max-mb", path),
         update_check=_boolean(merged, "update-check", path),
+        media_previews=_boolean(merged, "media-previews", path),
     )
 
 
@@ -179,6 +181,7 @@ def save_config(path: Path, config: Config) -> None:
         "cache-days": config.cache_days,
         "cache-max-mb": config.cache_max_mb,
         "update-check": config.update_check,
+        "media-previews": config.media_previews,
     }
     for key, value in ours.items():
         if value is None:

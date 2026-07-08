@@ -23,7 +23,7 @@ to `stderr`.
 |---|---|---|
 | [`map`](../verbs/map.md) | transform each item with a prompt | one item in, one out |
 | `write` | route items to files (the egress door; `TEMPLATE` with `{name}` `{stem}` `{ext}` `{path}` `{index}` + record fields; `--field`, `--keep-meta`, `--as file\|lines`) | free |
-| `readable` | render records as blocks for eyes (`--full`, `--bare`) | free |
+| [`readable`](../verbs/readable.md) | render records as blocks for eyes (`--full`, `--bare`); media previews at a color terminal | free |
 | [`filter`](../verbs/filter.md) | keep items matching a condition | semantic grep |
 | [`embed`](../verbs/embed.md) | items → vectors (JSONL) | plumbing for `top_k` |
 | [`top_k`](../verbs/top-k.md) | rank by similarity to a query | `sort \| head`, by meaning |
@@ -101,6 +101,8 @@ smartpipe config                     # interactive first-run setup
 smartpipe config show                # effective settings + where each comes from
 smartpipe config model MODEL         # set the default chat model
 smartpipe config embed-model MODEL   # set the default embedding model
+smartpipe config media-previews off  # terminal media previews (thumbnails,
+                                     # waveforms, play links) - default on
 ```
 
 API keys are **never** stored - they're read from the environment.

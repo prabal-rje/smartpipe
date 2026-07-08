@@ -60,6 +60,7 @@ nav:
           - sample: verbs/sample.md
           - getschema: verbs/getschema.md
           - split: verbs/split.md
+          - readable: verbs/readable.md
   - Concepts:
       - The item: concepts/the-item.md
       - Feeding smartpipe: concepts/feeding-smartpipe.md

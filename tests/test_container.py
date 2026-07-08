@@ -152,6 +152,68 @@ def test_writer_respects_explicit_text(client: httpx.AsyncClient) -> None:
     assert stream.getvalue() == "hola\n"
 
 
+# --- media previews wire through the writer factory (TTY + color only) ----------
+
+
+def _media_row() -> dict[str, object]:
+    import base64
+
+    from tests.io.test_preview import TINY_PNG
+
+    return {
+        "result": "a chart",
+        "__media": {
+            "kind": "image",
+            "mime": "image/png",
+            "data_b64": base64.b64encode(TINY_PNG).decode(),
+        },
+    }
+
+
+def _human_writer_output(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, config: Config
+) -> str:
+    from smartpipe.container import ColorMode
+    from smartpipe.io import tty
+
+    monkeypatch.setattr(tty, "stdout_is_tty", lambda: True)  # AUTO + structured → HUMAN
+    stream = io.StringIO()
+    container = _container(client, config=config)
+    container = AppContainer(
+        env=container.env,
+        config=container.config,
+        http_client=client,
+        retry=FAST,
+        color_mode=ColorMode.ALWAYS,  # color without faking the whole environment
+    )
+    container.writer(OutputFormat.AUTO, structured=True, stdout=stream).write_record(_media_row())
+    return stream.getvalue()
+
+
+def test_writer_previews_render_at_a_color_tty(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = _human_writer_output(client, monkeypatch, Config())
+    assert "█" in out  # the thumbnail rendered under the summary line
+
+
+def test_writer_previews_honor_the_kill_switch(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = _human_writer_output(client, monkeypatch, Config(media_previews=False))
+    assert "█" not in out
+    assert len([line for line in out.splitlines() if line]) == 2  # result + summary, nothing else
+
+
+def test_writer_previews_never_reach_a_pipe(client: httpx.AsyncClient) -> None:
+    stream = io.StringIO()  # not a TTY → NDJSON, whatever the config says
+    writer = _container(client).writer(OutputFormat.AUTO, structured=True, stdout=stream)
+    writer.write_record(_media_row())
+    first_line = stream.getvalue().splitlines()[0]
+    assert first_line.startswith('{"result":"a chart",')
+    assert "█" not in stream.getvalue()
+
+
 # --- lifecycle ----------------------------------------------------------------
 
 

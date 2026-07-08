@@ -24,6 +24,7 @@ __all__ = [
     "item_from_file",
     "item_from_line",
     "item_record",
+    "media_parts",
     "media_record",
     "source_record",
 ]
@@ -202,6 +203,13 @@ def _one_media(data: Mapping[str, object] | None) -> MediaData | None:
         return build(base64.b64decode(encoded, validate=True), mime)
     except (binascii.Error, ValueError):
         return None  # not ours — treat as a plain JSON line
+
+
+def media_parts(record: Mapping[str, object]) -> tuple[MediaData, ...]:
+    """The decoded ``__media`` parts of a record — the reading half of the
+    spine transport (``media_record`` writes it). Empty when the record
+    carries none, or when the payload isn't ours."""
+    return _sniff_media(record)
 
 
 def media_record(part: MediaData) -> dict[str, object]:

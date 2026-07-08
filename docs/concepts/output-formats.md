@@ -15,6 +15,31 @@ With no `--output` flag, smartpipe looks at whether `stdout` is a terminal:
 So `smartpipe map "Extract {name, role}"` shows you a tidy view on screen, but the
 moment you pipe it into `jq` or a file, it becomes clean JSONL - no flags needed.
 
+### Media previews at the terminal
+
+In the terminal view (and in [`readable`](../verbs/readable.md)), an item
+carrying media gets more than its `image/png (48 KB)` summary line - the first
+media part renders right under it:
+
+- **Images** show a small color thumbnail (aspect preserved, about 40x12
+  cells).
+- **Video** shows a 3-frame strip sampled at 10%/50%/90% of the duration -
+  never the first frame, which is usually a black or logo intro.
+- **Audio** shows a waveform envelope (long files decode at most the first
+  10 minutes).
+- **Audio and video with a real file behind them** add a
+  `▶ play (0:42, 2.1 MB)` line - an OSC 8 hyperlink to the `file://` URL, so
+  a click opens your system player. Media that exists only as pipe bytes
+  still gets its picture, just no link.
+
+Previews exist only where the human view does: pipes, `--output json`,
+`NO_COLOR`, and `TERM=dumb` output stay byte-for-byte what they were. The
+persisted kill switch:
+
+```bash
+smartpipe config media-previews off   # back to summary lines only
+```
+
 ## Explicit formats
 
 | `--output` | What you get |
