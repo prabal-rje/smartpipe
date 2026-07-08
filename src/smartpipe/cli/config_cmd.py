@@ -1,9 +1,12 @@
-"""The ``config`` verb: show settings, set a model, or run interactive setup.
+"""The ``config`` verb: show settings, set values, or run the provider-first picker.
 
-The interactive flow (``run_interactive_setup``) takes its I/O as injected
-callables (ask/confirm/say/save) so it is unit-testable without a real terminal
-— the click wiring supplies the real prompts. This is the first-class-function
-DI the design template favors.
+Bare ``smartpipe config`` is an opencode-style three-phase picker: detect what's
+connected (env keys, ChatGPT login, a local Ollama), fetch the chosen provider's
+live catalog (cached for a day; failures degrade to typed input), then pick —
+arrow keys on a real terminal, the numbered/typed prompt everywhere else.
+All I/O arrives as injected callables (choose/ask/confirm/say/save) so the whole
+flow is unit-testable without a terminal — the click wiring supplies the real
+prompts. This is the first-class-function DI the design template favors.
 """
 
 from __future__ import annotations
@@ -21,13 +24,15 @@ from smartpipe.config.paths import config_path, human_path
 from smartpipe.config.store import Config, load_config, save_config
 from smartpipe.core.errors import SetupFault
 from smartpipe.io import diagnostics
-from smartpipe.models.base import parse_model_ref
+from smartpipe.models.base import ModelRef, parse_model_ref
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
     from pathlib import Path
 
-__all__ = ["config_command", "offer_shell_completions", "run_interactive_setup"]
+    from smartpipe.config.picker import ProbeChip, ProviderStatus
+
+__all__ = ["config_command", "offer_shell_completions", "run_provider_picker"]
 
 _TRY_IT = 'echo "hello world" | smartpipe map "translate to Spanish"'
 _NON_TTY = (
@@ -36,6 +41,18 @@ _NON_TTY = (
     "    smartpipe config model ollama/qwen3:8b        (local, free)\n"
     "    smartpipe config model gpt-5.4-mini            (cloud)"
 )
+_NOT_SAVED = "\n  Not saved. Set a model any time with: smartpipe config model <name>"
+_TYPE_IT = "type a model name instead…"
+
+# provider → (example ref, aside) — the typed-input path's paste bait
+_EXAMPLES: dict[str, tuple[str, str]] = {
+    "ollama": ("ollama/qwen3:8b", "local; bare ollama tag names work too"),
+    "openai": ("openai/gpt-5.4-mini", "needs OPENAI_API_KEY or ChatGPT login"),
+    "gemini": ("gemini/gemini-3.1-flash-lite", "Google - needs GEMINI_API_KEY"),
+    "anthropic": ("anthropic/claude-opus-4-8", "needs ANTHROPIC_API_KEY"),
+    "mistral": ("mistral/mistral-small-latest", "needs MISTRAL_API_KEY"),
+    "openrouter": ("openrouter/anthropic/claude-sonnet-5", "needs OPENROUTER_API_KEY"),
+}
 
 
 @click.group(name="config", invoke_without_command=True)
@@ -48,7 +65,7 @@ def config_command(ctx: click.Context) -> None:
 
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise SetupFault(_NON_TTY)
-    asyncio.run(_interactive_entry())
+    asyncio.run(_picker_entry())
 
 
 @config_command.command(name="profile")
@@ -170,125 +187,310 @@ def _update(change: Callable[[Config], Config]) -> None:
     save_config(path, change(load_config(path)))
 
 
-async def _interactive_entry() -> None:
+# --- the provider-first picker (bare `smartpipe config`) --------------------------------
+
+
+async def _picker_entry() -> None:
+    import sys
+    import time
     from pathlib import Path
 
+    from smartpipe.config.picker import cache_day
+    from smartpipe.config.state_cache import (
+        catalog_path,
+        load_catalog,
+        load_probe_chips,
+        probe_path,
+        store_catalog,
+    )
     from smartpipe.container import build_container
+    from smartpipe.io.arrow_menu import arrow_choose, menu_capable, numbered_choose
 
     async with build_container(os.environ) as container:
         path = config_path(os.environ)
+        env = container.env
+        now = time.time()
 
-        def confirm(question: str) -> bool:
-            return click.confirm(question, default=True)
+        async def fetch(provider: str) -> tuple[str, ...] | None:
+            location = catalog_path(env, provider, cache_day(now))
+            cached = load_catalog(location)
+            if cached is not None:
+                return cached  # today's file is fresh — skip the network
+            from smartpipe.models.catalogs import fetch_catalog
 
-        await run_interactive_setup(
+            names = await fetch_catalog(provider, env, container.http_client)
+            if names:
+                store_catalog(location, names)
+            return names
+
+        def login() -> bool:
+            from smartpipe.config.credentials import credentials_path, load_oauth
+
+            return load_oauth(credentials_path(env), "openai") is not None
+
+        def ask(question: str, default: str) -> str:
+            return str(click.prompt(question, default=default))
+
+        def choose(title: str, labels: tuple[str, ...], start: int) -> int | None:
+            if menu_capable(
+                stdin_tty=sys.stdin.isatty(),
+                stdout_tty=sys.stdout.isatty(),
+                term=os.environ.get("TERM"),
+            ):
+                return arrow_choose(title, labels, sys.stdout, start=start)
+            return numbered_choose(title, labels, start, ask=ask, say=click.echo)
+
+        await run_provider_picker(
             current=container.config,
+            env=env,
             probe=container.probe_ollama,
-            ask=lambda question, default: click.prompt(question, default=default),
-            confirm=confirm,
+            login=login,
+            fetch_catalog=fetch,
+            chips=load_probe_chips(probe_path(env)),
+            now=now,
+            choose=choose,
+            ask=ask,
+            confirm=lambda question, default: click.confirm(question, default=default),
             say=click.echo,
             save=lambda config: save_config(path, config),
             offer_completions=lambda: offer_shell_completions(
-                env=os.environ, home=Path.home(), confirm=confirm, say=click.echo
+                env=os.environ,
+                home=Path.home(),
+                confirm=lambda question: click.confirm(question, default=True),
+                say=click.echo,
             ),
         )
 
 
-async def run_interactive_setup(
+async def run_provider_picker(
     *,
     current: Config,
+    env: Mapping[str, str],
     probe: Callable[[], Awaitable[tuple[str, ...] | None]],
+    login: Callable[[], bool],
+    fetch_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
+    chips: Mapping[str, ProbeChip],
+    now: float,
+    choose: Callable[[str, tuple[str, ...], int], int | None],
     ask: Callable[[str, str], str],
-    confirm: Callable[[str], bool],
+    confirm: Callable[[str, bool], bool],
     say: Callable[[str], None],
     save: Callable[[Config], None],
     offer_completions: Callable[[], None] | None = None,
 ) -> Config:
+    """Detect → catalog → pick, then the two smoothness dials (embed pairing,
+    the backup-model question) and one save at the end."""
     from smartpipe.cli.screens import good, heading, tint
-
-    say(heading("smartpipe setup") + tint(" — one minute, three questions", "2") + "\n")
-    if current.profile is None and current.model is None:
-        say(
-            heading("Pick a starting profile")
-            + tint(" (a named bundle you can switch any time):", "2")
-        )
-        say(
-            "  1. openai — gpt-5.4-mini + text-embedding-3-small "
-            "(key or ChatGPT login; no audio input)"
-        )
-        say("  2. gemini — gemini-3.1-flash-lite, the most multimodal wire (needs GEMINI_API_KEY)")
-        say("  3. local  — ollama/gemma-4-e2b, multimodal, nothing leaves this machine")
-        say("  4. custom — answer the questions instead")
-        choice = ask("Profile [1-4]?", "4").strip()
-        picked = {"1": "openai", "2": "gemini", "3": "local"}.get(choice)
-        if picked is not None:
-            from smartpipe.config.store import BUILTIN_PROFILES
-
-            chosen = replace(current, profile=picked)
-            save(chosen)  # a fresh setup has no flat keys to materialize
-            bundle = ", ".join(f"{k} = {v}" for k, v in BUILTIN_PROFILES[picked].items())
-            say("\n  " + good("✓") + f" profile '{picked}' active " + tint(f"({bundle})", "2"))
-            if BUILTIN_PROFILES[picked].get("allow-captions"):
-                say(
-                    "  note: this profile converts images/audio to text through its"
-                    " model when needed (fractions of a cent each, disclosed per row)"
-                )
-            say("  Check the setup end to end:  smartpipe doctor\n")
-            if offer_completions is not None:
-                offer_completions()
-            return chosen
-    names = await probe() or ()
-    chat = _first_chat(names)
-    say(tint("  Model names are provider/name:", "2"))
-    say(
-        "    "
-        + good("openai/gpt-5.4-mini")
-        + tint("  (needs OPENAI_API_KEY or ChatGPT login)", "2")
+    from smartpipe.config.picker import (
+        detect_providers,
+        embed_pair_allowed,
+        has_jina_key,
+        paired_embed,
     )
-    say(
-        "    "
-        + good("gemini/gemini-3.1-flash-lite")
-        + tint("  (Google - needs GEMINI_API_KEY)", "2")
-    )
-    say("    " + good("ollama/llava") + tint("  (local; bare ollama tag names work too)", "2"))
-    say(tint("  Tip: pick one that can SEE images — smartpipe is multimodal;", "2"))
-    say(tint("  text-only models refuse image rows.", "2"))
-    if chat is not None:
-        local_menu = [n for n in names if "embed" not in n.lower()][:8]
-        say("  " + good("✓") + f" found Ollama ({len(names)} models). You can type any of:")
-        say(tint("    " + " · ".join(local_menu), "36"))
-        say("")
-        model_answer = ask("Default model?", f"ollama/{chat}")
-    else:
-        # No Ollama, or Ollama has only embedding models — offer a cloud chat model.
-        say(
-            tint(
-                "  no local chat model found — install one at https://ollama.com, "
-                "or use a cloud model.",
-                "2",
-            )
-            + "\n"
-        )
-        model_answer = ask("Default model?", "openai/gpt-5.4-mini")
-    embed_answer = ask("Embedding model?", f"ollama/{_first_embed(names)}")
 
-    model_ref = _parsed_or_reprompt(model_answer, ask, "Default model?")
-    embed_ref = _parsed_or_reprompt(embed_answer, ask, "Embedding model?")
-    updated = replace(current, model=str(model_ref), embed_model=str(embed_ref))
-    if confirm("Save to config?"):
-        save(updated)
-        saved = True
-    else:
-        say("\n  Not saved. Set a model any time with: smartpipe config model <name>")
-        saved = False
+    say(heading("smartpipe setup") + tint(" — pick a provider, pick a model", "2") + "\n")
+    tags = await probe()
+    statuses = detect_providers(env, ollama_tags=tags, openai_login=login())
+    detected = tuple(status for status in statuses if status.detected)
+    for line in _connect_block(statuses, jina=has_jina_key(env)):
+        say(line)
+    if not detected:
+        say("  Connect one, then rerun: smartpipe config")
+        return current
+    provider_labels = tuple(f"{status.provider:<12}{status.detail}" for status in detected)
+    index = choose("Pick a provider:", provider_labels, 0)
+    if index is None:
+        say(_NOT_SAVED)
+        return current
+    provider = detected[index].provider
+    model = await _pick_model(
+        provider,
+        question="Default model?",
+        tags=tags,
+        fetch_catalog=fetch_catalog,
+        chips=chips,
+        now=now,
+        choose=choose,
+        ask=ask,
+        say=say,
+    )
+    if model is None:
+        say(_NOT_SAVED)
+        return current
+    updated = replace(current, model=model)
+    paired = paired_embed(provider, tags)
+    pair_stamped = paired is not None and embed_pair_allowed(current.embed_model)
+    if pair_stamped:
+        updated = replace(updated, embed_model=paired)
+    if confirm("Add a backup model for provider outages?", False):
+        fallback = await _pick_fallback(
+            detected,
+            provider_labels,
+            tags=tags,
+            fetch_catalog=fetch_catalog,
+            chips=chips,
+            now=now,
+            choose=choose,
+            ask=ask,
+            say=say,
+        )
+        if fallback is not None:
+            updated = replace(updated, fallback_model=fallback)
+    if not confirm("Save to config?", True):
+        say(_NOT_SAVED)
+        if offer_completions is not None:
+            offer_completions()
+        return updated
+    save(updated)
+    say("")
+    say("  " + good("✓") + f" model {updated.model}")
+    if pair_stamped:
+        say("  " + good("✓") + f" embed-model {paired}" + tint(f"  (paired with {provider})", "2"))
+    if updated.fallback_model is not None and updated.fallback_model != current.fallback_model:
+        say(
+            "  "
+            + good("✓")
+            + f" fallback-model {updated.fallback_model}"
+            + tint("  (switches in when the provider looks down)", "2")
+        )
     # completions BEFORE the try-it invitation: printing a paste-me command
     # while questions remain baits the paste into the next prompt (owner-hit)
     if offer_completions is not None:
         offer_completions()
-    if saved:
-        say("\n  " + good("Saved.") + " Try it:")
-        say("    " + tint(_TRY_IT, "36"))
+    say("\n  " + good("Saved.") + " Try it:")
+    say("    " + tint(_TRY_IT, "36"))
     return updated
+
+
+def _connect_block(statuses: tuple[ProviderStatus, ...], *, jina: bool) -> tuple[str, ...]:
+    """The detection screen around the menu: undetected providers listed dim with
+    HOW to connect (the export line to run — smartpipe never prompts for keys)."""
+    from smartpipe.cli.screens import heading, tint
+
+    undetected = tuple(status for status in statuses if not status.detected)
+    lines: list[str] = []
+    if len(undetected) == len(statuses):
+        lines.append(heading("No providers connected yet") + tint(" — connect one:", "2"))
+        lines.extend(
+            tint(f"    {status.provider:<12}{status.connect_hint}", "2") for status in statuses
+        )
+        return tuple(lines)
+    if undetected:
+        lines.append(tint("  not connected (how to connect):", "2"))
+        lines.extend(
+            tint(f"    {status.provider:<12}{status.connect_hint}", "2") for status in undetected
+        )
+    if jina:
+        lines.append(tint("    jina        JINA_API_KEY set — embeddings only (embed/top_k)", "2"))
+    if lines:
+        lines.append("")
+    return tuple(lines)
+
+
+async def _pick_model(
+    provider: str,
+    *,
+    question: str,
+    tags: tuple[str, ...] | None,
+    fetch_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
+    chips: Mapping[str, ProbeChip],
+    now: float,
+    choose: Callable[[str, tuple[str, ...], int], int | None],
+    ask: Callable[[str, str], str],
+    say: Callable[[str], None],
+) -> str | None:
+    """Phase 2 + 3 for one provider: live catalog (or local tags) → menu; any
+    fetch failure degrades to the typed-input path. None = the user backed out."""
+    from smartpipe.config.picker import (
+        capped_catalog,
+        model_labels,
+        ollama_chat_tags,
+        preferred_index,
+    )
+
+    names = ollama_chat_tags(tags or ()) if provider == "ollama" else await fetch_catalog(provider)
+    if not names:
+        note = (
+            "no local chat model found — pull one, e.g.: ollama pull qwen3:8b"
+            if provider == "ollama"
+            else "couldn't fetch the live catalog — type the model name instead."
+        )
+        return _typed_model(provider, question=question, ask=ask, say=say, note=note)
+    shown, hidden = capped_catalog(names)
+    type_it = _TYPE_IT if not hidden else f"{_TYPE_IT} ({hidden} more not shown)"
+    labels = (*model_labels(provider, shown, chips, now), type_it)
+    start = preferred_index(shown) if provider == "ollama" else 0
+    picked = choose(f"Pick a model ({provider}):", labels, start)
+    if picked is None:
+        return None
+    if picked == len(labels) - 1:
+        return _typed_model(provider, question=question, ask=ask, say=say, note=None)
+    return str(parse_model_ref(f"{provider}/{shown[picked]}"))
+
+
+def _typed_model(
+    provider: str,
+    *,
+    question: str,
+    ask: Callable[[str, str], str],
+    say: Callable[[str], None],
+    note: str | None,
+) -> str:
+    """The typed-input path, with the provider-prefixed example the wizard shows."""
+    from smartpipe.cli.screens import good, tint
+
+    if note is not None:
+        say(tint(f"  {note}", "2"))
+    example, aside = _EXAMPLES[provider]
+    say(tint("  Model names are provider/name:", "2"))
+    say("    " + good(example) + tint(f"  ({aside})", "2"))
+    say(tint("  Tip: pick one that can SEE images — smartpipe is multimodal;", "2"))
+    say(tint("  text-only models refuse image rows.", "2"))
+    answer = ask(question, example)
+    return str(_parsed_or_reprompt(answer, ask, question))
+
+
+async def _pick_fallback(
+    detected: tuple[ProviderStatus, ...],
+    provider_labels: tuple[str, ...],
+    *,
+    tags: tuple[str, ...] | None,
+    fetch_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
+    chips: Mapping[str, ProbeChip],
+    now: float,
+    choose: Callable[[str, tuple[str, ...], int], int | None],
+    ask: Callable[[str, str], str],
+    say: Callable[[str], None],
+) -> str | None:
+    """One more loop of the picker for the breaker-failover model (item 11)."""
+    index = choose("Pick a backup provider:", provider_labels, 0)
+    if index is None:
+        return None
+    fallback = await _pick_model(
+        detected[index].provider,
+        question="Backup model?",
+        tags=tags,
+        fetch_catalog=fetch_catalog,
+        chips=chips,
+        now=now,
+        choose=choose,
+        ask=ask,
+        say=say,
+    )
+    if fallback is None:
+        return None
+    if _embeds(fallback):
+        say(f"  '{fallback}' embeds — a backup must chat; skipping the backup")
+        return None
+    return fallback
+
+
+def _embeds(model: str) -> bool:
+    """Embed-only providers, or a name that says so — a fallback must chat
+    (mixed-embedder vectors are geometrically meaningless; same rule as the
+    container's resolution-time refusal)."""
+    ref = parse_model_ref(model)
+    return ref.provider in ("local", "jina") or "embed" in ref.name.lower()
 
 
 _RC_BY_SHELL: dict[str, tuple[str, str]] = {
@@ -327,24 +529,7 @@ def offer_shell_completions(
     say(f"  ✓ added to {rc}: {line}")
 
 
-_PREFERRED_FAMILIES = ("llava", "gemma", "qwen", "llama", "mistral", "phi", "kimi", "glm")
-
-
-def _first_chat(names: tuple[str, ...]) -> str | None:
-    """A sensible chat default from ollama's list: prefer known families
-    (vision-capable first), never an embedding model. ':cloud' passthrough
-    tags compete as equals — they are affordable frontier models, and
-    penalizing them while suggesting openai/ would be incoherent (owner
-    ruling)."""
-    candidates = [n for n in names if "embed" not in n.lower()]
-    for family in _PREFERRED_FAMILIES:
-        for name in candidates:
-            if family in name.lower():
-                return name
-    return candidates[0] if candidates else None
-
-
-def _parsed_or_reprompt(answer: str, ask: Callable[[str, str], str], question: str) -> object:
+def _parsed_or_reprompt(answer: str, ask: Callable[[str, str], str], question: str) -> ModelRef:
     """Validate a wizard answer NOW — a saved typo ('\\', stray paste) otherwise
     surfaces later as a confusing provider 400 (owner-hit). Two strikes, then
     UsageFault with the config-command escape hatch."""
@@ -359,7 +544,3 @@ def _parsed_or_reprompt(answer: str, ask: Callable[[str, str], str], question: s
             first = str(fault).splitlines()[0]
             answer = ask(f"{question} (that wasn't a model ref: {first})", "")
     raise AssertionError("unreachable")  # pragma: no cover
-
-
-def _first_embed(names: tuple[str, ...]) -> str:
-    return next((name for name in names if "embed" in name.lower()), "nomic-embed-text")
