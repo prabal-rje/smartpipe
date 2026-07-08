@@ -42,7 +42,14 @@ __all__ = ["distinct_command"]
     help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
 )
 @input_options
+@click.option(
+    "--exact",
+    "exact",
+    is_flag=True,
+    help="Fold byte-identical items only — the hash rung, zero model calls.",
+)
 def distinct_command(
+    exact: bool,
     show_groups: bool,
     threshold: float,
     model_flag: str | None,
@@ -71,6 +78,7 @@ def distinct_command(
     you don't pay for downstream.
     """
     request = DistinctRequest(
+        exact=exact,
         show_groups=show_groups,
         threshold=threshold,
         model_flag=model_flag,

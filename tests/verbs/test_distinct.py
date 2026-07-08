@@ -6,6 +6,8 @@ import io
 import json
 from typing import TYPE_CHECKING
 
+import pytest
+
 from smartpipe.core.errors import ExitCode
 from smartpipe.models.base import ModelRef
 
@@ -182,3 +184,77 @@ async def test_image_only_items_route_natively_no_captions() -> None:
     assert len(context.media_embedder.part_calls) == 1
     assert isinstance(context.media_embedder.part_calls[0], ImageData)  # bytes, not a caption
     assert "media embedded natively (jina/jina-clip-v2)" in err.getvalue()
+
+
+# --- --exact: the hash rung only (wave 2, item 22) ---------------------------------
+
+
+class _NeverEmbed:
+    """A context whose embedding model must never be touched."""
+
+    async def embedding_model(self, flag: str | None = None) -> object:
+        raise AssertionError("--exact must not resolve an embedding model")
+
+    async def chat_model(self, flag: str | None = None) -> object:
+        raise AssertionError("--exact must not resolve a chat model")
+
+    def remote_transcriber(self, chat_ref: object | None = None) -> None:
+        return None
+
+    def concurrency(self, flag: int | None = None) -> int:
+        return 2
+
+
+async def test_exact_folds_identical_records_with_zero_model_calls(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rows = [
+        '{"b": 1, "a": 2}',
+        '{"a": 2, "b": 1}',  # same record, different key order — canonicalized
+        '{"a": 3}',
+    ]
+    out = io.StringIO()
+    code = await run_distinct(
+        DistinctRequest(exact=True),
+        _NeverEmbed(),  # type: ignore[arg-type]
+        stdin=io.StringIO("\n".join(rows) + "\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert out.getvalue() == '{"b": 1, "a": 2}\n{"a": 3}\n'  # first bytes preserved
+    assert "kept 2 of 3 (1 exact + 0 near duplicates folded)" in capsys.readouterr().err
+
+
+async def test_exact_compares_plain_text_byte_for_byte() -> None:
+    out = io.StringIO()
+    await run_distinct(
+        DistinctRequest(exact=True),
+        _NeverEmbed(),  # type: ignore[arg-type]
+        stdin=io.StringIO("hello\nhello \nhello\n"),  # trailing space differs — no fuzz
+        stdout=out,
+    )
+    assert out.getvalue() == "hello\nhello \n"
+
+
+async def test_exact_folds_identical_media_bytes() -> None:
+    import base64
+    import json as _json
+
+    payload = base64.b64encode(b"same-bytes").decode()
+
+    def media_row(path: str) -> str:
+        return _json.dumps(
+            {
+                "__media": {"kind": "image", "mime": "image/png", "data_b64": payload},
+                "__source": {"path": path, "as": "file"},
+            }
+        )
+
+    out = io.StringIO()
+    await run_distinct(
+        DistinctRequest(exact=True),
+        _NeverEmbed(),  # type: ignore[arg-type]
+        stdin=io.StringIO(media_row("a.png") + "\n" + media_row("b.png") + "\n"),
+        stdout=out,
+    )
+    assert len(out.getvalue().splitlines()) == 1  # identical files folded, free
