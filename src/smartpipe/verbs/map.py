@@ -16,6 +16,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.engine.chunking import is_context_overflow
 from smartpipe.engine.prompts import (
     build_map_request,
     build_repair_request,
@@ -39,7 +40,7 @@ from smartpipe.verbs.common import (
     outcome_exit_code,
     resolve_schema,
 )
-from smartpipe.verbs.oversize import transform_oversized
+from smartpipe.verbs.oversize import machine_cut, transform_oversized, transform_resplit
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -173,16 +174,34 @@ async def run_map(
                 current, plan, instruction, item, over, keep_invalid=request.keep_invalid
             )
         else:
-            result = await map_one(
-                current,
-                plan,
-                instruction,
-                item,
-                log,
-                frame_every=request.frame_every,
-                max_frames=request.max_frames,
-                keep_invalid=request.keep_invalid,
-            )
+            try:
+                result = await map_one(
+                    current,
+                    plan,
+                    instruction,
+                    item,
+                    log,
+                    frame_every=request.frame_every,
+                    max_frames=request.max_frames,
+                    keep_invalid=request.keep_invalid,
+                )
+            except ItemError as exc:
+                if (
+                    request.whole
+                    or not is_context_overflow(str(exc))
+                    or not machine_cut(item.source)
+                ):
+                    raise
+                # item 3: the wire rejected the estimate on a MACHINE-cut item
+                # — halve and retry; user cuts stay per-item errors
+                result = await transform_resplit(
+                    current,
+                    plan,
+                    instruction,
+                    item,
+                    keep_invalid=request.keep_invalid,
+                    cause=exc,
+                )
         slot.tally(str(current.ref))
         return item, result
 

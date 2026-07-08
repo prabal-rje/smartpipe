@@ -116,9 +116,12 @@ def test_window_override_beats_the_table() -> None:
     "message",
     [
         "This model's maximum context length is 8192 tokens",  # openai
+        "openai error 400: context_length_exceeded",  # openai error code
         "prompt is too long: 210000 tokens > 200000 maximum",  # anthropic
         "the input length exceeds the limit",
         "Request too large",  # mistral 413-style
+        # gemini's 400 INVALID_ARGUMENT wording
+        "The input token count (1189889) exceeds the maximum number of tokens allowed (1048576).",
     ],
 )
 def test_overflow_messages_classify(message: str) -> None:

@@ -480,6 +480,171 @@ async def test_combine_stops_folding_when_no_level_can_shrink() -> None:
     assert len(model.calls) == 4
 
 
+# --- bisect-on-context-400 (item 3) -------------------------------------------------
+
+
+class FlakyChat(Chat):
+    """Raises a context-length 400 on scripted call ordinals, replies otherwise
+    (replies consumed only by successful calls)."""
+
+    def __init__(
+        self,
+        replies: Sequence[str],
+        *,
+        overflow_calls: frozenset[int] = frozenset(),
+        always_overflow: bool = False,
+        ref: ModelRef | None = None,
+    ) -> None:
+        super().__init__(replies, ref=ref)
+        self.overflow_calls = overflow_calls
+        self.always_overflow = always_overflow
+        self.answered = 0
+
+    async def complete(self, request: CompletionRequest) -> str:
+        from smartpipe.core.errors import ItemError
+
+        self.calls.append(request)
+        if self.always_overflow or len(self.calls) in self.overflow_calls:
+            raise ItemError("openai error 400: context_length_exceeded")
+        reply = self.replies[min(self.answered, len(self.replies) - 1)]
+        self.answered += 1
+        return reply
+
+
+MACHINE_CUT_ROW = json.dumps(
+    {
+        "text": "word " * 400,  # ~500 tokens — well within every table budget
+        "__source": {"path": "report.pdf", "as": "tokens", "segment": 3},
+    }
+)
+
+
+async def test_auto_chunk_that_still_overflows_bisects_and_retries(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # 2 auto-chunks; the FIRST chunk call draws a 400 → its halves retry
+    model = FlakyChat(["half one", "half two", "part two", "FINAL"], overflow_calls=frozenset({1}))
+    out = io.StringIO()
+    code = await run_map(
+        _map_request(), Ctx(model, window=None), stdin=io.StringIO(BIG + "\n"), stdout=out
+    )
+    assert code is ExitCode.OK
+    assert out.getvalue() == "FINAL\n"
+    assert len(model.calls) == 5  # chunk1 (400) + 2 halves + chunk2 + combine
+    err = capsys.readouterr().err
+    assert err.count("note: line 1 chunk re-split: provider rejected the estimate") == 1
+
+
+async def test_machine_cut_item_bisects_on_a_context_400(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # the item FITS the estimated budget, but the wire says otherwise — and it
+    # is machine-cut (as: tokens), so smartpipe halves it instead of skipping
+    model = FlakyChat(["a", "b", "COMBINED"], overflow_calls=frozenset({1}))
+    out = io.StringIO()
+    code = await run_map(
+        _map_request(),
+        Ctx(model, window=None),
+        stdin=io.StringIO(MACHINE_CUT_ROW + "\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    row = json.loads(out.getvalue())
+    assert row["result"] == "COMBINED"  # records in, records out — spine intact
+    assert len(model.calls) == 4  # the 400, 2 halves, 1 combine
+    err = capsys.readouterr().err
+    assert "note: report.pdf chunk re-split: provider rejected the estimate" in err
+
+
+async def test_user_cut_item_never_bisects(capsys: pytest.CaptureFixture[str]) -> None:
+    model = FlakyChat([], always_overflow=True)
+    out = io.StringIO()
+    code = await run_map(
+        _map_request(),
+        Ctx(model, window=None),
+        stdin=io.StringIO("an ordinary user line\n"),  # as: lines — the USER's cut
+        stdout=out,
+    )
+    assert code is ExitCode.ALL_FAILED
+    assert len(model.calls) == 1  # one honest failure, zero re-splits
+    err = capsys.readouterr().err
+    assert "chunk re-split" not in err
+    assert "skipped: line 1" in err
+
+
+async def test_bisection_depth_is_bounded(capsys: pytest.CaptureFixture[str]) -> None:
+    model = FlakyChat([], always_overflow=True)
+    out = io.StringIO()
+    code = await run_map(
+        _map_request(),
+        Ctx(model, window=None),
+        stdin=io.StringIO(MACHINE_CUT_ROW + "\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.ALL_FAILED  # bounded retreat, then an honest skip
+    assert len(model.calls) <= 40  # 1 + two chunks' bounded binary trees, never unbounded
+    err = capsys.readouterr().err
+    assert err.count("chunk re-split: provider rejected the estimate") == 1  # once per row
+    assert "skipped: report.pdf" in err
+
+
+async def test_machine_cut_filter_judges_halves_after_a_400(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class FlakyJudge:
+        """400 on the first (whole-item) call; then judges by needle."""
+
+        def __init__(self) -> None:
+            self.ref = ModelRef("openai", "gpt-4o-mini")
+            self.calls: list[str] = []
+
+        async def complete(self, request: CompletionRequest) -> str:
+            from smartpipe.core.errors import ItemError
+
+            self.calls.append(request.user)
+            if len(self.calls) == 1:
+                raise ItemError("This model's maximum context length is 8192 tokens")
+            verdict = "true" if "NEEDLE" in request.user else "false"
+            return f'{{"match": {verdict}}}'
+
+    row = json.dumps(
+        {
+            "text": "filler prose " * 150 + "the NEEDLE sits at the end",
+            "__source": {"path": "report.pdf", "as": "tokens", "segment": 2},
+        }
+    )
+    model = FlakyJudge()
+    out = io.StringIO()
+    code = await run_filter(
+        FilterRequest(
+            condition="mentions the needle", invert=False, model_flag=None, concurrency_flag=None
+        ),
+        Ctx(model, window=None),
+        stdin=io.StringIO(row + "\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert out.getvalue() == row + "\n"  # the WHOLE row survives, byte-verbatim
+    assert len(model.calls) == 3  # the 400, then two halves (needle in the second)
+    err = capsys.readouterr().err
+    assert "note: report.pdf chunk re-split: provider rejected the estimate" in err
+    assert "matched in chunk 2/2" in err
+
+
+async def test_whole_disables_the_resplit(capsys: pytest.CaptureFixture[str]) -> None:
+    model = FlakyChat([], always_overflow=True)
+    out = io.StringIO()
+    code = await run_map(
+        _map_request(whole=True),
+        Ctx(model, window=None),
+        stdin=io.StringIO(MACHINE_CUT_ROW + "\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.ALL_FAILED
+    assert len(model.calls) == 1  # --whole: process whole or per-item error
+    assert "chunk re-split" not in capsys.readouterr().err
+
+
 # --- the disclosure formats (the golden pins) --------------------------------------
 
 
@@ -499,3 +664,6 @@ def test_note_formats_are_pinned() -> None:
         == "report.pdf ~48,200 tokens over budget - 7 chunks, any-true judge"
     )
     assert matched_note("report.pdf", 3, 7) == "report.pdf: matched in chunk 3/7"
+    from smartpipe.verbs.oversize import resplit_note
+
+    assert resplit_note("report.pdf") == "report.pdf chunk re-split: provider rejected the estimate"

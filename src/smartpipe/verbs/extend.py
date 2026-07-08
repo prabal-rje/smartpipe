@@ -14,6 +14,7 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.engine.chunking import is_context_overflow
 from smartpipe.engine.prompts import parse_prompt, plan_map, to_instruction
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import load_schema
@@ -31,7 +32,7 @@ from smartpipe.verbs.common import (
     resolve_schema,
 )
 from smartpipe.verbs.map import MapContext, map_one, print_dry_run
-from smartpipe.verbs.oversize import transform_oversized
+from smartpipe.verbs.oversize import machine_cut, transform_oversized, transform_resplit
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -138,16 +139,33 @@ async def run_extend(
                 current, plan, instruction, item, over, keep_invalid=request.keep_invalid
             )
         else:
-            result = await map_one(
-                current,
-                plan,
-                instruction,
-                item,
-                log,
-                frame_every=request.frame_every,
-                max_frames=request.max_frames,
-                keep_invalid=request.keep_invalid,
-            )
+            try:
+                result = await map_one(
+                    current,
+                    plan,
+                    instruction,
+                    item,
+                    log,
+                    frame_every=request.frame_every,
+                    max_frames=request.max_frames,
+                    keep_invalid=request.keep_invalid,
+                )
+            except ItemError as exc:
+                if (
+                    request.whole
+                    or not is_context_overflow(str(exc))
+                    or not machine_cut(item.source)
+                ):
+                    raise
+                # item 3: the wire rejected the estimate on a MACHINE-cut item
+                result = await transform_resplit(
+                    current,
+                    plan,
+                    instruction,
+                    item,
+                    keep_invalid=request.keep_invalid,
+                    cause=exc,
+                )
         assert isinstance(result, Mapping)  # structured mode: validated against the schema
         slot.tally(str(current.ref))
         return item, result

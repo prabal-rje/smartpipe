@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.cli import screens
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
-from smartpipe.engine.chunking import split_text
+from smartpipe.engine.chunking import estimate_tokens, is_context_overflow, split_text
 from smartpipe.engine.prompts import (
     JUDGE_SCHEMA,
     build_filter_request,
@@ -43,7 +43,7 @@ from smartpipe.verbs.common import (
     prepend,
 )
 from smartpipe.verbs.convert import Converter, make_converter
-from smartpipe.verbs.oversize import judge_any
+from smartpipe.verbs.oversize import judge_any, machine_cut, resplit_halves, resplit_note
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -131,18 +131,37 @@ async def run_filter(
 
     async def worker(item: Item) -> tuple[Item, bool]:
         current = slot.current  # captured per item: the failover swaps wholesale
+
+        async def judge_chunk(chunk: str) -> bool:
+            return await _judge(current, tokens, replace(item, text=chunk), log, converter)
+
         over = await gate.budget_for_oversized(item.text, item.media)
         if over is None:
-            matched = await _judge(current, tokens, item, log, converter)
+            try:
+                matched = await _judge(current, tokens, item, log, converter)
+            except ItemError as exc:
+                if (
+                    request.whole
+                    or not is_context_overflow(str(exc))
+                    or not machine_cut(item.source)
+                ):
+                    raise
+                # item 3: the wire rejected the estimate on a MACHINE-cut item
+                # — halve, judge the halves ANY-true; user cuts stay errors
+                halves = resplit_halves(item.text, cause=exc)
+                diagnostics.note(resplit_note(describe_source(item.source)))
+                matched = await judge_any(
+                    halves,
+                    judge_chunk,
+                    where=describe_source(item.source),
+                    estimate=estimate_tokens(item.text),
+                )
         elif request.whole:
             # --whole: the old D26 refusal — reproducibility beats handling
             raise ItemError(gate.refusal(over))
         else:
             # D26 v2: judge the chunks, ANY match keeps the whole item (--not
             # inverts after), early exit on the first true chunk — disclosed
-            async def judge_chunk(chunk: str) -> bool:
-                return await _judge(current, tokens, replace(item, text=chunk), log, converter)
-
             matched = await judge_any(
                 split_text(item.text, over.budget),
                 judge_chunk,

@@ -91,6 +91,8 @@ _OVERFLOW_MARKERS = (
     "input length",
     "prompt is too long",
     "exceeds the limit",
+    "input token count",  # gemini's 400 INVALID_ARGUMENT wording
+    "exceeds the maximum number of tokens",
 )
 
 
