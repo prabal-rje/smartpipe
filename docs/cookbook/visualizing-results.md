@@ -89,7 +89,7 @@ the floor between the clusters:
 
 ```bash
 smartpipe join "{left.text} is about {right.name}" --right products.jsonl < tickets.txt \
-| jq ._score \
+| jq .__score \
 | sort -n \
 | uniq -c
 # scores bunch at ~0.4 (noise) and ~0.75 (real) → rerun with --threshold 0.6

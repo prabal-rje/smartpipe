@@ -58,10 +58,9 @@ The SDK ships with smartpipe; seeing this means a broken environment - reinstall
 
 ## "parsing documents needs an optional dependency"
 
-You pointed smartpipe at PDFs/DOCX without the parser installed:
-reinstalling smartpipe (document parsing ships in the box; a missing parser means a broken
-environment, or
-everything). Files that need it are skipped until you do.
+You pointed smartpipe at PDFs/DOCX in an environment missing the parser.
+Document parsing ships in the box, so this means a broken install - reinstall
+smartpipe. Files that need the parser are skipped until you do.
 
 ## "reading from a terminal - pipe some input in" (exit 64)
 
@@ -115,10 +114,10 @@ wrong. Raise the ceiling or narrow the input.
 ## "this model can't hear audio - …" (exit 3 on the skip path)
 
 You sent audio items to a model with no audio input. Two fixes, straight from
-the message: use a model that hears (`voxtral-*`, `gemini` models,
-`voxtral-*`) - otherwise smartpipe transcribes locally, so text verbs (and `map`, as a
-fallback) transcribe it locally with Whisper (`SMARTPIPE_WHISPER_MODEL` picks
-the size; tiny is the default). Details:
+the message: use a model that hears (`voxtral-*`, `gemini` models) - otherwise
+smartpipe transcribes locally, so text verbs (and `map`, as a fallback)
+transcribe it with Whisper (`SMARTPIPE_WHISPER_MODEL` picks the size; tiny is
+the default). Details:
 [File inputs → audio](inputs/files.md#audio-heard-natively-or-transcribed).
 
 ## "~N tokens is past MODEL's ~W-token budget" (per-item skip)

@@ -36,36 +36,52 @@ command it stands for - `stdin` in, `stdout` out, same exit codes, same behavior
 ## The format
 
 - The file is TOML. The shebang line is legal because `#` opens a TOML comment.
-- `verb` is required: one of `map`, `filter`, `embed`, `top_k`, `reduce`.
+- `verb` is required: any pipeline verb - `map`, `extend`, `filter`, `where`,
+  `embed`, `top_k`, `reduce`, `join`, `split`, `distinct`, `outliers`,
+  `cluster`, `diff`, `summarize`, `sample`, `getschema`, `sort`, `chart`.
   (`run` and `config` are refused - no recursion, no config mutation from
   scripts.)
-- Each verb accepts exactly the keys below - anything else is an error.
+- Each verb accepts exactly the keys below - anything else is an error, and
+  the error lists that verb's exact valid keys (the authoritative source).
+
+The model verbs share these keys:
 
 | Key | Type | Verbs | Becomes |
 |---|---|---|---|
-| `prompt` | string | map, filter, reduce, join | the positional prompt |
-| `prompt-file` | string | map, filter, reduce, join | `--prompt-file`, resolved **relative to the `.sem` file** |
+| `prompt` | string | map, extend, filter, reduce, join | the positional prompt |
+| `prompt-file` | string | map, extend, filter, reduce, join | `--prompt-file`, resolved **relative to the `.sem` file** |
 | `near` | string | top_k | `--near` |
-| `k` | integer | top_k | the positional K |
-| `threshold` | number | top_k | `--threshold` |
+| `k` | integer | top_k, join, cluster | top_k's positional K; `--k` elsewhere |
+| `threshold` | number | top_k, join, distinct | `--threshold` |
 | `not` | boolean | filter | `--not` |
-| `model` | string | map, filter, reduce | `--model` |
-| `embed-model` | string | embed, top_k | `--embed-model` |
-| `output` | string | map | `--output` |
-| `fields` | array of strings | map, embed, top_k, reduce | `--fields` |
-| `schema-file` | string | map, reduce | `--schema`, resolved **relative to the `.sem` file** |
-| `schema-from` | string | map, reduce | `--schema-from` (the deterministic DSL) |
-| `tally` | string | map | `--tally FIELD` |
-| `explode` | string | map | `--explode FIELD` (one row per list element) |
-| `unmatched` | string | join | `--unmatched FILE` |
+| `right` | string | join, diff | `--right`, resolved **relative to the `.sem` file** |
+| `model` | string | map, extend, filter, reduce, join, cluster, diff | `--model` |
+| `embed-model` | string | embed, top_k, join, distinct, outliers, cluster, diff | `--embed-model` |
+| `output` | string | map, extend, join | `--output` |
+| `fields` | array of strings | map, extend, embed, top_k, reduce, join | `--fields` |
+| `schema-file` | string | map, extend, reduce | `--schema`, resolved **relative to the `.sem` file** |
+| `schema-from` | string | map, extend, reduce | `--schema-from` (the deterministic DSL) |
+| `tally` | string | extend, reduce | `--tally FIELD` |
+| `explode` | string | extend, reduce, cluster | `--explode FIELD` (one row per list element) |
 | `group-by` | string | reduce | `--group-by` |
 | `window` / `every` | integer | reduce | `--window` / `--every` |
 | `verbose` | boolean | reduce | `--verbose` |
 | `stream` | boolean | top_k | `--stream` |
-| `concurrency` | integer | all | `--concurrency` |
-| `max-calls` | integer | all | `--max-calls` |
-| `in` | array of strings | all | repeated `--in` (globs resolve against the **current directory**, like the flag) |
-| `from-files` | boolean | all | `--from-files` |
+| `top` | integer | cluster, diff | `--top` |
+| `count` | integer | outliers, sample | the positional COUNT |
+| `show-groups` | boolean | distinct | `--show-groups` |
+| `all` | boolean | diff, getschema | `--all` |
+| `allow-captions` | boolean | the media-converting verbs (filter, embed, top_k, reduce, join, distinct, outliers, cluster, diff) | `--allow-captions` |
+| `concurrency` | integer | the model verbs | `--concurrency` |
+| `max-calls` | integer | the model verbs | `--max-calls` |
+| `in` | array of strings | the model verbs + split | repeated `--in` (globs resolve against the **current directory**, like the flag) |
+| `from-files` | boolean | the model verbs + split | `--from-files` |
+
+The free verbs take their natural keys: `where` takes `predicate`;
+`summarize` takes `expression`; `sample` takes `count` and `seed`;
+`getschema` takes `all`; `sort` takes `by` and `desc`; `chart` takes
+`field`, `facet`, `by-time`, `top`, `save`, `title`; `split` takes `by`,
+`media`, `max-tokens`.
 
 ## Unknown keys are errors - on purpose
 
@@ -76,7 +92,7 @@ error names the key and lists the valid ones for that verb:
 
 ```bash
 smartpipe run extract.sem
-# → error: extract.sem: unknown key 'promt' - valid keys for map: concurrency, fields, from-files, in, model, output, prompt, schema-file
+# → error: extract.sem: unknown key 'promt' - valid keys for map: concurrency, fields, from-files, in, max-calls, model, output, prompt, prompt-file, schema-file, schema-from
 # →   A .sem script runs unattended - a typo silently ignored would be a disaster.
 # →   Fix the key, then: smartpipe run extract.sem
 ```
@@ -132,9 +148,9 @@ save = "themes.svg"
 cat week.log \
 | smartpipe run triage.sem
 smartpipe run triage.sem --dry-run      # the graph + cost posture, zero calls
-# → stage hot          where 'text has "ERROR"'      [free]
-# → stage themes       cluster --explode members     [model calls]
-# → stage picture      chart cluster --top 8 --save  [free]
+# → stage hot          where text has "ERROR"   [free]
+# → stage themes       cluster --explode members   [model calls]
+# → stage picture      chart cluster --top 8 --save themes.svg   [free]
 ```
 
 Each stage reads the previous stage's output (`input = "name"` picks any
