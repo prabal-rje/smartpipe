@@ -26,3 +26,4 @@ context/
 
 # Local-only scratch folder — never tracked, never in the sdist
 /local/
+.claude/
