@@ -129,3 +129,45 @@ async def test_empty_input_is_ok() -> None:
     code, out = await _run(_request("q", k=5), "", {"q": (1.0, 0.0)})
     assert code == ExitCode.OK
     assert out == ""
+
+
+def test_emit_jsonl_cut_file_rows_stay_records() -> None:
+    """Same leak as filter's: a row cut from a file (--as jsonl data.jsonl)
+    must emit the record with _score, not 'data.jsonl<TAB>score' per row."""
+    import io as _io
+
+    from smartpipe.io.items import Item, ItemSource
+    from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
+    from smartpipe.verbs import top_k as top_k_module
+
+    out = _io.StringIO()
+    writer = make_writer(WriterConfig(mode=RenderMode.NDJSON, color=False, width=80), out)
+    item = Item(
+        raw='{"id": 1, "text": "login bug"}',
+        text="login bug",
+        data={"id": 1, "text": "login bug"},
+        source=ItemSource(kind="file", name="data.jsonl", index=0, cut="jsonl"),
+    )
+    top_k_module._emit(writer, item, 0.8765)  # pyright: ignore[reportPrivateUsage] — emission under test
+    writer.flush()
+    assert out.getvalue() == '{"id":1,"text":"login bug","_score":0.8765}\n'
+
+
+def test_emit_whole_file_still_returns_the_path() -> None:
+    import io as _io
+
+    from smartpipe.io.items import Item, ItemSource
+    from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
+    from smartpipe.verbs import top_k as top_k_module
+
+    out = _io.StringIO()
+    writer = make_writer(WriterConfig(mode=RenderMode.TEXT, color=False, width=80), out)
+    item = Item(
+        raw="ten years of bug hunting",
+        text="ten years of bug hunting",
+        data=None,
+        source=ItemSource(kind="file", name="resume.txt", index=0, cut="file"),
+    )
+    top_k_module._emit(writer, item, 0.8765)  # pyright: ignore[reportPrivateUsage] — emission under test
+    writer.flush()
+    assert out.getvalue() == "resume.txt\t0.8765\n"

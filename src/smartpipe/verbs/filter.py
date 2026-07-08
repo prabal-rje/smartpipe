@@ -217,9 +217,11 @@ async def run_filter(
 
 
 def _emit_match(writer: ResultWriter, item: Item) -> None:
-    # In file mode the useful output is the filename, not the extracted document text
-    # (rank/keep files → get paths back, the Unix behavior — spec §8 / stage-07).
-    if item.source.kind == "file":
+    # In whole-file mode the useful output is the filename, not the extracted
+    # document text (rank/keep files → get paths back, the Unix behavior —
+    # spec §8 / stage-07). Row/line cuts from a file (--as jsonl/lines) are
+    # records, not files: they pass through like stdin rows.
+    if item.source.kind == "file" and item.source.cut == "file":
         writer.write_text(item.source.name)
     else:
         writer.write_passthrough(item)

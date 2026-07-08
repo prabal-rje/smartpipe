@@ -8,11 +8,15 @@ Parent: [SKILL.md](../../SKILL.md)
 
 | Free, always (no model) | Paid per item |
 |---|---|
-| `where` (predicates), `summarize` (count/avg/percentiles/bin), `sort`, `sample` (seeded), `getschema`, `split`, `chart`, `schema`, `--dry-run` | `map`, `extend`, `filter`, `reduce`, judged `join`, `cluster`, `distinct`, `diff`, `outliers` |
+| `where` (predicates), `summarize` (count/avg/percentiles/bin), `sort`, `sample` (seeded), `getschema`, `split`, `chart`, `schema`, `--dry-run` (`map`/`extend`/`run` only) | `map`, `extend`, `filter`, `reduce`, judged `join`, `cluster`, `distinct`, `diff`, `outliers` |
 | free RUNGS of paid verbs: `join --on 'left.k == right.k'` (key equality; also BLOCKS the judged join), `distinct --exact` (hash dedupe) | `embed`/`top_k` (embedding-priced, cheaper than judge calls) |
 
 The idiom: free cut → embed cut → judge remnant.
 `where 'text has "ERROR"' | filter "a real outage"`.
+
+`summarize` takes a KQL-style expression:
+`summarize 'count() by label'`, `'avg(score) by channel'`,
+`'count() by bin(ts, 1h)'` - free aggregation over record fields.
 
 ## Belts
 

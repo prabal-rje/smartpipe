@@ -308,7 +308,9 @@ def _check_dimensions(query: tuple[float, ...], vectors: dict[int, tuple[float, 
 
 def _emit(writer: ResultWriter, item: Item, score: float) -> None:
     rounded = round(score, 4)
-    if item.source.kind == "file":  # rank files → get filenames back (the resume demo)
+    # rank whole files → get filenames back (the resume demo); row/line cuts
+    # from a file (--as jsonl/lines) are records and keep their fields
+    if item.source.kind == "file" and item.source.cut == "file":
         writer.write_text(f"{item.source.name}\t{rounded}")
     elif item.data is not None:
         record = {key: value for key, value in item.data.items() if key != "vector"}

@@ -16,7 +16,10 @@ Parent: [SKILL.md](../../SKILL.md) · Sibling: [ingestion](ingestion.md)
 
 - stdout only. stderr = notes/receipts/skips (human diagnostics).
 - Text-only flows emit plain lines; anything structured emits JSONL.
-- `--output json|csv|tsv` forces a format; `--bare` strips `__` metadata.
+- `--output json|csv|tsv` (on `map`/`extend`/`join` only) forces a format;
+  `--bare` strips `__` metadata. Verbs that emit input verbatim (`filter`,
+  `where`, `distinct`, `sample`, `sort`) have no `--output` — their output
+  IS the input rows, unchanged.
 - Multi-line plain text into a pipe is ambiguous (framing) — a warning says
   so; use `--output json` for one-line-per-item guarantees.
 

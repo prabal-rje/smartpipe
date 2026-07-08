@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -246,3 +247,47 @@ async def test_interrupted_after_results_keeps_outcome_code(
     assert code == ExitCode.OK  # everything that ran succeeded
     assert "done: interrupted" in capsys.readouterr().err
     assert out.getvalue().startswith("keep me\n")
+
+
+# --- positional files keep their rows (field-test catch, 2026-07-08) ----------
+
+
+async def test_as_jsonl_file_rows_pass_through_not_the_filename(tmp_path: Path) -> None:
+    """filter '...' --as jsonl tickets.jsonl emitted the FILENAME once per
+    matching row (the grep -l path-back contract leaked onto row cuts).
+    Rows must pass through; only whole-file items get paths back."""
+    from smartpipe.io.inputs import InputSpec
+
+    corpus = tmp_path / "tickets.jsonl"
+    corpus.write_text('{"id": 1, "text": "login bug"}\n{"id": 2, "text": "all good"}\n')
+    model = FakeChat(_match_if("bug"))
+    out = io.StringIO()
+    request = FilterRequest(
+        condition="reports a defect",
+        invert=False,
+        model_flag=None,
+        concurrency_flag=None,
+        input=InputSpec(patterns=(str(corpus),), from_files=False, as_mode="jsonl"),
+    )
+    code = await run_filter(request, FakeContext(model), stdin=io.StringIO(""), stdout=out)
+    assert code == ExitCode.OK
+    assert out.getvalue() == '{"id": 1, "text": "login bug"}\n'
+
+
+async def test_whole_file_match_still_returns_the_path(tmp_path: Path) -> None:
+    from smartpipe.io.inputs import InputSpec
+
+    doc = tmp_path / "resume.txt"
+    doc.write_text("ten years of bug hunting\n")
+    model = FakeChat(_match_if("bug"))
+    out = io.StringIO()
+    request = FilterRequest(
+        condition="reports a defect",
+        invert=False,
+        model_flag=None,
+        concurrency_flag=None,
+        input=InputSpec(patterns=(str(doc),), from_files=False, as_mode=None),
+    )
+    code = await run_filter(request, FakeContext(model), stdin=io.StringIO(""), stdout=out)
+    assert code == ExitCode.OK
+    assert out.getvalue() == f"{doc}\n"

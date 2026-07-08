@@ -96,6 +96,12 @@ The identity release.
   `chart cluster --top 8`, which draws real sizes.
 
 ### Every example, run for real
+- **Row cuts keep their rows through `filter` and `top_k`.** The grep-l
+  contract (match whole files, get paths back) leaked onto `--as jsonl` /
+  `--as lines` rows read from a positional file: every matching ROW came
+  out as the filename. Both verbs now key path-back on the whole-file cut;
+  rows pass through as records. Found by a zero-context agent driving
+  smartpipe purely from SKILL.md; pinned in tests both ways.
 - **The docs were audited by executing them**: all 236 example blocks
   (README, docs, SKILL files, CLI help) inventoried, statically checked,
   and ~105 run verbatim against a generated corpus of real-format files.
