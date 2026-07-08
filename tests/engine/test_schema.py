@@ -268,3 +268,65 @@ def test_bare_fields_accept_scalars_but_not_null() -> None:
 def test_nullable_bare_field_admits_null() -> None:
     schema = shorthand_to_schema(("vendor",), nullable=frozenset({"vendor"}))
     assert validate_and_coerce('{"vendor": null}', schema) == {"vendor": None}
+
+
+# --- example_instance (smartpipe schema --example) -----------------------------
+
+
+def _validates(instance: object, schema: dict[str, object]) -> bool:
+    import jsonschema
+
+    try:
+        jsonschema.validate(instance, schema)
+    except jsonschema.ValidationError:
+        return False
+    return True
+
+
+def test_example_instance_covers_the_dsl_vocabulary() -> None:
+    from smartpipe.engine.schema import example_instance
+
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "vendor": {"type": "string", "minLength": 6, "maxLength": 10},
+            "total": {"type": "number", "minimum": 3},
+            "count": {"type": "integer", "maximum": -2},
+            "paid": {"type": "boolean"},
+            "status": {"enum": ["todo", "done"]},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "note": {"type": ["string", "null"]},
+        },
+        "required": ["vendor", "total", "count", "paid", "status", "tags", "note"],
+        "additionalProperties": False,
+    }
+    example = example_instance(schema)
+    assert _validates(example, schema)
+    assert example == {
+        "vendor": "xxxxxx",  # padded to minLength
+        "total": 3,  # sits on the minimum
+        "count": -2,  # pulled under the maximum
+        "paid": True,
+        "status": "todo",  # the first enum value
+        "tags": ["text"],
+        "note": "text",  # the non-null side of a nullable union
+    }
+
+
+def test_example_instance_is_deterministic() -> None:
+    from smartpipe.engine.schema import example_instance, shorthand_to_schema
+
+    schema = shorthand_to_schema(("vendor", "total"))
+    assert example_instance(schema) == example_instance(schema)
+    assert _validates(example_instance(schema), schema)
+
+
+def test_example_instance_handles_bare_and_edge_schemas() -> None:
+    from smartpipe.engine.schema import BARE_PROPERTY, example_instance
+
+    assert example_instance(dict(BARE_PROPERTY)) == "text"  # scalar-or-list picks a scalar
+    assert example_instance({"type": "array"}) == []  # no items to imitate
+    assert example_instance({"type": "null"}) is None
+    assert example_instance({"type": ["null"]}) is None
+    assert example_instance({"type": "string", "maxLength": 2}) == "te"
+    assert example_instance({}) is None  # unknown vocabulary: honest null
