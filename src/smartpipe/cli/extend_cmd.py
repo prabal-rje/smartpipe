@@ -132,6 +132,7 @@ def extend_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    strict_rows: bool,
     paths: tuple[str, ...],
 ) -> None:
     """Add extracted fields to each record — everything it had survives.

@@ -5,6 +5,8 @@ from __future__ import annotations
 import io
 import json
 
+import pytest
+
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.summarize import SummarizeRequest, run_summarize
 
@@ -45,3 +47,29 @@ def test_no_by_is_one_row() -> None:
 def test_plain_lines_count_fine() -> None:
     _code, rows, _err = _run("count()", "a\nb\n\nc\n")
     assert rows == [{"count": 3}]
+
+
+def test_rows_lacking_the_by_field_note_and_strict_errors(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import io as _io
+
+    from smartpipe.verbs.summarize import SummarizeRequest, run_summarize
+
+    stdin_text = '{"region": "eu", "total": 1}\n{"total": 2}\n'
+    code = run_summarize(
+        SummarizeRequest("count() by region"),
+        stdin=_io.StringIO(stdin_text),
+        stdout=_io.StringIO(),
+    )
+    assert code is ExitCode.OK
+    assert "summarize: 1 rows lacked 'region' — grouped as null" in capsys.readouterr().err
+
+    from smartpipe.core.errors import UsageFault
+
+    with pytest.raises(UsageFault, match="lacked 'region'"):
+        run_summarize(
+            SummarizeRequest("count() by region", strict_rows=True),
+            stdin=_io.StringIO(stdin_text),
+            stdout=_io.StringIO(),
+        )

@@ -44,6 +44,7 @@ def outliers_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    strict_rows: bool,
     paths: tuple[str, ...],
 ) -> None:
     """Rank the N items least like the rest — novelty, surfaced.

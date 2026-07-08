@@ -48,6 +48,12 @@ def input_options(command: _Command) -> _Command:
         help="Treat each stdin line as a filename; read each file as one item.",
     )(command)
     command = click.option(
+        "--strict-rows",
+        "strict_rows",
+        is_flag=True,
+        help="A mixed record/text stream (or a field-less row) is an error, not a note.",
+    )(command)
+    command = click.option(
         "--as",
         "as_mode",
         type=click.Choice(["file", "lines", "jsonl"]),
@@ -59,9 +65,18 @@ def input_options(command: _Command) -> _Command:
 
 
 def input_spec(
-    in_patterns: tuple[str, ...], *, from_files: bool, as_mode: str | None = None
+    in_patterns: tuple[str, ...],
+    *,
+    from_files: bool,
+    as_mode: str | None = None,
+    strict_rows: bool = False,
 ) -> InputSpec:
-    return InputSpec(patterns=tuple(in_patterns), from_files=from_files, as_mode=as_mode)
+    return InputSpec(
+        patterns=tuple(in_patterns),
+        from_files=from_files,
+        as_mode=as_mode,
+        strict_rows=strict_rows,
+    )
 
 
 def positional_paths(paths: tuple[str, ...], in_patterns: tuple[str, ...]) -> tuple[str, ...]:

@@ -55,3 +55,25 @@ def test_bad_grammar_raises_before_reading_stdin() -> None:
 def test_blank_lines_are_ignored_not_counted() -> None:
     _code, _out, err = _run('text has "x"', "x\n\n\nx\n")
     assert "2 of 2 matched" in err
+
+
+def test_field_less_rows_note_and_strict_errors(capsys: pytest.CaptureFixture[str]) -> None:
+    import io as _io
+
+    from smartpipe.verbs.where import WhereRequest, run_where
+
+    stdin_text = '{"level": "error"}\nplain line\n'
+    code = run_where(
+        WhereRequest('level == "error"'), stdin=_io.StringIO(stdin_text), stdout=_io.StringIO()
+    )
+    assert code is ExitCode.OK
+    assert "where: 1 rows had no fields — treated as non-matching" in capsys.readouterr().err
+
+    from smartpipe.core.errors import UsageFault
+
+    with pytest.raises(UsageFault, match="had no fields"):
+        run_where(
+            WhereRequest('level == "error"', strict_rows=True),
+            stdin=_io.StringIO(stdin_text),
+            stdout=_io.StringIO(),
+        )

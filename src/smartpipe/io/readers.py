@@ -76,7 +76,7 @@ def resolve_items(
         return from_files_items(stdin, stop=stop, as_mode=spec.as_mode), None
     if spec.as_mode == "file":
         return _stdin_as_one_item(stdin, stop), None  # slurp: the whole pipe is one crate
-    return stdin_items(stdin, stop=stop, as_mode=spec.as_mode), None
+    return stdin_items(stdin, stop=stop, as_mode=spec.as_mode, strict_rows=spec.strict_rows), None
 
 
 async def _chain_files_then_stdin(
@@ -281,7 +281,11 @@ async def _lines(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[str
 
 
 async def stdin_items(
-    stdin: TextIO, *, stop: asyncio.Event | None = None, as_mode: str | None = None
+    stdin: TextIO,
+    *,
+    stop: asyncio.Event | None = None,
+    as_mode: str | None = None,
+    strict_rows: bool = False,
 ) -> AsyncIterator[Item]:
     """Each stdin line is one Item, yielded as it arrives (never waits for EOF).
 
@@ -295,13 +299,20 @@ async def stdin_items(
     """
 
     index = 0
+    records = 0
+    plain = 0
     async for message in _messages(stdin, stop):
         tag, payload = message
         if as_mode is not None and tag in ("document", "image", "audio", "video"):
             raise UsageFault(_uncuttable_stdin(tag, as_mode))
         if tag == "line":
             assert isinstance(payload, str)
-            yield _row_item(payload, index, as_mode, origin=None)
+            item = _row_item(payload, index, as_mode, origin=None)
+            if item.data is None:
+                plain += 1
+            else:
+                records += 1
+            yield item
             index += 1
         elif tag == "document":
             assert isinstance(payload, _StdinDocument)
@@ -321,6 +332,22 @@ async def stdin_items(
         else:  # "fatal"
             assert isinstance(payload, str)
             raise SetupFault(payload)
+    _report_census(records, plain, strict=strict_rows)
+
+
+def _report_census(records: int, plain: int, *, strict: bool) -> None:
+    """The kind census (item 20): a MIXED stream gets one stderr note —
+    --strict-rows (or SMARTPIPE_STRICT_ROWS) turns it into an error."""
+    if not records or not plain:
+        return
+    line = f"input: {records:,} records · {plain:,} plain lines"
+    if strict or os.environ.get("SMARTPIPE_STRICT_ROWS", "").strip():
+        raise UsageFault(
+            f"{line}\n"
+            "  --strict-rows demands one kind — declare it: --as jsonl (records) "
+            "or --as lines (text)."
+        )
+    diagnostics.note(line)
 
 
 def _extract_stdin_document(tmp_name: str, kind: FileKind) -> Item:

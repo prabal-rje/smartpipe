@@ -229,3 +229,14 @@ def test_bare_never_guts_an_invalid_marker_row() -> None:
     )
     writer.write_record({"__invalid": True, "__error": "e", "__raw": "r"})
     assert stream.getvalue() == '{"__invalid":true,"__error":"e","__raw":"r"}\n'
+
+
+def test_text_writer_warns_once_about_multiline_results(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # item 20: plain-TEXT output with internal newlines to a NON-TTY stdout
+    _stream, writer = _writer(RenderMode.TEXT)
+    writer.write_text("two\nlines")
+    writer.write_text("more\nlines")
+    err = capsys.readouterr().err
+    assert err.count("--output json") == 1  # once, naming the fix

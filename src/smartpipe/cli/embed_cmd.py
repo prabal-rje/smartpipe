@@ -44,6 +44,7 @@ def embed_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    strict_rows: bool,
     paths: tuple[str, ...],
 ) -> None:
     """Convert each item to a vector embedding (NDJSON out).

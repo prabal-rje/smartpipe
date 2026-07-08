@@ -52,6 +52,7 @@ def distinct_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    strict_rows: bool,
     paths: tuple[str, ...],
 ) -> None:
     """Fold near-duplicate items — the same thing worded differently is one item.

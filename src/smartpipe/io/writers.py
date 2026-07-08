@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Protocol, assert_never
 
 from smartpipe.core.errors import UsageFault
 from smartpipe.core.jsontools import as_record
-from smartpipe.io import diagnostics
+from smartpipe.io import diagnostics, tty
 from smartpipe.io.text import clip_to_width, display_width
 
 if TYPE_CHECKING:
@@ -221,6 +221,13 @@ class _TextWriter:
     warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
+        if "\n" in line and "framing" not in self.warned and not tty.stdout_is_tty():
+            # item 20: line-counting tools downstream will miscount — say so once
+            self.warned.add("framing")
+            diagnostics.warn(
+                "a text result contains newlines — line tools downstream will "
+                "miscount; --output json frames each result safely"
+            )
         self.stream.write(f"{line}\n")
         self.stream.flush()
 

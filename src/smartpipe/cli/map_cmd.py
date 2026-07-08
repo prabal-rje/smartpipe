@@ -140,6 +140,7 @@ def map_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    strict_rows: bool,
     paths: tuple[str, ...],
 ) -> None:
     """Transform each input item with a prompt. One item in, one result out.

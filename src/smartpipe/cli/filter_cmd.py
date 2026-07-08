@@ -56,6 +56,7 @@ def filter_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    strict_rows: bool,
     paths: tuple[str, ...],
 ) -> None:
     """Keep items matching a plain-English condition. Semantic grep.
