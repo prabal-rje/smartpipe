@@ -56,7 +56,7 @@ jobs:
         with: { python-version: "${{ matrix.python }}" }
       - run: uv sync --all-extras
       # TEMP: verbose + stack dumps for any test stuck 120s
-      - run: uv run coverage run -m pytest -v --tb=line --faulthandler-timeout=120
+      - run: uv run coverage run -m pytest -v --tb=line -o faulthandler_timeout=120
       - run: uv run coverage report
 
   live-ollama-smoke:
