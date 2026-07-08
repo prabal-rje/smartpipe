@@ -36,6 +36,14 @@ def test_extend_merges_end_to_end(run_cli: RunCli, respx_mock: respx.MockRouter)
     assert json.loads(out) == {"id": 1, "sentiment": "neg"}
 
 
+def test_dry_run_flag_reaches_the_verb(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
+    route = respx_mock.post(CHAT).mock(return_value=_reply("never"))
+    code, out, _err = run_cli(["extend", "Add {sentiment}", "--dry-run"], stdin='{"id": 1}\n')
+    assert code == 0
+    assert route.call_count == 0
+    assert "--- schema ---" in out
+
+
 def test_keep_invalid_reaches_the_verb(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
     respx_mock.post(CHAT).side_effect = [_reply("nope"), _reply("still nope")]
     code, out, err = run_cli(["extend", "Add {sentiment}", "--keep-invalid"], stdin='{"id": 1}\n')

@@ -173,6 +173,24 @@ async def test_keep_invalid_merges_markers_onto_the_base_record() -> None:
     assert model.calls == 2  # original + the one repair retry
 
 
+async def test_dry_run_prints_the_composed_request_and_spends_nothing() -> None:
+    context = FakeContext(SentimentModel())
+    out = io.StringIO()
+    code = await run_extend(
+        _request("Add {sentiment}", dry_run=True),
+        context,
+        stdin=io.StringIO('{"id": 7, "body": "crashes"}\n{"id": 8}\n'),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert context.model.calls == 0  # zero model calls, zero spend
+    text = out.getvalue()
+    assert "--- system ---" in text
+    assert "--- schema ---" in text  # extend is always structured
+    assert "crashes" in text  # the first item's rendered text
+    assert '"id": 8' not in text  # and only the first
+
+
 def test_base_fields_drops_media_transport_keys() -> None:
     from dataclasses import replace
 

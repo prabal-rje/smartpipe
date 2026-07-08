@@ -83,6 +83,12 @@ __all__ = ["map_command"]
     help="Video frame budget (default 24; the smaller of the two flags wins).",
 )
 @click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    help="Print the composed first request (system, schema, item) and exit — no model call.",
+)
+@click.option(
     "--keep-invalid",
     "keep_invalid",
     is_flag=True,
@@ -103,6 +109,7 @@ def map_command(
     explode_field: str | None,
     model_flag: str | None,
     output: str,
+    dry_run: bool,
     keep_invalid: bool,
     concurrency_flag: int | None,
     max_calls: int | None,
@@ -137,6 +144,7 @@ def map_command(
         max_frames=max_frames,
         model_flag=model_flag,
         output=OutputFormat(output),
+        dry_run=dry_run,
         keep_invalid=keep_invalid,
         concurrency_flag=concurrency_flag,
         input=input_spec(in_patterns, from_files=from_files),

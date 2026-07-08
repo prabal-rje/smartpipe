@@ -81,6 +81,7 @@ def _request(prompt: str, **kw: object) -> MapRequest:
         output=OutputFormat.AUTO,
         concurrency_flag=None,
         keep_invalid=bool(kw.get("keep_invalid", False)),
+        dry_run=bool(kw.get("dry_run", False)),
     )
 
 
@@ -202,6 +203,58 @@ async def test_keep_invalid_requires_structured_output() -> None:
             stdout=io.StringIO(),
         )
     assert context.model.calls == []  # fails before any model call
+
+
+# --- --dry-run ------------------------------------------------------------------
+
+
+async def test_dry_run_prints_the_composed_first_request_and_spends_nothing() -> None:
+    model = FakeChat(replies=["never used"])
+    context = FakeContext(model=model)
+    out = io.StringIO()
+    code = await run_map(
+        _request("Extract {v}", dry_run=True),
+        context,
+        stdin=io.StringIO("Acme $5\nsecond line\n"),
+        stdout=out,
+    )
+    assert code == ExitCode.OK
+    assert model.calls == []  # zero model calls, zero spend
+    text = out.getvalue()
+    assert "--- system ---" in text
+    assert "--- schema ---" in text  # structured prompt carries its compiled schema
+    assert '"additionalProperties": false' in text
+    assert "--- user ---" in text
+    assert "Acme $5" in text  # the FIRST item's rendered text
+    assert "second line" not in text  # and only the first
+
+
+async def test_dry_run_plain_mode_omits_the_schema_section() -> None:
+    context = FakeContext(model=FakeChat(replies=["never used"]))
+    out = io.StringIO()
+    code = await run_map(
+        _request("translate to Spanish", dry_run=True),
+        context,
+        stdin=io.StringIO("hello\n"),
+        stdout=out,
+    )
+    assert code == ExitCode.OK
+    text = out.getvalue()
+    assert "--- schema ---" not in text
+    assert "translate to Spanish\n\nhello" in text  # the exact composed user message
+
+
+async def test_dry_run_with_empty_input_notes_and_shows_the_shape(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    context = FakeContext(model=FakeChat(replies=["never used"]))
+    out = io.StringIO()
+    code = await run_map(
+        _request("Extract {v}", dry_run=True), context, stdin=io.StringIO(""), stdout=out
+    )
+    assert code == ExitCode.OK
+    assert "--- system ---" in out.getvalue()
+    assert "no input items" in capsys.readouterr().err
 
 
 # --- exit codes & skips -------------------------------------------------------

@@ -27,7 +27,7 @@ from smartpipe.verbs.common import (
     outcome_exit_code,
     resolve_schema,
 )
-from smartpipe.verbs.map import MapContext, map_one
+from smartpipe.verbs.map import MapContext, map_one, print_dry_run
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -66,6 +66,7 @@ class ExtendRequest:
     frame_every: float | None = None  # D43
     max_frames: int | None = None  # D43
     keep_invalid: bool = False  # --keep-invalid: failure markers merge onto the base record
+    dry_run: bool = False  # --dry-run: print the composed first request, spend nothing
 
 
 async def run_extend(
@@ -83,6 +84,8 @@ async def run_extend(
         raise UsageFault(EXTEND_NEEDS_FIELDS)  # exit 64, zero model calls
     instruction = to_instruction(tokens)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
+    if request.dry_run:  # before model resolution: a dry run is free even pre-setup
+        return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
     model = await context.chat_model(request.model_flag)
     spinner = make_stderr_spinner()
     # the arbiter: result writes pause the status line, so they never interleave

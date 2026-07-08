@@ -38,6 +38,7 @@ from smartpipe.verbs.common import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
     from pathlib import Path
     from typing import TextIO
 
@@ -47,7 +48,7 @@ if TYPE_CHECKING:
     from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, MediaData, ModelRef
 
-__all__ = ["MapContext", "MapRequest", "invalid_row", "map_one", "run_map"]
+__all__ = ["MapContext", "MapRequest", "invalid_row", "map_one", "print_dry_run", "run_map"]
 
 _PROMPT_OVERHEAD_TOKENS = 500  # instruction + wrapper + reply headroom
 
@@ -67,6 +68,7 @@ class MapRequest:
     frame_every: float | None = None  # --frame-every SECONDS: video density guarantee (D43)
     max_frames: int | None = None  # --max-frames N: video frame budget (D43)
     keep_invalid: bool = False  # --keep-invalid: failed validations become marker rows
+    dry_run: bool = False  # --dry-run: print the composed first request, spend nothing
 
 
 class MapContext(Protocol):
@@ -98,6 +100,8 @@ async def run_map(
     plan = plan_map(tokens, schema=schema)
     instruction = to_instruction(tokens)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
+    if request.dry_run:  # before model resolution: a dry run is free even pre-setup
+        return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
     model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
     structured = plan.mode == "structured"
     spinner = make_stderr_spinner()
@@ -318,6 +322,40 @@ async def _attempt(
 def invalid_row(*, error: str, raw: str) -> dict[str, object]:
     """The --keep-invalid marker row: what failed, why, and the model's words."""
     return {"__invalid": True, "__error": error, "__raw": raw}
+
+
+async def print_dry_run(
+    plan: MapPlan,
+    instruction: str,
+    items_iter: AsyncIterator[Item],
+    *,
+    stdout: TextSink,
+) -> ExitCode:
+    """--dry-run: the fully composed first request on stdout (it IS the result),
+    then exit 0 — no model call, no spend. Only the first item is consumed."""
+    import json
+
+    first = await anext(items_iter, None)
+    if first is None:
+        diagnostics.note("dry run: no input items — composing with an empty item")
+    text = first.text if first is not None else ""
+    media = first.media if first is not None else ()
+    composed = build_map_request(plan, instruction, text, media=media)
+    sections = [f"--- system ---\n{composed.system}"]
+    if plan.schema is not None:
+        pretty = json.dumps(dict(plan.schema), indent=2, ensure_ascii=False)
+        sections.append(f"--- schema ---\n{pretty}")
+    if composed.media:
+        kinds = " · ".join(_media_kind(part) for part in composed.media)
+        sections.append(f"--- media ---\n{kinds}")
+    sections.append(f"--- user ---\n{composed.user}")
+    stdout.write("\n".join(sections) + "\n")
+    stdout.flush()
+    return ExitCode.OK
+
+
+def _media_kind(part: MediaData) -> str:
+    return type(part).__name__.removesuffix("Data").lower()
 
 
 def _transcribe_or_skip(audio: AudioData, native_failure: ItemError) -> str:

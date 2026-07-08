@@ -75,6 +75,28 @@ def test_keep_invalid_keeps_the_row_and_exits_clean(
     assert "skipped" not in err
 
 
+def test_dry_run_flag_prints_the_request_without_a_call(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post(CHAT).mock(return_value=_reply("never"))
+    code, out, _err = run_cli(["map", "Extract {v}", "--dry-run"], stdin="Acme $5\n")
+    assert code == 0
+    assert route.call_count == 0
+    assert "--- system ---" in out and "Acme $5" in out
+
+
+def test_dry_run_works_without_any_model_configured(
+    run_cli: RunCli, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # composing the request needs no model — a dry run is free even pre-setup
+    monkeypatch.delenv("SMARTPIPE_MODEL", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/nonexistent-config-dir")
+    monkeypatch.setenv("APPDATA", "/nonexistent-config-dir")
+    code, out, _err = run_cli(["map", "Extract {v}", "--dry-run"], stdin="x\n")
+    assert code == 0
+    assert "--- user ---" in out
+
+
 def test_bad_grammar_is_usage_error_before_any_model_call(
     run_cli: RunCli, respx_mock: respx.MockRouter
 ) -> None:
