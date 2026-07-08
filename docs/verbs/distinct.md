@@ -4,10 +4,10 @@ The same thing worded differently is one item. `distinct` keeps the first
 occurrence of each meaning and folds the rest - exact duplicates for free
 (hashing, zero model calls), near-duplicates by embedding.
 
-```console
-$ cat tickets.txt \
-    | smartpipe distinct > unique.txt
-distinct: kept 412 of 1,208 (573 exact + 223 near duplicates folded)
+```bash
+cat tickets.txt \
+| smartpipe distinct > unique.txt
+# → distinct: kept 412 of 1,208 (573 exact + 223 near duplicates folded)
 ```
 
 Output preserves input order and bytes (passthrough). First occurrence wins,
@@ -15,11 +15,11 @@ so the first occurrence in each group is the one kept.
 
 ## Audit before you trust
 
-```console
-$ cat alerts.jsonl \
-    | smartpipe distinct --show-groups \
-    | head -1
-{"kept": "app crashes when saving", "count": 3, "duplicates": ["saving crashes the app!!", "crash on save"]}
+```bash
+cat alerts.jsonl \
+| smartpipe distinct --show-groups \
+| head -1
+# → {"kept": "app crashes when saving", "count": 3, "duplicates": ["saving crashes the app!!", "crash on save"]}
 ```
 
 `--show-groups` emits one record per kept item with everything that folded
@@ -37,11 +37,11 @@ it (0.95); too timidly, lower it (0.85) - and check with `--show-groups`.
 With a media-native embedder, image items are compared as IMAGES, not as
 captions of images:
 
-```console
-$ export JINA_API_KEY=…
-$ cat images.jsonl \
-    | smartpipe distinct --embed-model jina/jina-clip-v2
-note: media embedded natively (jina/jina-clip-v2) - no captions
+```bash
+export JINA_API_KEY=…
+cat images.jsonl \
+| smartpipe distinct --embed-model jina/jina-clip-v2
+# → note: media embedded natively (jina/jina-clip-v2) - no captions
 ```
 
 Mentioning the media embedder is the whole switch - there is no second

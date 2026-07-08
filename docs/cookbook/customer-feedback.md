@@ -6,10 +6,10 @@ deck-ready chart.
 
 ## The Monday slide: top detractor themes
 
-```console
-$ cat nps-w28.jsonl \
-    | smartpipe where 'score <= 6' \
-    | smartpipe cluster --top 8
+```bash
+cat nps-w28.jsonl \
+| smartpipe where 'score <= 6' \
+| smartpipe cluster --top 8
 ```
 
 One pipe replaces an afternoon of manual coding: `where` cuts to detractors
@@ -24,14 +24,14 @@ Monday. If copy-paste review spam inflates the counts, put a
 "What are customers complaining about this week that they weren't last week"
 is a `diff`, not a hunch:
 
-```console
+```bash
 # Save this week's detractor comments as next week's baseline (free, no model calls)
-$ smartpipe where 'score <= 6' < nps-w27.jsonl > detractors-w27.jsonl
+smartpipe where 'score <= 6' < nps-w27.jsonl > detractors-w27.jsonl
 
 # Wednesday drift check: themes that over-index this week vs last, both shares as evidence
-$ cat nps-w28.jsonl \
-    | smartpipe where 'score <= 6' \
-    | smartpipe diff --right detractors-w27.jsonl --top 5
+cat nps-w28.jsonl \
+| smartpipe where 'score <= 6' \
+| smartpipe diff --right detractors-w27.jsonl --top 5
 ```
 
 `diff` embeds both weeks, groups the union by meaning, and reports only the
@@ -41,12 +41,12 @@ Balanced themes are omitted, so the answer never buries the signal.
 
 ## Deck night: code every review, chart the mix
 
-```console
+```bash
 # Code each review in place, keep the enriched dataset, chart the mix + save the SVG
-$ cat app-reviews.jsonl \
-    | smartpipe extend "Add {sentiment enum(pos, neg, neutral), theme enum(pricing, onboarding, performance, support, reliability, other)}" \
-    | tee coded-reviews.jsonl \
-    | smartpipe chart --facet sentiment,theme --save review-mix.svg --title "App reviews, June"
+cat app-reviews.jsonl \
+| smartpipe extend "Add {sentiment enum(pos, neg, neutral), theme enum(pricing, onboarding, performance, support, reliability, other)}" \
+| tee coded-reviews.jsonl \
+| smartpipe chart --facet sentiment,theme --save review-mix.svg --title "App reviews, June"
 ```
 
 `extend` enriches in place, so the original review text rides along into

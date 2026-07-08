@@ -5,24 +5,24 @@ Semantic grep: the output is a strict, byte-for-byte subset of the input, in ord
 
 ## Examples
 
-```console
+```bash
 # Semantic grep:
-$ cat reviews.txt \
-    | smartpipe filter "the reviewer is sarcastic"
+cat reviews.txt \
+| smartpipe filter "the reviewer is sarcastic"
 
 # Reference input fields with {braces} (JSON Lines input):
-$ cat tickets.jsonl \
-    | smartpipe filter "{priority} is wrong given {description}"
+cat tickets.jsonl \
+| smartpipe filter "{priority} is wrong given {description}"
 
 # Invert, like grep -v:
-$ cat emails.txt \
-    | smartpipe filter --not "this is spam" > ham.txt
+cat emails.txt \
+| smartpipe filter --not "this is spam" > ham.txt
 
 # Chain with the tools you already use:
-$ cat server.log \
-    | grep "POST /api" \
-    | smartpipe filter "the response indicates a bug" \
-    | wc -l
+cat server.log \
+| grep "POST /api" \
+| smartpipe filter "the response indicates a bug" \
+| wc -l
 ```
 
 ## How it works
@@ -46,18 +46,18 @@ items. Two forms:
 `filter` streams by nature - pipe a live source in and matches flow out as lines
 arrive, with a running `· N matched` tally on the `stderr` status line:
 
-```console
-$ tail -f app.log \
-    | smartpipe filter "a user is hitting a real error"
+```bash
+tail -f app.log \
+| smartpipe filter "a user is hitting a real error"
 ```
 
 Compose with `head` to wait for the first occurrence (smartpipe exits cleanly when
 `head` closes the pipe):
 
-```console
-$ tail -f app.log \
-    | smartpipe filter "signals an outage" \
-    | head -1 && page-oncall
+```bash
+tail -f app.log \
+| smartpipe filter "signals an outage" \
+| head -1 && page-oncall
 ```
 
 ## Options

@@ -50,12 +50,12 @@ Mistral cloud model.
 
 Keys are read from the environment and **never stored** in smartpipe's config:
 
-```console
-$ export OPENAI_API_KEY=sk-...
-$ export ANTHROPIC_API_KEY=sk-ant-...
-$ export MISTRAL_API_KEY=...            # console.mistral.ai
-$ export GEMINI_API_KEY=...             # aistudio.google.com
-$ export OPENROUTER_API_KEY=sk-or-...   # openrouter.ai/keys
+```bash
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+export MISTRAL_API_KEY=...            # console.mistral.ai
+export GEMINI_API_KEY=...             # aistudio.google.com
+export OPENROUTER_API_KEY=sk-or-...   # openrouter.ai/keys
 ```
 
 The `anthropic` SDK ships with smartpipe - Claude models work out of the box.
@@ -64,24 +64,24 @@ The `anthropic` SDK ships with smartpipe - Claude models work out of the box.
 Any *other* OpenAI-compatible endpoint - Groq, OpenRouter, a local `llama.cpp`
 server - works by pointing smartpipe at it:
 
-```console
-$ export SMARTPIPE_OPENAI_BASE_URL=https://api.groq.com/openai
+```bash
+export SMARTPIPE_OPENAI_BASE_URL=https://api.groq.com/openai
 ```
 
 ## Log in with ChatGPT (no API key)
 
 If you have a ChatGPT Plus/Pro plan, you can use it directly:
 
-```console
-$ smartpipe auth login              # opens your browser (or --headless for a code)
-$ echo "hi" \
-    | smartpipe map "translate to French" --model gpt-5.4
+```bash
+smartpipe auth login              # opens your browser (or --headless for a code)
+echo "hi" \
+| smartpipe map "translate to French" --model gpt-5.4
 ```
 
 What to know:
 
 - **Which models:** the ChatGPT login serves the Codex-era family (`gpt-5.x`,
-  `gpt-*-codex`). The low-cost platform tiers — `gpt-5.4-mini` and `gpt-5.4-nano` —
+  `gpt-*-codex`). The low-cost platform tiers - `gpt-5.4-mini` and `gpt-5.4-nano` -
   are rejected on this wire (`"not supported ... with a ChatGPT account"`) and
   need an API key. For cheap, high-volume runs, set `OPENAI_API_KEY` and use
   `gpt-5.4-nano`, the low-cost OpenAI tier.
@@ -101,10 +101,10 @@ What to know:
 There is deliberately no `--auth` knob and no `--api-key`/`--base-url` flags
 (argv leaks into `ps` and shell history). The environment *is* the override:
 
-```console
-$ OPENAI_API_KEY=sk-... smartpipe map …          # force the key path
-$ env -u OPENAI_API_KEY smartpipe map …          # force the ChatGPT login path
-$ SMARTPIPE_OPENAI_BASE_URL=https://… smartpipe …  # point the wire elsewhere
+```bash
+OPENAI_API_KEY=sk-... smartpipe map …          # force the key path
+env -u OPENAI_API_KEY smartpipe map …          # force the ChatGPT login path
+SMARTPIPE_OPENAI_BASE_URL=https://… smartpipe …  # point the wire elsewhere
 ```
 
 ## Gemini rides its native wire (and watches video)
@@ -139,10 +139,10 @@ output) under a name. Three ship built in:
 | `gemini` | gemini-3.1-flash-lite | gemini/gemini-embedding-001 | cloud multimodal preset |
 | `local` | ollama/gemma-4-e2b | embeddinggemma | local preset when Ollama runs on your machine |
 
-```console
-$ smartpipe config profile              # list (the active one marked)
-$ smartpipe config profile local        # switch
-$ SMARTPIPE_PROFILE=gemini smartpipe map …  # one-off, no file change (D24: env is the override)
+```bash
+smartpipe config profile              # list (the active one marked)
+smartpipe config profile local        # switch
+SMARTPIPE_PROFILE=gemini smartpipe map …  # one-off, no file change (D24: env is the override)
 ```
 
 The cloud presets are **multimodal by default**: they set
@@ -159,16 +159,16 @@ both. Profiles never hold API keys.
 
 ## Setting a default
 
-```console
-$ smartpipe config model ollama/qwen3:8b     # save a default
-$ smartpipe config show                       # see the effective settings + where each comes from
+```bash
+smartpipe config model ollama/qwen3:8b     # save a default
+smartpipe config show                       # see the effective settings + where each comes from
 ```
 
 Override the default for a single command with `--model`:
 
-```console
-$ cat data.txt \
-    | smartpipe map "summarize" --model claude-opus-4-8
+```bash
+cat data.txt \
+| smartpipe map "summarize" --model claude-opus-4-8
 ```
 
 ## Precedence
@@ -186,8 +186,8 @@ When the same setting is specified more than one way, the most specific wins:
 Most verbs use a **chat** model. `embed` and `top_k` use a separate
 **embedding** model, configured independently:
 
-```console
-$ smartpipe config embed-model nomic-embed-text
+```bash
+smartpipe config embed-model nomic-embed-text
 ```
 
 ## See also

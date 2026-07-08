@@ -3,11 +3,11 @@
 Keep rows matching a deterministic predicate. **Free - `where` never calls a
 model.** Streams, preserves input order, and emits matching rows byte-for-byte.
 
-```console
-$ tail -f app.log \
-    | smartpipe where 'text has "ERROR"'
-$ cat orders.jsonl \
-    | smartpipe where 'total > 1000'
+```bash
+tail -f app.log \
+| smartpipe where 'text has "ERROR"'
+cat orders.jsonl \
+| smartpipe where 'total > 1000'
 ```
 
 ## The filter-early idiom
@@ -15,10 +15,10 @@ $ cat orders.jsonl \
 `where` exists so the paid stages only see what matters - cheapest predicate
 first:
 
-```console
-$ cat app.log \
-    | smartpipe where 'text has "ERROR"' \
-    | smartpipe filter "an actual outage, not a retry storm"
+```bash
+cat app.log \
+| smartpipe where 'text has "ERROR"' \
+| smartpipe filter "an actual outage, not a retry storm"
 ```
 
 On a 100k-line log, judging every line costs real money; `where` first cuts

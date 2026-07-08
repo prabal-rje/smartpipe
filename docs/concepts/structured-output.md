@@ -11,10 +11,10 @@ file** (production). Both are `map` features.
 Put field names in `{braces}` and smartpipe asks the model for exactly those fields
 as a JSON object:
 
-```console
-$ echo "Invoice from Acme Corp, dated 2026-01-15, total $1250" \
-    | smartpipe map "Extract {vendor, date, total}"
-{"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
+```bash
+echo "Invoice from Acme Corp, dated 2026-01-15, total $1250" \
+| smartpipe map "Extract {vendor, date, total}"
+# → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 ```
 
 A single field works too: `map "Extract {total}"`. Types are inferred by the model
@@ -43,15 +43,15 @@ don't carry them.
 JSON Schema is the interchange format, and both libraries emit it in one line.
 No smartpipe plugin needed:
 
-```console
-$ python -c "import json; from myapp.models import Invoice; print(json.dumps(Invoice.model_json_schema()))" > invoice.json
-$ smartpipe map "Extract the invoice" --schema invoice.json
+```bash
+python -c "import json; from myapp.models import Invoice; print(json.dumps(Invoice.model_json_schema()))" > invoice.json
+smartpipe map "Extract the invoice" --schema invoice.json
 ```
 
-```console
-$ npx zod-to-json-schema src/schemas.ts InvoiceSchema > invoice.json   # zod v3
+```bash
+npx zod-to-json-schema src/schemas.ts InvoiceSchema > invoice.json   # zod v3
 # zod v4 has it built in: z.toJSONSchema(InvoiceSchema)
-$ smartpipe map "Extract the invoice" --schema invoice.json
+smartpipe map "Extract the invoice" --schema invoice.json
 ```
 
 One caveat: providers' strict mode rejects some valid JSON Schema (optional
@@ -94,9 +94,9 @@ point `--schema` at a standard [JSON Schema](https://json-schema.org) file:
 }
 ```
 
-```console
-$ cat invoices.txt \
-    | smartpipe map "Extract the invoice data" --schema invoice.json
+```bash
+cat invoices.txt \
+| smartpipe map "Extract the invoice data" --schema invoice.json
 ```
 
 Two layers make this reliable. The schema is sent to the provider as guidance

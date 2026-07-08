@@ -4,8 +4,8 @@
 
 ## The pipeline
 
-```console
-$ smartpipe map "Extract {party_a, party_b, effective_date, total_value, governing_law}" --in 'contracts/*.pdf' --output csv > contracts.csv
+```bash
+smartpipe map "Extract {party_a, party_b, effective_date, total_value, governing_law}" --in 'contracts/*.pdf' --output csv > contracts.csv
 ```
 
 Each PDF becomes one item; smartpipe parses it to text
@@ -40,8 +40,8 @@ fields are dropped:
 }
 ```
 
-```console
-$ smartpipe map "Extract the contract details" --in 'contracts/*.pdf' --schema contract.json --output csv > contracts.csv
+```bash
+smartpipe map "Extract the contract details" --in 'contracts/*.pdf' --schema contract.json --output csv > contracts.csv
 ```
 
 Now `total_value` is a real number, and a document that doesn't parse cleanly is
@@ -51,9 +51,9 @@ retried once, then skipped with a warning - so a single bad file doesn't stop th
 
 Chain a semantic `filter` to process only the relevant documents:
 
-```console
-$ smartpipe filter "is a signed vendor agreement" --in 'docs/**/*.pdf' \
-    | smartpipe map "Extract {vendor, renewal_date, annual_cost}" --from-files --output csv
+```bash
+smartpipe filter "is a signed vendor agreement" --in 'docs/**/*.pdf' \
+| smartpipe map "Extract {vendor, renewal_date, annual_cost}" --from-files --output csv
 ```
 
 The `filter` emits the *paths* of matching files; `--from-files` feeds those paths to
@@ -72,10 +72,10 @@ schema-file = "contract.json"
 output = "csv"
 ```
 
-```console
-$ chmod +x extract-contract.sem
-$ smartpipe filter "is a signed vendor agreement" --in 'docs/**/*.pdf' \
-    | ./extract-contract.sem --from-files > contracts.csv
+```bash
+chmod +x extract-contract.sem
+smartpipe filter "is a signed vendor agreement" --in 'docs/**/*.pdf' \
+| ./extract-contract.sem --from-files > contracts.csv
 ```
 
 `schema-file` resolves next to the `.sem` file, so the script and its schema

@@ -5,12 +5,12 @@ the ones that never made it into the ledger. No OCR toolchain, no CSV wrangling.
 
 ## The month-end close, one pipe
 
-```console
+```bash
 # Scanned invoices become rows (the vision model IS the OCR), then anti-join
 # the ledger export: unmatched invoices ARE the deliverable
-$ smartpipe map "Extract {vendor string, invoice_number string, invoice_date string, total number, currency string}" --in 'invoices/2026-06/*.pdf' \
-    | tee june-invoices.ndjson \
-    | smartpipe join "invoice from {left.vendor} for {left.total} and ledger entry {right.memo} for {right.amount} record the same payment" --right ledger.jsonl --kind anti > missing-from-ledger.jsonl
+smartpipe map "Extract {vendor string, invoice_number string, invoice_date string, total number, currency string}" --in 'invoices/2026-06/*.pdf' \
+| tee june-invoices.ndjson \
+| smartpipe join "invoice from {left.vendor} for {left.total} and ledger entry {right.memo} for {right.amount} record the same payment" --right ledger.jsonl --kind anti > missing-from-ledger.jsonl
 ```
 
 Three things happen:

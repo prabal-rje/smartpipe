@@ -4,12 +4,12 @@ Add extracted fields to each record. Everything the record already had
 survives; the new fields land beside it. Like `map`, but it keeps the whole input record instead of returning only the answer - results flow straight back into the
 pipeline that produced them.
 
-```console
-$ head -1 tickets.jsonl
-{"id": 812, "customer": "acme", "body": "app crashes when saving"}
-$ cat tickets.jsonl \
-    | smartpipe extend "Add {sentiment enum(pos, neg, neutral), product string}"
-{"id": 812, "customer": "acme", "body": "app crashes when saving", "sentiment": "neg", "product": "app"}
+```bash
+head -1 tickets.jsonl
+# → {"id": 812, "customer": "acme", "body": "app crashes when saving"}
+cat tickets.jsonl \
+| smartpipe extend "Add {sentiment enum(pos, neg, neutral), product string}"
+# → {"id": 812, "customer": "acme", "body": "app crashes when saving", "sentiment": "neg", "product": "app"}
 ```
 
 Same prompt language as [`map`](map.md): typed braces, `--schema`,

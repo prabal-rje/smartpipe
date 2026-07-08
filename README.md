@@ -21,11 +21,11 @@ uvx --from smartpipe-cli smartpipe
 ## Point it at a model
 
 ```bash
-# log in with a ChatGPT account — covers most people
+# log in with a ChatGPT account - covers most people
 smartpipe auth login
 ```
 
-No ChatGPT plan? Use local [Ollama][ollama] or a cloud API key — see
+No ChatGPT plan? Use local [Ollama][ollama] or a cloud API key - see
 [Models & providers][models].
 
 ## Examples
@@ -34,7 +34,7 @@ No ChatGPT plan? Use local [Ollama][ollama] or a cloud API key — see
 # summarize each filing, figures included
 smartpipe map "summarize the key risk" --in 'filings/*.pdf'
 
-# keep only the calls that sound frustrated — audio, understood
+# keep only the calls that sound frustrated - audio, understood
 smartpipe filter "the caller sounds frustrated" --in 'calls/*.mp3'
 
 # text on stdin works the same way
@@ -53,7 +53,7 @@ one item at a time.
 
 ## Verbs
 
-A **verb** is one operation on your data — `map`, `filter`, `cluster`. Each reads
+A **verb** is one operation on your data - `map`, `filter`, `cluster`. Each reads
 `stdin` (or `--in FILES`) and writes `stdout`, so verbs pipe into each other and
 into ordinary Unix tools. Every verb is documented at
 [prabal-rje.github.io/smartpipe][docs].
@@ -62,7 +62,7 @@ into ordinary Unix tools. Every verb is documented at
 
 | Verb | What it does | Feels like |
 |---|---|---|
-| [`map`][map] | transform each item — text or media — with a prompt | `sed`, but it understands |
+| [`map`][map] | transform each item - text or media - with a prompt | `sed`, but it understands |
 | [`extend`][extend] | add extracted fields; keep everything else | your record, plus columns |
 | [`filter`][filter] | keep items matching a plain-English condition | `grep`, but semantic |
 | [`embed`][embed] / [`top_k`][top_k] | vectors; rank by similarity | `sort \| head`, by meaning |
@@ -95,7 +95,7 @@ smartpipe config
 # 2. ask one question across a folder of mixed documents
 smartpipe map "What does this say about pricing?" --in 'docs/*.pdf'
 
-# 3. typed extraction — braces carry names, types, and guidance
+# 3. typed extraction - braces carry names, types, and guidance
 cat tickets.jsonl \
 | smartpipe extend "Add {label enum(bug, feature, praise), urgency number: 0 to 1}"
 
@@ -136,7 +136,7 @@ Some steps run locally no matter which chat model you pick: embeddings
 (`fastembed`) and transcription (`whisper`) are built in.
 
 For chat, [Ollama][ollama] runs models on your machine. Any cloud model sends
-that run's data to its provider — `gpt-5.4-mini`, `claude-opus-4-8`,
+that run's data to its provider - `gpt-5.4-mini`, `claude-opus-4-8`,
 `gemini-3.1-flash-lite`, `mistral-large-latest`, `openrouter/…`.
 
 API keys come from environment variables and are never stored. ChatGPT
@@ -156,11 +156,11 @@ local run and token totals; see [Privacy & security][privacy] for the details.
 
 Full docs: **[prabal-rje.github.io/smartpipe][docs]**.
 
-- [Quickstart][quickstart] — zero to first result
-- [Install][install] — packages and platforms
-- [Working with files & media][files] — PDFs, scans, images, audio, video
-- [CLI reference][cli] — every flag, format, and exit code
-- [Models & providers][models] — local Ollama, cloud keys, ChatGPT login
+- [Quickstart][quickstart] - zero to first result
+- [Install][install] - packages and platforms
+- [Working with files & media][files] - PDFs, scans, images, audio, video
+- [CLI reference][cli] - every flag, format, and exit code
+- [Models & providers][models] - local Ollama, cloud keys, ChatGPT login
 - [Privacy & security][privacy]
 
 ## How to cite

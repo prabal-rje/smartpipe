@@ -22,11 +22,11 @@ with the Unix tools you already use (or don't yet - the
 
 smartpipe verbs are filters - they read `stdin` (or files), write `stdout`, and compose:
 
-```console
-$ cat data \
-    | smartpipe filter "..." \
-    | smartpipe map "Extract {...}" \
-    | jq ... > out.csv
+```bash
+cat data \
+| smartpipe filter "..." \
+| smartpipe map "Extract {...}" \
+| jq ... > out.csv
 ```
 
 Because structured output is JSONL, everything downstream of a `map` speaks `jq`,
@@ -38,10 +38,10 @@ everything upstream can be `grep`, `head`, `find`, or `git`.
 Every verb calls a model once per item (plus a repair retry only when structured
 output needs fixing). If you're on a paid API, `head`-limit while you iterate:
 
-```console
-$ cat big.jsonl \
-    | head -20 \
-    | smartpipe map "..."    # test on 20 before running 20,000
+```bash
+cat big.jsonl \
+| head -20 \
+| smartpipe map "..."    # test on 20 before running 20,000
 ```
 
 Or stay free with a local Ollama model - see [Models & providers](../concepts/models-and-providers.md).

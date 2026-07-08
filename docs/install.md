@@ -5,15 +5,15 @@ hard requirement. (Not sure what you have? Run `python3 --version`.)
 
 ## The one-liner
 
-```console
-$ pip install smartpipe-cli
+```bash
+pip install smartpipe-cli
 ```
 
 That's the whole install. `smartpipe` is now a command:
 
-```console
-$ smartpipe --version
-smartpipe 1.1.0
+```bash
+smartpipe --version
+# → smartpipe 1.1.0
 ```
 
 ## Recommended: pipx
@@ -22,18 +22,18 @@ If you want smartpipe available everywhere without adding it to any project's
 dependencies, use [pipx](https://pipx.pypa.io) - it installs command-line tools
 into isolated environments:
 
-```console
-$ pipx install smartpipe-cli
+```bash
+pipx install smartpipe-cli
 ```
 
 ## With uv
 
 If you use [uv](https://docs.astral.sh/uv):
 
-```console
-$ uv tool install smartpipe-cli   # like pipx
+```bash
+uv tool install smartpipe-cli   # like pipx
 # or, inside a project:
-$ uv add smartpipe-cli
+uv add smartpipe-cli
 ```
 
 > **Name note:** the PyPI *distribution* is `smartpipe-cli` (the plain name
@@ -66,20 +66,20 @@ One line per shell. Completions cover verbs and flags - and `--model` /
 
 **zsh** - add to `~/.zshrc`:
 
-```console
-$ eval "$(_SMARTPIPE_COMPLETE=zsh_source smartpipe)"
+```bash
+eval "$(_SMARTPIPE_COMPLETE=zsh_source smartpipe)"
 ```
 
 **bash** (4.4+) - add to `~/.bashrc`:
 
-```console
-$ eval "$(_SMARTPIPE_COMPLETE=bash_source smartpipe)"
+```bash
+eval "$(_SMARTPIPE_COMPLETE=bash_source smartpipe)"
 ```
 
 **fish** - write it once to your completions directory:
 
-```console
-$ _SMARTPIPE_COMPLETE=fish_source smartpipe > ~/.config/fish/completions/smartpipe.fish
+```bash
+_SMARTPIPE_COMPLETE=fish_source smartpipe > ~/.config/fish/completions/smartpipe.fish
 ```
 
 (For a faster shell startup, redirect the script to a file and `source` it

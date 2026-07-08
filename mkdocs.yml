@@ -1,5 +1,5 @@
 site_name: smartpipe
-site_description: Semantic pipes and queries for your terminal — map, filter, cluster, and free query verbs for Unix pipelines.
+site_description: Semantic pipes and queries for your terminal - map, filter, cluster, and free query verbs for Unix pipelines.
 docs_dir: docs
 repo_url: https://github.com/prabal-rje/smartpipe
 edit_uri: edit/main/docs/

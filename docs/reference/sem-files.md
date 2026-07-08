@@ -4,10 +4,10 @@ A `.sem` file captures **exactly one verb invocation** in TOML. `smartpipe run
 stage.sem` executes it; a shebang makes it directly executable. Composition
 stays where it belongs - in the shell:
 
-```console
-$ cat tickets.log \
-    | ./filter-urgent.sem \
-    | ./extract.sem > urgent.csv
+```bash
+cat tickets.log \
+| ./filter-urgent.sem \
+| ./extract.sem > urgent.csv
 ```
 
 ## A worked pair
@@ -74,11 +74,11 @@ skew). A `.sem` script is the opposite trade: it runs unattended, so a typo'd
 `promt` silently ignored would surface only later, in production. The
 error names the key and lists the valid ones for that verb:
 
-```console
-$ smartpipe run extract.sem
-error: extract.sem: unknown key 'promt' - valid keys for map: concurrency, fields, from-files, in, model, output, prompt, schema-file
-  A .sem script runs unattended - a typo silently ignored would be a disaster.
-  Fix the key, then: smartpipe run extract.sem
+```bash
+smartpipe run extract.sem
+# → error: extract.sem: unknown key 'promt' - valid keys for map: concurrency, fields, from-files, in, model, output, prompt, schema-file
+# →   A .sem script runs unattended - a typo silently ignored would be a disaster.
+# →   Fix the key, then: smartpipe run extract.sem
 ```
 
 ## Precedence
@@ -86,8 +86,8 @@ error: extract.sem: unknown key 'promt' - valid keys for map: concurrency, field
 **CLI flag > `.sem` value > environment > config file.** Anything you pass
 after the script overrides the file:
 
-```console
-$ smartpipe run extract.sem --model ollama/qwen3:8b     # wins over the file's model
+```bash
+smartpipe run extract.sem --model ollama/qwen3:8b     # wins over the file's model
 ```
 
 ## The shebang
@@ -95,8 +95,8 @@ $ smartpipe run extract.sem --model ollama/qwen3:8b     # wins over the file's m
 `#!/usr/bin/env -S smartpipe run` needs `env -S` (GNU coreutils ≥ 8.30, any
 modern macOS). If your platform lacks it, the spelled-out form works everywhere:
 
-```console
-$ smartpipe run extract.sem < cards.txt
+```bash
+smartpipe run extract.sem < cards.txt
 ```
 
 ## Why one stage per file?
@@ -127,13 +127,13 @@ field = "cluster"
 save = "themes.svg"
 ```
 
-```console
-$ cat week.log \
-    | smartpipe run triage.sem
-$ smartpipe run triage.sem --dry-run      # the graph + cost posture, zero calls
-stage hot          where 'text has "ERROR"'   [free]
-stage themes       cluster --top 8            [model calls]
-stage picture      chart cluster --save …     [free]
+```bash
+cat week.log \
+| smartpipe run triage.sem
+smartpipe run triage.sem --dry-run      # the graph + cost posture, zero calls
+# → stage hot          where 'text has "ERROR"'   [free]
+# → stage themes       cluster --top 8            [model calls]
+# → stage picture      chart cluster --save …     [free]
 ```
 
 Each stage reads the previous stage's output (`input = "name"` picks any

@@ -4,10 +4,10 @@ Semantic diff of two item **sets** (not a line diff): embed both sides,
 group the union by meaning, report the themes that over-index on one side -
 with both shares as evidence.
 
-```console
-$ smartpipe diff --right errors-before.log < errors-during.log
-diff: left = stdin (2,114) · right = errors-before.log (1,884) · ~4,000 embeddings + labels for the lopsided themes
-{"side": "left", "theme": "timeouts calling payments-v2", "share_left": 0.34, "share_right": 0.02, "examples": ["upstream payments-v2 504", "…"]}
+```bash
+smartpipe diff --right errors-before.log < errors-during.log
+# → diff: left = stdin (2,114) · right = errors-before.log (1,884) · ~4,000 embeddings + labels for the lopsided themes
+# → {"side": "left", "theme": "timeouts calling payments-v2", "share_left": 0.34, "share_right": 0.02, "examples": ["upstream payments-v2 504", "…"]}
 ```
 
 Left is `stdin`, right is `--right FILE` - the same shape as `join`. Balanced

@@ -7,26 +7,26 @@ Applies a prompt to every input item. One item in, one result out.
 
 ## Examples
 
-```console
+```bash
 # Plain transform - each line becomes a prompt, one result per line:
-$ cat notes.txt \
-    | smartpipe map "Translate to French"
+cat notes.txt \
+| smartpipe map "Translate to French"
 
 # Structured extraction - braces name the fields you want back (JSONL out):
-$ cat receipts.txt \
-    | smartpipe map "Extract {vendor, date, total}"
-{"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
+cat receipts.txt \
+| smartpipe map "Extract {vendor, date, total}"
+# → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 
 # Use a cloud model just for this run:
-$ cat data.txt \
-    | smartpipe map "Classify the sentiment" --model gpt-5.4-mini
+cat data.txt \
+| smartpipe map "Classify the sentiment" --model gpt-5.4-mini
 
 # Compose with the tools you already have:
-$ cat receipts.txt \
-    | smartpipe map "Extract {vendor, total}" \
-    | jq -r '.total' \
-    | paste -sd+ \
-    | bc
+cat receipts.txt \
+| smartpipe map "Extract {vendor, total}" \
+| jq -r '.total' \
+| paste -sd+ \
+| bc
 ```
 
 ## How it decides plain vs. structured
@@ -54,10 +54,10 @@ without one, the item skips with a hint.
 `map` processes `stdin` incrementally - results appear as input arrives, so live
 sources work with no flag:
 
-```console
-$ tail -f app.log \
-    | smartpipe map "Classify: {severity, category}" \
-    | tee incidents.jsonl
+```bash
+tail -f app.log \
+| smartpipe map "Classify: {severity, category}" \
+| tee incidents.jsonl
 ```
 
 ## Options
@@ -76,11 +76,11 @@ $ tail -f app.log \
 When a field is a list, `--explode FIELD` emits one row per element with the
 sibling fields copied - `jq -c '.risks[]'`, but provenance-aware and schema-checked:
 
-```console
-$ cat filings.txt \
-    | smartpipe map "Extract {vendor, risks}" --explode risks
-{"vendor":"Acme","risks":"late delivery"}
-{"vendor":"Acme","risks":"currency exposure"}
+```bash
+cat filings.txt \
+| smartpipe map "Extract {vendor, risks}" --explode risks
+# → {"vendor":"Acme","risks":"late delivery"}
+# → {"vendor":"Acme","risks":"currency exposure"}
 ```
 
 An empty list is zero rows; a non-list value passes through unchanged.
@@ -140,9 +140,9 @@ By default a video yields one frame per second up to 24, evenly spread past
 that (a 10-minute clip becomes 24 frames, one per 25 seconds). Two flags
 change the deal on `map`/`extend`:
 
-```console
-$ smartpipe map "what changes in this scene?" --in demo.mp4 --frame-every 1
-$ smartpipe map "summarize" --in long.mp4 --frame-every 2 --max-frames 120
+```bash
+smartpipe map "what changes in this scene?" --in demo.mp4 --frame-every 1
+smartpipe map "summarize" --in long.mp4 --frame-every 2 --max-frames 120
 ```
 
 - `--frame-every SECONDS` is a **density guarantee** - one frame per period,

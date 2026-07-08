@@ -2,14 +2,14 @@
 
 getschema reports which fields a stream has, their types, and how complete each is: **Free - never calls a model.**
 
-```console
-$ cat data.jsonl \
-    | smartpipe getschema
-field      type            coverage  example
-id         integer|string  100%      1
-sentiment  string          67%       "neg"
-tags       array           33%       ["a"]
-try: smartpipe chart id · smartpipe where 'id …'
+```bash
+cat data.jsonl \
+| smartpipe getschema
+# → field      type            coverage  example
+# → id         integer|string  100%      1
+# → sentiment  string          67%       "neg"
+# → tags       array           33%       ["a"]
+# → try: smartpipe chart id · smartpipe where 'id …'
 ```
 
 A table on a terminal, JSONL records when piped. Mixed types show as

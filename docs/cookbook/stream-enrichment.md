@@ -13,10 +13,10 @@ Tag a live event stream with the catalog rows it concerns - as it happens.
 
 ## The pipe
 
-```console
-$ tail -f support-events.log \
-    | smartpipe join "this event {left.text} involves the customer {right.name}" --right customers.jsonl --k 3 \
-    | jq -r 'select(.right.tier == "enterprise") | "\(.right.owner): \(.left.text)"'
+```bash
+tail -f support-events.log \
+| smartpipe join "this event {left.text} involves the customer {right.name}" --right customers.jsonl --k 3 \
+| jq -r 'select(.right.tier == "enterprise") | "\(.right.owner): \(.left.text)"'
 ```
 
 Every arriving line is embedded, narrowed to its 3 nearest customers, and only
