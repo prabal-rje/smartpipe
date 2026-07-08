@@ -25,7 +25,7 @@ from smartpipe.engine.prompts import (
     parse_prompt,
     reject_comma_groups,
 )
-from smartpipe.engine.runner import Done, FailurePolicy, run_ordered
+from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import validate_and_coerce
 from smartpipe.io import diagnostics, readers
 from smartpipe.io.inputs import STDIN
@@ -33,9 +33,12 @@ from smartpipe.io.items import describe_source
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.io.writers import OutputFormat
 from smartpipe.verbs.common import (
+    ModelSlot,
     WindowGate,
+    breaker_policy,
     ensure_text,
     interrupted_exit_code,
+    make_failover,
     outcome_exit_code,
     prepend,
 )
@@ -47,7 +50,7 @@ if TYPE_CHECKING:
     from smartpipe.engine.prompts import Token
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, ModelRef
     from smartpipe.models.stt import RemoteTranscriber
 
@@ -64,15 +67,18 @@ class FilterRequest:
     concurrency_flag: int | None
     input: InputSpec = STDIN
     allow_captions: bool = False  # cloud conversions opt-in (D33)
+    fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
 
 
 class FilterContext(Protocol):
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
+    def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
+    async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
     def writer(
-        self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO
+        self, output_flag: OutputFormat, *, structured: bool, stdout: TextSink
     ) -> ResultWriter: ...
 
 
@@ -88,7 +94,11 @@ async def run_filter(
     reject_comma_groups(tokens)  # UsageFault: comma-braces are map-only
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     model = await context.chat_model(request.model_flag)
-    writer = context.writer(OutputFormat.AUTO, structured=False, stdout=stdout)
+    slot = ModelSlot(model)
+    fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
+    spinner = make_stderr_spinner()
+    # the arbiter: result writes pause the status line, so they never interleave
+    writer = context.writer(OutputFormat.AUTO, structured=False, stdout=spinner.guard(stdout))
     concurrency = context.concurrency(request.concurrency_flag)
 
     # First-item brace check (streaming can't see "all items" up front): the common
@@ -104,7 +114,6 @@ async def run_filter(
         raise UsageFault(screens.FIELD_REF_ON_PLAIN_INPUT)  # exit 64, zero model calls
     items_iter = prepend(first, items_iter)
 
-    spinner = make_stderr_spinner()
     spinner.start(total=total)
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
@@ -119,15 +128,28 @@ async def run_filter(
     )
 
     async def worker(item: Item) -> tuple[Item, bool]:
+        current = slot.current  # captured per item: the failover swaps wholesale
         budget = await gate.budget_for_oversized(item.text)
         if budget is None:
-            return item, await _judge(model, tokens, item, log, converter)
-        # D26: judge the chunks — any match keeps the whole item (--not inverts after)
-        for chunk in split_text(item.text, budget):
-            if await _judge(model, tokens, replace(item, text=chunk), log, converter):
-                return item, True
-        return item, False
+            matched = await _judge(current, tokens, item, log, converter)
+        else:
+            # D26: judge the chunks — any match keeps the whole item (--not inverts after)
+            matched = False
+            for chunk in split_text(item.text, budget):
+                if await _judge(current, tokens, replace(item, text=chunk), log, converter):
+                    matched = True
+                    break
+        slot.tally(str(current.ref))
+        return item, matched
 
+    policy = breaker_policy(model.ref.provider)
+    failover = (
+        make_failover(
+            slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
+        )
+        if fallback is not None
+        else None
+    )
     judged = 0
     matches = 0
     skipped = 0
@@ -135,8 +157,9 @@ async def run_filter(
         items_iter,
         worker,
         concurrency=concurrency,
-        failure_policy=FailurePolicy(),
+        failure_policy=policy,
         stop=stop,
+        failover=failover,
     )
     try:
         async for outcome in outcomes:
@@ -156,6 +179,8 @@ async def run_filter(
         spinner.finish()
         writer.flush()
         log.finish()
+    if slot.switched:
+        diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=judged, skipped=skipped)
         return interrupted_exit_code(done=judged, skipped=skipped)

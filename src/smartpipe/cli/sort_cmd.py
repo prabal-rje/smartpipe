@@ -21,12 +21,12 @@ def sort_command(by: str, descending: bool) -> None:
     \b
     Examples:
       cat scored.ndjson | smartpipe sort --by _score --desc | head -5
-      smartpipe map "…{confidence number}" --in 'docs/*.pdf' | smartpipe sort --by confidence --desc
+      smartpipe map "…{confidence number}" 'docs/*.pdf' | smartpipe sort --by confidence --desc
 
     Numbers sort numerically, strings lexically (numbers first when mixed);
     rows missing the field always land LAST, in both directions, with a
     note. Stable: ties keep input order. Rows pass through byte-for-byte.
-    (There is no `take` — `head` already counts NDJSON rows.)
+    (There is no `take` — `head` already counts JSONL rows.)
     """
     code = run_sort(SortRequest(by=by, descending=descending), stdin=sys.stdin, stdout=sys.stdout)
     if code is not ExitCode.OK:  # pragma: no cover — sort always OKs

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, SetupFault, TransportError
 from smartpipe.models.base import CompletionRequest, parse_model_ref
 from smartpipe.models.ollama import (
     OllamaChatModel,
@@ -117,7 +117,7 @@ async def test_server_errors_are_retried_then_skip_the_item(
     route = respx_mock.post(f"{HOST}/api/chat").mock(
         return_value=httpx.Response(500, json={"error": "overloaded"})
     )
-    with pytest.raises(ItemError, match="ollama error 500"):
+    with pytest.raises(TransportError, match="ollama error 500"):
         await _chat(client).complete(CompletionRequest(system=None, user="x"))
     assert route.call_count == 3  # all attempts used
 

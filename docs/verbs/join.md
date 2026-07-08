@@ -6,7 +6,7 @@ The SQL join's semantic cousin: no keys, no exact equality - meaning.
 ```bash
 cat tickets.jsonl \
 | smartpipe join "ticket {left.text} concerns product {right.name}" --right products.jsonl
-# → {"left": {"text": "the laser printer keeps smoking"}, "right": {"name": "LaserJet 9"}, "_score": 0.91}
+# → {"left": {"text": "the laser printer keeps smoking"}, "right": {"name": "LaserJet 9"}, "__score": 0.91}
 ```
 
 ## How it works (and why it's affordable)
@@ -47,7 +47,7 @@ Braces name a side's field - every brace must pick a side:
 | `--threshold FLOAT` | Similarity floor (0-1) a candidate must clear before judging |
 | `--model TEXT` | Chat model for the judge calls |
 | `--embed-model TEXT` | Embedding model for both sides |
-| `--fields A,B` | Project output columns - dotted paths reach the sides: `--fields left.id,right.name,_score` |
+| `--fields A,B` | Project output columns - dotted paths reach the sides: `--fields left.id,right.name,__score` |
 | `--output FORMAT` | `auto` · `json` · `csv` · `tsv` |
 | `--concurrency N` / `--max-calls N` | Parallel left items / hard cost ceiling |
 
@@ -57,7 +57,7 @@ One record per **matched pair**, in left-input order, a left item's matches
 consecutive and ranked by similarity:
 
 ```json
-{"left": {…}, "right": {…}, "_score": 0.87}
+{"left": {…}, "right": {…}, "__score": 0.87}
 ```
 
 The sides stay nested (never flat-merged) so identical field names on both

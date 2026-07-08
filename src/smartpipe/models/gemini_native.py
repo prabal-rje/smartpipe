@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, assert_never
 import httpx
 
 from smartpipe.cli import screens
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, SetupFault, TransportError
 from smartpipe.core.jsontools import as_items, as_record, as_str
 from smartpipe.io import metering
 from smartpipe.models.base import AudioData, ImageData, VideoData
@@ -117,6 +117,8 @@ class GeminiNativeChatModel:
                 ) from exc
             if status == 400 and ("responseSchema" in detail or "response_schema" in detail):
                 raise SetupFault(screens.schema_rejected(_host(self.base_url), detail)) from exc
+            if status >= 500:  # the wire, not the content — the breaker counts these
+                raise TransportError(f"gemini error {status}: {detail}") from exc
             raise ItemError(f"gemini error {status}: {detail}") from exc
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             raise SetupFault(
@@ -125,8 +127,8 @@ class GeminiNativeChatModel:
                 f"  Check your network, or {GEMINI_WIRE.base_url_env} if you pointed "
                 "smartpipe elsewhere."
             ) from exc
-        except httpx.HTTPError as exc:
-            raise ItemError(f"request to {self.base_url} failed: {exc}") from exc
+        except httpx.HTTPError as exc:  # read/write timeouts, protocol errors — transport
+            raise TransportError(f"request to {self.base_url} failed: {exc}") from exc
 
 
 def _parts(request: CompletionRequest) -> list[dict[str, object]]:

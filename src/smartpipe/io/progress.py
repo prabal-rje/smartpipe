@@ -1,9 +1,11 @@
 """Progress feedback — always stderr, always TTY-gated, gone on completion.
 
 Spec §6.1: a single spinner line overwritten in place, with count, percent, and
-an ETA that appears only after a few completions. When stderr is not a terminal
-(a cron job, a pipe), progress is suppressed entirely — stdout stays sacred and
-the log stays clean. The render functions are pure; ``Spinner`` adds the clock,
+an ETA that appears only after a few completions. The animation renders only in
+a pipeline's FINAL stage — stderr and stdout both terminals. A piped stdout
+(mid-pipe stage) or a piped stderr (cron) suppresses it entirely — stdout stays
+sacred, the log stays clean, and two smartpipes in one pipe never fight over
+the terminal row. The render functions are pure; ``Spinner`` adds the clock,
 throttling, and the stderr writes.
 """
 
@@ -11,14 +13,17 @@ from __future__ import annotations
 
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from smartpipe.io import tty
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
     from typing import TextIO
+
+    from smartpipe.io.writers import TextSink
 
 __all__ = ["Spinner", "format_eta", "make_stderr_spinner", "render_known", "render_unknown"]
 
@@ -73,6 +78,7 @@ class Spinner:
     _last_draw: float = field(default=-1.0)
     _frame: int = 0
     _drew: bool = False
+    _line: str = ""  # last rendered status line, redrawn verbatim after paused()
 
     def start(self, total: int | None) -> None:
         self.total = total
@@ -95,6 +101,30 @@ class Spinner:
         if self.enabled and self._drew:
             self.stream.write(f"\r{_CLEAR_LINE}")
             self.stream.flush()
+
+    @contextmanager
+    def paused(self) -> Generator[None]:
+        """The terminal arbiter primitive: erase the status line, let the caller
+        own the terminal, then redraw the same line. Result emission wraps itself
+        in this so no result byte ever lands between a draw and its erase."""
+        if not self._drew:
+            yield
+            return
+        self.stream.write(f"\r{_CLEAR_LINE}")
+        self.stream.flush()
+        try:
+            yield
+        finally:
+            self.stream.write(f"\r{self._line}{_CLEAR_LINE}")
+            self.stream.flush()
+
+    def guard(self, stream: TextSink) -> TextSink:
+        """Route a result stream through the arbiter: each write pauses the
+        status line. A disabled spinner returns the stream untouched — piped
+        runs pay nothing."""
+        if not self.enabled:
+            return stream
+        return _GuardedSink(target=stream, spinner=self)
 
     def _color(self) -> bool:
         import os
@@ -123,18 +153,41 @@ class Spinner:
                 line += f"   \x1b[2m{consumed}\x1b[0m"
         elif consumed:
             line += f"   {consumed}"
+        self._line = line
         self.stream.write(f"\r{line}{_CLEAR_LINE}")
         self.stream.flush()
         self._drew = True
 
 
+@dataclass(frozen=True, slots=True)
+class _GuardedSink:
+    """A result stream routed through the arbiter: writes never land under the
+    status line. The target is flushed inside the pause so the bytes reach the
+    terminal before the line is redrawn."""
+
+    target: TextSink
+    spinner: Spinner
+
+    def write(self, s: str, /) -> int:
+        with self.spinner.paused():
+            count = self.target.write(s)
+            self.target.flush()
+        return count
+
+    def flush(self) -> None:
+        self.target.flush()
+
+
 def make_stderr_spinner() -> Spinner:
-    """A spinner wired to the real stderr — enabled only when stderr is a TTY,
-    with a Braille or ASCII frame set depending on the encoding."""
+    """A spinner wired to the real stderr — animated only in a pipeline's final
+    stage (stderr AND stdout both TTYs; a piped stdout means a downstream process
+    owns the terminal, so mid-pipe stages keep line-atomic notes and the receipt
+    but never a ``\\r`` animation), with a Braille or ASCII frame set depending
+    on the encoding."""
     encoding = (sys.stderr.encoding or "").lower()
     return Spinner(
         stream=sys.stderr,
-        enabled=tty.stderr_is_tty(),
+        enabled=tty.stderr_is_tty() and tty.stdout_is_tty(),
         ascii_only="utf" not in encoding,
         clock=time.monotonic,
     )

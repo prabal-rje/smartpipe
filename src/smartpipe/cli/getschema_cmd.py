@@ -22,7 +22,7 @@ def getschema_command(scan_all: bool) -> None:
       cat data.jsonl | smartpipe getschema
       smartpipe getschema --all < big.jsonl
 
-    A table on a terminal, NDJSON when piped. Mixed types show as unions
+    A table on a terminal, JSONL when piped. Mixed types show as unions
     (string|number) — that's the dirt worth seeing. Plain-text input gets a
     one-line answer instead of an error. The footer suggests the next move.
     """

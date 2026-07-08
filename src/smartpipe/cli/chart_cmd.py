@@ -47,7 +47,7 @@ def chart_command(
       cat tickets.jsonl | smartpipe chart --facet label,severity,region
       cat app.jsonl | smartpipe where 'level == "error"' | smartpipe chart --by-time ts:1h
 
-    Reads NDJSON records (counts FIELD) or plain lines (counts each line).
+    Reads JSONL records (counts FIELD) or plain lines (counts each line).
     The chart is the result — it goes to stdout; --save adds an SVG.
     """
     facets = tuple(name.strip() for name in facet.split(",") if name.strip()) if facet else ()

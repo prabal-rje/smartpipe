@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ItemError, SetupFault, UsageFault
 from smartpipe.io import diagnostics
-from smartpipe.io.items import Item, item_from_file, item_from_line
+from smartpipe.io.items import Item, ItemSource, item_from_file, item_from_line
 from smartpipe.models.base import AudioData, ImageData, VideoData
 from smartpipe.parsing.detect import FileKind, detect_kind, route
 from smartpipe.parsing.extract import MissingExtra, extract
@@ -52,7 +52,9 @@ def resolve_items(
     Returns ``(items, total)`` — total is known only for ``--in`` file lists;
     stdin is a stream (``tail -f`` works), so its total is ``None`` and the
     spinner shows count+rate instead of an ETA. Only the stdin paths guard
-    against a bare terminal."""
+    against a bare terminal. ``spec.as_mode`` is the granularity dial (item
+    15): file = whole crates, lines = text rows, jsonl = strict records;
+    None = auto (extension defaults for paths, the per-line sniff on stdin)."""
     from smartpipe.io.inputs import expand_globs
 
     if spec.patterns and spec.from_files:
@@ -61,23 +63,31 @@ def resolve_items(
             "  --in takes globs; --from-files reads filenames from stdin."
         )
     if spec.patterns:
-        loaded = file_items(expand_globs(spec.patterns))  # UsageFault if no match
+        paths = expand_globs(spec.patterns)  # UsageFault if no match
+        if spec.as_mode in ("lines", "jsonl"):
+            _refuse_uncuttable(paths, spec.as_mode)  # every matched file must honor it
+        loaded = _path_items(paths, spec.as_mode)
         if stdin.isatty():  # files only — no pipe to chain
             return _iter_list(loaded), len(loaded)
         # spec §8: mixed input is files first (glob-sorted), then stdin lines
-        return _chain_files_then_stdin(loaded, stdin, stop), None
+        return _chain_files_then_stdin(loaded, stdin, stop, spec.as_mode), None
     ensure_not_a_tty(stdin)
     if spec.from_files:
-        return from_files_items(stdin, stop=stop), None
-    return stdin_items(stdin, stop=stop), None
+        return from_files_items(stdin, stop=stop, as_mode=spec.as_mode), None
+    if spec.as_mode == "file":
+        return _stdin_as_one_item(stdin, stop), None  # slurp: the whole pipe is one crate
+    return stdin_items(stdin, stop=stop, as_mode=spec.as_mode, strict_rows=spec.strict_rows), None
 
 
 async def _chain_files_then_stdin(
-    loaded: Sequence[Item], stdin: TextIO, stop: asyncio.Event | None
+    loaded: Sequence[Item],
+    stdin: TextIO,
+    stop: asyncio.Event | None,
+    as_mode: str | None,
 ) -> AsyncIterator[Item]:
     for item in loaded:
         yield item
-    async for item in stdin_items(stdin, stop=stop):
+    async for item in stdin_items(stdin, stop=stop, as_mode=as_mode):
         yield item
 
 
@@ -270,21 +280,39 @@ async def _lines(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[str
         yield payload
 
 
-async def stdin_items(stdin: TextIO, *, stop: asyncio.Event | None = None) -> AsyncIterator[Item]:
+async def stdin_items(
+    stdin: TextIO,
+    *,
+    stop: asyncio.Event | None = None,
+    as_mode: str | None = None,
+    strict_rows: bool = False,
+) -> AsyncIterator[Item]:
     """Each stdin line is one Item, yielded as it arrives (never waits for EOF).
 
     A redirected binary document (``smartpipe map … < report.pdf``) is ONE item:
     spooled, extracted, source ``<stdin>`` (stage-07 task 4). A final line without
     a trailing newline is still an item; empty input yields nothing; CRLF and the
-    line-0 BOM are handled per-item by ``item_from_line``.
+    line-0 BOM are handled per-item by ``item_from_line``. ``as_mode`` (item 15):
+    ``lines`` reads every line as TEXT (no JSON sniff); ``jsonl`` demands one
+    record per line, loudly; both refuse a binary stdin — a document or clip has
+    no lines to cut.
     """
 
     index = 0
+    records = 0
+    plain = 0
     async for message in _messages(stdin, stop):
         tag, payload = message
+        if as_mode is not None and tag in ("document", "image", "audio", "video"):
+            raise UsageFault(_uncuttable_stdin(tag, as_mode))
         if tag == "line":
             assert isinstance(payload, str)
-            yield item_from_line(payload, index)
+            item = _row_item(payload, index, as_mode, origin=None)
+            if item.data is None:
+                plain += 1
+            else:
+                records += 1
+            yield item
             index += 1
         elif tag == "document":
             assert isinstance(payload, _StdinDocument)
@@ -304,6 +332,22 @@ async def stdin_items(stdin: TextIO, *, stop: asyncio.Event | None = None) -> As
         else:  # "fatal"
             assert isinstance(payload, str)
             raise SetupFault(payload)
+    _report_census(records, plain, strict=strict_rows)
+
+
+def _report_census(records: int, plain: int, *, strict: bool) -> None:
+    """The kind census (item 20): a MIXED stream gets one stderr note —
+    --strict-rows (or SMARTPIPE_STRICT_ROWS) turns it into an error."""
+    if not records or not plain:
+        return
+    line = f"input: {records:,} records · {plain:,} plain lines"
+    if strict or os.environ.get("SMARTPIPE_STRICT_ROWS", "").strip():
+        raise UsageFault(
+            f"{line}\n"
+            "  --strict-rows demands one kind — declare it: --as jsonl (records) "
+            "or --as lines (text)."
+        )
+    diagnostics.note(line)
 
 
 def _extract_stdin_document(tmp_name: str, kind: FileKind) -> Item:
@@ -324,11 +368,157 @@ def _extract_stdin_document(tmp_name: str, kind: FileKind) -> Item:
     return item_from_file(extracted.text, "<stdin>", 0)
 
 
+def _row_item(line: str, index: int, as_mode: str | None, *, origin: str | None) -> Item:
+    """One text row under the --as dial: ``lines`` keeps it TEXT even if it
+    looks like JSON; ``jsonl`` demands a record, loudly naming the line; the
+    default (None) is the ordinary per-line sniff."""
+    if as_mode == "lines":
+        raw = line.removesuffix("\n").removesuffix("\r")
+        source = ItemSource(
+            kind="file" if origin is not None else "stdin",
+            name=origin or "-",
+            index=index,
+            cut="lines",
+            path=origin,
+        )
+        return Item(raw=raw, text=raw, data=None, source=source)
+    item = item_from_line(line, index)
+    if as_mode == "jsonl" and item.data is None:
+        where = f"{origin or 'stdin'} line {index + 1}"
+        raise UsageFault(
+            f"--as jsonl: {where} isn't a JSON object\n"
+            "  jsonl means one {…} record per line; --as lines reads lines as plain text."
+        )
+    if origin is not None and item.source.label is None and item.source.path is None:
+        # a fresh cut from a named file: stamp the file as its origin path
+        item = replace(item, source=replace(item.source, kind="file", name=origin, path=origin))
+    return item
+
+
+def _uncuttable_stdin(tag: str, as_mode: str) -> str:
+    match tag:
+        case "image":
+            reason = "images have no finer granularity"
+        case "audio" | "video":
+            reason = "finer granularity is split --by minutes/seconds"
+        case _:  # document
+            reason = "pages are the honest unit: smartpipe split --by pages (or --by tokens)"
+    return (
+        f"--as {as_mode}: stdin is a {'document' if tag == 'document' else tag}, not lines\n"
+        f"  {reason}"
+    )
+
+
+def _refuse_uncuttable(paths: Sequence[Path], as_mode: str) -> None:
+    """An EXPLICIT --as lines/jsonl must be satisfiable by EVERY matched file —
+    loud refusal with offender counts, never silent partial application."""
+    images: list[str] = []
+    clips: list[str] = []
+    documents: list[str] = []
+    for path in paths:
+        try:
+            with path.open("rb") as handle:
+                head = handle.read(_HEAD_BYTES)
+        except OSError:
+            continue  # unreadable files get their own skip warning later
+        match route(detect_kind(path, head)):
+            case "image":
+                images.append(path.name)
+            case "audio" | "video":
+                clips.append(path.name)
+            case "doc":
+                documents.append(path.name)
+            case _:
+                pass
+    offenders = len(images) + len(clips) + len(documents)
+    if offenders == 0:
+        return
+    plural = "s" if offenders != 1 else ""
+    lines = [f"--as {as_mode}: {offenders} matched file{plural} can't be cut into lines"]
+    if images:
+        lines.append(f"  images ({_examples(images)}) have no finer granularity")
+    if clips:
+        lines.append(
+            f"  audio/video ({_examples(clips)}) — finer granularity is split --by minutes/seconds"
+        )
+    if documents:
+        lines.append(
+            f"  documents ({_examples(documents)}) — pages are the honest unit: "
+            "split --by pages (or --by tokens)"
+        )
+    raise UsageFault("\n".join(lines))
+
+
+def _examples(names: Sequence[str]) -> str:
+    more = len(names) - 1
+    return names[0] if more == 0 else f"{names[0]} +{more} more"
+
+
+_JSONL_SUFFIXES = (".jsonl", ".ndjson")
+
+
+def _path_items(paths: Sequence[Path], as_mode: str | None) -> list[Item]:
+    """Named paths under the dial: explicit --as applies to every file; AUTO
+    gives each file its extension default — .jsonl/.ndjson cut into records,
+    everything else is one whole-file crate."""
+    items: list[Item] = []
+    warned_extras: set[str] = set()
+    ordinal = 0
+    for path in paths:
+        mode = as_mode
+        if mode is None:
+            mode = "jsonl" if path.suffix.lower() in _JSONL_SUFFIXES else "file"
+        if mode == "file":
+            item = _load_file(path, ordinal, warned_extras)
+            if item is not None:
+                items.append(item)
+                ordinal += 1
+            continue
+        items.extend(_text_rows(path, mode))
+    return items
+
+
+def _text_rows(path: Path, mode: str) -> list[Item]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        diagnostics.warn(f"skipped: {path} (cannot read: {exc.strerror or exc})")
+        return []
+    return [
+        _row_item(line, line_index, mode, origin=str(path))
+        for line_index, line in enumerate(text.splitlines())
+    ]
+
+
+async def _stdin_as_one_item(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[Item]:
+    """--as file on stdin: slurp the whole pipe as ONE document item. A binary
+    stdin already arrives as one item; text lines collect until EOF."""
+    collected: list[str] = []
+    async for message in _messages(stdin, stop):
+        tag, payload = message
+        if tag == "line":
+            assert isinstance(payload, str)
+            collected.append(payload)
+        elif tag == "document":
+            assert isinstance(payload, _StdinDocument)
+            yield await asyncio.to_thread(_extract_stdin_document, payload.tmp_name, payload.kind)
+        elif tag in ("image", "audio", "video"):
+            assert isinstance(payload, AudioData | ImageData | VideoData)
+            yield replace(item_from_file("", "<stdin>", 0), media=(payload,))
+        else:  # fatal
+            assert isinstance(payload, str)
+            raise SetupFault(payload)
+    if collected:
+        yield item_from_file("".join(collected).removesuffix("\n"), "<stdin>", 0)
+
+
 async def from_files_items(
-    stdin: TextIO, *, stop: asyncio.Event | None = None
+    stdin: TextIO, *, stop: asyncio.Event | None = None, as_mode: str | None = None
 ) -> AsyncIterator[Item]:
     """``--from-files``: each non-blank stdin line names a file to read — also
-    incremental, so ``find … | smartpipe … --from-files`` processes as names arrive."""
+    incremental, so ``find … | smartpipe … --from-files`` processes as names
+    arrive. The --as dial applies per named file (streamed names can't be
+    pre-validated as a set, so an uncuttable file refuses when it arrives)."""
     from pathlib import Path
 
     warned_extras: set[str] = set()
@@ -337,9 +527,20 @@ async def from_files_items(
         name = line.strip()
         if not name:
             continue
-        item = _load_file(Path(name), index, warned_extras)
-        if item is not None:
-            yield item
+        path = Path(name)
+        if as_mode in ("lines", "jsonl"):
+            _refuse_uncuttable([path], as_mode)
+        mode = as_mode
+        if mode is None:
+            mode = "jsonl" if path.suffix.lower() in _JSONL_SUFFIXES else "file"
+        if mode == "file":
+            item = _load_file(path, index, warned_extras)
+            if item is not None:
+                yield item
+                index += 1
+            continue
+        for row in _text_rows(path, mode):
+            yield row
             index += 1
 
 

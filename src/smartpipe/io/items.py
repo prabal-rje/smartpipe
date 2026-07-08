@@ -3,7 +3,7 @@
 Contract (plan/architecture.md "Core types"): ``raw`` preserves the input line
 byte-for-byte (minus the trailing newline) so ``filter``/``top_k`` can honor the
 passthrough-fidelity guarantee; ``data`` is set only when the line is a JSON
-*object* (an NDJSON record) — scalars and arrays are just text.
+*object* (a JSONL record) — scalars and arrays are just text.
 """
 
 from __future__ import annotations
@@ -16,16 +16,55 @@ from typing import TYPE_CHECKING, Literal, TypeGuard
 if TYPE_CHECKING:
     from smartpipe.models.base import MediaData
 
-__all__ = ["Item", "ItemSource", "describe_source", "item_from_file", "item_from_line"]
+__all__ = [
+    "KNOWN_META",
+    "Item",
+    "ItemSource",
+    "describe_source",
+    "item_from_file",
+    "item_from_line",
+    "item_record",
+    "media_record",
+    "source_record",
+]
 
 _BOM = "﻿"
+
+# The reserved double-underscore namespace (wave 2, item 12): tool metadata.
+# KNOWN fields are adopted on ingestion (round-tripping); unknown `__` fields
+# warn once per name and carry through untouched — user data owns at most one
+# leading underscore, so a stray `__x` is worth a heads-up, never a hard error.
+KNOWN_META = frozenset({"__source", "__media", "__score", "__invalid", "__error", "__raw"})
+
+_warned_meta: set[str] = set()  # once per field name per process, like the degradation cap
 
 
 @dataclass(frozen=True, slots=True)
 class ItemSource:
     kind: Literal["stdin", "file"]
-    name: str  # "-" for stdin, else the path as given
-    index: int  # 0-based line number (stdin) or file ordinal
+    name: str  # "-" for stdin, else the path (or an adopted human label)
+    index: int  # 0-based line number (stdin) or file/segment ordinal
+    cut: str = "lines"  # how the item was cut: lines|jsonl|file|tokens|pages|minutes|seconds
+    path: str | None = None  # the origin path when `name` carries a human label
+    label: str | None = None  # adopted human wording ("report.pdf §3/12")
+
+
+def source_record(source: ItemSource) -> dict[str, object]:
+    """The ``__source`` spine record (item 13): how the item was cut travels
+    with it — ``{path, as, line|page|segment}`` plus an optional human label."""
+    record: dict[str, object] = {"path": source.path or source.name, "as": source.cut}
+    match source.cut:
+        case "lines" | "jsonl":
+            record["line"] = source.index + 1
+        case "pages":
+            record["page"] = source.index + 1
+        case "file":
+            pass  # a whole file has no inner position
+        case _:  # tokens / minutes / seconds / future cuts
+            record["segment"] = source.index + 1
+    if source.label is not None:
+        record["label"] = source.label
+    return record
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +81,7 @@ def item_from_line(line: str, index: int) -> Item:
     if index == 0:
         raw = raw.removeprefix(_BOM)
     data = _sniff_json_object(raw)
+    _warn_unknown_meta(data)
     media = _sniff_media(data)
     text = raw
     if media and data is not None:
@@ -59,43 +99,94 @@ def item_from_line(line: str, index: int) -> Item:
 
 def item_from_file(text: str, path: str, index: int) -> Item:
     """A whole file is one item: its extracted text, with no JSON sniffing (a
-    document's text isn't an NDJSON line). ``filter``/``top_k`` emit its path."""
+    document's text isn't a JSONL line). ``filter``/``top_k`` emit its path."""
     return Item(
         raw=text,
         text=text,
         data=None,
-        source=ItemSource(kind="file", name=path, index=index),
+        source=ItemSource(kind="file", name=path, index=index, cut="file"),
     )
 
 
 def _named_source(data: Mapping[str, object] | None, index: int) -> ItemSource:
-    # split emits {"source": "call.mp3 §00:10-00:20"} — keep that provenance
-    name = data.get("source") if data is not None else None
-    return ItemSource(kind="stdin", name=name if isinstance(name, str) else "-", index=index)
+    """The line's provenance: an incoming ``__source`` record is ADOPTED (the
+    round-trip half of item 13 — split's cut survives the pipe); otherwise the
+    line is a fresh lines/jsonl cut at this position."""
+    if data is None:
+        return ItemSource(kind="stdin", name="-", index=index, cut="lines")
+    from smartpipe.core.jsontools import as_record
+
+    carried = as_record(data.get("__source"))
+    if carried is None:
+        return ItemSource(kind="stdin", name="-", index=index, cut="jsonl")
+    path = carried.get("path")
+    cut = carried.get("as")
+    label = carried.get("label")
+    position = next(
+        (
+            value
+            for key in ("line", "page", "segment")
+            if isinstance(value := carried.get(key), int)
+        ),
+        None,
+    )
+    named_path = path if isinstance(path, str) else "-"
+    named_label = label if isinstance(label, str) else None
+    return ItemSource(
+        kind="stdin",
+        name=named_label or named_path,
+        index=position - 1 if position is not None else index,
+        cut=cut if isinstance(cut, str) else "jsonl",
+        path=named_path,
+        label=named_label,
+    )
+
+
+def _warn_unknown_meta(data: Mapping[str, object] | None) -> None:
+    """Unknown `__` fields warn once per name and carry through (item 12)."""
+    if data is None:
+        return
+    from smartpipe.io import diagnostics
+
+    for key in data:
+        if key.startswith("__") and key not in KNOWN_META and key not in _warned_meta:
+            _warned_meta.add(key)
+            diagnostics.warn(
+                f"unknown {key!r} field carried through "
+                "(double-underscore fields are reserved for smartpipe metadata)"
+            )
 
 
 def _sniff_media(data: Mapping[str, object] | None) -> tuple[MediaData, ...]:
-    """``split`` ships media as base64 NDJSON (audio/video slices, figures, and
-    multi-part page items) — rebuild the bytes so the next verb can hear or see
-    them (D27/D32)."""
+    """``split`` ships media under the ``__media`` spine field (item 12): one
+    ``{kind, mime, data_b64}`` object, or a list of them for multi-part page
+    items — rebuild the bytes so the next verb can hear or see them (D27/D32)."""
     if data is None:
         return ()
     from smartpipe.core.jsontools import as_items, as_record
 
-    entries = as_items(data.get("parts"))
+    carried = data.get("__media")
+    if carried is None:
+        return ()
+    entries = as_items(carried)
     if entries is not None:
         return tuple(
             part for entry in entries if (part := _one_media(as_record(entry))) is not None
         )
-    single = _one_media(data)
+    single = _one_media(as_record(carried))
     return (single,) if single is not None else ()
+
+
+_MEDIA_KINDS = ("audio", "image", "video")
 
 
 def _one_media(data: Mapping[str, object] | None) -> MediaData | None:
     if data is None:
         return None
     mime = data.get("mime")
-    if not isinstance(mime, str):
+    kind = data.get("kind")
+    encoded = data.get("data_b64")
+    if not (isinstance(mime, str) and isinstance(encoded, str) and kind in _MEDIA_KINDS):
         return None
     import base64
     import binascii
@@ -106,19 +197,34 @@ def _one_media(data: Mapping[str, object] | None) -> MediaData | None:
         VideoData,
     )
 
-    for key, build in (
-        ("audio_b64", AudioData),
-        ("image_b64", ImageData),
-        ("video_b64", VideoData),
-    ):
-        encoded = data.get(key)
-        if not isinstance(encoded, str):
-            continue
-        try:
-            return build(base64.b64decode(encoded, validate=True), mime)
-        except (binascii.Error, ValueError):
-            return None  # not ours — treat as a plain JSON line
-    return None
+    build = {"audio": AudioData, "image": ImageData, "video": VideoData}[str(kind)]
+    try:
+        return build(base64.b64decode(encoded, validate=True), mime)
+    except (binascii.Error, ValueError):
+        return None  # not ours — treat as a plain JSON line
+
+
+def media_record(part: MediaData) -> dict[str, object]:
+    """One media part as its ``__media`` spine object: {kind, mime, data_b64}."""
+    import base64
+
+    kind = type(part).__name__.removesuffix("Data").lower()
+    return {
+        "kind": kind,
+        "mime": part.mime,
+        "data_b64": base64.b64encode(part.data).decode("ascii"),
+    }
+
+
+def item_record(item: Item) -> dict[str, object]:
+    """The record an item IS (laws 1-2): its own fields, or ``{"text": …}`` for
+    plain text, with media and provenance riding the ``__`` spine."""
+    record: dict[str, object] = dict(item.data) if item.data is not None else {"text": item.text}
+    if item.media and "__media" not in record:
+        parts = [media_record(part) for part in item.media]
+        record["__media"] = parts[0] if len(parts) == 1 else parts
+    record["__source"] = source_record(item.source)
+    return record
 
 
 def describe_source(source: ItemSource) -> str:

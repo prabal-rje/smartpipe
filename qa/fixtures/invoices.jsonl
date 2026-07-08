@@ -1,35 +1,35 @@
-{"invoice": "A-1", "item": "Espresso One machine"}
-{"invoice": "A-2", "item": "LaserJet 9 printer"}
-{"invoice": "A-3", "item": "Standing desk, oak"}
-{"invoice": "A-4", "item": "Aeron chair size B"}
-{"invoice": "A-5", "item": "UltraWide 34 monitor"}
-{"invoice": "A-6", "item": "Mechanical keyboard TKL"}
-{"invoice": "A-8", "item": "4TB backup drive"}
-{"invoice": "A-9", "item": "Conference speakerphone"}
-{"invoice": "A-10", "item": "Label maker pro"}
-{"invoice": "A-11", "item": "Espresso One machine"}
-{"invoice": "A-12", "item": "LaserJet 9 printer"}
-{"invoice": "A-13", "item": "Standing desk, oak"}
-{"invoice": "A-15", "item": "UltraWide 34 monitor"}
-{"invoice": "A-16", "item": "Mechanical keyboard TKL"}
-{"invoice": "A-17", "item": "Noise cancelling headset"}
-{"invoice": "A-18", "item": "4TB backup drive"}
-{"invoice": "A-19", "item": "Conference speakerphone"}
-{"invoice": "A-20", "item": "Label maker pro"}
-{"invoice": "A-22", "item": "LaserJet 9 printer"}
-{"invoice": "A-23", "item": "Standing desk, oak"}
-{"invoice": "A-24", "item": "Aeron chair size B"}
-{"invoice": "A-25", "item": "UltraWide 34 monitor"}
-{"invoice": "A-26", "item": "Mechanical keyboard TKL"}
-{"invoice": "A-27", "item": "Noise cancelling headset"}
-{"invoice": "A-29", "item": "Conference speakerphone"}
-{"invoice": "A-30", "item": "Label maker pro"}
-{"invoice": "A-31", "item": "Espresso One machine"}
-{"invoice": "A-32", "item": "LaserJet 9 printer"}
-{"invoice": "A-33", "item": "Standing desk, oak"}
-{"invoice": "A-34", "item": "Aeron chair size B"}
-{"invoice": "A-36", "item": "Mechanical keyboard TKL"}
-{"invoice": "A-37", "item": "Noise cancelling headset"}
-{"invoice": "A-38", "item": "4TB backup drive"}
-{"invoice": "A-39", "item": "Conference speakerphone"}
-{"invoice": "A-40", "item": "Label maker pro"}
+{"invoice": "A-1", "sku": "SKU-001", "item": "Espresso One machine"}
+{"invoice": "A-2", "sku": "SKU-002", "item": "LaserJet 9 printer"}
+{"invoice": "A-3", "sku": "SKU-003", "item": "Standing desk, oak"}
+{"invoice": "A-4", "sku": "SKU-004", "item": "Aeron chair size B"}
+{"invoice": "A-5", "sku": "SKU-005", "item": "UltraWide 34 monitor"}
+{"invoice": "A-6", "sku": "SKU-006", "item": "Mechanical keyboard TKL"}
+{"invoice": "A-8", "sku": "SKU-008", "item": "4TB backup drive"}
+{"invoice": "A-9", "sku": "SKU-009", "item": "Conference speakerphone"}
+{"invoice": "A-10", "sku": "SKU-010", "item": "Label maker pro"}
+{"invoice": "A-11", "sku": "SKU-011", "item": "Espresso One machine"}
+{"invoice": "A-12", "sku": "SKU-012", "item": "LaserJet 9 printer"}
+{"invoice": "A-13", "sku": "SKU-013", "item": "Standing desk, oak"}
+{"invoice": "A-15", "sku": "SKU-015", "item": "UltraWide 34 monitor"}
+{"invoice": "A-16", "sku": "SKU-016", "item": "Mechanical keyboard TKL"}
+{"invoice": "A-17", "sku": "SKU-017", "item": "Noise cancelling headset"}
+{"invoice": "A-18", "sku": "SKU-018", "item": "4TB backup drive"}
+{"invoice": "A-19", "sku": "SKU-019", "item": "Conference speakerphone"}
+{"invoice": "A-20", "sku": "SKU-020", "item": "Label maker pro"}
+{"invoice": "A-22", "sku": "SKU-022", "item": "LaserJet 9 printer"}
+{"invoice": "A-23", "sku": "SKU-023", "item": "Standing desk, oak"}
+{"invoice": "A-24", "sku": "SKU-024", "item": "Aeron chair size B"}
+{"invoice": "A-25", "sku": "SKU-025", "item": "UltraWide 34 monitor"}
+{"invoice": "A-26", "sku": "SKU-026", "item": "Mechanical keyboard TKL"}
+{"invoice": "A-27", "sku": "SKU-027", "item": "Noise cancelling headset"}
+{"invoice": "A-29", "sku": "SKU-029", "item": "Conference speakerphone"}
+{"invoice": "A-30", "sku": "SKU-030", "item": "Label maker pro"}
+{"invoice": "A-31", "sku": "SKU-031", "item": "Espresso One machine"}
+{"invoice": "A-32", "sku": "SKU-032", "item": "LaserJet 9 printer"}
+{"invoice": "A-33", "sku": "SKU-033", "item": "Standing desk, oak"}
+{"invoice": "A-34", "sku": "SKU-034", "item": "Aeron chair size B"}
+{"invoice": "A-36", "sku": "SKU-036", "item": "Mechanical keyboard TKL"}
+{"invoice": "A-37", "sku": "SKU-037", "item": "Noise cancelling headset"}
+{"invoice": "A-38", "sku": "SKU-038", "item": "4TB backup drive"}
+{"invoice": "A-39", "sku": "SKU-039", "item": "Conference speakerphone"}
+{"invoice": "A-40", "sku": "SKU-040", "item": "Label maker pro"}

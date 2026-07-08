@@ -43,6 +43,7 @@ __all__ = [
 @dataclass(frozen=True, slots=True)
 class Config:
     model: str | None = None
+    fallback_model: str | None = None  # chat failover when the breaker trips (item 11)
     embed_model: str | None = None
     concurrency: int | None = None
     output: str | None = None
@@ -90,6 +91,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Config:
     merged = {**base, **{k: v for k, v in data.items() if k != "profiles"}}
     return Config(
         model=_string(merged, "model", path),
+        fallback_model=_string(merged, "fallback-model", path),
         embed_model=_string(merged, "embed-model", path),
         concurrency=_positive_int(merged, "concurrency", path),
         output=_string(merged, "output", path),
@@ -164,6 +166,7 @@ def save_config(path: Path, config: Config) -> None:
     merged = dict(_read_raw(path))  # a corrupt file fails loudly before we overwrite evidence
     ours: dict[str, str | int | None] = {
         "model": config.model,
+        "fallback-model": config.fallback_model,
         "embed-model": config.embed_model,
         "concurrency": config.concurrency,
         "output": config.output,

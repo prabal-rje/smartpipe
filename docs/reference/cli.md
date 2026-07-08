@@ -1,6 +1,7 @@
 # CLI reference
 
-The complete surface, in one page. As of 1.0 this is a contract governed by
+The complete surface, in one page. `smartpipe PATH…` (no verb) is reader
+mode: it emits the files' items as JSONL records, cut per `--as`. As of 1.0 this is a contract governed by
 [SemVer](https://semver.org) - flags, formats, and exit codes won't change
 within a major version.
 
@@ -11,7 +12,8 @@ smartpipe <verb> [PROMPT] [OPTIONS]
 ```
 
 Input comes from `stdin` (each line an item - or ONE redirected binary document),
-from files (`--in` / `--from-files`, each file an item), or both (`--in` files
+from named FILES after the prompt (each file an item by default; `--in GLOB`
+remains a hidden compatibility alias), or both (named files
 first, then the piped lines). Results go to `stdout`; progress and warnings go
 to `stderr`.
 
@@ -20,6 +22,8 @@ to `stderr`.
 | Verb | Purpose | Page |
 |---|---|---|
 | [`map`](../verbs/map.md) | transform each item with a prompt | one item in, one out |
+| `write` | route items to files (the egress door; `TEMPLATE` with `{name}` `{stem}` `{ext}` `{path}` `{index}` + record fields; `--field`, `--keep-meta`, `--as file\|lines`) | free |
+| `readable` | render records as blocks for eyes (`--full`, `--bare`) | free |
 | [`filter`](../verbs/filter.md) | keep items matching a condition | semantic grep |
 | [`embed`](../verbs/embed.md) | items → vectors (JSONL) | plumbing for `top_k` |
 | [`top_k`](../verbs/top-k.md) | rank by similarity to a query | `sort \| head`, by meaning |
@@ -40,7 +44,7 @@ to `stderr`.
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing (`--probe` adds the paid modality matrix) | exit 0 = ready |
-| `schema` | draft a JSON Schema from English (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
+| `schema` | braces/DSL compile FREE (`--check FILE`, `--example`, stdin REPL); plain English drafts with a model (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
 
 ## Common options
 
@@ -52,8 +56,13 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `--model TEXT` | Model for this run - overrides the config and `SMARTPIPE_MODEL`. |
 | `--embed-model TEXT` | Embedding model (`embed`, `top_k`). |
 | `--concurrency N` | Max parallel model calls (default 4). |
-| `--in GLOB` | Read each matching file as one item (repeatable). |
+| `FILES…` (positional) | Read each named file/glob as items (quote globs). `--in GLOB` is a hidden compatibility alias. |
+| `--as {file,lines,jsonl}` | Cut granularity: whole crates, text rows, or strict records ([the item](../concepts/the-item.md)). Auto: `.jsonl` paths cut into records; other paths are one item; stdin sniffs per line. |
 | `--from-files` | Treat each `stdin` line as a filename. |
+| `--strict-rows` | A mixed record/text stream (or a field-less row in `where`/`summarize`) is an error, not a note. `SMARTPIPE_STRICT_ROWS` is the env form. |
+| `--bare` | Strip `__` metadata from record output (`map`, `extend`, `join`, reader mode). |
+| `--full` | Terminal preview: no truncation (`map`, `extend`, `join`, `readable`). |
+| `--fallback-model TEXT` | Chat model to switch to if the primary looks down (circuit breaker; `map`, `extend`, `filter`, `join`). |
 | `--fields A,B` | Select + order columns of structured output (`map`, `embed`, `top_k`, `reduce` - never `filter`). |
 | `--allow-captions` | Let a CLOUD model convert images/audio/video to text for embedding/text verbs (paid; local models convert free; the `openai`/`gemini` profiles set this by default). |
 | `@file` / `--prompt-file FILE` | Read the prompt from a file (`map`, `filter`, `reduce`, `join`). Missing file = loud exit 64; `@@` escapes a literal leading `@`. |
@@ -63,14 +72,14 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 
 | Verb | Options |
 |---|---|
-| `map` | `--schema FILE`, `--schema-from DSL`, `--tally FIELD`, `--explode FIELD`, `--output {auto,text,json,csv,tsv}` |
+| `map` | `--schema FILE`, `--schema-from DSL`, `--tally FIELD`, `--explode FIELD`, `--output {auto,text,json,csv,tsv}`, `--keep-invalid` (failed validations become `{"__invalid": …}` rows), `--dry-run` (print the composed first request, spend nothing) |
 | `filter` | `--not` (invert, like `grep -v`) |
 | `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT`, `--stream` (live leaderboard) |
 | `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
-| `join` | `--right FILE` (required), `--k N` (default 5), `--threshold FLOAT`, `--kind inner|leftouter|anti`, `--unmatched FILE`, `--embed-model` |
-| `extend` | map's flags (braces/--schema/--schema-from/--tally/--explode/--fields) |
+| `join` | `--right FILE` (required), `--on 'left.F == right.F'` (repeatable; alone = free key join, with a prompt = blocking), `--k N` (default 5), `--threshold FLOAT`, `--kind inner|leftouter|anti`, `--unmatched FILE`, `--embed-model` |
+| `extend` | map's flags (braces/--schema/--schema-from/--tally/--explode/--fields/--keep-invalid/--dry-run) |
 | `map`/`extend` video | `--frame-every SECONDS` (density guarantee), `--max-frames N` (budget; smaller wins) |
-| `distinct` | `--show-groups`, `--threshold F` (cosine, default 0.90), `--embed-model` |
+| `distinct` | `--show-groups`, `--threshold F` (cosine, default 0.90), `--exact` (hash rung only - free), `--embed-model` |
 | `outliers` | `N` (default 5), `--embed-model` |
 | `cluster` | `--k N`, `--top N`, `--explode members`, `--model` (labels), `--embed-model` |
 | `diff` | `--right FILE` (required), `--top N`, `--all`, `--model`, `--embed-model` |

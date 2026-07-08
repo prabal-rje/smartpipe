@@ -39,11 +39,14 @@ $ smartpipe --version
 ```console
 $ head -25 qa/fixtures/tickets.jsonl | smartpipe map \
     "Extract {label enum(bug, praise, request), product string: what part}" --tally label --max-calls 30
+$ head -3 qa/fixtures/tickets.jsonl | smartpipe map "Extract {label}" --dry-run
 ```
-- [ ] 25 NDJSON rows, every `label` one of the three enum values.
+- [ ] 25 JSONL rows, every `label` one of the three enum values.
 - [ ] Live tally on the status line while running; final tally on stderr.
 - [ ] The status line shows the token segment (`↑… ↓… tok`).
 - [ ] The run ends with a `run: … tokens` receipt on stderr.
+- [ ] `--dry-run` prints system/schema/user sections for the FIRST row only,
+      exits 0, spends nothing.
 
 ## 2. Enrichment keeps the record
 
@@ -68,11 +71,14 @@ $ smartpipe where 'total >>> 5' < qa/fixtures/tickets.jsonl; echo "exit=$?"
 
 ```console
 $ smartpipe distinct --show-groups < qa/fixtures/tickets.jsonl 2>&1 | tail -5
+$ smartpipe distinct --exact < qa/fixtures/tickets.jsonl 2>&1 | tail -1
 $ smartpipe cluster --top 5 < qa/fixtures/feedback.txt --max-calls 12
 $ smartpipe outliers 3 < qa/fixtures/tickets.jsonl
 ```
 - [ ] distinct's receipt shows BOTH exact and near folds (the fixture
       plants 4 exact dupes); groups read sensibly.
+- [ ] `--exact` folds the 4 planted dupes instantly, receipt says
+      `… + 0 near duplicates folded`, and NO model is contacted.
 - [ ] cluster prints the cost preview BEFORE any call; rows are
       largest-first with sane labels; `(other)` row appears.
 - [ ] outliers ranks the kernel soft-lockup row first, with the
@@ -90,6 +96,13 @@ $ smartpipe join "order {left.desc} and invoice {right.item} name the same produ
       shares; shared themes fold into a counted note.
 - [ ] anti-join emits ~5 orders, verbatim JSON — the every-7th products
       with no invoice; the matched/unmatched summary prints.
+
+```console
+$ smartpipe join --on 'left.sku == right.sku' --right qa/fixtures/invoices.jsonl \
+    --kind anti < qa/fixtures/orders.jsonl
+```
+- [ ] The key join runs FREE (no model call, instant) and finds the same
+      missing-invoice orders as the semantic anti-join above.
 
 ## 6. The free reporting suite
 
@@ -118,11 +131,25 @@ $ smartpipe map "describe this" --max-calls 6 < qa/fixtures/media.jsonl
       described by), and the receipt shows audio duration + image MB.
 - [ ] With an OpenAI key and no stt-model configured, audio says
       `transcribed by openai/whisper-1` (the auto-matrix).
-- [ ] Grab ANY real PDF with pictures: `smartpipe map "summarize" --in that.pdf`
+- [ ] Grab ANY real PDF with pictures: `smartpipe map "summarize" that.pdf`
       → figures-attached note; a scanned PDF says "thin text layer … routed
       … to the vision path".
 
-## 8. Pipelines and custom verbs
+## 8. The read/write mirror (free)
+
+```console
+$ smartpipe qa/fixtures/feedback.txt --as lines | head -3
+$ smartpipe qa/fixtures/feedback.txt --as lines | smartpipe write '/tmp/qa-mirror/{name}'
+$ diff qa/fixtures/feedback.txt /tmp/qa-mirror/feedback.txt && echo MIRRORED
+$ head -3 qa/fixtures/tickets.jsonl | smartpipe readable | head -8
+```
+- [ ] Reader mode emits one record per line with a `__source` spine
+      (`{"path": …, "as": "lines", "line": 1}`).
+- [ ] write prints the path it wrote; the round-tripped file diffs EMPTY
+      (reassembled in spine order).
+- [ ] readable renders indented blocks — no JSON braces, spine dimmed last.
+
+## 9. Pipelines and custom verbs
 
 ```console
 $ smartpipe run qa/fixtures/triage.sem --dry-run
@@ -134,7 +161,7 @@ $ smartpipe qa-triage < qa/fixtures/logs.jsonl && rm ~/.config/smartpipe/verbs/q
 - [ ] The run emits hourly error counts; stage receipts are `[hot]`-prefixed.
 - [ ] The custom verb behaves identically to `run`.
 
-## 9. Cache round-trip
+## 10. Cache round-trip
 
 ```console
 $ SMARTPIPE_CACHE=1 smartpipe map "Extract {label}" --max-calls 12 < qa/fixtures/feedback.txt > /tmp/qa-a.jsonl
@@ -146,7 +173,7 @@ $ smartpipe cache stats && smartpipe cache clear
       `--max-calls 2` (hits don't spend budget); outputs identical.
 - [ ] stats shows entries/size/age; clear reports MB freed.
 
-## 10. Unix citizenship (the contract checks)
+## 11. Unix citizenship (the contract checks)
 
 ```console
 $ smartpipe map "translate to French" --max-calls 3 < qa/fixtures/feedback.txt 2>/dev/null | head -2

@@ -9,7 +9,7 @@ import sys
 import click
 
 from smartpipe.cli.completions import complete_embed_models
-from smartpipe.cli.input_options import fields_option, input_options, input_spec
+from smartpipe.cli.input_options import fields_option, input_options, input_spec, positional_paths
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.embed import EmbedRequest, run_embed
@@ -18,6 +18,7 @@ __all__ = ["embed_command"]
 
 
 @click.command(name="embed")
+@click.argument("paths", nargs=-1, required=False)
 @click.option(
     "--embed-model",
     "model_flag",
@@ -42,13 +43,16 @@ def embed_command(
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
+    strict_rows: bool,
+    paths: tuple[str, ...],
 ) -> None:
-    """Convert each item to a vector embedding (NDJSON out).
+    """Convert each item to a vector embedding (JSONL out).
 
     \b
     Examples:
       cat docs/*.md | smartpipe embed > corpus.embeddings
-      smartpipe embed --in 'docs/*.pdf' > corpus.embeddings
+      smartpipe embed 'docs/*.pdf' > corpus.embeddings
 
     This is the only command that never touches a chat model — it uses the
     embedding model, and exists to feed 'top_k'.
@@ -57,7 +61,9 @@ def embed_command(
         allow_captions=allow_captions,
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
         fields=fields,
     )
     code = asyncio.run(_run(request, max_calls))

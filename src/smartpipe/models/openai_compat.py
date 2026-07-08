@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, assert_never
 import httpx
 
 from smartpipe.cli import screens
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, SetupFault, TransportError
 from smartpipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
 from smartpipe.engine.schema import is_strict_compatible
 from smartpipe.io import metering
@@ -246,6 +246,8 @@ async def _post(
             raise SetupFault(screens.cloud_model_missing(model.ref.name, _host(model))) from exc
         if status == 400 and ("response_format" in detail or "json_schema" in detail):
             raise SetupFault(screens.schema_rejected(_host(model), detail)) from exc
+        if status >= 500:  # the wire, not the content — the breaker counts these
+            raise TransportError(f"{model.ref.provider} error {status}: {detail}") from exc
         raise ItemError(f"{model.ref.provider} error {status}: {detail}") from exc
     except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
         # ConnectTimeout is a TimeoutException, not a ConnectError — both mean
@@ -256,8 +258,8 @@ async def _post(
             f"  Check your network, or {model.wire.base_url_env} if you pointed\n"
             "  smartpipe elsewhere."
         ) from exc
-    except httpx.HTTPError as exc:
-        raise ItemError(f"request to {model.base_url} failed: {exc}") from exc
+    except httpx.HTTPError as exc:  # read/write timeouts, protocol errors — transport
+        raise TransportError(f"request to {model.base_url} failed: {exc}") from exc
 
 
 def _host(model: OpenAIChatModel | OpenAIEmbeddingModel) -> str:

@@ -58,26 +58,26 @@ The SDK ships with smartpipe; seeing this means a broken environment - reinstall
 
 ## "parsing documents needs an optional dependency"
 
-You pointed `--in` at PDFs/DOCX without the parser installed:
+You pointed smartpipe at PDFs/DOCX without the parser installed:
 reinstalling smartpipe (document parsing ships in the box; a missing parser means a broken
 environment, or
 everything). Files that need it are skipped until you do.
 
 ## "reading from a terminal - pipe some input in" (exit 64)
 
-You ran a verb with nothing to read. Pipe something in, redirect a file, or use
-`--in`:
+You ran a verb with nothing to read. Pipe something in, redirect a file, or
+name the files:
 
 ```bash
 cat notes.txt \
 | smartpipe map "summarize"
-smartpipe map "summarize" --in 'notes/*.txt'
+smartpipe map "summarize" 'notes/*.txt'
 ```
 
 ## "no files matched: …" (exit 64)
 
-Your `--in` glob matched nothing. Check the pattern, and **quote it** so your shell
-doesn't expand it first: `--in '*.pdf'`.
+Your file glob matched nothing. Check the pattern, and **quote it** so your shell
+doesn't expand it first: `'*.pdf'`.
 
 ## "--output csv needs structured output" (exit 64)
 
@@ -124,7 +124,7 @@ the size; tiny is the default). Details:
 ## "~N tokens is past MODEL's ~W-token budget" (per-item skip)
 
 The item is bigger than the model's context window. The message carries the
-fix: `smartpipe split --in FILE | smartpipe map "..." | smartpipe reduce "..."` -
+fix: `smartpipe split FILE | smartpipe map "..." | smartpipe reduce "..."` -
 [split](verbs/split.md) chunks it for free, map transforms the chunks, reduce
 recombines. If you know your deployment's window is actually bigger, assert it:
 `SMARTPIPE_CONTEXT_TOKENS=200000`.
@@ -159,7 +159,7 @@ become `jsonl` (one JSON object per line). Force one with `--output json` (or `t
 ## Why is there no ETA / percentage when I pipe input in?
 
 Piped `stdin` is a stream - smartpipe processes lines as they arrive and can't know how
-many are coming, so the progress line shows a count and rate instead. `--in` file
+many are coming, so the progress line shows a count and rate instead. Named-file
 mode knows its total and keeps the ETA.
 
 ## My `tail -f` pipeline never ends
@@ -186,7 +186,8 @@ exits with the normal outcome code. Press Ctrl-C twice to bail immediately (exit
 
 You redirected something smartpipe doesn't recognize (a zip? an executable?). On
 `stdin` it accepts text lines or a single PDF/DOCX/PPTX/XLSX/audio/image document.
-For files on disk, `--in 'file.ext'` is the general route.
+For files on disk, naming the file (`smartpipe map "…" report.pdf`) is the
+general route.
 
 ## "model can't read images" - my image was skipped
 
@@ -197,6 +198,36 @@ The chat model you're using has no vision. Pick one that does:
 
 That's a smartpipe bug, not your fault. The screen tells you how to report it; re-run
 with `SMARTPIPE_DEBUG=1` for a traceback to include.
+
+## Installing tab completion by hand
+
+The `smartpipe config` wizard offers to install completions for `zsh` and
+`bash`; if you declined, use a different shell, or manage your rc files
+yourself, it's one line per shell. Completions cover verbs and flags - and
+`--model` / `--embed-model` suggest your configured model plus whatever
+Ollama has installed (if Ollama doesn't answer within 150 ms, you just get
+no suggestions).
+
+**zsh** - add to `~/.zshrc`:
+
+```bash
+eval "$(_SMARTPIPE_COMPLETE=zsh_source smartpipe)"
+```
+
+**bash** (4.4+) - add to `~/.bashrc`:
+
+```bash
+eval "$(_SMARTPIPE_COMPLETE=bash_source smartpipe)"
+```
+
+**fish** - write it once to your completions directory:
+
+```bash
+_SMARTPIPE_COMPLETE=fish_source smartpipe > ~/.config/fish/completions/smartpipe.fish
+```
+
+For a faster shell startup, redirect the script to a file and `source` it
+instead of `eval`-ing on every new shell.
 
 ## See also
 

@@ -65,7 +65,7 @@ Some tools fit certain jobs better:
 - **Automatic recursive chunking in `reduce`** - summarize an input far larger than
   the model's context, with no configuration.
 
-- **Automatic file parsing** - point `--in` at PDFs; you never name a parser.
+- **Automatic file parsing** - point smartpipe at PDFs; you never name a parser.
 
 - **No tool-use surface** - smartpipe doesn't execute model output; a response is treated as data, not commands (see [privacy](privacy.md)).
 

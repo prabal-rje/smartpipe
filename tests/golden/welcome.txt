@@ -26,6 +26,8 @@ Utilities (free — no model calls):
   getschema  Report the stream's fields, types, coverage
   sort       Order records by a field (numbers, then strings)
   split      Break oversized items into chunks
+  write      Route items to files (the egress door)
+  readable   Render records as blocks for human eyes
   chart      Draw a bar chart of results (--save writes SVG)
   config     Configure models and settings
 
@@ -34,3 +36,7 @@ Get started:
   echo "hello" | smartpipe map "translate to Spanish"
 
 'smartpipe <command> --help' shows examples for each command.
+
+docs      https://prabal-rje.github.io/smartpipe
+cookbook  https://prabal-rje.github.io/smartpipe/cookbook/
+issues    https://github.com/prabal-rje/smartpipe/issues

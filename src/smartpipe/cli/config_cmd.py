@@ -24,9 +24,10 @@ from smartpipe.io import diagnostics
 from smartpipe.models.base import parse_model_ref
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
+    from pathlib import Path
 
-__all__ = ["config_command", "run_interactive_setup"]
+__all__ = ["config_command", "offer_shell_completions", "run_interactive_setup"]
 
 _TRY_IT = 'echo "hello world" | smartpipe map "translate to Spanish"'
 _NON_TTY = (
@@ -143,17 +144,26 @@ def _update(change: Callable[[Config], Config]) -> None:
 
 
 async def _interactive_entry() -> None:
+    from pathlib import Path
+
     from smartpipe.container import build_container
 
     async with build_container(os.environ) as container:
         path = config_path(os.environ)
+
+        def confirm(question: str) -> bool:
+            return click.confirm(question, default=True)
+
         await run_interactive_setup(
             current=container.config,
             probe=container.probe_ollama,
             ask=lambda question, default: click.prompt(question, default=default),
-            confirm=lambda question: click.confirm(question, default=True),
+            confirm=confirm,
             say=click.echo,
             save=lambda config: save_config(path, config),
+            offer_completions=lambda: offer_shell_completions(
+                env=os.environ, home=Path.home(), confirm=confirm, say=click.echo
+            ),
         )
 
 
@@ -165,6 +175,7 @@ async def run_interactive_setup(
     confirm: Callable[[str], bool],
     say: Callable[[str], None],
     save: Callable[[Config], None],
+    offer_completions: Callable[[], None] | None = None,
 ) -> Config:
     say("smartpipe setup — one minute, three questions\n")
     if current.profile is None and current.model is None:
@@ -191,6 +202,8 @@ async def run_interactive_setup(
                     " model when needed (fractions of a cent each, disclosed per row)"
                 )
             say("  Check the setup end to end:  smartpipe doctor\n")
+            if offer_completions is not None:
+                offer_completions()
             return chosen
     names = await probe() or ()
     chat = _first_chat(names)
@@ -221,7 +234,45 @@ async def run_interactive_setup(
         say(f"    {_TRY_IT}")
     else:
         say("\n  Not saved. Set a model any time with: smartpipe config model <name>")
+    if offer_completions is not None:
+        offer_completions()
     return updated
+
+
+_RC_BY_SHELL: dict[str, tuple[str, str]] = {
+    "zsh": (".zshrc", 'eval "$(_SMARTPIPE_COMPLETE=zsh_source smartpipe)"'),
+    "bash": (".bashrc", 'eval "$(_SMARTPIPE_COMPLETE=bash_source smartpipe)"'),
+}
+
+
+def offer_shell_completions(
+    *,
+    env: Mapping[str, str],
+    home: Path,
+    confirm: Callable[[str], bool],
+    say: Callable[[str], None],
+) -> None:
+    """The wizard's parting offer (default yes): append the completion eval
+    line to the shell's rc file — idempotent (already installed: silent),
+    disclosed (says what it wrote where), declinable (points at the manual
+    instructions). Unknown shells get no offer; guessing at rc files is worse
+    than not asking."""
+    shell = env.get("SHELL", "").rsplit("/", 1)[-1]
+    known = _RC_BY_SHELL.get(shell)
+    if known is None:
+        return
+    rc_name, line = known
+    rc = home / rc_name
+    existing = rc.read_text(encoding="utf-8") if rc.exists() else ""
+    if line in existing:
+        return  # installed on a previous run — don't nag
+    if not confirm(f"Install {shell} tab completion into {rc_name}?"):
+        say("  Skipped. Manual instructions: docs/troubleshooting.md")
+        return
+    prefix = "" if not existing or existing.endswith("\n") else "\n"
+    with rc.open("a", encoding="utf-8") as handle:
+        handle.write(f"{prefix}{line}\n")
+    say(f"  ✓ added to {rc}: {line}")
 
 
 def _first_chat(names: tuple[str, ...]) -> str | None:

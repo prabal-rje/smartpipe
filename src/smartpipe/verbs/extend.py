@@ -15,19 +15,22 @@ from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
 from smartpipe.engine.prompts import parse_prompt, plan_map, to_instruction
-from smartpipe.engine.runner import Done, FailurePolicy, run_ordered
+from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import load_schema
 from smartpipe.io import diagnostics, readers
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.verbs.common import (
+    ModelSlot,
     WindowGate,
+    breaker_policy,
     interrupted_exit_code,
+    make_failover,
     outcome_exit_code,
     resolve_schema,
 )
-from smartpipe.verbs.map import MapContext, map_one
+from smartpipe.verbs.map import MapContext, map_one, print_dry_run
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -47,8 +50,9 @@ EXTEND_NEEDS_FIELDS = (
     "  Plain-text transformation? That's map."
 )
 
-# media transport keys (D27/D32): consumed by the model, poison to re-emit
-_TRANSPORT_KEYS = frozenset({"audio_b64", "image_b64", "video_b64", "parts", "mime"})
+# the media transport field (D27/D32, item 12): consumed by the model, poison
+# to re-emit (megabytes of base64 in every output row)
+_TRANSPORT_KEYS = frozenset({"__media"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +69,11 @@ class ExtendRequest:
     explode_field: str | None = None
     frame_every: float | None = None  # D43
     max_frames: int | None = None  # D43
+    keep_invalid: bool = False  # --keep-invalid: failure markers merge onto the base record
+    dry_run: bool = False  # --dry-run: print the composed first request, spend nothing
+    fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
+    bare: bool = False  # --bare: strip __ metadata from record output (item 18)
+    full: bool = False  # --full: disable the TTY preview's truncation (item 19)
 
 
 async def run_extend(
@@ -82,8 +91,21 @@ async def run_extend(
         raise UsageFault(EXTEND_NEEDS_FIELDS)  # exit 64, zero model calls
     instruction = to_instruction(tokens)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
+    if request.dry_run:  # before model resolution: a dry run is free even pre-setup
+        return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
     model = await context.chat_model(request.model_flag)
-    writer = context.writer(request.output, structured=True, stdout=stdout, fields=request.fields)
+    slot = ModelSlot(model)
+    fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
+    spinner = make_stderr_spinner()
+    # the arbiter: result writes pause the status line, so they never interleave
+    writer = context.writer(
+        request.output,
+        structured=True,
+        stdout=spinner.guard(stdout),
+        fields=request.fields,
+        bare=request.bare,
+        full=request.full,
+    )
     concurrency = context.concurrency(request.concurrency_flag)
 
     tally = None
@@ -92,7 +114,6 @@ async def run_extend(
 
         tally = Tally(request.tally_field)
 
-    spinner = make_stderr_spinner()
     spinner.start(total=total)
 
     log = diagnostics.DegradationLog()
@@ -104,21 +125,32 @@ async def run_extend(
     )
 
     async def worker(item: Item) -> tuple[Item, Mapping[str, object]]:
+        current = slot.current  # captured per item: the failover swaps wholesale
         budget = await gate.budget_for_oversized(item.text)
         if budget is not None:
             raise ItemError(gate.refusal(item.text, budget))  # D26: no silent chunking
         result = await map_one(
-            model,
+            current,
             plan,
             instruction,
             item,
             log,
             frame_every=request.frame_every,
             max_frames=request.max_frames,
+            keep_invalid=request.keep_invalid,
         )
         assert isinstance(result, Mapping)  # structured mode: validated against the schema
+        slot.tally(str(current.ref))
         return item, result
 
+    policy = breaker_policy(model.ref.provider)
+    failover = (
+        make_failover(
+            slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
+        )
+        if fallback is not None
+        else None
+    )
     done = 0
     skipped = 0
     overwritten: set[str] = set()  # disclosed once per field
@@ -126,8 +158,9 @@ async def run_extend(
         items_iter,
         worker,
         concurrency=concurrency,
-        failure_policy=FailurePolicy(),
+        failure_policy=policy,
         stop=stop,
+        failover=failover,
     )
     try:
         async for outcome in outcomes:
@@ -155,6 +188,8 @@ async def run_extend(
         log.finish()
     if tally is not None and tally.counts:
         diagnostics.note(tally.final_line())
+    if slot.switched:
+        diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped)
         return interrupted_exit_code(done=done, skipped=skipped)

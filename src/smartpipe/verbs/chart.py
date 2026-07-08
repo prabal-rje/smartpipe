@@ -1,4 +1,4 @@
-"""The ``chart`` verb: NDJSON in, a bar chart out. Free — no model calls.
+"""The ``chart`` verb: JSONL in, a bar chart out. Free — no model calls.
 
 The chart IS the result, so it goes to stdout; ``--save`` additionally writes a
 dependency-free SVG. Counts a field across records (or tallies whole lines),

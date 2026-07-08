@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclasses_field
 from typing import TYPE_CHECKING, TypeVar, assert_never
 
 from smartpipe.core.errors import ExitCode, ItemError, TooManyFailures, UsageFault
@@ -24,18 +25,21 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from smartpipe.io.items import Item
-    from smartpipe.models.base import EmbeddingModel
+    from smartpipe.models.base import ChatModel, EmbeddingModel
 
 __all__ = [
     "AUDIO_NEEDS_TEXT",
     "EMBED_BATCH_SIZE",
     "IMAGE_NEEDS_MAP",
+    "ModelSlot",
     "WindowGate",
     "batched",
+    "breaker_policy",
     "embed_budget",
     "embed_in_batches",
     "ensure_text",
     "interrupted_exit_code",
+    "make_failover",
     "outcome_exit_code",
     "prepend",
     "resolve_schema",
@@ -45,6 +49,83 @@ __all__ = [
 T = TypeVar("T")
 
 EMBED_BATCH_SIZE = 64  # texts per embed call on finite corpora (plan/post-1.0/06)
+
+
+_DEFAULT_BREAKER_LIMIT = 5  # consecutive transport failures before "provider looks down"
+
+
+@dataclass(slots=True)
+class ModelSlot:
+    """The run's current chat model, swappable WHOLESALE by the failover (item
+    11) — never per-item interleaving. The tally counts answered items per
+    model so the end receipt keeps the seam visible."""
+
+    current: ChatModel
+    counts: dict[str, int] = dataclasses_field(default_factory=dict[str, int])
+    switched: bool = False
+
+    def tally(self, label: str) -> None:
+        self.counts[label] = self.counts.get(label, 0) + 1
+
+    def receipt(self) -> str:
+        split = " · ".join(
+            f"{label} ×{count}"  # noqa: RUF001 — the pinned count mark (D27 rollup style)
+            for label, count in self.counts.items()
+        )
+        return f"answers: {split}"
+
+
+def make_failover(
+    slot: ModelSlot,
+    resolve: Callable[[], Awaitable[ChatModel]],
+    *,
+    limit: int,
+) -> Callable[[], Awaitable[bool]]:
+    """The verb-side failover hook: build the configured fallback at switch
+    time (keys/login checked here), swap the slot wholesale, announce loudly.
+    An unusable fallback returns False — the runner then dies on the ordinary
+    provider-down screen, with the reason already noted."""
+
+    async def switch() -> bool:
+        from smartpipe.core.errors import SempipeError
+
+        provider = slot.current.ref.provider
+        try:
+            fallback = await resolve()
+        except SempipeError as fault:
+            first = str(fault).splitlines()[0].removeprefix("error: ")
+            diagnostics.note(f"fallback model unusable — {first}")
+            return False
+        slot.current = fallback
+        slot.switched = True
+        diagnostics.warn(
+            f"{provider} looks down ({limit} consecutive transport failures) — "
+            f"switching to {fallback.ref} for the rest of the run"
+        )
+        return True
+
+    return switch
+
+
+def breaker_policy(provider: str) -> FailurePolicy:
+    """The chat verbs' failure policy, circuit breaker armed (problems.md #6):
+    SMARTPIPE_BREAKER sets the consecutive-transport-failure threshold
+    (default 5, 0 disables), and the provider-down screen is rendered here so
+    the pure runner only ever raises it."""
+    import os
+
+    from smartpipe.cli import screens
+
+    raw = os.environ.get("SMARTPIPE_BREAKER", "").strip()
+    if not raw:
+        limit = _DEFAULT_BREAKER_LIMIT
+    elif raw.isdigit():
+        limit = int(raw)
+    else:
+        raise UsageFault(f"SMARTPIPE_BREAKER must be a whole number >= 0, got {raw!r}")
+    return FailurePolicy(
+        transport_limit=limit, transport_screen=screens.provider_down(provider, limit)
+    )
 
 
 def outcome_exit_code(*, done: int, skipped: int) -> ExitCode:
@@ -245,7 +326,7 @@ class WindowGate:
         return (
             f"~{estimate_tokens(text):,} tokens is past {self.model_name}'s "
             f"~{budget:,}-token budget — split it first: "
-            'smartpipe split --in FILE | smartpipe map "..." | smartpipe reduce "..."'
+            'smartpipe split FILE | smartpipe map "..." | smartpipe reduce "..."'
         )
 
 

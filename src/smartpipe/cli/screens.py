@@ -47,14 +47,14 @@ def openai_needs_key_or_login(model: str) -> str:
 BINARY_STDIN_UNPARSEABLE = """\
 error: stdin looks like binary data smartpipe can't parse
   Recognized on stdin: text lines, or a single PDF/DOCX/PPTX/XLSX/audio/image document.
-  For files on disk use --in: smartpipe map "Summarize" --in 'report.pdf'"""
+  For files on disk, name the file: smartpipe map "Summarize" report.pdf"""
 
 
 def stdin_document_failed(reason: str) -> str:
     return (
         f"error: stdin looks like a document, but it couldn't be read ({reason})\n"
         "  smartpipe reads ONE binary document per run from stdin.\n"
-        "  Alternative: smartpipe map \"…\" --in 'report.pdf'"
+        '  Alternative: smartpipe map "…" report.pdf'
     )
 
 
@@ -121,6 +121,8 @@ _UTILITIES: tuple[tuple[str, str], ...] = (
     ("getschema", "Report the stream's fields, types, coverage"),
     ("sort", "Order records by a field (numbers, then strings)"),
     ("split", "Break oversized items into chunks"),
+    ("write", "Route items to files (the egress door)"),
+    ("readable", "Render records as blocks for human eyes"),
     ("chart", "Draw a bar chart of results (--save writes SVG)"),
     ("config", "Configure models and settings"),
 )
@@ -152,6 +154,10 @@ WELCOME = f"""\
 {_GET_STARTED}
 
 'smartpipe <command> --help' shows examples for each command.
+
+{_c("docs      https://prabal-rje.github.io/smartpipe", "2")}
+{_c("cookbook  https://prabal-rje.github.io/smartpipe/cookbook/", "2")}
+{_c("issues    https://github.com/prabal-rje/smartpipe/issues", "2")}
 """
 
 NO_MODEL = """\
@@ -215,6 +221,18 @@ def schema_rejected(host: str, detail: str) -> str:
         "error: the endpoint rejected the --schema\n"
         f"  {host} answered 400 (response_format): {detail}\n"
         "  Fix: simplify the schema — or drop --schema and validate downstream."
+    )
+
+
+def provider_down(provider: str, failures: int) -> str:
+    """The circuit breaker screen (problems.md #6): consecutive wire-level
+    failures mean the provider is down — stop paying a retry ladder per item."""
+    return (
+        f"error: {provider} looks down — {failures} consecutive transport failures\n"
+        "  Every recent call died on the wire (timeouts, connection errors, 5xx),\n"
+        "  so smartpipe stopped early instead of failing the rest one by one.\n"
+        "  Work already done is safe — rerunning is cheap (cached answers are free).\n"
+        "  Try again in a minute, or pick another model: --model …"
     )
 
 

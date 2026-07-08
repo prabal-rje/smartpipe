@@ -9,7 +9,7 @@ import sys
 import click
 
 from smartpipe.cli.completions import complete_chat_models, complete_embed_models
-from smartpipe.cli.input_options import input_options, input_spec
+from smartpipe.cli.input_options import input_options, input_spec, positional_paths
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.cluster import ClusterRequest, run_cluster
@@ -18,6 +18,7 @@ __all__ = ["cluster_command"]
 
 
 @click.command(name="cluster")
+@click.argument("paths", nargs=-1, required=False)
 @click.option("--k", type=int, help="Force exactly K clusters (merge smallest).")
 @click.option("--top", type=int, help="Show N clusters; fold the rest into (other).")
 @click.option(
@@ -57,6 +58,9 @@ def cluster_command(
     allow_captions: bool,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
+    strict_rows: bool,
+    paths: tuple[str, ...],
 ) -> None:
     """Group items by meaning and label each group — themes, sized, with quotes.
 
@@ -80,7 +84,9 @@ def cluster_command(
         embed_flag=embed_flag,
         concurrency_flag=concurrency_flag,
         allow_captions=allow_captions,
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
     )
     code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:

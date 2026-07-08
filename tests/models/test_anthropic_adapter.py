@@ -8,7 +8,7 @@ import anthropic
 import httpx
 import pytest
 
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, SetupFault, TransportError
 from smartpipe.models.anthropic_adapter import (
     AnthropicChatModel,
     build_anthropic_chat_model,
@@ -154,7 +154,7 @@ async def test_server_error_is_an_item_error(respx_mock: respx.MockRouter) -> No
     respx_mock.post(ENDPOINT).mock(
         return_value=httpx.Response(529, json={"error": {"message": "overloaded"}})
     )
-    with pytest.raises(ItemError, match="anthropic error 529: overloaded"):
+    with pytest.raises(TransportError, match="anthropic error 529: overloaded"):
         await _model().complete(CompletionRequest(system=None, user="x"))
 
 
@@ -162,5 +162,5 @@ async def test_server_error_without_structured_body_falls_back(
     respx_mock: respx.MockRouter,
 ) -> None:
     respx_mock.post(ENDPOINT).mock(return_value=httpx.Response(500, text="plain text boom"))
-    with pytest.raises(ItemError, match="anthropic error 500"):
+    with pytest.raises(TransportError, match="anthropic error 500"):
         await _model().complete(CompletionRequest(system=None, user="x"))

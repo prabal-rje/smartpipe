@@ -88,7 +88,7 @@ inspect like any other data.
 
 ## Files are read, never modified
 
-`--in` and `--from-files` read files to extract their text. smartpipe never writes to
+File arguments and `--from-files` read files to extract their text. smartpipe never writes to
 your input files. Output goes to `stdout`; where it lands is up to your shell.
 
 ## What to check yourself

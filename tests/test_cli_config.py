@@ -252,3 +252,81 @@ async def test_wizard_offers_profiles_first_on_a_fresh_setup(tmp_path: Path) -> 
     assert saved and saved[0].profile == "local"
     assert any("gemma-4-e2b" in line for line in said)
     assert any("smartpipe doctor" in line for line in said)
+
+
+# --- the wizard's completions offer ----------------------------------------------
+
+
+def _offer(
+    home: Path,
+    shell: str,
+    *,
+    accept: bool = True,
+    confirmed: list[str] | None = None,
+) -> list[str]:
+    from smartpipe.cli.config_cmd import offer_shell_completions
+
+    said: list[str] = []
+
+    def confirm(question: str) -> bool:
+        if confirmed is not None:
+            confirmed.append(question)
+        return accept
+
+    offer_shell_completions(env={"SHELL": shell}, home=home, confirm=confirm, say=said.append)
+    return said
+
+
+def test_completions_offer_writes_once_and_discloses(tmp_path: Path) -> None:
+    said = _offer(tmp_path, "/bin/zsh")
+    rc = tmp_path / ".zshrc"
+    line = 'eval "$(_SMARTPIPE_COMPLETE=zsh_source smartpipe)"'
+    assert rc.read_text(encoding="utf-8") == line + "\n"
+    assert any(".zshrc" in message and line in message for message in said)  # disclosed
+
+
+def test_completions_offer_is_idempotent(tmp_path: Path) -> None:
+    _offer(tmp_path, "/bin/zsh")
+    confirmed: list[str] = []
+    said = _offer(tmp_path, "/bin/zsh", confirmed=confirmed)
+    assert confirmed == []  # already installed: no nagging
+    assert said == []
+    rc_text = (tmp_path / ".zshrc").read_text(encoding="utf-8")
+    assert rc_text.count("_SMARTPIPE_COMPLETE") == 1  # never appended twice
+
+
+def test_completions_offer_decline_writes_nothing(tmp_path: Path) -> None:
+    said = _offer(tmp_path, "/usr/bin/bash", accept=False)
+    assert not (tmp_path / ".bashrc").exists()
+    assert any("Skipped" in message for message in said)
+
+
+def test_completions_offer_appends_after_existing_content(tmp_path: Path) -> None:
+    rc = tmp_path / ".bashrc"
+    rc.write_text("export PATH=$PATH:~/bin", encoding="utf-8")  # no trailing newline
+    _offer(tmp_path, "/bin/bash")
+    text = rc.read_text(encoding="utf-8")
+    assert text.startswith("export PATH=$PATH:~/bin\n")
+    assert text.endswith('eval "$(_SMARTPIPE_COMPLETE=bash_source smartpipe)"\n')
+
+
+def test_completions_offer_unknown_shell_stays_silent(tmp_path: Path) -> None:
+    confirmed: list[str] = []
+    said = _offer(tmp_path, "/usr/bin/fish", confirmed=confirmed)
+    assert said == [] and confirmed == []
+    assert list(tmp_path.iterdir()) == []  # never touches files
+
+
+async def test_wizard_ends_with_the_completions_offer() -> None:
+    rec = _Recorder()
+    offered: list[bool] = []
+    await run_interactive_setup(
+        current=Config(),
+        probe=lambda: _probe("qwen3:8b"),
+        ask=lambda question, default: default,
+        confirm=lambda _question: True,
+        say=rec.say,
+        save=rec.save,
+        offer_completions=lambda: offered.append(True),
+    )
+    assert offered == [True]

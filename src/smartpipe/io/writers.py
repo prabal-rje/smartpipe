@@ -4,7 +4,7 @@ Two vocabularies on purpose: ``OutputFormat`` is what users say (``--output`` /
 ``SMARTPIPE_OUTPUT``); ``RenderMode`` is what a writer does. ``resolve_format``
 maps one to the other using the TTY matrix in plan/ux.md — notably, AUTO on a
 terminal renders structured results as a human view, while an *explicit*
-``--output json`` forces NDJSON even there (spec §5.2).
+``--output json`` forces JSONL even there (spec §5.2).
 """
 
 from __future__ import annotations
@@ -18,24 +18,35 @@ from typing import TYPE_CHECKING, Protocol, assert_never
 
 from smartpipe.core.errors import UsageFault
 from smartpipe.core.jsontools import as_record
-from smartpipe.io import diagnostics
+from smartpipe.io import diagnostics, tty
 from smartpipe.io.text import clip_to_width, display_width
 
 if TYPE_CHECKING:
-    from typing import TextIO
-
     from smartpipe.io.items import Item
 
-_TRAILING_COLUMNS = ("_score", "_rank")  # ranking metadata sorts to the right of the sheet
+_TRAILING_COLUMNS = ("_score", "_rank", "__score")  # ranking metadata sorts right of the sheet
 
 __all__ = [
     "OutputFormat",
     "RenderMode",
     "ResultWriter",
+    "TextSink",
     "WriterConfig",
     "make_writer",
     "resolve_format",
 ]
+
+
+class TextSink(Protocol):
+    """The slice of a text stream writers actually use — write and flush.
+
+    A structural type so the progress arbiter can wrap stdout (pausing the
+    status line around each result write) without impersonating a full TextIO.
+    """
+
+    def write(self, s: str, /) -> int: ...
+    def flush(self) -> None: ...
+
 
 _DIM = "\x1b[2m"
 _RESET = "\x1b[0m"
@@ -64,6 +75,8 @@ class WriterConfig:
     color: bool
     width: int
     fields: tuple[str, ...] | None = None  # honored from stage 9
+    bare: bool = False  # --bare: strip __ metadata from record output (item 18)
+    full: bool = False  # --full: disable the TTY preview's truncation (item 19)
 
 
 class ResultWriter(Protocol):
@@ -125,15 +138,20 @@ def _require_structured(fmt: OutputFormat, *, structured: bool) -> None:
         )
 
 
-def make_writer(config: WriterConfig, stdout: TextIO) -> ResultWriter:
+def make_writer(config: WriterConfig, stdout: TextSink) -> ResultWriter:
     match config.mode:
         case RenderMode.TEXT:
-            return _TextWriter(stream=stdout, fields=config.fields)
+            return _TextWriter(stream=stdout, fields=config.fields, bare=config.bare)
         case RenderMode.NDJSON:
-            return _NdjsonWriter(stream=stdout, fields=config.fields)
+            return _NdjsonWriter(stream=stdout, fields=config.fields, bare=config.bare)
         case RenderMode.HUMAN:
             return _HumanWriter(
-                stream=stdout, color=config.color, width=config.width, fields=config.fields
+                stream=stdout,
+                color=config.color,
+                width=config.width,
+                fields=config.fields,
+                bare=config.bare,
+                full=config.full,
             )
         case RenderMode.CSV:
             return _TableWriter(stream=stdout, delimiter=",", fields=config.fields)
@@ -148,6 +166,21 @@ def _compact_json(value: object) -> str:
 
 
 _ABSENT = object()  # sentinel: "no such field", distinct from a genuine null
+_RAW_PREVIEW_CELLS = 70  # --keep-invalid TTY line: this much of the raw reply
+
+
+def _is_invalid_row(record: Mapping[str, object]) -> bool:
+    """A --keep-invalid marker row — projection, --bare, and block rendering
+    all step aside for these: the row IS the failure report, not extracted data."""
+    return record.get("__invalid") is True
+
+
+def _strip_meta(record: Mapping[str, object], *, bare: bool) -> Mapping[str, object]:
+    """--bare (item 18): drop the __ spine for people redirecting with `>`.
+    Never fstat-sniffed — content must not depend on pipe vs file."""
+    if not bare or _is_invalid_row(record):
+        return record
+    return {key: value for key, value in record.items() if not key.startswith("__")}
 
 
 def _lookup(record: Mapping[str, object], name: str) -> object:
@@ -182,16 +215,25 @@ def _project(
 
 @dataclass(frozen=True, slots=True)
 class _TextWriter:
-    stream: TextIO
+    stream: TextSink
     fields: tuple[str, ...] | None = None  # top_k routes structured records through TEXT
+    bare: bool = False
     warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
+        if "\n" in line and "framing" not in self.warned and not tty.stdout_is_tty():
+            # item 20: line-counting tools downstream will miscount — say so once
+            self.warned.add("framing")
+            diagnostics.warn(
+                "a text result contains newlines — line tools downstream will "
+                "miscount; --output json frames each result safely"
+            )
         self.stream.write(f"{line}\n")
         self.stream.flush()
 
     def write_record(self, record: Mapping[str, object]) -> None:
-        if self.fields is not None:
+        record = _strip_meta(record, bare=self.bare)
+        if self.fields is not None and not _is_invalid_row(record):
             record = _project(record, self.fields, self.warned)
         self.write_text(_compact_json(dict(record)))
 
@@ -204,15 +246,17 @@ class _TextWriter:
 
 @dataclass(frozen=True, slots=True)
 class _NdjsonWriter:
-    stream: TextIO
+    stream: TextSink
     fields: tuple[str, ...] | None = None
+    bare: bool = False
     warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
         self.write_record({"result": line})
 
     def write_record(self, record: Mapping[str, object]) -> None:
-        if self.fields is not None:
+        record = _strip_meta(record, bare=self.bare)
+        if self.fields is not None and not _is_invalid_row(record):
             record = _project(record, self.fields, self.warned)
         self.stream.write(f"{_compact_json(dict(record))}\n")
         self.stream.flush()
@@ -230,7 +274,7 @@ class _TableWriter:
     first record; later records fill missing cells empty and drop surprise keys with a
     one-time warning. Nested values become compact JSON; TSV strips tabs/newlines."""
 
-    def __init__(self, *, stream: TextIO, delimiter: str, fields: tuple[str, ...] | None) -> None:
+    def __init__(self, *, stream: TextSink, delimiter: str, fields: tuple[str, ...] | None) -> None:
         self.stream = stream
         self.delimiter = delimiter
         self.fields = fields
@@ -300,16 +344,19 @@ def _scalar(value: object) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _HumanWriter:
-    """Structured results as aligned key/value blocks — TTY reading, never parsing.
-
-    Truncation to the terminal width happens here and only here: piped output
-    (the other writers) is never truncated (spec §5.1).
+    """Structured results as YAML-ish blocks (item 19) — TTY reading, never
+    parsing: nested maps indent, lists render as ``- ``, multi-line strings as
+    block scalars, the ``__`` spine dimmed at the bottom. Truncation (strings
+    past ~400 chars, lists past ~10 items) happens here and only here — piped
+    output (the other writers) is never truncated; ``--full`` disables it.
     """
 
-    stream: TextIO
+    stream: TextSink
     color: bool
     width: int
     fields: tuple[str, ...] | None = None
+    bare: bool = False
+    full: bool = False
     warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
@@ -317,20 +364,29 @@ class _HumanWriter:
         self.stream.flush()
 
     def write_record(self, record: Mapping[str, object]) -> None:
+        if _is_invalid_row(record):
+            self._write_invalid(record)
+            return
+        record = _strip_meta(record, bare=self.bare)
         if self.fields is not None:
             record = _project(record, self.fields, self.warned)
-        for key, value in record.items():
-            # null shows as nothing — for humans an absent value reads best as blank
-            rendered = (
-                "" if value is None else value if isinstance(value, str) else _compact_json(value)
-            )
-            # budget in terminal cells, not code points (DEFER-2) — a Wide char is 2
-            available = self.width - display_width(key) - 2
-            if available >= 2 and display_width(rendered) > available:
-                rendered = clip_to_width(rendered, available - 1) + _ELLIPSIS
-            label = f"{_DIM}{key}:{_RESET}" if self.color else f"{key}:"
-            self.stream.write(f"{label} {rendered}\n")
-        self.stream.write("\n")
+        from smartpipe.io.render import render_block
+
+        self.stream.write(render_block(record, color=self.color, full=self.full) + "\n\n")
+        self.stream.flush()
+
+    def _write_invalid(self, record: Mapping[str, object]) -> None:
+        """A --keep-invalid row at the terminal: one dim compact line — marker,
+        the validator's complaint, the first ~70 cells of the raw reply. The
+        full JSON row is a pipe thing; a human wants the gist, not the wreckage."""
+        error = str(record.get("__error", ""))
+        raw = " ".join(str(record.get("__raw", "")).split())  # flatten to one line
+        if display_width(raw) > _RAW_PREVIEW_CELLS:
+            raw = clip_to_width(raw, _RAW_PREVIEW_CELLS) + _ELLIPSIS
+        line = f"✗ invalid: {error} · {raw}"
+        if self.color:
+            line = f"{_DIM}{line}{_RESET}"
+        self.stream.write(f"{line}\n\n")
         self.stream.flush()
 
     def write_passthrough(self, item: Item) -> None:

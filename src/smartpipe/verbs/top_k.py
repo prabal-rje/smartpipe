@@ -124,7 +124,7 @@ async def _run_stream(
 ) -> ExitCode:
     """The rolling leaderboard (stage-08 §4.3): maintain the top K as items arrive.
 
-    Pipe mode emits an NDJSON snapshot (a ``{"_snapshot": seq}`` marker line, then
+    Pipe mode emits an JSONL snapshot (a ``{"_snapshot": seq}`` marker line, then
     the K records, rank order) whenever membership/order changes; TTY mode repaints
     the block in place. A vector whose dimensions don't match the query is skipped
     (a stream shouldn't die wholesale on one bad record — unlike batch, where a

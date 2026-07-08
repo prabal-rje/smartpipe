@@ -1,8 +1,9 @@
 """The ``split`` verb (D26 layer 3): oversized items → budget-sized chunk items.
 
-Zero model calls. One 300-page PDF becomes N records of ``{"text", "source"}``
-with provenance (``report.pdf §3/12``), each small enough for whatever verb
-comes next. The taught pipeline: ``smartpipe split --in big.pdf | smartpipe map … |
+Zero model calls. One 300-page PDF becomes N records of ``{"text",
+"__source"}`` with machine-readable provenance (path, cut kind, position,
+plus the human label ``report.pdf §3/12``), each small enough for whatever
+verb comes next. The taught pipeline: ``smartpipe split --in big.pdf | smartpipe map … |
 smartpipe reduce …``. Chunks concatenate back to the original text exactly.
 """
 
@@ -69,6 +70,15 @@ def _resolve_by(request: SplitRequest) -> SplitBy:
     return SplitBy("tokens", _DEFAULT_BUDGET_TOKENS)
 
 
+def _cut_source(item: Item, *, cut: str, position: int | None, label: str) -> dict[str, object]:
+    """The chunk's ``__source`` spine record: how it was cut travels with it."""
+    record: dict[str, object] = {"path": item.source.path or item.source.name, "as": cut}
+    if position is not None:
+        record["page" if cut == "pages" else "segment"] = position
+    record["label"] = label
+    return record
+
+
 def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
     origin = describe_source(item.source)  # "report.pdf" / "line 12"
     if by.unit in ("minutes", "seconds") and (video := _single(item, VideoData)) is not None:
@@ -87,9 +97,12 @@ def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
             )
             writer.write_record(
                 {
-                    "video_b64": base64.b64encode(part.data).decode("ascii"),
-                    "mime": part.mime,
-                    "source": marker,
+                    "__media": {
+                        "kind": "video",
+                        "mime": part.mime,
+                        "data_b64": base64.b64encode(part.data).decode("ascii"),
+                    },
+                    "__source": _cut_source(item, cut=by.unit, position=position + 1, label=marker),
                 }
             )
         return
@@ -107,12 +120,15 @@ def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
                 if total == 1
                 else f"{origin} §{_clock(position * step)}-{_clock((position + 1) * step)}"
             )
-            # audio rides NDJSON as base64 so the next verb can HEAR the slice
+            # audio rides JSONL as base64 so the next verb can HEAR the slice
             writer.write_record(
                 {
-                    "audio_b64": base64.b64encode(part.data).decode("ascii"),
-                    "mime": part.mime,
-                    "source": marker,
+                    "__media": {
+                        "kind": "audio",
+                        "mime": part.mime,
+                        "data_b64": base64.b64encode(part.data).decode("ascii"),
+                    },
+                    "__source": _cut_source(item, cut=by.unit, position=position + 1, label=marker),
                 }
             )
         return
@@ -120,7 +136,12 @@ def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
     total = len(chunks)
     for position, chunk in enumerate(chunks, start=1):
         marker = origin if total == 1 else f"{origin} §{position}/{total}"
-        writer.write_record({"text": chunk, "source": marker})
+        writer.write_record(
+            {
+                "text": chunk,
+                "__source": _cut_source(item, cut="tokens", position=position, label=marker),
+            }
+        )
     figures = [part for part in item.media if isinstance(part, ImageData)]
     if figures:
         import base64
@@ -128,9 +149,14 @@ def _write_chunks(writer: ResultWriter, item: Item, by: SplitBy) -> None:
         for position, figure in enumerate(figures, start=1):
             writer.write_record(
                 {
-                    "image_b64": base64.b64encode(figure.data).decode("ascii"),
-                    "mime": figure.mime,
-                    "source": f"{origin} img.{position}",
+                    "__media": {
+                        "kind": "image",
+                        "mime": figure.mime,
+                        "data_b64": base64.b64encode(figure.data).decode("ascii"),
+                    },
+                    "__source": _cut_source(
+                        item, cut="file", position=None, label=f"{origin} img.{position}"
+                    ),
                 }
             )
 
@@ -173,7 +199,7 @@ async def _run_media(request: SplitRequest, context: SplitContext, *, stdout: Te
 
     if not request.input.patterns:
         raise UsageFault(
-            "--media reads document files — give it some: smartpipe split --media --in 'docs/*.pdf'"
+            "--media reads document files — give it some: smartpipe split --media 'docs/*.pdf'"
         )
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
     produced = 0
@@ -194,9 +220,16 @@ async def _run_media(request: SplitRequest, context: SplitContext, *, stdout: Te
             for found in media.images:
                 writer.write_record(
                     {
-                        "image_b64": base64.b64encode(found.image.data).decode("ascii"),
-                        "mime": found.image.mime,
-                        "source": f"{name} {found.where}",
+                        "__media": {
+                            "kind": "image",
+                            "mime": found.image.mime,
+                            "data_b64": base64.b64encode(found.image.data).decode("ascii"),
+                        },
+                        "__source": {
+                            "path": str(path),
+                            "as": "file",
+                            "label": f"{name} {found.where}",
+                        },
                     }
                 )
             produced += 1
@@ -229,8 +262,7 @@ async def _run_pages(
 
     if not request.input.patterns:
         raise UsageFault(
-            "--by pages reads PDF files — give it some:\n"
-            "  smartpipe split --by pages --in 'docs/*.pdf'"
+            "--by pages reads PDF files — give it some:\n  smartpipe split --by pages 'docs/*.pdf'"
         )
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
     produced = 0
@@ -260,18 +292,19 @@ async def _run_pages(
                 marker = name if len(groups) == 1 else f"{name} {span}"
                 record: dict[str, object] = {
                     "text": "\n\n".join(group).strip(),
-                    "source": marker,
+                    "__source": {"path": str(path), "as": "pages", "page": first, "label": marker},
                 }
                 attached = [
                     {
-                        "image_b64": base64.b64encode(figure.data).decode("ascii"),
+                        "kind": "image",
                         "mime": figure.mime,
+                        "data_b64": base64.b64encode(figure.data).decode("ascii"),
                     }
                     for page in range(first, last + 1)
                     for figure in figures_by_page.get(page, ())
                 ]
                 if attached:
-                    record["parts"] = attached
+                    record["__media"] = attached
                 writer.write_record(record)
             produced += 1
     finally:

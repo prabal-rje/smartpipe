@@ -1,8 +1,8 @@
 """The ``embed`` verb: turn each item into a vector (spec §3.3).
 
 The only verb that never touches a chat LLM — it uses the embedding model and
-emits one NDJSON record per item: ``{"text", "vector", "source"}``. Output is
-always NDJSON (a vector has no human view), so it feeds ``top_k`` or a file.
+emits one JSONL record per item: ``{"text", "vector", "source"}``. Output is
+always JSONL (a vector has no human view), so it feeds ``top_k`` or a file.
 
 Two execution shapes (plan/post-1.0/06, DEFER-3): a finite file corpus is
 embedded in ≤64-text chunks (64x fewer round-trips, poison chunks re-run
@@ -75,10 +75,12 @@ async def run_embed(
         diagnostics.note(
             "embeddings are large — redirect to a file: smartpipe embed > corpus.embeddings"
         )
-    writer = make_writer(
-        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=request.fields), stdout
-    )
     spinner = make_stderr_spinner()
+    # the arbiter: result writes pause the status line, so they never interleave
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=request.fields),
+        spinner.guard(stdout),
+    )
     spinner.start(total=total)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     converter_chat = await optional_chat(context)

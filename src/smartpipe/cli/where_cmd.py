@@ -14,7 +14,13 @@ __all__ = ["where_command"]
 
 @click.command(name="where")
 @click.argument("predicate")
-def where_command(predicate: str) -> None:
+@click.option(
+    "--strict-rows",
+    "strict_rows",
+    is_flag=True,
+    help="A field-less row is an error, not a note.",
+)
+def where_command(predicate: str, strict_rows: bool) -> None:
     """Keep rows matching a deterministic predicate. Free — never calls a model.
 
     \b
@@ -31,6 +37,8 @@ def where_command(predicate: str) -> None:
     Put where BEFORE filter/map: it cuts the corpus for free, so the paid
     stages only see what matters. Semantic condition? Use filter.
     """
-    code = run_where(WhereRequest(predicate), stdin=sys.stdin, stdout=sys.stdout)
+    code = run_where(
+        WhereRequest(predicate, strict_rows=strict_rows), stdin=sys.stdin, stdout=sys.stdout
+    )
     if code is not ExitCode.OK:  # pragma: no cover — where currently always OKs
         raise SystemExit(int(code))

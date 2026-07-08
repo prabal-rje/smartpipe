@@ -17,7 +17,9 @@ from smartpipe.verbs.map import MapRequest, run_map
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from typing import TextIO
+
+    from smartpipe.io.writers import TextSink
+    from smartpipe.models.base import ChatModel
 
 AUDIO = AudioData(data=b"RIFFfake", mime="audio/wav")
 
@@ -97,6 +99,12 @@ class FakeContext:
     async def context_window(self, ref: object) -> int | None:
         return None  # the static table stands in these tests
 
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None  # no failover configured in these tests
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("fallback never resolved without a configured ref")
+
     def concurrency(self, flag: int | None = None) -> int:
         return 1
 
@@ -108,8 +116,10 @@ class FakeContext:
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
+        bare: bool = False,
+        full: bool = False,
     ) -> ResultWriter:
         return make_writer(WriterConfig(mode=RenderMode.TEXT, color=False, width=80), stdout)
 

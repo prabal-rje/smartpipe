@@ -14,6 +14,7 @@ from smartpipe.cli.input_options import (
     fields_option,
     input_options,
     input_spec,
+    positional_paths,
     resolve_prompt,
 )
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
@@ -26,6 +27,7 @@ __all__ = ["map_command"]
 
 @click.command(name="map")
 @click.argument("prompt", required=False)
+@click.argument("paths", nargs=-1, required=False)
 @click.option(
     "--prompt-file",
     "prompt_file",
@@ -82,6 +84,36 @@ __all__ = ["map_command"]
     type=int,
     help="Video frame budget (default 24; the smaller of the two flags wins).",
 )
+@click.option(
+    "--full",
+    "full",
+    is_flag=True,
+    help="Terminal preview: show whole values (no truncation).",
+)
+@click.option(
+    "--bare",
+    "bare",
+    is_flag=True,
+    help="Strip __ metadata fields from record output (for > redirections).",
+)
+@click.option(
+    "--fallback-model",
+    "fallback_flag",
+    shell_complete=complete_chat_models,
+    help="Chat model to switch to if the primary looks down (circuit breaker).",
+)
+@click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    help="Print the composed first request (system, schema, item) and exit — no model call.",
+)
+@click.option(
+    "--keep-invalid",
+    "keep_invalid",
+    is_flag=True,
+    help='Failed extractions become {"__invalid": true, "__error": …, "__raw": …} rows, not skips.',
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @fields_option
@@ -96,12 +128,20 @@ def map_command(
     tally_field: str | None,
     explode_field: str | None,
     model_flag: str | None,
+    fallback_flag: str | None,
+    bare: bool,
+    full: bool,
     output: str,
+    dry_run: bool,
+    keep_invalid: bool,
     concurrency_flag: int | None,
     max_calls: int | None,
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
+    strict_rows: bool,
+    paths: tuple[str, ...],
 ) -> None:
     """Transform each input item with a prompt. One item in, one result out.
 
@@ -109,8 +149,8 @@ def map_command(
     Examples:
       echo "hello" | smartpipe map "translate to Spanish"
       cat reviews.jsonl | smartpipe map "Extract {product, sentiment}"
-      smartpipe map "Summarize this document" --in 'reports/*.pdf'
-      smartpipe map "What does the caller want?" --in 'calls/*.mp3'
+      smartpipe map "Summarize this document" 'reports/*.pdf'
+      smartpipe map "What does the caller want?" 'calls/*.mp3'
 
     You usually need NO flags: braces in the prompt name the JSON fields you
     want back; plain prompts return plain text; and media is first-class —
@@ -129,9 +169,16 @@ def map_command(
         frame_every=frame_every,
         max_frames=max_frames,
         model_flag=model_flag,
+        fallback_flag=fallback_flag,
+        bare=bare,
+        full=full,
         output=OutputFormat(output),
+        dry_run=dry_run,
+        keep_invalid=keep_invalid,
         concurrency_flag=concurrency_flag,
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
         fields=fields,
     )
     code = asyncio.run(_run(request, max_calls))

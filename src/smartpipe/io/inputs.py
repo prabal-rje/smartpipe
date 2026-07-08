@@ -19,6 +19,8 @@ __all__ = ["STDIN", "InputSpec", "expand_globs"]
 class InputSpec:
     patterns: tuple[str, ...]  # --in globs (may be empty)
     from_files: bool  # --from-files: each stdin line names a file
+    as_mode: str | None = None  # --as file|lines|jsonl; None = auto (item 15)
+    strict_rows: bool = False  # --strict-rows: a mixed record/text stream is an error (item 20)
 
 
 # The default: no file flags → read stdin lines. Shared because it's immutable.
@@ -39,6 +41,6 @@ def expand_globs(patterns: tuple[str, ...]) -> list[Path]:
         joined = " ".join(patterns)
         raise UsageFault(
             f"no files matched: {joined}\n"
-            "  check the pattern, and quote it so the shell doesn't expand it first: --in '*.pdf'"
+            "  check the pattern, and quote it so the shell doesn't expand it first: '*.pdf'"
         )
     return list(seen.values())

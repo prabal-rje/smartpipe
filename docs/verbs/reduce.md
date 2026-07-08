@@ -82,7 +82,7 @@ tail -f server.log \
 
 Each window's record carries `window_end` (the stream position); the final,
 incomplete window is flushed on Ctrl-C or EOF with `"partial": true` - buffered
-lines are flushed, not silently discarded. `--window` reads `stdin` only (not `--in`) and
+lines are flushed, not silently discarded. `--window` reads `stdin` only (not files) and
 doesn't combine with `--group-by`.
 
 ## Options

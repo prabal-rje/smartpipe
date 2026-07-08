@@ -22,9 +22,8 @@ from smartpipe.verbs.map import MapRequest, run_map
 from tests.helpers.paced import PacedOllama
 
 if TYPE_CHECKING:
-    from typing import TextIO
-
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
+    from smartpipe.models.base import ChatModel
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX pipes/signals")
 
@@ -86,6 +85,12 @@ async def test_map_emits_before_eof_in_process() -> None:
         async def context_window(self, ref: object) -> int | None:
             return None  # the static table stands here
 
+        def fallback_ref(self, flag: str | None = None) -> None:
+            return None  # no failover configured in these tests
+
+        async def fallback_chat_model(self, ref: object) -> ChatModel:
+            raise AssertionError("fallback never resolved without a configured ref")
+
         def concurrency(self, flag: int | None = None) -> int:
             return 2
 
@@ -97,8 +102,10 @@ async def test_map_emits_before_eof_in_process() -> None:
             output_flag: OutputFormat,
             *,
             structured: bool,
-            stdout: TextIO,
+            stdout: TextSink,
             fields: tuple[str, ...] | None = None,
+            bare: bool = False,
+            full: bool = False,
         ) -> ResultWriter:
             config = WriterConfig(mode=RenderMode.TEXT, color=False, width=80, fields=fields)
             return make_writer(config, stdout)

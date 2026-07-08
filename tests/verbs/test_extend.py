@@ -14,9 +14,8 @@ from smartpipe.models.base import CompletionRequest, ModelRef
 from smartpipe.verbs.extend import ExtendRequest, base_fields, run_extend
 
 if TYPE_CHECKING:
-    from typing import TextIO
-
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
+    from smartpipe.models.base import ChatModel
 
 
 class SentimentModel:
@@ -41,6 +40,12 @@ class FakeContext:
     async def context_window(self, ref: ModelRef) -> int | None:
         return None  # no window info: the gate never trips
 
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None  # no failover configured in these tests
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("fallback never resolved without a configured ref")
+
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
@@ -52,8 +57,10 @@ class FakeContext:
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
+        bare: bool = False,
+        full: bool = False,
     ) -> ResultWriter:
         from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 
@@ -145,16 +152,68 @@ async def test_explode_copies_original_fields_onto_every_row() -> None:
     ]
 
 
+async def test_keep_invalid_merges_markers_onto_the_base_record() -> None:
+    """extend --keep-invalid: the original fields survive; the failure markers
+    land beside them; no extracted fields appear."""
+
+    class BrokenModel(SentimentModel):
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls += 1
+            return "not json, ever"
+
+    out = io.StringIO()
+    import contextlib
+
+    model = BrokenModel()
+    with contextlib.redirect_stderr(io.StringIO()):
+        code = await run_extend(
+            _request("Add {sentiment}", keep_invalid=True),
+            FakeContext(model),
+            stdin=io.StringIO('{"id": 7, "body": "crashes"}\n'),
+            stdout=out,
+        )
+    assert code is ExitCode.OK
+    (row,) = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert row["id"] == 7 and row["body"] == "crashes"  # the base record survives
+    assert row["__invalid"] is True
+    assert row["__raw"] == "not json, ever"
+    assert row["__error"]
+    assert "sentiment" not in row  # no extracted fields on a failed row
+    assert model.calls == 2  # original + the one repair retry
+
+
+async def test_dry_run_prints_the_composed_request_and_spends_nothing() -> None:
+    context = FakeContext(SentimentModel())
+    out = io.StringIO()
+    code = await run_extend(
+        _request("Add {sentiment}", dry_run=True),
+        context,
+        stdin=io.StringIO('{"id": 7, "body": "crashes"}\n{"id": 8}\n'),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert context.model.calls == 0  # zero model calls, zero spend
+    text = out.getvalue()
+    assert "--- system ---" in text
+    assert "--- schema ---" in text  # extend is always structured
+    assert "crashes" in text  # the first item's rendered text
+    assert '"id": 8' not in text  # and only the first
+
+
 def test_base_fields_drops_media_transport_keys() -> None:
     from dataclasses import replace
 
     from smartpipe.io.items import item_from_line
 
     line = json.dumps(
-        {"image_b64": "aGk=", "mime": "image/png", "source": "fig.png", "text": "a chart"}
+        {
+            "__media": {"kind": "image", "mime": "image/png", "data_b64": "aGk="},
+            "source": "fig.png",
+            "text": "a chart",
+        }
     )
     item = item_from_line(line, 0)
     assert item.media  # the record carried media
     base = base_fields(replace(item))
-    assert "image_b64" not in base and "mime" not in base  # transport dropped
+    assert "__media" not in base  # transport dropped
     assert base["source"] == "fig.png"  # provenance survives

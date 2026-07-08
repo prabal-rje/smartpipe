@@ -50,7 +50,12 @@ async def test_small_file_passes_through_whole(
     )
     assert code is ExitCode.OK
     records = [json.loads(line) for line in out.getvalue().splitlines()]
-    assert records == [{"text": "short and sweet", "source": "note.md"}]
+    assert records == [
+        {
+            "text": "short and sweet",
+            "__source": {"path": "note.md", "as": "tokens", "segment": 1, "label": "note.md"},
+        }
+    ]
 
 
 async def test_big_file_becomes_provenance_chunks(
@@ -76,7 +81,9 @@ async def test_big_file_becomes_provenance_chunks(
     assert code is ExitCode.OK
     records = [json.loads(line) for line in out.getvalue().splitlines()]
     assert len(records) > 1
-    assert records[0]["source"] == f"big.md §1/{len(records)}"
+    assert records[0]["__source"]["label"] == f"big.md §1/{len(records)}"
+    assert records[0]["__source"]["as"] == "tokens"
+    assert records[0]["__source"]["segment"] == 1
     assert "".join(r["text"] for r in records) == paragraphs  # exact reassembly
 
 
@@ -91,7 +98,7 @@ async def test_stdin_lines_split_too() -> None:
     assert code is ExitCode.OK
     records = [json.loads(line) for line in out.getvalue().splitlines()]
     assert len(records) == 5  # 40 chars / (2 tokens * 4 chars)
-    assert all(r["source"].startswith("line 1 §") for r in records)
+    assert all(r["__source"]["label"].startswith("line 1 §") for r in records)
 
 
 def _minimal_pdf(pages: list[str]) -> bytes:
@@ -144,7 +151,8 @@ async def test_by_pages_yields_page_spans(tmp_path: Path, monkeypatch: pytest.Mo
     )
     assert code is ExitCode.OK
     records = [json.loads(line) for line in out.getvalue().splitlines()]
-    assert [r["source"] for r in records] == ["r.pdf p.1-2", "r.pdf p.3"]
+    assert [r["__source"]["label"] for r in records] == ["r.pdf p.1-2", "r.pdf p.3"]
+    assert [r["__source"]["page"] for r in records] == [1, 3]
     assert "alpha page" in records[0]["text"] and "beta page" in records[0]["text"]
     assert "gamma page" in records[1]["text"]
 
@@ -178,7 +186,7 @@ async def test_by_seconds_slices_audio_with_clock_provenance(
     )
     assert code is ExitCode.OK
     records = [json.loads(line) for line in out.getvalue().splitlines()]
-    assert [r["source"] for r in records] == [
+    assert [r["__source"]["label"] for r in records] == [
         "call.wav §00:00-00:02",
         "call.wav §00:02-00:04",
         "call.wav §00:04-00:06",
@@ -212,7 +220,10 @@ async def test_sliced_audio_round_trips_into_hearable_items() -> None:
 
     payload = base64.b64encode(b"RIFFfakewav").decode("ascii")
     line = (
-        '{"audio_b64": "' + payload + '", "mime": "audio/wav", "source": "call.wav §00:00-00:02"}\n'
+        '{"__media": {"kind": "audio", "mime": "audio/wav", "data_b64": "'
+        + payload
+        + '"}, "__source": {"path": "call.wav", "as": "seconds", "segment": 1,'
+        + ' "label": "call.wav §00:00-00:02"}}\n'
     )
     item = item_from_line(line, 0)
     assert len(item.media) == 1 and isinstance(item.media[0], AudioData)
@@ -287,9 +298,11 @@ async def test_media_extracts_docx_images_and_drops_icons(
     assert code is ExitCode.OK
     records = [json.loads(line) for line in out.getvalue().splitlines()]
     assert len(records) == 1
-    assert records[0]["source"] == "deck.docx img.1"
-    assert records[0]["mime"] == "image/png"
-    assert base64.b64decode(records[0]["image_b64"]) == real  # byte-identical
+    assert records[0]["__source"]["label"] == "deck.docx img.1"
+    assert records[0]["__source"]["as"] == "file"
+    assert records[0]["__media"]["mime"] == "image/png"
+    assert records[0]["__media"]["kind"] == "image"
+    assert base64.b64decode(records[0]["__media"]["data_b64"]) == real  # byte-identical
     assert "skipped 1 embedded image under 4 KB" in capsys.readouterr().err
 
 
@@ -312,8 +325,8 @@ async def test_media_extracts_pdf_jpegs_with_page_provenance(
     )
     assert code is ExitCode.OK
     records = [json.loads(line) for line in out.getvalue().splitlines()]
-    assert [r["source"] for r in records] == ["report.pdf p.1 img.1"]
-    assert base64.b64decode(records[0]["image_b64"]) == jpeg
+    assert [r["__source"]["label"] for r in records] == ["report.pdf p.1 img.1"]
+    assert base64.b64decode(records[0]["__media"]["data_b64"]) == jpeg
 
 
 async def test_media_image_items_round_trip_into_vision_items() -> None:
@@ -323,9 +336,9 @@ async def test_media_image_items_round_trip_into_vision_items() -> None:
     from smartpipe.models.base import ImageData
 
     line = (
-        '{"image_b64": "'
+        '{"__media": {"kind": "image", "mime": "image/png", "data_b64": "'
         + base64.b64encode(b"\x89PNGfake").decode("ascii")
-        + '", "mime": "image/png", "source": "deck.docx img.1"}\n'
+        + '"}, "source": "deck.docx img.1"}\n'
     )
     item = item_from_line(line, 0)
     assert len(item.media) == 1 and isinstance(item.media[0], ImageData)
@@ -357,9 +370,9 @@ async def test_pages_media_fuses_text_and_figures_per_page(
     records = [json.loads(line) for line in out.getvalue().splitlines()]
     assert len(records) == 1
     record = records[0]
-    assert record["source"] == "r.pdf"
-    assert len(record["parts"]) == 1
-    assert base64.b64decode(record["parts"][0]["image_b64"]) == jpeg
+    assert record["__source"]["label"] == "r.pdf"
+    assert len(record["__media"]) == 1
+    assert base64.b64decode(record["__media"][0]["data_b64"]) == jpeg
     # and the record round-trips into ONE multimodal item downstream
     item = item_from_line(json.dumps(record) + "\n", 0)
     assert len(item.media) == 1 and isinstance(item.media[0], ImageData)

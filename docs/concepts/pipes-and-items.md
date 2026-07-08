@@ -13,10 +13,11 @@ the whole mental model.
 
   Each line of the log is judged on its own.
 
-- **Reading files (`--in` / `--from-files`):** each **file** is one item.
+- **Reading files (named FILES / `--from-files`):** each **file** is one item
+  by default; [the item](the-item.md) explains the granularity dial (`--as`).
 
   ```bash
-  smartpipe map "Summarize this document" --in 'reports/*.pdf'
+  smartpipe map "Summarize this document" 'reports/*.pdf'
   ```
 
   See [File inputs](../inputs/files.md) for the details, including how documents
@@ -62,7 +63,7 @@ is processed as it arrives, and results flow out as they complete. That means
 an end-of-file that isn't coming. Two practical notes:
 
 - Piped stdin has no known total, so the progress line shows a count and rate
-  (`⠋ Processing [847] 3.1/s`) instead of a percentage/ETA. `--in` file lists keep
+  (`⠋ Processing [847] 3.1/s`) instead of a percentage/ETA. Named-file lists keep
   the full ETA (their total is known).
 - `reduce` and `top_k` need the whole set by nature - over a live stream, use
   [`reduce --window`](../verbs/reduce.md) or [`top_k --stream`](../verbs/top-k.md),

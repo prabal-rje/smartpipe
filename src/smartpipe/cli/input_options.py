@@ -13,7 +13,14 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-__all__ = ["fields_option", "input_options", "input_spec", "parse_fields", "resolve_prompt"]
+__all__ = [
+    "fields_option",
+    "input_options",
+    "input_spec",
+    "parse_fields",
+    "positional_paths",
+    "resolve_prompt",
+]
 
 _Command = TypeVar("_Command", bound="Callable[..., object]")
 
@@ -24,12 +31,14 @@ _FIELDS_HINT = (
 
 
 def input_options(command: _Command) -> _Command:
-    """Attach ``--in`` (glob of files as items) and ``--from-files`` (stdin names files)."""
+    """Attach the shared input dials: ``--in`` (glob of files as items),
+    ``--from-files`` (stdin names files), and ``--as`` (granularity, item 15)."""
     command = click.option(
         "--in",
         "in_patterns",
         multiple=True,
         metavar="GLOB",
+        hidden=True,  # compat alias (item 16): positional FILE arguments are the front door
         help="Read each matching file as one item (repeatable). e.g. --in 'docs/*.pdf'",
     )(command)
     command = click.option(
@@ -38,11 +47,53 @@ def input_options(command: _Command) -> _Command:
         is_flag=True,
         help="Treat each stdin line as a filename; read each file as one item.",
     )(command)
+    command = click.option(
+        "--strict-rows",
+        "strict_rows",
+        is_flag=True,
+        help="A mixed record/text stream (or a field-less row) is an error, not a note.",
+    )(command)
+    command = click.option(
+        "--as",
+        "as_mode",
+        type=click.Choice(["file", "lines", "jsonl"]),
+        default=None,
+        help="Cut granularity: file = one item per file/whole stdin; "
+        "lines = every line is text; jsonl = strict one-record-per-line.",
+    )(command)
     return command
 
 
-def input_spec(in_patterns: tuple[str, ...], *, from_files: bool) -> InputSpec:
-    return InputSpec(patterns=tuple(in_patterns), from_files=from_files)
+def input_spec(
+    in_patterns: tuple[str, ...],
+    *,
+    from_files: bool,
+    as_mode: str | None = None,
+    strict_rows: bool = False,
+) -> InputSpec:
+    return InputSpec(
+        patterns=tuple(in_patterns),
+        from_files=from_files,
+        as_mode=as_mode,
+        strict_rows=strict_rows,
+    )
+
+
+def positional_paths(paths: tuple[str, ...], in_patterns: tuple[str, ...]) -> tuple[str, ...]:
+    """Positional FILE arguments (item 16): the same semantics as --in (which
+    stays as a hidden compat alias). Two or more positionals that aren't on
+    disk almost always mean an unquoted prompt — say so."""
+    import glob as _glob
+    from pathlib import Path as _Path
+
+    missing = [path for path in paths if not _glob.has_magic(path) and not _Path(path).exists()]
+    if len(missing) > 1:
+        listed = ", ".join(missing[:3])
+        raise UsageFault(
+            f"{len(missing)} arguments aren't files on disk ({listed})\n"
+            '  A multi-word prompt needs quotes: smartpipe map "summarize this" notes.txt'
+        )
+    return (*paths, *in_patterns)
 
 
 def fields_option(command: _Command) -> _Command:

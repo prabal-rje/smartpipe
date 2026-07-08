@@ -71,3 +71,42 @@ def test_real_text_keeps_the_plainfigure_note() -> None:
     note = figure_note("report.pdf", 5_000, 3, 0)
     assert note == "report.pdf: 3 figures attached"
     assert "scanned" not in note
+
+
+# --- the kind census (wave 2, item 20) ---------------------------------------------
+
+
+async def test_mixed_stream_notes_the_census_once(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import io as _io
+
+    from smartpipe.io.readers import stdin_items
+
+    stream = _io.StringIO('{"a": 1}\nplain\n{"b": 2}\n')
+    _ = [item async for item in stdin_items(stream)]
+    err = capsys.readouterr().err
+    assert "input: 2 records · 1 plain lines" in err
+
+
+async def test_pure_streams_stay_silent(capsys: pytest.CaptureFixture[str]) -> None:
+    import io as _io
+
+    from smartpipe.io.readers import stdin_items
+
+    stream = _io.StringIO('{"a": 1}\n{"b": 2}\n')
+    _ = [item async for item in stdin_items(stream)]
+    assert "input:" not in capsys.readouterr().err
+
+
+async def test_strict_rows_turns_the_census_into_an_error() -> None:
+    import io as _io
+
+    import pytest as _pytest
+
+    from smartpipe.core.errors import UsageFault
+    from smartpipe.io.readers import stdin_items
+
+    stream = _io.StringIO('{"a": 1}\nplain\n')
+    with _pytest.raises(UsageFault, match="--strict-rows demands one kind"):
+        _ = [item async for item in stdin_items(stream, strict_rows=True)]

@@ -9,7 +9,7 @@ recording and minute.
 ```bash
 # Slice the calls free (segments STAY audio), pull commitments per slice
 # with '§00:10-00:20' provenance, then one digest
-smartpipe split --by minutes:10 --in 'recordings/2026-W28/*.mp3' \
+smartpipe split --by minutes:10 'recordings/2026-W28/*.mp3' \
 | smartpipe extend "Add {decisions string[], action_items string[], blockers string[]}" \
 | smartpipe reduce "Write the weekly ops digest: decisions made, action items grouped by owner, open blockers - cite each item's source recording and timestamp"
 ```

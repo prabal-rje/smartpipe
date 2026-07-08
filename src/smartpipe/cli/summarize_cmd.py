@@ -14,7 +14,13 @@ __all__ = ["summarize_command"]
 
 @click.command(name="summarize")
 @click.argument("expression")
-def summarize_command(expression: str) -> None:
+@click.option(
+    "--strict-rows",
+    "strict_rows",
+    is_flag=True,
+    help="A row lacking a by-field is an error, not a note.",
+)
+def summarize_command(expression: str, strict_rows: bool) -> None:
     """Aggregate records deterministically. Free — never calls a model.
 
     \b
@@ -32,6 +38,10 @@ def summarize_command(expression: str) -> None:
     visibly. Non-numeric values in numeric aggregations are skipped and
     counted on stderr — never a mid-stream crash.
     """
-    code = run_summarize(SummarizeRequest(expression), stdin=sys.stdin, stdout=sys.stdout)
+    code = run_summarize(
+        SummarizeRequest(expression, strict_rows=strict_rows),
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+    )
     if code is not ExitCode.OK:  # pragma: no cover — summarize always OKs
         raise SystemExit(int(code))

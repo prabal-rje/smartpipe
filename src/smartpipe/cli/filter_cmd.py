@@ -9,7 +9,8 @@ from pathlib import Path
 
 import click
 
-from smartpipe.cli.input_options import input_options, input_spec, resolve_prompt
+from smartpipe.cli.completions import complete_chat_models
+from smartpipe.cli.input_options import input_options, input_spec, positional_paths, resolve_prompt
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.filter import FilterRequest, run_filter
@@ -19,6 +20,7 @@ __all__ = ["filter_command"]
 
 @click.command(name="filter")
 @click.argument("condition", required=False)
+@click.argument("paths", nargs=-1, required=False)
 @click.option(
     "--prompt-file",
     "prompt_file",
@@ -27,6 +29,12 @@ __all__ = ["filter_command"]
 )
 @click.option("--not", "invert", is_flag=True, help="Keep items that do NOT match (like grep -v).")
 @click.option("--model", "model_flag", help="Model for this run.")
+@click.option(
+    "--fallback-model",
+    "fallback_flag",
+    shell_complete=complete_chat_models,
+    help="Chat model to switch to if the primary looks down (circuit breaker).",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @click.option(
@@ -41,11 +49,15 @@ def filter_command(
     prompt_file: Path | None,
     invert: bool,
     model_flag: str | None,
+    fallback_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
     allow_captions: bool,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
+    strict_rows: bool,
+    paths: tuple[str, ...],
 ) -> None:
     """Keep items matching a plain-English condition. Semantic grep.
 
@@ -53,7 +65,7 @@ def filter_command(
     Examples:
       cat reviews.txt | smartpipe filter "the reviewer is sarcastic"
       cat tickets.jsonl | smartpipe filter "{priority} is wrong given {description}"
-      smartpipe filter "mentions a security issue" --in 'logs/*.txt'
+      smartpipe filter "mentions a security issue" 'logs/*.txt'
 
     Output is the matching input items, unchanged and in order (in file mode, the
     matching filenames). Zero matches is a successful (exit 0) empty result.
@@ -64,8 +76,11 @@ def filter_command(
         condition=resolve_prompt(condition, prompt_file),
         invert=invert,
         model_flag=model_flag,
+        fallback_flag=fallback_flag,
         concurrency_flag=concurrency_flag,
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
     )
     code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:

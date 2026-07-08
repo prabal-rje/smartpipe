@@ -21,6 +21,7 @@ __all__ = ["Setting", "render_show", "settings_with_origin"]
 
 _DEFAULTS = {
     "model": "(auto-detect)",
+    "fallback-model": "(none)",
     "embed-model": "nomic-embed-text",
     "concurrency": "4",
     "output": "auto",
@@ -37,6 +38,7 @@ class Setting:
 def settings_with_origin(env: Mapping[str, str], config: Config) -> tuple[Setting, ...]:
     return (
         _resolve("model", env.get("SMARTPIPE_MODEL"), config.model),
+        _resolve("fallback-model", env.get("SMARTPIPE_FALLBACK_MODEL"), config.fallback_model),
         _resolve("embed-model", env.get("SMARTPIPE_EMBED_MODEL"), config.embed_model),
         _resolve("concurrency", env.get("SMARTPIPE_CONCURRENCY"), config.concurrency),
         _resolve("output", env.get("SMARTPIPE_OUTPUT"), config.output),

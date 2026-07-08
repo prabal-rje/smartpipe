@@ -22,7 +22,9 @@ from smartpipe.verbs.join import JoinRequest, run_join
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
-    from typing import TextIO
+
+    from smartpipe.io.writers import TextSink
+    from smartpipe.models.base import ChatModel
 
 
 class FakeEmbed:
@@ -74,6 +76,12 @@ class FakeContext:
     async def embedding_model(self, flag: str | None = None) -> FakeEmbed:
         return self.embed
 
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None  # no failover configured in these tests
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("fallback never resolved without a configured ref")
+
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic transcripts
 
@@ -85,8 +93,10 @@ class FakeContext:
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
+        bare: bool = False,
+        full: bool = False,
     ) -> ResultWriter:
         mode = RenderMode.NDJSON if structured else RenderMode.TEXT  # the container's rule
         config = WriterConfig(mode=mode, color=False, width=80, fields=fields)
@@ -164,7 +174,7 @@ async def test_matches_pair_and_nests_both_sides(tmp_path: Path) -> None:
         {
             "left": {"text": "printer smoking"},
             "right": {"name": "LaserJet 9"},
-            "_score": pytest.approx(0.9969, abs=1e-3),
+            "__score": pytest.approx(0.9969, abs=1e-3),
         }
     ]
 
@@ -284,13 +294,13 @@ async def test_dotted_fields_project_the_nested_record(tmp_path: Path) -> None:
     embed = FakeEmbed(TABLE)
     judge = FakeJudge(matches=[("printer smoking", "LaserJet 9")])
     code, records, _ = await _run(
-        _request(_right_file(tmp_path, RIGHT_LINES), fields=("right.name", "_score")),
+        _request(_right_file(tmp_path, RIGHT_LINES), fields=("right.name", "__score")),
         "printer smoking\n",
         embed,
         judge,
     )
     assert code is ExitCode.OK
-    assert list(records[0]) == ["right.name", "_score"]
+    assert list(records[0]) == ["right.name", "__score"]
     assert records[0]["right.name"] == "LaserJet 9"
 
 
@@ -448,7 +458,7 @@ async def test_oversized_right_is_judged_on_its_best_chunk(
         stdout=out,
     )
     assert code is ExitCode.OK
-    assert '"_score"' in out.getvalue()  # the pair matched — no skip
+    assert '"__score"' in out.getvalue()  # the pair matched — no skip
     assert len(judge.seen) == 1
     statement = judge.seen[0]
     assert "EspressoPro Nine thousand" in statement  # the needle chunk was chosen
@@ -490,7 +500,7 @@ async def test_leftouter_keeps_every_left_row(tmp_path: Path) -> None:
     assert len(records) == 2
     nulls = [record for record in records if record["right"] is None]
     assert len(nulls) == 1
-    assert "_score" not in nulls[0]
+    assert "__score" not in nulls[0]
 
 
 async def test_anti_with_unmatched_file_is_a_usage_fault(tmp_path: Path) -> None:
@@ -507,3 +517,113 @@ async def test_anti_with_unmatched_file_is_a_usage_fault(tmp_path: Path) -> None
             embed,
             judge,
         )
+
+
+# --- join --on (wave 2, item 21) ---------------------------------------------------
+
+
+class _NoModels:
+    """--on alone must resolve neither model."""
+
+    async def chat_model(self, flag: str | None = None) -> ChatModel:
+        raise AssertionError("--on alone never resolves a chat model")
+
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("no fallback here")
+
+    async def embedding_model(self, flag: str | None = None) -> object:
+        raise AssertionError("--on alone never resolves an embedding model")
+
+    def remote_transcriber(self, chat_ref: object | None = None) -> None:
+        return None
+
+    def concurrency(self, flag: int | None = None) -> int:
+        return 2
+
+    def writer(
+        self,
+        output_flag: OutputFormat,
+        *,
+        structured: bool,
+        stdout: TextSink,
+        fields: tuple[str, ...] | None = None,
+        bare: bool = False,
+        full: bool = False,
+    ) -> ResultWriter:
+        from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
+
+        mode = RenderMode.NDJSON if structured else RenderMode.TEXT
+        return make_writer(WriterConfig(mode=mode, color=False, width=80, fields=fields), stdout)
+
+
+def _on_request(tmp_path: Path, right_rows: list[str], **kw: object) -> JoinRequest:
+    right = tmp_path / "right.jsonl"
+    right.write_text("\n".join(right_rows) + "\n", encoding="utf-8")
+    return JoinRequest(
+        predicate=None,
+        right=right,
+        k=5,
+        threshold=None,
+        model_flag=None,
+        embed_model_flag=None,
+        concurrency_flag=None,
+        output=OutputFormat.JSON,
+        on=("left.sku == right.sku",),
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+async def test_on_alone_is_a_free_key_equality_join(tmp_path: Path) -> None:
+    import json as _json
+
+    request = _on_request(
+        tmp_path,
+        ['{"sku": "A1", "name": "bolt"}', '{"sku": "B2", "name": "nut"}'],
+    )
+    out = io.StringIO()
+    code = await run_join(
+        request,
+        _NoModels(),  # type: ignore[arg-type]
+        stdin=io.StringIO('{"sku": "A1", "qty": 3}\n{"sku": "ZZ", "qty": 1}\n'),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    rows = [_json.loads(line) for line in out.getvalue().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["left"]["qty"] == 3
+    assert rows[0]["right"]["name"] == "bolt"
+    assert "__score" not in rows[0]  # deterministic: no similarity to report
+
+
+async def test_on_alone_supports_anti_kind(tmp_path: Path) -> None:
+    request = _on_request(tmp_path, ['{"sku": "A1"}'], kind="anti")
+    out = io.StringIO()
+    code = await run_join(
+        request,
+        _NoModels(),  # type: ignore[arg-type]
+        stdin=io.StringIO('{"sku": "A1"}\n{"sku": "ZZ"}\n'),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert out.getvalue() == '{"sku": "ZZ"}\n'  # unmatched rows, verbatim
+
+
+async def test_bad_on_expression_is_a_usage_screen(tmp_path: Path) -> None:
+    request = _on_request(tmp_path, ['{"sku": "A1"}'])
+    request = replace_dataclass(request, on=("sku == sku",))
+    with pytest.raises(UsageFault, match=r"left\.FIELD == right\.FIELD"):
+        await run_join(
+            request,
+            _NoModels(),  # type: ignore[arg-type]
+            stdin=io.StringIO('{"sku": "A1"}\n'),
+            stdout=io.StringIO(),
+        )
+
+
+def replace_dataclass(request: JoinRequest, **kw: object) -> JoinRequest:
+    from dataclasses import replace as _replace
+
+    return _replace(request, **kw)  # type: ignore[arg-type]

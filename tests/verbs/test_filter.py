@@ -14,9 +14,9 @@ from smartpipe.verbs.filter import FilterRequest, run_filter
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from typing import TextIO
 
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
+    from smartpipe.models.base import ChatModel
 
 
 class FakeChat:
@@ -45,6 +45,12 @@ class FakeContext:
     async def context_window(self, ref: object) -> int | None:
         return None  # the static table stands in these tests
 
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None  # no failover configured in these tests
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("fallback never resolved without a configured ref")
+
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic order for assertions
 
@@ -52,7 +58,7 @@ class FakeContext:
         return None
 
     def writer(
-        self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO
+        self, output_flag: OutputFormat, *, structured: bool, stdout: TextSink
     ) -> ResultWriter:
         return make_writer(WriterConfig(mode=RenderMode.TEXT, color=False, width=80), stdout)
 
@@ -209,7 +215,7 @@ async def test_interrupted_after_results_keeps_outcome_code(
     model = FakeChat(_match_if("keep"))
 
     class StopAfterFirst(FakeContext):
-        def writer(self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO):  # type: ignore[override]
+        def writer(self, output_flag: OutputFormat, *, structured: bool, stdout: TextSink):  # type: ignore[override]
             inner = super().writer(output_flag, structured=structured, stdout=stdout)
 
             class W:

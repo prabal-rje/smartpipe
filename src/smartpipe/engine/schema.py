@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BARE_PROPERTY",
+    "example_instance",
     "is_strict_compatible",
     "load_schema",
     "parse_schema_draft",
@@ -122,6 +123,66 @@ def load_schema(path: Path) -> dict[str, object]:
             f"error: {path} isn't a JSON Schema\n  The top level must be a JSON object."
         )
     return dict(record)
+
+
+def example_instance(schema: Mapping[str, object]) -> object:
+    """One deterministic instance that validates (``smartpipe schema --example``).
+
+    Covers the vocabulary our own ladder emits — objects, the primitives,
+    arrays, enums, nullable unions, bounds, lengths. Anything richer falls
+    back to an honest null rather than a guess.
+    """
+    enum = as_items(schema.get("enum"))
+    if enum:
+        return enum[0]
+    kind: object = schema.get("type")
+    union = as_items(kind)  # a list "type" is a union of bases
+    if union is not None:  # a union: prefer the first non-null base
+        bases = [entry for entry in union if entry != "null"]
+        if not bases:
+            return None
+        return example_instance({**schema, "type": bases[0]})
+    match kind if isinstance(kind, str) else None:
+        case "object":
+            properties = as_record(schema.get("properties")) or {}
+            return {
+                name: example_instance(as_record(prop) or {}) for name, prop in properties.items()
+            }
+        case "array":
+            items = as_record(schema.get("items"))
+            return [] if items is None else [example_instance(items)]
+        case "string":
+            return _example_string(schema)
+        case "integer":
+            return int(_example_number(schema))
+        case "number":
+            return _example_number(schema)
+        case "boolean":
+            return True
+        case _:  # "null", or vocabulary we don't speak
+            return None
+
+
+def _example_string(schema: Mapping[str, object]) -> str:
+    text = "text"
+    minimum = schema.get("minLength")
+    if isinstance(minimum, int) and len(text) < minimum:
+        text = "x" * minimum
+    maximum = schema.get("maxLength")
+    if isinstance(maximum, int) and len(text) > maximum:
+        text = text[:maximum]
+    return text
+
+
+def _example_number(schema: Mapping[str, object]) -> int | float:
+    value: int | float = 0
+    minimum = schema.get("minimum")
+    if isinstance(minimum, int | float) and not isinstance(minimum, bool):
+        value = minimum
+    maximum = schema.get("maximum")
+    if isinstance(maximum, int | float) and not isinstance(maximum, bool) and value > maximum:
+        value = maximum
+    return value
 
 
 def parse_schema_draft(reply: str) -> dict[str, object]:

@@ -39,6 +39,7 @@ _DEFAULT_THRESHOLD = 0.90
 @dataclass(frozen=True, slots=True)
 class DistinctRequest:
     show_groups: bool = False
+    exact: bool = False  # --exact: stop at the hash rung — zero embedding calls (item 22)
     threshold: float = _DEFAULT_THRESHOLD
     model_flag: str | None = None
     concurrency_flag: int | None = None
@@ -63,20 +64,19 @@ async def run_distinct(
 ) -> ExitCode:
     if not 0.0 < request.threshold <= 1.0:
         raise UsageFault("--threshold is a cosine similarity: between 0 and 1")
-    model = await context.embedding_model(request.model_flag)
     items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
     items = [item async for item in items_iter]
     if not items:
         return ExitCode.OK
 
-    # exact fast path: identical text folds for free, before any embedding
-    first_of: dict[str, int] = {}
+    # exact fast path: identical items fold for free, before any embedding
+    first_of: dict[str | bytes, int] = {}
     exact_dupes_of: dict[int, list[int]] = {}
     uniques: list[Item] = []
     unique_positions: list[int] = []
     exact_folded = 0
     for position, item in enumerate(items):
-        key = item.text.strip() if not item.media else f"\x00media:{position}"
+        key = _fold_key(item, position, exact=request.exact)
         seen_at = first_of.get(key)
         if seen_at is not None:
             exact_dupes_of.setdefault(seen_at, []).append(position)
@@ -86,6 +86,21 @@ async def run_distinct(
         uniques.append(item)
         unique_positions.append(position)
 
+    if request.exact:
+        # --exact (item 22): the hash rung IS the answer — no embedding model
+        # is even resolved, no fuzzy anything
+        kept_exact = set(unique_positions)
+        _receipt(kept=len(kept_exact), total=len(items), exact=exact_folded, near=0)
+        return _emit(
+            request,
+            stdout,
+            items,
+            kept=kept_exact,
+            near_dupes_of={},
+            exact_dupes_of=exact_dupes_of,
+        )
+
+    model = await context.embedding_model(request.model_flag)
     log = diagnostics.DegradationLog()
     converter_chat = await optional_chat(context)
     converter = make_converter(
@@ -131,12 +146,56 @@ async def run_distinct(
         near_dupes_of[leader_position] = followers
         near_folded += len(followers)
 
-    total = len(items)
-    diagnostics.note(
-        f"distinct: kept {len(kept):,} of {total:,} "
-        f"({exact_folded:,} exact + {near_folded:,} near duplicates folded)"
+    _receipt(kept=len(kept), total=len(items), exact=exact_folded, near=near_folded)
+    return _emit(
+        request,
+        stdout,
+        items,
+        kept=kept,
+        near_dupes_of=near_dupes_of,
+        exact_dupes_of=exact_dupes_of,
     )
 
+
+def _fold_key(item: Item, position: int, *, exact: bool) -> str | bytes:
+    """--exact hashes honestly (item 22): records canonicalize to sorted-key
+    compact JSON; media items hash their raw BYTES (identical files fold with
+    zero model calls); plain text compares byte-for-byte — no fuzzy
+    normalization, ever. The default rung keeps today's behavior: stripped
+    text, media never exact-folds (the embedding rung handles it)."""
+    if not exact:
+        return item.text.strip() if not item.media else f"\x00media:{position}"
+    if item.media:
+        import hashlib
+
+        digest = hashlib.sha256()
+        for part in item.media:
+            digest.update(part.data)
+        return digest.digest()
+    if item.data is not None:
+        import json
+
+        return "\x01rec:" + json.dumps(
+            dict(item.data), sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        )
+    return "\x02txt:" + item.raw
+
+
+def _receipt(*, kept: int, total: int, exact: int, near: int) -> None:
+    diagnostics.note(
+        f"distinct: kept {kept:,} of {total:,} ({exact:,} exact + {near:,} near duplicates folded)"
+    )
+
+
+def _emit(
+    request: DistinctRequest,
+    stdout: TextIO,
+    items: list[Item],
+    *,
+    kept: set[int],
+    near_dupes_of: dict[int, list[int]],
+    exact_dupes_of: dict[int, list[int]],
+) -> ExitCode:
     if request.show_groups:
         writer = make_writer(
             WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=None), stdout

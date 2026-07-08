@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from smartpipe.cli import screens
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, SetupFault, TransportError
 from smartpipe.core.jsontools import as_str, record_at
 from smartpipe.io import metering
 from smartpipe.models.base import AudioData, ImageData
@@ -75,6 +75,10 @@ class AnthropicChatModel:
                 "  Check your network connection and try again."
             ) from exc
         except anthropic.APIStatusError as exc:
+            if exc.status_code >= 500:  # the wire, not the content — the breaker counts these
+                raise TransportError(
+                    f"anthropic error {exc.status_code}: {_status_detail(exc)}"
+                ) from exc
             raise ItemError(f"anthropic error {exc.status_code}: {_status_detail(exc)}") from exc
         return _reply_text(self.ref.name, message)
 

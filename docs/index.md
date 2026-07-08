@@ -13,15 +13,21 @@ cat reviews.txt \
 | smartpipe map "Extract {product, complaint}"
 ```
 
-## Start here
+## Pick your door
 
-- **[Install](install.md)** - one command, plus current platform notes.
-- **[Quickstart](quickstart.md)** - from zero to a working pipeline in a minute,
-  local or cloud.
+- **New to smartpipe?** The [Learn track](learn/1-first-pipeline.md) - six
+  short chapters from first pipeline to production habits
+  (after [installing](install.md)).
+- **Have a task in mind?** The [Cookbook](cookbook/README.md) - complete,
+  copy-pasteable recipes: contracts, video, logs, training data.
+- **Wondering how something works?** [Concepts](concepts/the-item.md) - the
+  item, ingestion, models, structured output.
+- **Need the exact flag?** The [CLI reference](reference/cli.md) - the whole
+  surface, one page, contract-stable.
 
 ## Verbs
 
-A **verb** is one operation on your data. Each reads `stdin` (or `--in FILES`)
+A **verb** is one operation on your data. Each reads `stdin` (or named FILES)
 and writes `stdout`, so verbs pipe into each other and into ordinary Unix tools.
 
 **Semantic verbs** call a model:
@@ -35,7 +41,7 @@ and writes `stdout`, so verbs pipe into each other and into ordinary Unix tools.
 | [`reduce`](verbs/reduce.md) | synthesize many items into one | `awk` END, but literate |
 | [`join`](verbs/join.md) | match two inputs semantically | SQL join, but semantic |
 | [`cluster`](verbs/cluster.md) | group by meaning, label each group | themes with sizes and quotes |
-| [`distinct`](verbs/distinct.md) | fold near-duplicates | `sort -u`, by meaning |
+| [`distinct`](verbs/distinct.md) | fold near-duplicates; `--exact` is free | `sort -u`, by meaning |
 | [`diff`](verbs/diff.md) | what distinguishes two sets | the post-incident answer |
 | [`outliers`](verbs/outliers.md) | the items least like the rest | novelty, surfaced |
 
@@ -52,8 +58,14 @@ paid stage:
 | [`split`](verbs/split.md) | break items into pieces (pages, minutes) | `split` |
 | [`chart`](reference/cli.md) | terminal bars, SVG, facets, time series | quick plots |
 
+Some semantic verbs have a **conditionally free mode**: `join --on` (key
+equality, no prompt), `distinct --exact` (hash-only folding), `map`/`extend`
+`--dry-run` (compose without sending), and `smartpipe schema` with a
+braces/DSL expression. Each stays at zero model calls by construction.
+
 ## Concepts
 
+- [The item](concepts/the-item.md) - the five laws everything follows from
 - [Pipes & items](concepts/pipes-and-items.md) - the mental model (what is "one item"?)
 - [Models & providers](concepts/models-and-providers.md) - local vs cloud, model strings
 - [Structured output](concepts/structured-output.md) - braces and `--schema`

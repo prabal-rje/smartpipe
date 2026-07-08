@@ -1,0 +1,5 @@
+error: ollama looks down — 5 consecutive transport failures
+  Every recent call died on the wire (timeouts, connection errors, 5xx),
+  so smartpipe stopped early instead of failing the rest one by one.
+  Work already done is safe — rerunning is cheap (cached answers are free).
+  Try again in a minute, or pick another model: --model …

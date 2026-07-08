@@ -12,7 +12,7 @@ def test_echo_passes_input_through_byte_identically(run_cli: RunCli) -> None:
     code, out, err = run_cli(["echo"], stdin=payload)
     assert code == 0
     assert out == payload
-    assert err == ""
+    assert err == "note: input: 1 records · 1 plain lines\n"  # the kind census (item 20)
 
 
 def test_echo_forced_json_is_still_passthrough(run_cli: RunCli) -> None:

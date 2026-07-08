@@ -52,11 +52,10 @@ from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Mapping
-    from typing import TextIO
 
     import httpx
 
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, EmbeddingModel
     from smartpipe.models.stt import RemoteTranscriber
 
@@ -80,7 +79,9 @@ class AppContainer:
         resolved = await resolve_chat_ref(flag, self.env, self.config, self.probe_ollama)
         if resolved.notice is not None:
             diagnostics.note(resolved.notice)
-        model = self._build_chat(resolved.ref)
+        return self._wrap_chat(self._build_chat(resolved.ref))
+
+    def _wrap_chat(self, model: ChatModel) -> ChatModel:
         wired = model if self.budget is None else budgeted_chat(model, self.budget)
         if not _cache_enabled(self.env, self.config):
             return wired
@@ -91,6 +92,35 @@ class AppContainer:
         wrapper = CachingChatModel(wired, _cache_dir(self.env))
         self.caches.append(wrapper)
         return wrapper
+
+    def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
+        """The chat failover target (item 11): --fallback-model >
+        SMARTPIPE_FALLBACK_MODEL > config, or None when unset. Chat wires only —
+        an embedding-model ref is refused HERE, at resolution time, before any
+        spend: mixed-embedder vectors are geometrically meaningless."""
+        raw = (
+            (flag or "").strip()
+            or self.env.get("SMARTPIPE_FALLBACK_MODEL", "").strip()
+            or (self.config.fallback_model or "").strip()
+        )
+        if not raw:
+            return None
+        ref = parse_model_ref(raw)
+        if _looks_like_embedder(ref):
+            raise UsageFault(
+                f"fallback-model works for chat models only — '{raw}' embeds\n"
+                "  Mixed-embedder vectors are geometrically meaningless: two models'\n"
+                "  vectors live in different spaces, so similarity across them is noise.\n"
+                "  Pick a chat fallback, or drop the setting."
+            )
+        return ref
+
+    async def fallback_chat_model(self, ref: ModelRef) -> ChatModel:
+        """The failover model, built at SWITCH time through the normal wire —
+        keys/login are checked here, so a fallback with missing credentials
+        surfaces as the ordinary SetupFault (the caller notes it and dies on
+        the provider-down screen)."""
+        return self._wrap_chat(self._build_chat(ref))
 
     async def context_window(self, ref: ModelRef) -> int | None:
         """The model's context window: env override > one cached live probe > None
@@ -170,8 +200,10 @@ class AppContainer:
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
+        bare: bool = False,
+        full: bool = False,
     ) -> ResultWriter:
         mode = resolve_format(
             output_flag,
@@ -185,6 +217,8 @@ class AppContainer:
             color=tty.stdout_supports_color(self.color_mode),
             width=tty.terminal_width(),
             fields=fields,
+            bare=bare,
+            full=full,
         )
         return make_writer(config, stdout)
 
@@ -330,6 +364,12 @@ class AppContainer:
     async def probe_ollama(self) -> tuple[str, ...] | None:
         """Installed ollama model names, or None if nothing is listening."""
         return await ollama_model_names(self.http_client, resolve_host(self.env))
+
+
+def _looks_like_embedder(ref: ModelRef) -> bool:
+    """Embed-only providers, or a name that says so (nomic-embed-text,
+    text-embedding-3-small, gemini-embedding-001, mistral-embed, …)."""
+    return ref.provider in ("local", "jina") or "embed" in ref.name.lower()
 
 
 def _resolve_max_calls(environ: Mapping[str, str], flag: int | None) -> int | None:

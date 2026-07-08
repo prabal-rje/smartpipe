@@ -61,6 +61,7 @@ _SCREENS: dict[str, str] = {
     "missing_anthropic_extra": screens.missing_anthropic_extra("claude-opus-4-8"),
     "cloud_model_missing": screens.cloud_model_missing("gpt-4o-mini-typo", "api.openai.com"),
     "schema_rejected": screens.schema_rejected("api.openai.com", "missing required property"),
+    "provider_down": screens.provider_down("ollama", 5),
 }
 
 

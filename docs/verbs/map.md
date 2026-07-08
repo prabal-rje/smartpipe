@@ -33,7 +33,10 @@ cat receipts.txt \
 
 One rule: **braces mean you want structured output.**
 
-- No braces → **plain text**, one line out per input line.
+- No braces → **plain text**, one line out per input TEXT line. When the
+  input is records (JSONL), the answer stays a record:
+  `{"result": "…", "__source": …}` per row - records in, records out
+  ([the item](../concepts/the-item.md)).
 - Braces like `{vendor, total}` (or a `--schema` file) → **JSON**, one object per
   input, validated against the fields you asked for.
 
@@ -43,7 +46,7 @@ for the full grammar.)
 
 ## Images
 
-`map` is the vision verb: an image item (from `--in 'photos/*.jpg'` or a redirected
+`map` is the vision verb: an image item (from `'photos/*.jpg'` or a redirected
 image on `stdin`) is sent to the model as an image, and your prompt describes what to
 do with it - including structured extraction (`"Extract {brand, color}"`). Needs a
 vision-capable model (`ollama/qwen3-vl`, `gpt-5.4-mini`, `claude-opus-4-8`, …);
@@ -92,7 +95,7 @@ Composes with `--tally` (counted per exploded row) and `--fields`.
 
 ```
 ⚠ skipped: report.pdf (~87,886 tokens is past gpt-5.4-mini's ~76,300-token budget -
-  split it first: smartpipe split --in FILE | smartpipe map "..." | smartpipe reduce "...")
+  split it first: smartpipe split FILE | smartpipe map "..." | smartpipe reduce "...")
 ```
 
 Silently chunking would change what you asked, so the recipe is explicit:
@@ -102,7 +105,7 @@ recombines.
 ## Audio and images
 
 `map` is the multimodal verb: image items reach vision models as images, audio
-items reach audio models as sound (`--in 'calls/*.wav'`). A model that can't
+items reach audio models as sound (`'calls/*.wav'`). A model that can't
 hear falls back to local transcription (built in - `whisper` ships with smartpipe) when it is
 present; details in [File inputs](../inputs/files.md#audio-heard-natively-or-transcribed).
 
@@ -141,8 +144,8 @@ that (a 10-minute clip becomes 24 frames, one per 25 seconds). Two flags
 change the deal on `map`/`extend`:
 
 ```bash
-smartpipe map "what changes in this scene?" --in demo.mp4 --frame-every 1
-smartpipe map "summarize" --in long.mp4 --frame-every 2 --max-frames 120
+smartpipe map "what changes in this scene?" demo.mp4 --frame-every 1
+smartpipe map "summarize" long.mp4 --frame-every 2 --max-frames 120
 ```
 
 - `--frame-every SECONDS` is a **density guarantee** - one frame per period,

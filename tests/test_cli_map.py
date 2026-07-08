@@ -62,6 +62,67 @@ def test_partial_failure_exits_1(run_cli: RunCli, respx_mock: respx.MockRouter) 
     assert "skipped: line 2" in err
 
 
+def test_keep_invalid_keeps_the_row_and_exits_clean(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.post(CHAT).side_effect = [_reply("not json"), _reply("still not json")]
+    code, out, err = run_cli(["map", "Extract {v}", "--keep-invalid"], stdin="a\n")
+    assert code == 0
+    row = json.loads(out)
+    assert row["__invalid"] is True
+    assert row["__raw"] == "still not json"
+    assert row["__error"]
+    assert "skipped" not in err
+
+
+def test_dry_run_flag_prints_the_request_without_a_call(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post(CHAT).mock(return_value=_reply("never"))
+    code, out, _err = run_cli(["map", "Extract {v}", "--dry-run"], stdin="Acme $5\n")
+    assert code == 0
+    assert route.call_count == 0
+    assert "--- system ---" in out and "Acme $5" in out
+
+
+def test_dry_run_works_without_any_model_configured(
+    run_cli: RunCli, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # composing the request needs no model — a dry run is free even pre-setup
+    monkeypatch.delenv("SMARTPIPE_MODEL", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/nonexistent-config-dir")
+    monkeypatch.setenv("APPDATA", "/nonexistent-config-dir")
+    code, out, _err = run_cli(["map", "Extract {v}", "--dry-run"], stdin="x\n")
+    assert code == 0
+    assert "--- user ---" in out
+
+
+def test_fallback_model_flag_switches_wholesale(
+    run_cli: RunCli, respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SMARTPIPE_BREAKER", "2")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    respx_mock.post(CHAT).mock(return_value=httpx.Response(500, json={"error": "overloaded"}))
+    respx_mock.post("https://api.openai.com/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "B"}}]})
+    )
+    code, out, err = run_cli(
+        ["map", "x", "--concurrency", "1", "--fallback-model", "gpt-4o-mini"],
+        stdin="a\nb\nc\n",
+    )
+    assert code == 0
+    assert out == "B\nB\nB\n"  # one combined stream — the window re-ran on the fallback
+    assert "switching to openai/gpt-4o-mini for the rest of the run" in err
+    receipt = "answers: openai/gpt-4o-mini ×3"  # noqa: RUF001
+    assert receipt in err  # every answer came from the fallback
+
+
+def test_fallback_model_refuses_an_embedder(run_cli: RunCli) -> None:
+    code, _out, err = run_cli(["map", "x", "--fallback-model", "nomic-embed-text"], stdin="a\n")
+    assert code == 64
+    assert "chat models only" in err
+
+
 def test_bad_grammar_is_usage_error_before_any_model_call(
     run_cli: RunCli, respx_mock: respx.MockRouter
 ) -> None:
@@ -259,3 +320,12 @@ def test_explode_without_structure_is_a_usage_error(run_cli: RunCli) -> None:
     code, _out, err = run_cli(["map", "summarize", "--explode", "risks"], stdin="x\n")
     assert code == 64
     assert "--explode needs structured output" in err
+
+
+def test_bare_strips_the_spine_from_record_results(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.post(CHAT).mock(return_value=_reply("short"))
+    code, out, _err = run_cli(["map", "summarize", "--bare"], stdin='{"id": 7}\n')
+    assert code == 0
+    assert json.loads(out) == {"result": "short"}  # no __source under --bare

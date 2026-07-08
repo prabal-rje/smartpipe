@@ -1,4 +1,4 @@
-"""The ``sort`` verb: order NDJSON by a field (D38/10, KQL ``sort by``).
+"""The ``sort`` verb: order JSONL by a field (D38/10, KQL ``sort by``).
 
 Free, whole-set (inherently), stable, passthrough-verbatim. Missing-field
 rows always land last — in both directions — and are disclosed.

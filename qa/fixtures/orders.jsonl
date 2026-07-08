@@ -1,40 +1,40 @@
-{"id": 4040, "desc": "Label maker pro"}
-{"id": 4021, "desc": "Espresso One machine"}
-{"id": 4012, "desc": "LaserJet 9 printer"}
-{"id": 4039, "desc": "Conference speakerphone"}
-{"id": 4031, "desc": "Espresso One machine"}
-{"id": 4015, "desc": "UltraWide 34 monitor"}
-{"id": 4033, "desc": "Standing desk, oak"}
-{"id": 4010, "desc": "Label maker pro"}
-{"id": 4023, "desc": "Standing desk, oak"}
-{"id": 4024, "desc": "Aeron chair size B"}
-{"id": 4019, "desc": "Conference speakerphone"}
-{"id": 4008, "desc": "4TB backup drive"}
-{"id": 4014, "desc": "Aeron chair size B"}
-{"id": 4011, "desc": "Espresso One machine"}
-{"id": 4030, "desc": "Label maker pro"}
-{"id": 4028, "desc": "4TB backup drive"}
-{"id": 4037, "desc": "Noise cancelling headset"}
-{"id": 4005, "desc": "UltraWide 34 monitor"}
-{"id": 4013, "desc": "Standing desk, oak"}
-{"id": 4025, "desc": "UltraWide 34 monitor"}
-{"id": 4018, "desc": "4TB backup drive"}
-{"id": 4017, "desc": "Noise cancelling headset"}
-{"id": 4029, "desc": "Conference speakerphone"}
-{"id": 4022, "desc": "LaserJet 9 printer"}
-{"id": 4032, "desc": "LaserJet 9 printer"}
-{"id": 4016, "desc": "Mechanical keyboard TKL"}
-{"id": 4027, "desc": "Noise cancelling headset"}
-{"id": 4007, "desc": "Noise cancelling headset"}
-{"id": 4002, "desc": "LaserJet 9 printer"}
-{"id": 4001, "desc": "Espresso One machine"}
-{"id": 4034, "desc": "Aeron chair size B"}
-{"id": 4020, "desc": "Label maker pro"}
-{"id": 4035, "desc": "UltraWide 34 monitor"}
-{"id": 4004, "desc": "Aeron chair size B"}
-{"id": 4036, "desc": "Mechanical keyboard TKL"}
-{"id": 4026, "desc": "Mechanical keyboard TKL"}
-{"id": 4003, "desc": "Standing desk, oak"}
-{"id": 4006, "desc": "Mechanical keyboard TKL"}
-{"id": 4038, "desc": "4TB backup drive"}
-{"id": 4009, "desc": "Conference speakerphone"}
+{"id": 4040, "sku": "SKU-040", "desc": "Label maker pro"}
+{"id": 4021, "sku": "SKU-021", "desc": "Espresso One machine"}
+{"id": 4012, "sku": "SKU-012", "desc": "LaserJet 9 printer"}
+{"id": 4039, "sku": "SKU-039", "desc": "Conference speakerphone"}
+{"id": 4031, "sku": "SKU-031", "desc": "Espresso One machine"}
+{"id": 4015, "sku": "SKU-015", "desc": "UltraWide 34 monitor"}
+{"id": 4033, "sku": "SKU-033", "desc": "Standing desk, oak"}
+{"id": 4010, "sku": "SKU-010", "desc": "Label maker pro"}
+{"id": 4023, "sku": "SKU-023", "desc": "Standing desk, oak"}
+{"id": 4024, "sku": "SKU-024", "desc": "Aeron chair size B"}
+{"id": 4019, "sku": "SKU-019", "desc": "Conference speakerphone"}
+{"id": 4008, "sku": "SKU-008", "desc": "4TB backup drive"}
+{"id": 4014, "sku": "SKU-014", "desc": "Aeron chair size B"}
+{"id": 4011, "sku": "SKU-011", "desc": "Espresso One machine"}
+{"id": 4030, "sku": "SKU-030", "desc": "Label maker pro"}
+{"id": 4028, "sku": "SKU-028", "desc": "4TB backup drive"}
+{"id": 4037, "sku": "SKU-037", "desc": "Noise cancelling headset"}
+{"id": 4005, "sku": "SKU-005", "desc": "UltraWide 34 monitor"}
+{"id": 4013, "sku": "SKU-013", "desc": "Standing desk, oak"}
+{"id": 4025, "sku": "SKU-025", "desc": "UltraWide 34 monitor"}
+{"id": 4018, "sku": "SKU-018", "desc": "4TB backup drive"}
+{"id": 4017, "sku": "SKU-017", "desc": "Noise cancelling headset"}
+{"id": 4029, "sku": "SKU-029", "desc": "Conference speakerphone"}
+{"id": 4022, "sku": "SKU-022", "desc": "LaserJet 9 printer"}
+{"id": 4032, "sku": "SKU-032", "desc": "LaserJet 9 printer"}
+{"id": 4016, "sku": "SKU-016", "desc": "Mechanical keyboard TKL"}
+{"id": 4027, "sku": "SKU-027", "desc": "Noise cancelling headset"}
+{"id": 4007, "sku": "SKU-007", "desc": "Noise cancelling headset"}
+{"id": 4002, "sku": "SKU-002", "desc": "LaserJet 9 printer"}
+{"id": 4001, "sku": "SKU-001", "desc": "Espresso One machine"}
+{"id": 4034, "sku": "SKU-034", "desc": "Aeron chair size B"}
+{"id": 4020, "sku": "SKU-020", "desc": "Label maker pro"}
+{"id": 4035, "sku": "SKU-035", "desc": "UltraWide 34 monitor"}
+{"id": 4004, "sku": "SKU-004", "desc": "Aeron chair size B"}
+{"id": 4036, "sku": "SKU-036", "desc": "Mechanical keyboard TKL"}
+{"id": 4026, "sku": "SKU-026", "desc": "Mechanical keyboard TKL"}
+{"id": 4003, "sku": "SKU-003", "desc": "Standing desk, oak"}
+{"id": 4006, "sku": "SKU-006", "desc": "Mechanical keyboard TKL"}
+{"id": 4038, "sku": "SKU-038", "desc": "4TB backup drive"}
+{"id": 4009, "sku": "SKU-009", "desc": "Conference speakerphone"}
