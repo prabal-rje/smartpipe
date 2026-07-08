@@ -20,12 +20,14 @@ __all__ = [
     "KNOWN_META",
     "Item",
     "ItemSource",
+    "content_text",
     "describe_source",
     "item_from_file",
     "item_from_line",
     "item_record",
     "media_parts",
     "media_record",
+    "project_content",
     "source_record",
 ]
 
@@ -35,7 +37,9 @@ _BOM = "﻿"
 # KNOWN fields are adopted on ingestion (round-tripping); unknown `__` fields
 # warn once per name and carry through untouched — user data owns at most one
 # leading underscore, so a stray `__x` is worth a heads-up, never a hard error.
-KNOWN_META = frozenset({"__source", "__media", "__score", "__invalid", "__error", "__raw"})
+KNOWN_META = frozenset(
+    {"__source", "__media", "__score", "__invalid", "__error", "__raw", "__embedder"}
+)
 
 _warned_meta: set[str] = set()  # once per field name per process, like the degradation cap
 
@@ -119,6 +123,11 @@ def _named_source(data: Mapping[str, object] | None, index: int) -> ItemSource:
 
     carried = as_record(data.get("__source"))
     if carried is None:
+        legacy = data.get("source")
+        if isinstance(legacy, str) and "vector" in data:
+            # a pre-1.5 embed row ({"text", "vector", "source"}) — read the old
+            # field for one release; `vector` fences off ordinary user data
+            return ItemSource(kind="stdin", name=legacy, index=index, cut="jsonl", path=legacy)
         return ItemSource(kind="stdin", name="-", index=index, cut="jsonl")
     path = carried.get("path")
     cut = carried.get("as")
@@ -233,6 +242,38 @@ def item_record(item: Item) -> dict[str, object]:
         record["__media"] = parts[0] if len(parts) == 1 else parts
     record["__source"] = source_record(item.source)
     return record
+
+
+def content_text(item: Item) -> str:
+    """The item's meaningful text — the text-projection rule every verb shares.
+
+    Plain items ARE their text. A record's meaning is its content fields: a
+    pure ``{"text": …}`` record projects to that string (so a reader-fed text
+    row embeds identically to the raw line — deliverable 4's pin); a record
+    that never carried a ``__`` spine keeps its raw line byte-identical
+    (today's behavior); a spined record re-serializes its content fields with
+    the spine stripped — tool metadata must never reach a model.
+    """
+    if item.data is None:
+        return item.text
+    content = {key: value for key, value in item.data.items() if not key.startswith("__")}
+    carried = content.get("text")
+    if set(content) == {"text"} and isinstance(carried, str):
+        return carried
+    if len(content) == len(item.data):
+        return item.raw  # no spine rode along — nothing to strip
+    return json.dumps(content, ensure_ascii=False)
+
+
+def project_content(item: Item) -> Item:
+    """The item with its text projected by ``content_text`` — a no-op for
+    plain items and for media records (whose text is already the projection)."""
+    if item.data is None or item.media:
+        return item
+    from dataclasses import replace
+
+    projected = content_text(item)
+    return item if projected == item.text else replace(item, text=projected)
 
 
 def describe_source(source: ItemSource) -> str:
