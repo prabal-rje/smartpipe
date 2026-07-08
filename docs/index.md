@@ -13,11 +13,17 @@ cat reviews.txt \
 | smartpipe map "Extract {product, complaint}"
 ```
 
-## Start here
+## Pick your door
 
-- **[Install](install.md)** - one command, plus current platform notes.
-- **[Quickstart](quickstart.md)** - from zero to a working pipeline in a minute,
-  local or cloud.
+- **New to smartpipe?** The [Learn track](learn/1-first-pipeline.md) - six
+  short chapters from first pipeline to production habits
+  (after [installing](install.md)).
+- **Have a task in mind?** The [Cookbook](cookbook/README.md) - complete,
+  copy-pasteable recipes: contracts, video, logs, training data.
+- **Wondering how something works?** [Concepts](concepts/the-item.md) - the
+  item, ingestion, models, structured output.
+- **Need the exact flag?** The [CLI reference](reference/cli.md) - the whole
+  surface, one page, contract-stable.
 
 ## Verbs
 

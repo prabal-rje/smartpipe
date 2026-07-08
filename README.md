@@ -132,7 +132,7 @@ Numbers 7 and 8 are full recipes -
 [video RAG](docs/cookbook/video-qa.md) - two of a dozen in the
 [cookbook](docs/cookbook/README.md).
 
-New to this? The [ten-minute quickstart][quickstart] assumes nothing, including
+New to this? The [Learn track][quickstart] starts at zero and assumes nothing, including
 what a "model" is.
 
 ## Where your data goes
@@ -161,7 +161,7 @@ local run and token totals; see [Privacy & security][privacy] for the details.
 
 Full docs: **[prabal-rje.github.io/smartpipe][docs]**.
 
-- [Quickstart][quickstart] - zero to first result
+- [Learn track][quickstart] - zero to first result, six short chapters
 - [Install][install] - packages and platforms
 - [Working with files & media][files] - PDFs, scans, images, audio, video
 - [CLI reference][cli] - every flag, format, and exit code
@@ -192,7 +192,7 @@ gates are in [CONTRIBUTING.md](CONTRIBUTING.md); the manual release pass
 lives in [`qa/`](qa/README.md). The CLI surface is a SemVer contract.
 
 [docs]: https://prabal-rje.github.io/smartpipe/
-[quickstart]: https://prabal-rje.github.io/smartpipe/quickstart/
+[quickstart]: https://prabal-rje.github.io/smartpipe/learn/1-first-pipeline/
 [install]: https://prabal-rje.github.io/smartpipe/install/
 [files]: https://prabal-rje.github.io/smartpipe/inputs/files/
 [cli]: https://prabal-rje.github.io/smartpipe/reference/cli/

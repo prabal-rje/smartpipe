@@ -10,20 +10,8 @@ cat orders.jsonl \
 | smartpipe where 'total > 1000'
 ```
 
-## The filter-early idiom
-
-`where` exists so the paid stages only see what matters - cheapest predicate
-first:
-
-```bash
-cat app.log \
-| smartpipe where 'text has "ERROR"' \
-| smartpipe filter "an actual outage, not a retry storm"
-```
-
-On a 100k-line log, judging every line costs real money; `where` first cuts
-the corpus for free. Rule of thumb: **`where` for facts, `filter`
-for judgment.**
+Rule of thumb: **`where` for facts, `filter` for judgment** - the
+filter-early habit is [Learn chapter 4](../learn/4-free-verbs.md).
 
 ## The predicate language
 

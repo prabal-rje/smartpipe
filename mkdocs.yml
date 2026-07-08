@@ -30,9 +30,14 @@ validation:
 
 nav:
   - Home: index.md
-  - Getting started:
+  - Learn:
       - Install: install.md
-      - Quickstart: quickstart.md
+      - 1 · Your first pipeline: learn/1-first-pipeline.md
+      - 2 · Structured data: learn/2-structured-data.md
+      - 3 · Files and media: learn/3-files-and-media.md
+      - 4 · The free verbs: learn/4-free-verbs.md
+      - 5 · Scale and cost: learn/5-scale-and-cost.md
+      - 6 · Pipelines that last: learn/6-pipelines-that-last.md
   - Verbs:
       - Transform:
           - map: verbs/map.md
@@ -57,6 +62,7 @@ nav:
           - split: verbs/split.md
   - Concepts:
       - The item: concepts/the-item.md
+      - Feeding smartpipe: concepts/feeding-smartpipe.md
       - Pipes & items: concepts/pipes-and-items.md
       - Models & providers: concepts/models-and-providers.md
       - Structured output: concepts/structured-output.md
