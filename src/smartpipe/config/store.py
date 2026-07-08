@@ -53,6 +53,7 @@ class Config:
     cache: bool | None = None  # result caching (D38/15) — account-level posture
     cache_days: int | None = None  # sweep TTL (D39/02); default 30
     cache_max_mb: int | None = None  # LRU size cap (D39/02); default 500
+    media_previews: bool | None = None  # TTY media previews kill switch; unset = on
 
 
 _EMPTY_PROFILE: Mapping[str, object] = {}
@@ -101,6 +102,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Config:
         cache=_boolean(merged, "cache", path),
         cache_days=_positive_int(merged, "cache-days", path),
         cache_max_mb=_positive_int(merged, "cache-max-mb", path),
+        media_previews=_boolean(merged, "media-previews", path),
     )
 
 
@@ -176,6 +178,7 @@ def save_config(path: Path, config: Config) -> None:
         "cache": config.cache,
         "cache-days": config.cache_days,
         "cache-max-mb": config.cache_max_mb,
+        "media-previews": config.media_previews,
     }
     for key, value in ours.items():
         if value is None:

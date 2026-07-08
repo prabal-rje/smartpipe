@@ -10,14 +10,17 @@ base64 — it renders as ``image/png (48 KB)``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Mapping, Sequence
 
 from smartpipe.core.jsontools import as_items, as_record
+from smartpipe.engine.preview import human_size
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+__all__ = ["MediaLines", "render_block"]
 
-__all__ = ["render_block"]
+# The injected TTY media-preview hook (io/preview.maybe_preview builds it):
+# called once per record, right under the __media summary line. None — pipes,
+# NO_COLOR, the media-previews kill switch — keeps the block byte-identical.
+MediaLines = Callable[[Mapping[str, object]], Sequence[str]]
 
 _DIM = "\x1b[2m"
 _RESET = "\x1b[0m"
@@ -25,9 +28,17 @@ _STRING_CAP = 400  # characters shown before "… (+N chars)"
 _LIST_CAP = 10  # items shown before "… (+N items)"
 
 
-def render_block(record: Mapping[str, object], *, color: bool, full: bool) -> str:
+def render_block(
+    record: Mapping[str, object],
+    *,
+    color: bool,
+    full: bool,
+    media_lines: MediaLines | None = None,
+) -> str:
     """One record as an indented block: payload fields first, the ``__`` spine
-    dimmed at the bottom (shown, not hidden — the owner default)."""
+    dimmed at the bottom (shown, not hidden — the owner default). When a
+    ``media_lines`` hook is injected, its preview renders directly under the
+    ``__media`` summary line."""
     body = [(key, value) for key, value in record.items() if not key.startswith("__")]
     spine = [(key, value) for key, value in record.items() if key.startswith("__")]
     lines: list[str] = []
@@ -35,6 +46,8 @@ def render_block(record: Mapping[str, object], *, color: bool, full: bool) -> st
         lines.extend(_field(key, value, indent=0, color=color, full=full, dim=False))
     for key, value in spine:
         lines.extend(_field(key, value, indent=0, color=color, full=full, dim=True))
+        if key == "__media" and media_lines is not None:
+            lines.extend(media_lines(record))
     return "\n".join(lines)
 
 
@@ -151,13 +164,5 @@ def _media_summary(value: object) -> str:
         mime = part.get("mime")
         encoded = part.get("data_b64")
         size = len(encoded) * 3 // 4 if isinstance(encoded, str) else 0
-        summaries.append(f"{mime if isinstance(mime, str) else 'media'} ({_human_size(size)})")
+        summaries.append(f"{mime if isinstance(mime, str) else 'media'} ({human_size(size)})")
     return " · ".join(summaries) if summaries else "media"
-
-
-def _human_size(size: int) -> str:
-    if size >= 1_048_576:
-        return f"{size / 1_048_576:.1f} MB"
-    if size >= 1024:
-        return f"{size // 1024} KB"
-    return f"{size} B"

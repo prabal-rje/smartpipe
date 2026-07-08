@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import io
 import json
+from collections.abc import Mapping
+from pathlib import Path
+
+import pytest
 
 from smartpipe.core.errors import ExitCode
+from smartpipe.io.render import MediaLines
 from smartpipe.verbs.readable import ReadableRequest, run_readable
+from tests.conftest import RunCli
 
 
 async def _run(stdin_text: str, **kw: object) -> tuple[ExitCode, str]:
@@ -53,3 +59,57 @@ async def test_plain_layout_without_color() -> None:
     row = json.dumps({"a": 1})
     _code, out = await _run(row + "\n", color=False)
     assert "\x1b[" not in out  # no ANSI when stdout isn't a terminal
+
+
+# --- media previews (injected hook — io/preview builds the real one) ---------------
+
+_MEDIA_ROW = json.dumps(
+    {"result": "hi", "__media": {"kind": "image", "mime": "image/png", "data_b64": "A" * 64}}
+)
+
+
+async def _run_with_hook(stdin_text: str, hook: MediaLines, **kw: object) -> str:
+    out = io.StringIO()
+    await run_readable(
+        ReadableRequest(**kw),  # type: ignore[arg-type]
+        stdin=io.StringIO(stdin_text),
+        stdout=out,
+        media_lines=hook,
+    )
+    return out.getvalue()
+
+
+async def test_media_preview_renders_through_the_injected_hook() -> None:
+    def fake_preview(record: Mapping[str, object]) -> list[str]:
+        return ["  [thumbnail]"]
+
+    out = await _run_with_hook(_MEDIA_ROW + "\n", fake_preview, color=True)
+    assert "\n  [thumbnail]\n" in out
+    media_line, preview_line = out.splitlines()[1:3]
+    assert "__media:" in media_line
+    assert preview_line == "  [thumbnail]"
+
+
+async def test_bare_drops_media_so_the_hook_never_fires() -> None:
+    def explode(record: object) -> list[str]:
+        raise AssertionError("--bare strips __media; no preview call")
+
+    out = await _run_with_hook(_MEDIA_ROW + "\n", explode, bare=True)
+    assert out == "result: hi\n\n"
+
+
+async def test_without_the_hook_media_rows_render_exactly_as_today() -> None:
+    _code, out = await _run(_MEDIA_ROW + "\n")
+    assert out == "result: hi\n__media: image/png (48 B)\n\n"
+
+
+def test_piped_readable_cli_is_byte_identical_with_previews_on(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """stdout is sacred: through the real CLI, a piped (non-TTY) readable never
+    grows preview bytes — the default-on config changes nothing off-terminal."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    code, out, _err = run_cli(["readable"], stdin=_MEDIA_ROW + "\n")
+    assert code == 0
+    assert out == "result: hi\n__media: image/png (48 B)\n\n"

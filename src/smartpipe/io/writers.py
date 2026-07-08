@@ -23,6 +23,7 @@ from smartpipe.io.text import clip_to_width, display_width
 
 if TYPE_CHECKING:
     from smartpipe.io.items import Item
+    from smartpipe.io.render import MediaLines
 
 _TRAILING_COLUMNS = ("_score", "_rank", "__score")  # ranking metadata sorts right of the sheet
 
@@ -77,6 +78,7 @@ class WriterConfig:
     fields: tuple[str, ...] | None = None  # honored from stage 9
     bare: bool = False  # --bare: strip __ metadata from record output (item 18)
     full: bool = False  # --full: disable the TTY preview's truncation (item 19)
+    media_lines: MediaLines | None = None  # TTY media previews; None = today's block
 
 
 class ResultWriter(Protocol):
@@ -152,6 +154,7 @@ def make_writer(config: WriterConfig, stdout: TextSink) -> ResultWriter:
                 fields=config.fields,
                 bare=config.bare,
                 full=config.full,
+                media_lines=config.media_lines,
             )
         case RenderMode.CSV:
             return _TableWriter(stream=stdout, delimiter=",", fields=config.fields)
@@ -357,6 +360,7 @@ class _HumanWriter:
     fields: tuple[str, ...] | None = None
     bare: bool = False
     full: bool = False
+    media_lines: MediaLines | None = None  # injected by the composition root (TTY only)
     warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
@@ -372,7 +376,8 @@ class _HumanWriter:
             record = _project(record, self.fields, self.warned)
         from smartpipe.io.render import render_block
 
-        self.stream.write(render_block(record, color=self.color, full=self.full) + "\n\n")
+        block = render_block(record, color=self.color, full=self.full, media_lines=self.media_lines)
+        self.stream.write(block + "\n\n")
         self.stream.flush()
 
     def _write_invalid(self, record: Mapping[str, object]) -> None:

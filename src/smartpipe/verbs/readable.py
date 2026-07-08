@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     import asyncio
     from typing import TextIO
 
+    from smartpipe.io.render import MediaLines
+
 __all__ = ["ReadableRequest", "run_readable"]
 
 
@@ -38,7 +40,12 @@ async def run_readable(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    media_lines: MediaLines | None = None,
 ) -> ExitCode:
+    """``media_lines`` is the injected TTY media-preview hook (io/preview) —
+    None (pipes, NO_COLOR, the media-previews kill switch) keeps every byte
+    identical to the plain block rendering. ``--bare`` strips ``__media``
+    before rendering, so the hook never fires there."""
     items_iter, _total = readers.resolve_items(STDIN, stdin, stop=stop)
     async for item in items_iter:
         if stop is not None and stop.is_set():
@@ -49,6 +56,9 @@ async def run_readable(
         record = item.data
         if request.bare:
             record = {key: value for key, value in record.items() if not key.startswith("__")}
-        stdout.write(render_block(record, color=request.color, full=request.full) + "\n\n")
+        block = render_block(
+            record, color=request.color, full=request.full, media_lines=media_lines
+        )
+        stdout.write(block + "\n\n")
     stdout.flush()
     return ExitCode.OK

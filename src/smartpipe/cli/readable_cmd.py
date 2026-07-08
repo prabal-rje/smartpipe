@@ -28,9 +28,26 @@ def readable_command(full: bool, bare: bool) -> None:
     The same block layout as the terminal preview: nested maps indent, lists
     as '- ', long values truncated (--full shows everything), the __ metadata
     dimmed at the bottom (--bare drops it). Color only when stdout is a
-    terminal. Plain text items pass through unchanged.
+    terminal. Plain text items pass through unchanged. At a color terminal,
+    media items render a thumbnail/waveform/frame-strip preview under their
+    summary line (persisted kill switch: smartpipe config media-previews off).
     """
-    request = ReadableRequest(full=full, bare=bare, color=tty.stdout_supports_color())
-    code = asyncio.run(run_readable(request, stdin=sys.stdin, stdout=sys.stdout))
+    import os
+
+    from smartpipe.config.paths import config_path
+    from smartpipe.config.store import load_config
+    from smartpipe.io.preview import maybe_preview
+
+    color = tty.stdout_supports_color()
+    config = load_config(config_path(os.environ), os.environ)
+    media_lines = maybe_preview(
+        enabled=config.media_previews is not False,
+        color=color,
+        width=tty.terminal_width(),
+    )
+    request = ReadableRequest(full=full, bare=bare, color=color)
+    code = asyncio.run(
+        run_readable(request, stdin=sys.stdin, stdout=sys.stdout, media_lines=media_lines)
+    )
     if code is not ExitCode.OK:
         raise SystemExit(int(code))

@@ -79,6 +79,25 @@ def test_broken_toml_is_a_setup_fault_with_location_and_fix(tmp_path: Path) -> N
     assert "smartpipe config" in message  # the fix is in the message
 
 
+def test_media_previews_round_trips_as_a_dashed_boolean(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    save_config(path, Config(media_previews=False))
+    assert "media-previews = false" in path.read_text(encoding="utf-8")
+    assert load_config(path).media_previews is False
+
+
+def test_media_previews_is_unset_by_default(tmp_path: Path) -> None:
+    assert load_config(tmp_path / "nope.toml").media_previews is None
+
+
+def test_media_previews_wrong_type_is_a_setup_fault(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('media-previews = "sometimes"\n', encoding="utf-8")
+    with pytest.raises(SetupFault) as excinfo:
+        load_config(path)
+    assert "media-previews" in str(excinfo.value)
+
+
 def test_wrong_value_type_is_a_setup_fault_naming_the_key(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text('concurrency = "four"\n', encoding="utf-8")

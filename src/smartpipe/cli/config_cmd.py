@@ -138,6 +138,19 @@ def config_set_cache(state: str) -> None:
     click.echo(f"cache {state} — stored replies live in ~/.cache/smartpipe (smartpipe cache clear)")
 
 
+@config_command.command(name="media-previews")
+@click.argument("state", type=click.Choice(["on", "off"]))
+def config_set_media_previews(state: str) -> None:
+    """Turn terminal media previews on or off (thumbnails, waveforms, play links)."""
+    _update(lambda c: replace(c, media_previews=state == "on"))
+    detail = (
+        "media items render thumbnails/waveforms at the terminal"
+        if state == "on"
+        else "media items show only their summary line"
+    )
+    click.echo(f"media-previews {state} — {detail}")
+
+
 def _update(change: Callable[[Config], Config]) -> None:
     path = config_path(os.environ)
     save_config(path, change(load_config(path)))
