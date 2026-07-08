@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     from smartpipe.engine.prompts import Token
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
-    from smartpipe.io.writers import OutputFormat, ResultWriter
+    from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
     from smartpipe.models.stt import RemoteTranscriber
 
@@ -93,7 +93,7 @@ class JoinContext(Protocol):
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
     ) -> ResultWriter: ...
 
@@ -155,10 +155,12 @@ async def run_join(
         raise UsageFault(
             "--unmatched with --kind anti is redundant — anti already puts unmatched rows on stdout"
         )
+    spinner = make_stderr_spinner()
+    # the arbiter: result writes pause the status line, so they never interleave
     writer = context.writer(
         request.output,
         structured=request.kind != "anti",  # anti emits left rows verbatim
-        stdout=stdout,
+        stdout=spinner.guard(stdout),
         fields=request.fields,
     )
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
@@ -168,7 +170,6 @@ async def run_join(
         chat, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber(chat.ref)
     )
     book = PairBook(policy=FailurePolicy(), right_name=request.right.name)
-    spinner = make_stderr_spinner()
     spinner.start(total=total)
 
     async def worker(item: Item) -> tuple[Item, tuple[tuple[int, float], ...]]:

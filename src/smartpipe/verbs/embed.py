@@ -75,10 +75,12 @@ async def run_embed(
         diagnostics.note(
             "embeddings are large — redirect to a file: smartpipe embed > corpus.embeddings"
         )
-    writer = make_writer(
-        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=request.fields), stdout
-    )
     spinner = make_stderr_spinner()
+    # the arbiter: result writes pause the status line, so they never interleave
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=request.fields),
+        spinner.guard(stdout),
+    )
     spinner.start(total=total)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     converter_chat = await optional_chat(context)

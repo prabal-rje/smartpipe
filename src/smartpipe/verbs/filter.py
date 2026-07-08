@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from smartpipe.engine.prompts import Token
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, ModelRef
     from smartpipe.models.stt import RemoteTranscriber
 
@@ -72,7 +72,7 @@ class FilterContext(Protocol):
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
     def writer(
-        self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO
+        self, output_flag: OutputFormat, *, structured: bool, stdout: TextSink
     ) -> ResultWriter: ...
 
 
@@ -88,7 +88,9 @@ async def run_filter(
     reject_comma_groups(tokens)  # UsageFault: comma-braces are map-only
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     model = await context.chat_model(request.model_flag)
-    writer = context.writer(OutputFormat.AUTO, structured=False, stdout=stdout)
+    spinner = make_stderr_spinner()
+    # the arbiter: result writes pause the status line, so they never interleave
+    writer = context.writer(OutputFormat.AUTO, structured=False, stdout=spinner.guard(stdout))
     concurrency = context.concurrency(request.concurrency_flag)
 
     # First-item brace check (streaming can't see "all items" up front): the common
@@ -104,7 +106,6 @@ async def run_filter(
         raise UsageFault(screens.FIELD_REF_ON_PLAIN_INPUT)  # exit 64, zero model calls
     items_iter = prepend(first, items_iter)
 
-    spinner = make_stderr_spinner()
     spinner.start(total=total)
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)

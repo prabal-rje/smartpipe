@@ -22,8 +22,6 @@ from smartpipe.io import diagnostics
 from smartpipe.io.text import clip_to_width, display_width
 
 if TYPE_CHECKING:
-    from typing import TextIO
-
     from smartpipe.io.items import Item
 
 _TRAILING_COLUMNS = ("_score", "_rank")  # ranking metadata sorts to the right of the sheet
@@ -32,10 +30,23 @@ __all__ = [
     "OutputFormat",
     "RenderMode",
     "ResultWriter",
+    "TextSink",
     "WriterConfig",
     "make_writer",
     "resolve_format",
 ]
+
+
+class TextSink(Protocol):
+    """The slice of a text stream writers actually use — write and flush.
+
+    A structural type so the progress arbiter can wrap stdout (pausing the
+    status line around each result write) without impersonating a full TextIO.
+    """
+
+    def write(self, s: str, /) -> int: ...
+    def flush(self) -> None: ...
+
 
 _DIM = "\x1b[2m"
 _RESET = "\x1b[0m"
@@ -125,7 +136,7 @@ def _require_structured(fmt: OutputFormat, *, structured: bool) -> None:
         )
 
 
-def make_writer(config: WriterConfig, stdout: TextIO) -> ResultWriter:
+def make_writer(config: WriterConfig, stdout: TextSink) -> ResultWriter:
     match config.mode:
         case RenderMode.TEXT:
             return _TextWriter(stream=stdout, fields=config.fields)
@@ -182,7 +193,7 @@ def _project(
 
 @dataclass(frozen=True, slots=True)
 class _TextWriter:
-    stream: TextIO
+    stream: TextSink
     fields: tuple[str, ...] | None = None  # top_k routes structured records through TEXT
     warned: set[str] = field(default_factory=set[str])
 
@@ -204,7 +215,7 @@ class _TextWriter:
 
 @dataclass(frozen=True, slots=True)
 class _NdjsonWriter:
-    stream: TextIO
+    stream: TextSink
     fields: tuple[str, ...] | None = None
     warned: set[str] = field(default_factory=set[str])
 
@@ -230,7 +241,7 @@ class _TableWriter:
     first record; later records fill missing cells empty and drop surprise keys with a
     one-time warning. Nested values become compact JSON; TSV strips tabs/newlines."""
 
-    def __init__(self, *, stream: TextIO, delimiter: str, fields: tuple[str, ...] | None) -> None:
+    def __init__(self, *, stream: TextSink, delimiter: str, fields: tuple[str, ...] | None) -> None:
         self.stream = stream
         self.delimiter = delimiter
         self.fields = fields
@@ -306,7 +317,7 @@ class _HumanWriter:
     (the other writers) is never truncated (spec §5.1).
     """
 
-    stream: TextIO
+    stream: TextSink
     color: bool
     width: int
     fields: tuple[str, ...] | None = None

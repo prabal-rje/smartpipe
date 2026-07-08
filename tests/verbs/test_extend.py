@@ -14,9 +14,7 @@ from smartpipe.models.base import CompletionRequest, ModelRef
 from smartpipe.verbs.extend import ExtendRequest, base_fields, run_extend
 
 if TYPE_CHECKING:
-    from typing import TextIO
-
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
 
 
 class SentimentModel:
@@ -52,7 +50,7 @@ class FakeContext:
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
         from smartpipe.io.writers import RenderMode, WriterConfig, make_writer

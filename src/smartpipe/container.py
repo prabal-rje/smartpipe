@@ -52,11 +52,10 @@ from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Mapping
-    from typing import TextIO
 
     import httpx
 
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, EmbeddingModel
     from smartpipe.models.stt import RemoteTranscriber
 
@@ -170,7 +169,7 @@ class AppContainer:
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
         mode = resolve_format(

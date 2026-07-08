@@ -18,9 +18,8 @@ from smartpipe.verbs.map import MapRequest, run_map
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from typing import TextIO
 
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
 
 
 # --- fakes --------------------------------------------------------------------
@@ -67,7 +66,7 @@ class FakeContext:
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
         mode = RenderMode.NDJSON if structured else RenderMode.TEXT
@@ -178,6 +177,49 @@ async def test_empty_input_is_ok_and_silent() -> None:
     assert code == ExitCode.OK
     assert out == ""
     assert model.calls == []
+
+
+# --- terminal arbiter wiring ----------------------------------------------------
+
+
+async def test_map_routes_results_through_the_spinner_arbiter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With an active spinner, no result byte lands while the status line is up."""
+    import smartpipe.verbs.map as map_module
+    from smartpipe.io.progress import Spinner
+
+    class _Terminal(io.StringIO):
+        def __init__(self) -> None:
+            super().__init__()
+            self.writes: list[str] = []
+
+        def write(self, s: str, /) -> int:
+            self.writes.append(s)
+            return super().write(s)
+
+    terminal = _Terminal()
+    clock = {"t": 0.0}
+
+    def tick() -> float:
+        clock["t"] += 1.0
+        return clock["t"]
+
+    spinner = Spinner(stream=terminal, enabled=True, ascii_only=True, clock=tick)
+    monkeypatch.setattr(map_module, "make_stderr_spinner", lambda: spinner)
+    context = FakeContext(model=FakeChat(replies=["A", "B", "C"]), concurrency=1)
+    code = await run_map(
+        _request("upper"), context, stdin=io.StringIO("a\nb\nc\n"), stdout=terminal
+    )
+    assert code == ExitCode.OK
+    drawn = False
+    for chunk in terminal.writes:
+        if chunk == "\r\x1b[K":
+            drawn = False
+        elif chunk.startswith("\r"):
+            drawn = True
+        else:
+            assert not drawn, f"result bytes landed under the status line: {chunk!r}"
 
 
 # --- fatal errors propagate ---------------------------------------------------

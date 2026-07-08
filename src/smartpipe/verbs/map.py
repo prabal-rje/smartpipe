@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from smartpipe.engine.prompts import MapPlan
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
-    from smartpipe.io.writers import OutputFormat, ResultWriter
+    from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, MediaData, ModelRef
 
 __all__ = ["MapContext", "MapRequest", "map_one", "run_map"]
@@ -79,7 +79,7 @@ class MapContext(Protocol):
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
     ) -> ResultWriter: ...
 
@@ -99,8 +99,10 @@ async def run_map(
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
     structured = plan.mode == "structured"
+    spinner = make_stderr_spinner()
+    # the arbiter: result writes pause the status line, so they never interleave
     writer = context.writer(
-        request.output, structured=structured, stdout=stdout, fields=request.fields
+        request.output, structured=structured, stdout=spinner.guard(stdout), fields=request.fields
     )
     concurrency = context.concurrency(request.concurrency_flag)
 
@@ -120,7 +122,6 @@ async def run_map(
             '  Example: smartpipe map "Extract {risks}" --explode risks'
         )
 
-    spinner = make_stderr_spinner()
     spinner.start(total=total)
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)

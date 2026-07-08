@@ -22,9 +22,7 @@ from smartpipe.verbs.map import MapRequest, run_map
 from tests.helpers.paced import PacedOllama
 
 if TYPE_CHECKING:
-    from typing import TextIO
-
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX pipes/signals")
 
@@ -97,7 +95,7 @@ async def test_map_emits_before_eof_in_process() -> None:
             output_flag: OutputFormat,
             *,
             structured: bool,
-            stdout: TextIO,
+            stdout: TextSink,
             fields: tuple[str, ...] | None = None,
         ) -> ResultWriter:
             config = WriterConfig(mode=RenderMode.TEXT, color=False, width=80, fields=fields)

@@ -17,7 +17,8 @@ from smartpipe.verbs.map import MapRequest, run_map
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from typing import TextIO
+
+    from smartpipe.io.writers import TextSink
 
 AUDIO = AudioData(data=b"RIFFfake", mime="audio/wav")
 
@@ -108,7 +109,7 @@ class FakeContext:
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
         return make_writer(WriterConfig(mode=RenderMode.TEXT, color=False, width=80), stdout)

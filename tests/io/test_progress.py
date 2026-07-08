@@ -103,3 +103,92 @@ def test_unknown_total_spinner_shows_running_count_and_rate() -> None:
     spinner.advance()
     assert "Processing [1]" in stream.getvalue()
     assert "/s" in stream.getvalue()
+
+
+# --- terminal arbiter: results must never land under the status line -----------
+
+
+class _Terminal(io.StringIO):
+    """A fake TTY that records every write in order — the spinner (stderr) and
+    the result writer (stdout) share one terminal, exactly like a real run."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.writes: list[str] = []
+
+    def write(self, s: str, /) -> int:
+        self.writes.append(s)
+        return super().write(s)
+
+
+def _writes_while_status_line_up(writes: list[str]) -> list[str]:
+    """Every non-spinner write that landed while the status line was drawn."""
+    violations: list[str] = []
+    drawn = False
+    for chunk in writes:
+        if chunk == "\r\x1b[K":  # the erase primitive
+            drawn = False
+        elif chunk.startswith("\r"):  # a draw (or redraw)
+            drawn = True
+        elif drawn:
+            violations.append(chunk)
+    return violations
+
+
+def test_guarded_writes_never_interleave_with_the_status_line() -> None:
+    terminal = _Terminal()
+    clock = _Clock()
+    spinner = Spinner(stream=terminal, enabled=True, ascii_only=True, clock=clock)
+    results = spinner.guard(terminal)
+    spinner.start(total=4)
+    for index in range(4):
+        clock.t += 1.0
+        spinner.advance()
+        results.write(f"result {index}\n")
+    spinner.finish()
+    assert _writes_while_status_line_up(terminal.writes) == []
+    assert "result 3\n" in terminal.writes  # the results themselves still land
+
+
+def test_paused_erases_then_redraws_the_status_line() -> None:
+    terminal = _Terminal()
+    clock = _Clock()
+    spinner = Spinner(stream=terminal, enabled=True, ascii_only=True, clock=clock)
+    spinner.start(total=2)
+    clock.t = 1.0
+    spinner.advance()
+    drawn = terminal.writes[-1]
+    with spinner.paused():
+        marker = len(terminal.writes)
+    assert terminal.writes[marker - 1] == "\r\x1b[K"  # erased before the block
+    assert terminal.writes[-1] == drawn  # the same line came back after
+
+
+def test_paused_before_any_draw_touches_nothing() -> None:
+    stream = io.StringIO()
+    spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=_Clock())
+    spinner.start(total=2)
+    with spinner.paused():
+        pass
+    assert stream.getvalue() == ""
+
+
+def test_guard_is_a_passthrough_when_the_spinner_is_disabled() -> None:
+    stream = io.StringIO()
+    spinner = Spinner(stream=io.StringIO(), enabled=False, ascii_only=True, clock=_Clock())
+    assert spinner.guard(stream) is stream
+
+
+def test_guarded_flush_reaches_the_target() -> None:
+    class _FlushCounter(io.StringIO):
+        flushes = 0
+
+        def flush(self) -> None:
+            self.flushes += 1
+            super().flush()
+
+    target = _FlushCounter()
+    spinner = Spinner(stream=io.StringIO(), enabled=True, ascii_only=True, clock=_Clock())
+    guarded = spinner.guard(target)
+    guarded.flush()
+    assert target.flushes == 1

@@ -14,9 +14,8 @@ from smartpipe.verbs.filter import FilterRequest, run_filter
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from typing import TextIO
 
-    from smartpipe.io.writers import ResultWriter
+    from smartpipe.io.writers import ResultWriter, TextSink
 
 
 class FakeChat:
@@ -52,7 +51,7 @@ class FakeContext:
         return None
 
     def writer(
-        self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO
+        self, output_flag: OutputFormat, *, structured: bool, stdout: TextSink
     ) -> ResultWriter:
         return make_writer(WriterConfig(mode=RenderMode.TEXT, color=False, width=80), stdout)
 
@@ -209,7 +208,7 @@ async def test_interrupted_after_results_keeps_outcome_code(
     model = FakeChat(_match_if("keep"))
 
     class StopAfterFirst(FakeContext):
-        def writer(self, output_flag: OutputFormat, *, structured: bool, stdout: TextIO):  # type: ignore[override]
+        def writer(self, output_flag: OutputFormat, *, structured: bool, stdout: TextSink):  # type: ignore[override]
             inner = super().writer(output_flag, structured=structured, stdout=stdout)
 
             class W:

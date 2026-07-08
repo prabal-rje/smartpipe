@@ -14,7 +14,7 @@ from smartpipe.verbs.filter import FilterRequest, run_filter
 from smartpipe.verbs.map import MapRequest, run_map
 
 if TYPE_CHECKING:
-    from typing import TextIO
+    from smartpipe.io.writers import TextSink
 
 # past the openai table budget (128k * 0.6 - 500 ≈ 76.3k tokens): the gate engages
 BIG = "word " * 70_000  # ~87.5k estimated tokens
@@ -70,7 +70,7 @@ class Ctx:
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
         return make_writer(WriterConfig(mode=RenderMode.TEXT, color=False, width=80), stdout)

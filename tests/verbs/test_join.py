@@ -22,7 +22,8 @@ from smartpipe.verbs.join import JoinRequest, run_join
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
-    from typing import TextIO
+
+    from smartpipe.io.writers import TextSink
 
 
 class FakeEmbed:
@@ -85,7 +86,7 @@ class FakeContext:
         output_flag: OutputFormat,
         *,
         structured: bool,
-        stdout: TextIO,
+        stdout: TextSink,
         fields: tuple[str, ...] | None = None,
     ) -> ResultWriter:
         mode = RenderMode.NDJSON if structured else RenderMode.TEXT  # the container's rule

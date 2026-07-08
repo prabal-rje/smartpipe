@@ -83,7 +83,11 @@ async def run_extend(
     instruction = to_instruction(tokens)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     model = await context.chat_model(request.model_flag)
-    writer = context.writer(request.output, structured=True, stdout=stdout, fields=request.fields)
+    spinner = make_stderr_spinner()
+    # the arbiter: result writes pause the status line, so they never interleave
+    writer = context.writer(
+        request.output, structured=True, stdout=spinner.guard(stdout), fields=request.fields
+    )
     concurrency = context.concurrency(request.concurrency_flag)
 
     tally = None
@@ -92,7 +96,6 @@ async def run_extend(
 
         tally = Tally(request.tally_field)
 
-    spinner = make_stderr_spinner()
     spinner.start(total=total)
 
     log = diagnostics.DegradationLog()
