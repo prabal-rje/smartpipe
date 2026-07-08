@@ -209,7 +209,9 @@ def receipt() -> str | None:
     view = snapshot()
     if view.empty:
         return None
-    pieces = [f"{count(view.tokens_in)} in · {count(view.tokens_out)} out tokens"]
+    # arrows match the live status line (↑ sent to the model, ↓ received) —
+    # one symbol language across spinner and receipt (owner unification)
+    pieces = [f"↑{count(view.tokens_in)} ↓{count(view.tokens_out)} tok"]
     for kind, plural in (("image", "images"), ("video", "video")):
         size = view.media_bytes.get(kind)
         if size:

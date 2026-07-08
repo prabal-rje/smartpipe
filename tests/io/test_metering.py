@@ -29,7 +29,7 @@ def _wav_bytes(seconds: float, rate: int = 8_000) -> bytes:
 def test_tokens_accumulate_and_format() -> None:
     metering.add_tokens(tokens_in=2_100_000, tokens_out=340_000)
     assert metering.status_segment() == "↑2.1M ↓340.0k tok"
-    assert metering.receipt() == "run: 2.1M in · 340.0k out tokens"
+    assert metering.receipt() == "run: ↑2.1M ↓340.0k tok"
 
 
 def test_wav_duration_is_read_from_the_header() -> None:
