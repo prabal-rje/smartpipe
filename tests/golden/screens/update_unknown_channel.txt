@@ -1,0 +1,6 @@
+smartpipe 1.4.0 — install channel not recognized
+  Upgrade with the tool that installed smartpipe:
+    brew upgrade smartpipe             (Homebrew)
+    uv tool upgrade smartpipe-cli      (uv)
+    pipx upgrade smartpipe-cli         (pipx)
+    pip install -U smartpipe-cli       (pip)

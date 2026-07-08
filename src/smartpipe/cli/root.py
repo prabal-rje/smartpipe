@@ -44,6 +44,7 @@ from smartpipe.cli.sort_cmd import sort_command
 from smartpipe.cli.split_cmd import split_command
 from smartpipe.cli.summarize_cmd import summarize_command
 from smartpipe.cli.top_k_cmd import top_k_command
+from smartpipe.cli.update_cmd import update_command
 from smartpipe.cli.usage_cmd import usage_command
 from smartpipe.cli.where_cmd import where_command
 from smartpipe.cli.write_cmd import write_command
@@ -230,6 +231,7 @@ cli.add_command(getschema_command)
 cli.add_command(sort_command)
 cli.add_command(auth_command)
 cli.add_command(cache_command)
+cli.add_command(update_command)
 cli.add_command(usage_command)
 cli.add_command(cite_command)
 cli.add_command(echo_command)

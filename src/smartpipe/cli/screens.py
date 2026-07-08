@@ -22,6 +22,11 @@ __all__ = [
     "schema_rejected",
     "stdin_document_failed",
     "update_available",
+    "update_done",
+    "update_failed",
+    "update_plan",
+    "update_tool_missing",
+    "update_unknown_channel",
 ]
 
 CHATGPT_LOGIN_EXPIRED = """\
@@ -240,6 +245,43 @@ def provider_down(provider: str, failures: int) -> str:
 def update_available(latest: str, current: str) -> str:
     """The end-of-run update notice (stderr, via diagnostics.note, TTY-only)."""
     return f"smartpipe {latest} is available (you have {current}) — run: smartpipe update"
+
+
+def update_plan(channel: str, command: str, version: str) -> str:
+    """What `smartpipe update` detected and will run — shown BEFORE consent."""
+    return f"smartpipe {version} — installed with {channel}\n  will run: {command}"
+
+
+def update_done(command: str) -> str:
+    return f"done — {command} finished cleanly; check: smartpipe --version"
+
+
+def update_failed(command: str, exit_code: int) -> str:
+    return (
+        f"error: the upgrade command failed (exit {exit_code})\n"
+        f"  smartpipe ran: {command}\n"
+        "  Check the tool's output above, then rerun it by hand."
+    )
+
+
+def update_tool_missing(tool: str, command: str) -> str:
+    return (
+        f"error: can't run '{tool}' — it isn't on PATH here\n"
+        f"  smartpipe tried: {command}\n"
+        f"  Run that yourself in a shell where {tool} works."
+    )
+
+
+def update_unknown_channel(version: str) -> str:
+    """No recognizable installer fingerprint: guidance, never a guess (exit 0)."""
+    return (
+        f"smartpipe {version} — install channel not recognized\n"
+        "  Upgrade with the tool that installed smartpipe:\n"
+        "    brew upgrade smartpipe             (Homebrew)\n"
+        "    uv tool upgrade smartpipe-cli      (uv)\n"
+        "    pipx upgrade smartpipe-cli         (pipx)\n"
+        "    pip install -U smartpipe-cli       (pip)"
+    )
 
 
 def missing_anthropic_extra(model: str) -> str:

@@ -1,0 +1,3 @@
+error: the upgrade command failed (exit 1)
+  smartpipe ran: uv tool upgrade smartpipe-cli
+  Check the tool's output above, then rerun it by hand.
