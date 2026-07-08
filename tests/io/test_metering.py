@@ -78,9 +78,22 @@ def test_clip_seconds_asks_ffmpeg_for_other_containers(
     from pathlib import Path
 
     assert isinstance(tmp_path, Path)
-    fake = tmp_path / "ffmpeg"
-    fake.write_text('#!/bin/sh\necho "Duration: 00:01:23.00" >&2\n', encoding="utf-8")
-    fake.chmod(0o755)
+    # a portable fake ffmpeg: a python script launched through the real
+    # interpreter - a #!/bin/sh file can't exec on the windows runners
+    # (live-caught: this was the only red leg on the merged tree)
+    import sys
+
+    fake_py = tmp_path / "fake_ffmpeg.py"
+    fake_py.write_text(
+        'import sys\nprint("Duration: 00:01:23.00", file=sys.stderr)\n', encoding="utf-8"
+    )
+    if sys.platform == "win32":
+        fake = tmp_path / "ffmpeg.bat"
+        fake.write_text(f'@"{sys.executable}" "{fake_py}" %*\n', encoding="utf-8")
+    else:
+        fake = tmp_path / "ffmpeg"
+        fake.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{fake_py}" "$@"\n', encoding="utf-8")
+        fake.chmod(0o755)
     monkeypatch.setattr(metering, "_ffmpeg_exe", lambda: str(fake))
     assert metering.clip_seconds(b"opus-ish bytes", "audio/ogg") == 83.0
 
