@@ -51,7 +51,7 @@ from smartpipe.verbs.common import (
     outcome_exit_code,
 )
 from smartpipe.verbs.convert import Converter, make_converter
-from smartpipe.verbs.oversize import matched_note, refusal
+from smartpipe.verbs.oversize import RowNote, judge_bisected, matched_note, refusal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -348,6 +348,7 @@ async def _join_one(
         pairs = tuple((block[i], score) for i, score in ranked)
     else:
         pairs = candidates(vector, index, k=request.k, threshold=request.threshold)
+    note = RowNote(describe_source(item.source))  # item 3: re-splits, once per row
     for position, score in pairs:
         if stop is not None and stop.is_set():
             break
@@ -362,7 +363,9 @@ async def _join_one(
             chunked_right.ordered(vector) if chunked_right is not None else (right_item.text,)
         )
         try:
-            verdict = await _judge_pair(chat, tokens, item, right_item, left_texts, right_texts)
+            verdict = await _judge_pair(
+                chat, tokens, item, right_item, left_texts, right_texts, note=note
+            )
         except ItemError as exc:
             book.skip(item, position, str(exc))
             continue
@@ -379,17 +382,44 @@ async def _judge_pair(
     right: Item,
     left_texts: tuple[str, ...],
     right_texts: tuple[str, ...],
+    *,
+    note: RowNote,
 ) -> bool:
     """One pair's verdict; chunked sides OR their chunk verdicts (D26 v2),
-    and the disclosure names the chunk that matched."""
+    and the disclosure names the chunk that matched. Auto-chunks the wire
+    still rejects with a context 400 bisect (item 3) — join's chunks are
+    embed-budget-sized, which a small local chat window may not hold."""
     total = len(left_texts) * len(right_texts)
+    left_chunked = len(left_texts) > 1  # ChunkedSide always cuts ≥ 2 chunks
+    right_chunked = len(right_texts) > 1
     position = 0
     for left_text in left_texts:
         for right_text in right_texts:
             position += 1
-            verdict = await _judge(
-                chat, tokens, replace(left, text=left_text), replace(right, text=right_text)
-            )
+            if left_chunked:
+                # bisect the machine-cut LEFT chunk; the right text rides fixed
+
+                async def judge_left(text: str, fixed_right: str = right_text) -> bool:
+                    return await _judge(
+                        chat, tokens, replace(left, text=text), replace(right, text=fixed_right)
+                    )
+
+                verdict = await judge_bisected(judge_left, left_text, note=note)
+            elif right_chunked:
+                # bisect the machine-cut RIGHT chunk; the left text rides fixed
+
+                async def judge_right(text: str, fixed_left: str = left_text) -> bool:
+                    return await _judge(
+                        chat, tokens, replace(left, text=fixed_left), replace(right, text=text)
+                    )
+
+                verdict = await judge_bisected(judge_right, right_text, note=note)
+            else:
+                # both sides whole: user boundaries — a wire rejection stays a
+                # pair error (never re-cut what the user cut)
+                verdict = await _judge(
+                    chat, tokens, replace(left, text=left_text), replace(right, text=right_text)
+                )
             if verdict:
                 if total > 1:
                     diagnostics.note(matched_note(describe_source(left.source), position, total))

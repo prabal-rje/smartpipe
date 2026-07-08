@@ -52,7 +52,9 @@ if TYPE_CHECKING:
 
 __all__ = [
     "MAX_BISECT_DEPTH",
+    "RowNote",
     "judge_any",
+    "judge_bisected",
     "judge_note",
     "machine_cut",
     "matched_note",
@@ -108,7 +110,7 @@ def resplit_note(where: str) -> str:
 
 
 @dataclass(slots=True)
-class _RowNote:
+class RowNote:
     """Once-per-row disclosure latch for the re-split note."""
 
     where: str
@@ -146,7 +148,7 @@ async def _bisecting(
     call: Callable[[str], Awaitable[T]],
     text: str,
     *,
-    note: _RowNote,
+    note: RowNote,
     depth: int = MAX_BISECT_DEPTH,
 ) -> list[T]:
     """Run one chunk call; on a context-length 400 split the chunk in half and
@@ -166,14 +168,16 @@ async def _bisecting(
         return results
 
 
-async def _judge_bisecting(
+async def judge_bisected(
     judge: Callable[[str], Awaitable[bool]],
     text: str,
     *,
-    note: _RowNote,
+    note: RowNote,
     depth: int = MAX_BISECT_DEPTH,
 ) -> bool:
-    """The judge flavor: OR the halves' verdicts, early exit on the first true."""
+    """The judge flavor: OR the halves' verdicts, early exit on the first true.
+    Public for join, whose auto-chunks are embed-budget-sized — bigger than a
+    small local chat window can hold."""
     try:
         return await judge(text)
     except ItemError as exc:
@@ -184,7 +188,7 @@ async def _judge_bisecting(
             raise
         note.resplit()
         for half in halves:
-            if await _judge_bisecting(judge, half, note=note, depth=depth - 1):
+            if await judge_bisected(judge, half, note=note, depth=depth - 1):
                 return True
         return False
 
@@ -213,7 +217,7 @@ async def transform_oversized(
     assert len(chunks) > 1, "an oversized item always cuts into at least two chunks"
     structured = plan.schema is not None
     diagnostics.note(transform_note(where, over.estimate, len(chunks), structured=structured))
-    note = _RowNote(where, noted=already_resplit)  # once per row, resplit path included
+    note = RowNote(where, noted=already_resplit)  # once per row, resplit path included
     if structured:
         records: list[Mapping[str, object]] = []
         for position, chunk in enumerate(chunks):
@@ -367,9 +371,9 @@ async def judge_any(
     wire still rejects with a context 400 bisects (it is machine-cut by
     construction)."""
     diagnostics.note(judge_note(where, estimate, len(chunks)))
-    note = _RowNote(where)
+    note = RowNote(where)
     for position, chunk in enumerate(chunks, start=1):
-        if await _judge_bisecting(judge, chunk, note=note):
+        if await judge_bisected(judge, chunk, note=note):
             diagnostics.note(matched_note(where, position, len(chunks)))
             return True
     return False

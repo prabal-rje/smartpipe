@@ -513,6 +513,47 @@ async def test_oversized_right_falls_through_chunks_until_the_match(
     assert "matched in chunk" in capsys.readouterr().err
 
 
+async def test_join_chunk_judge_bisects_on_a_context_400(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Join's auto-chunks are embed-budget-sized — a small chat window can
+    still 400 on one. The chunk bisects and retries (item 3), never skips."""
+
+    filler = "unrelated filler prose about logistics and weather. " * 5_000
+    needle = "The EspressoPro Nine thousand is our flagship espresso machine."
+    big_right = json.dumps({"name": "EspressoPro", "desc": filler + needle})
+
+    class FlakyJudge:
+        def __init__(self) -> None:
+            self.ref = ModelRef("ollama", "judge")
+            self.seen: list[str] = []
+
+        async def complete(self, request: CompletionRequest) -> str:
+            self.seen.append(request.user)
+            if len(self.seen) == 1:
+                raise ItemError("this model's maximum context length is 4096 tokens")
+            return '{"match": true}'
+
+    right = tmp_path / "products.jsonl"
+    right.write_text(big_right + "\n", encoding="utf-8")
+    judge = FlakyJudge()
+    out = io.StringIO()
+    code = await run_join(
+        _request(
+            right,
+            k=1,
+            predicate="the complaint {left.text} matches this description: {right.text}",
+        ),
+        FakeContext(ChunkAwareEmbed(), judge),  # type: ignore[arg-type]
+        stdin=io.StringIO("my espresso tastes burnt\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert '"__score"' in out.getvalue()  # bisected, retried, matched — no pair skip
+    assert len(judge.seen) == 2  # the 400, then the first half already matched
+    assert "chunk re-split: provider rejected the estimate" in capsys.readouterr().err
+
+
 async def test_join_whole_refuses_oversized_sides(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
