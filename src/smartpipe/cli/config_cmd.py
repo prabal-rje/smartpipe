@@ -177,9 +177,14 @@ async def run_interactive_setup(
     save: Callable[[Config], None],
     offer_completions: Callable[[], None] | None = None,
 ) -> Config:
-    say("smartpipe setup — one minute, three questions\n")
+    from smartpipe.cli.screens import good, heading, tint
+
+    say(heading("smartpipe setup") + tint(" — one minute, three questions", "2") + "\n")
     if current.profile is None and current.model is None:
-        say("Pick a starting profile (a named bundle you can switch any time):")
+        say(
+            heading("Pick a starting profile")
+            + tint(" (a named bundle you can switch any time):", "2")
+        )
         say(
             "  1. openai — gpt-5.4-mini + text-embedding-3-small "
             "(key or ChatGPT login; no audio input)"
@@ -195,7 +200,7 @@ async def run_interactive_setup(
             chosen = replace(current, profile=picked)
             save(chosen)  # a fresh setup has no flat keys to materialize
             bundle = ", ".join(f"{k} = {v}" for k, v in BUILTIN_PROFILES[picked].items())
-            say(f"\n  ✓ profile '{picked}' active ({bundle})")
+            say("\n  " + good("✓") + f" profile '{picked}' active " + tint(f"({bundle})", "2"))
             if BUILTIN_PROFILES[picked].get("allow-captions"):
                 say(
                     "  note: this profile converts images/audio to text through its"
@@ -207,20 +212,37 @@ async def run_interactive_setup(
             return chosen
     names = await probe() or ()
     chat = _first_chat(names)
-    say("  Tip: pick a model that can SEE images (gpt-5.4-mini, gemini-3.1-flash-lite,")
-    say("  ollama/llava) — smartpipe is multimodal; text-only models refuse image rows.")
+    say(tint("  Model names are provider/name:", "2"))
+    say(
+        "    "
+        + good("openai/gpt-5.4-mini")
+        + tint("  (needs OPENAI_API_KEY or ChatGPT login)", "2")
+    )
+    say(
+        "    "
+        + good("gemini/gemini-3.1-flash-lite")
+        + tint("  (Google - needs GEMINI_API_KEY)", "2")
+    )
+    say("    " + good("ollama/llava") + tint("  (local; bare ollama tag names work too)", "2"))
+    say(tint("  Tip: pick one that can SEE images — smartpipe is multimodal;", "2"))
+    say(tint("  text-only models refuse image rows.", "2"))
     if chat is not None:
-        say(f"  ✓ found Ollama ({len(names)} models)\n")
+        local_menu = [n for n in names if "embed" not in n.lower()][:8]
+        say("  " + good("✓") + f" found Ollama ({len(names)} models). You can type any of:")
+        say(tint("    " + " · ".join(local_menu), "36"))
+        say("")
         model_answer = ask("Default model?", f"ollama/{chat}")
     else:
         # No Ollama, or Ollama has only embedding models — offer a cloud chat model.
         say(
-            "  no local chat model found — install one at https://ollama.com, "
-            "or use a cloud model.\n"
+            tint(
+                "  no local chat model found — install one at https://ollama.com, "
+                "or use a cloud model.",
+                "2",
+            )
+            + "\n"
         )
-        model_answer = ask(
-            "Default model (e.g. gpt-5.4-mini, needs OPENAI_API_KEY)", "gpt-5.4-mini"
-        )
+        model_answer = ask("Default model?", "openai/gpt-5.4-mini")
     embed_answer = ask("Embedding model?", f"ollama/{_first_embed(names)}")
 
     model_ref = _parsed_or_reprompt(model_answer, ask, "Default model?")
@@ -237,8 +259,8 @@ async def run_interactive_setup(
     if offer_completions is not None:
         offer_completions()
     if saved:
-        say("\n  Saved. Try it:")
-        say(f"    {_TRY_IT}")
+        say("\n  " + good("Saved.") + " Try it:")
+        say("    " + tint(_TRY_IT, "36"))
     return updated
 
 
@@ -278,20 +300,21 @@ def offer_shell_completions(
     say(f"  ✓ added to {rc}: {line}")
 
 
-_PREFERRED_LOCAL = ("llava", "gemma", "qwen", "llama", "mistral", "phi")
+_PREFERRED_FAMILIES = ("llava", "gemma", "qwen", "llama", "mistral", "phi", "kimi", "glm")
 
 
 def _first_chat(names: tuple[str, ...]) -> str | None:
-    """A sensible LOCAL chat default: prefer known families (vision-capable
-    first), never an embedding model, and never a ':cloud' passthrough tag —
-    suggesting one as "local" both misleads and 400s on some accounts
-    (owner-hit: kimi-k2.7-code:cloud came first in the tag list)."""
-    local = [n for n in names if "embed" not in n.lower() and not n.endswith(":cloud")]
-    for family in _PREFERRED_LOCAL:
-        for name in local:
+    """A sensible chat default from ollama's list: prefer known families
+    (vision-capable first), never an embedding model. ':cloud' passthrough
+    tags compete as equals — they are affordable frontier models, and
+    penalizing them while suggesting openai/ would be incoherent (owner
+    ruling)."""
+    candidates = [n for n in names if "embed" not in n.lower()]
+    for family in _PREFERRED_FAMILIES:
+        for name in candidates:
             if family in name.lower():
                 return name
-    return local[0] if local else None
+    return candidates[0] if candidates else None
 
 
 def _parsed_or_reprompt(answer: str, ask: Callable[[str, str], str], question: str) -> object:
