@@ -52,7 +52,9 @@ around the semantic core, so paid stages only see what matters.
 
 ## Recipes & reference
 
-- [Cookbook](cookbook/README.md) - contract extraction, log triage, ranking documents, live monitoring, stream enrichment
+- [Cookbook](cookbook/README.md) - invoice reconciliation, video RAG over a
+  folder of recordings, meeting digests, log triage, training-data prep,
+  live monitoring, and more
 - [CLI reference](reference/cli.md) - every flag, format, and exit code
 - [`.sem` stage files](reference/sem-files.md) - save a pipe stage as an executable script
 - [Troubleshooting](troubleshooting.md) - find your error message

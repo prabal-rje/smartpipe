@@ -64,8 +64,11 @@ nav:
   - Cookbook:
       - Overview: cookbook/README.md
       - Contract extraction: cookbook/contract-extraction.md
+      - Invoice reconciliation: cookbook/invoice-reconciliation.md
       - Training-data prep: cookbook/training-data-prep.md
       - Video Q&A: cookbook/video-qa.md
+      - Meeting digests: cookbook/meeting-digest.md
+      - Customer feedback: cookbook/customer-feedback.md
       - Log triage: cookbook/log-triage.md
       - Ranking documents: cookbook/ranking-documents.md
       - Live monitoring: cookbook/live-monitoring.md

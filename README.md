@@ -82,7 +82,21 @@ $ cat app.log \
 
 # 6. Save the whole pipeline as a file; it becomes a command:
 $ smartpipe run triage.sem --dry-run     # the stage graph + cost posture, zero calls
+
+# 7. Month-end close: the vision model IS the OCR; the anti-join is the worklist:
+$ smartpipe map "Extract {vendor string, invoice_number string, invoice_date string, total number, currency string}" --in 'invoices/2026-06/*.pdf' \
+    | tee june-invoices.ndjson \
+    | smartpipe join "invoice from {left.vendor} for {left.total} and ledger entry {right.memo} for {right.amount} record the same payment" --right ledger.jsonl --kind anti > missing-from-ledger.jsonl
+
+# 8. Video RAG, no vector database: index a folder of recordings once, ask any day:
+$ smartpipe embed --in 'sessions/**/*.mp4' > sessions.embeddings
+$ smartpipe top_k 3 --near "user gives up after the coupon code fails at checkout" < sessions.embeddings
 ```
+
+Numbers 7 and 8 are full recipes:
+[invoice reconciliation](docs/cookbook/invoice-reconciliation.md) and
+[video RAG](docs/cookbook/video-qa.md), two of a dozen in the
+[cookbook](docs/cookbook/README.md).
 
 New to any of this? The [ten-minute quickstart](docs/quickstart.md) assumes
 nothing - including that you know what a "model" is.
