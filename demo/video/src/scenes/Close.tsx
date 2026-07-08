@@ -54,7 +54,7 @@ export const Close: React.FC = () => {
             opacity: interpolate(frame, [0, 12], [0, 1], clamp),
           }}
         >
-          <Wordmark drawStart={0} drawEnd={0} fontSize={40} />
+          <Wordmark drawStart={0} drawEnd={0} fontSize={25} />
         </div>
         <Terminal
           title="install — smartpipe"
