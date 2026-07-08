@@ -12,7 +12,7 @@ export const sec = (s: number): number => Math.round(s * FPS);
 
 /** Scene durations, in frames. Order here is the order in the Main timeline. */
 export const SCENE = {
-  coldOpen: sec(8), // 1 — ASCII wordmark draws in
+  coldOpen: sec(5), // 1 — static brand card: one fast fade, ~4s hold, exit
   hook: sec(14), // 2 — map over invoices/*.pdf
   multimodal: sec(14), // 3 — files → pipe → records; audio commitments
   cost: sec(14), // 4 — where (free) → filter (paid) funnel + receipt
