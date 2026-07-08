@@ -67,7 +67,7 @@ def cluster_command(
     \b
     Examples:
       cat feedback.txt | smartpipe cluster
-      cat tickets.jsonl | smartpipe cluster --top 8 | smartpipe chart cluster
+      cat tickets.jsonl | smartpipe cluster --explode members | smartpipe chart cluster
       cat snippets.txt | smartpipe cluster --explode members > coded.jsonl
 
     One row per cluster, largest first: {"cluster", "size", "share",

@@ -110,8 +110,8 @@ cat tickets.jsonl \
 
 # 4. group feedback by meaning, label each theme, chart it
 cat feedback.txt \
-| smartpipe cluster --top 8 \
-| smartpipe chart cluster --save themes.svg
+| smartpipe cluster --explode members \
+| smartpipe chart cluster --top 8 --save themes.svg
 
 # 5. cut for free with `where`, then let the model judge only what is left
 cat app.log \

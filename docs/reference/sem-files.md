@@ -119,11 +119,12 @@ predicate = 'text has "ERROR"'
 
 [stage.themes]
 verb = "cluster"
-top = 8
+explode = "members"
 
 [stage.picture]
 verb = "chart"
 field = "cluster"
+top = 8
 save = "themes.svg"
 ```
 
@@ -131,9 +132,9 @@ save = "themes.svg"
 cat week.log \
 | smartpipe run triage.sem
 smartpipe run triage.sem --dry-run      # the graph + cost posture, zero calls
-# → stage hot          where 'text has "ERROR"'   [free]
-# → stage themes       cluster --top 8            [model calls]
-# → stage picture      chart cluster --save …     [free]
+# → stage hot          where 'text has "ERROR"'      [free]
+# → stage themes       cluster --explode members     [model calls]
+# → stage picture      chart cluster --top 8 --save  [free]
 ```
 
 Each stage reads the previous stage's output (`input = "name"` picks any

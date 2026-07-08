@@ -76,6 +76,24 @@ The identity release.
 - Records render at the TTY as YAML-ish blocks. The welcome screen links
   docs, cookbook, and issues. The wizard offers to install shell
   completions (consented, idempotent).
+- **`chart` re-platformed: plotext draws the terminal, matplotlib renders
+  `--save`.** TTY bars get color (cyan bars, green time-series); piped or
+  `NO_COLOR` output keeps the plain-ASCII contract byte-for-byte. `--save`
+  now writes SVG or PNG by extension (identity-styled, deterministic
+  output); svgwrite - unmaintained since 2022 - leaves the tree. Both
+  libraries ship in core per the no-extras rule; imports stay
+  function-local so startup holds. The run receipt now reads
+  `run: ↑40 ↓25 tok` (arrows for in/out). The wizard validates model names
+  before saving (two strikes, then a typed fault), prints completions
+  before the paste-bait "Try it" line, prefers a sensible local default
+  over alphabetical luck (cloud tags compete equally), and speaks in the
+  same color voice as the other commands with a menu of detected local
+  tags and provider-prefixed cloud examples.
+- **Docs bug, live-caught: `cluster | chart` drew flat bars.** The summary
+  rows are one-per-cluster, so charting them counts every theme once. The
+  README quick-tour step, the `cluster` help epilog, and the `.sem`
+  pipeline example now route `cluster --explode members` into
+  `chart cluster --top 8`, which draws real sizes.
 
 ### Docs: a shape, not a pile
 - New Learn track (`docs/learn/1…6`), `concepts/the-item.md` (the five
