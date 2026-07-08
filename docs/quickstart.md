@@ -77,7 +77,8 @@ printf "good morning\nthank you\n" \
 # → merci
 ```
 
-One line in, one line out, in the same order.
+One line in, one line out, in the same order. (Why lines? Everything in a
+pipe is an item - [the item](concepts/the-item.md) explains the five laws.)
 
 ## 4. Your first extraction
 

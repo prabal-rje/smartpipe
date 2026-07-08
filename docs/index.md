@@ -59,6 +59,7 @@ braces/DSL expression. Each stays at zero model calls by construction.
 
 ## Concepts
 
+- [The item](concepts/the-item.md) - the five laws everything follows from
 - [Pipes & items](concepts/pipes-and-items.md) - the mental model (what is "one item"?)
 - [Models & providers](concepts/models-and-providers.md) - local vs cloud, model strings
 - [Structured output](concepts/structured-output.md) - braces and `--schema`
