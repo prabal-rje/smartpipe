@@ -1,0 +1,10 @@
+smartpipe setup — pick a provider, pick a model
+
+No providers connected yet — connect one:
+    ollama      install from https://ollama.com, then: ollama serve
+    openai      export OPENAI_API_KEY=sk-...   (or: smartpipe auth login)
+    gemini      export GEMINI_API_KEY=...   (aistudio.google.com)
+    anthropic   export ANTHROPIC_API_KEY=sk-ant-...
+    mistral     export MISTRAL_API_KEY=...   (console.mistral.ai)
+    openrouter  export OPENROUTER_API_KEY=sk-or-...   (openrouter.ai/keys)
+  Connect one, then rerun: smartpipe config

@@ -67,7 +67,25 @@ async def run_probe(env: Mapping[str, str]) -> str:
                 Cell("ok", "as extracted text"),
             ),
         }
+        _remember_probe(os.environ, str(chat.ref), image=chat_image, audio=chat_audio)
     return render_matrix(rows)
+
+
+def _remember_probe(env: Mapping[str, str], ref: str, *, image: Cell, audio: Cell) -> None:
+    """Persist what the probe PAID to learn: the config picker's capability
+    chips read this back ("sees, hears — probed 3d ago"). Only NATIVE ability
+    counts — fallback paths make no chip claims. Best-effort, never fatal."""
+    import time
+
+    from smartpipe.config.state_cache import probe_path, record_probe
+
+    record_probe(
+        probe_path(env),
+        ref,
+        sees=image.verdict == "ok",
+        hears=audio.verdict == "ok",
+        now=time.time(),
+    )
 
 
 def _stt_path(env: Mapping[str, str], configured: str | None) -> str | None:

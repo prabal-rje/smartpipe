@@ -65,6 +65,34 @@ def test_probe_charts_the_matrix(run_cli: RunCli, respx_mock: respx.MockRouter) 
     del code  # exit reflects the FREE checks; capability gaps don't flip it
 
 
+def test_probe_writes_the_capability_cache(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
+    """The picker's chips come from here: --probe persists what it PAID to learn
+    (native abilities only — fallback paths make no chip claims)."""
+    import os
+
+    from smartpipe.config.state_cache import load_probe_chips, probe_path
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        import json
+
+        body = json.loads(request.content)
+        has_images = any("images" in message for message in body["messages"])
+        return httpx.Response(200, json={"message": {"content": "red" if has_images else "OK"}})
+
+    respx_mock.post(CHAT).mock(side_effect=answer)
+    respx_mock.post(EMBED).mock(
+        return_value=httpx.Response(200, json={"embeddings": [[0.1, 0.2, 0.3]]})
+    )
+    respx_mock.get("http://localhost:11434/api/tags").mock(
+        return_value=httpx.Response(200, json={"models": [{"name": "qwen3:8b"}]})
+    )
+    run_cli(["doctor", "--probe"])
+    chip = load_probe_chips(probe_path(os.environ))["ollama/qwen3:8b"]
+    assert chip.sees is True  # the mock saw the image and answered
+    assert chip.hears is False  # ollama refuses audio pre-send — never claimed
+    assert chip.ts > 0
+
+
 def test_without_probe_no_model_calls(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
     chat = respx_mock.post(CHAT)
     respx_mock.get("http://localhost:11434/api/tags").mock(

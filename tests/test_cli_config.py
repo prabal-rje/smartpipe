@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.cli.config_cmd import run_interactive_setup
+from smartpipe.cli.config_cmd import run_provider_picker
+from smartpipe.config.picker import ProbeChip
 from smartpipe.config.store import Config, load_config
 from tests.conftest import RunCli
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+_NOW = 1_751_900_000.0  # a fixed clock — chips date against it
 
 
 @pytest.fixture
@@ -103,7 +110,7 @@ def test_bare_config_without_tty_is_setup_fault(run_cli: RunCli, config_home: Pa
     assert "smartpipe config model ollama/qwen3:8b" in err
 
 
-# --- interactive setup (unit, injected I/O) -----------------------------------
+# --- the provider-first picker (unit, injected I/O) -----------------------------
 
 
 class _Recorder:
@@ -118,102 +125,326 @@ class _Recorder:
         self.saved = config
 
 
-async def _probe(*names: str) -> tuple[str, ...] | None:
-    return names if names else None
+class _Menu:
+    """A scripted chooser that records every menu it was shown."""
+
+    def __init__(self, picks: list[int | None]) -> None:
+        self.picks = picks
+        self.shown: list[tuple[str, tuple[str, ...], int]] = []
+
+    def __call__(self, title: str, labels: tuple[str, ...], start: int) -> int | None:
+        self.shown.append((title, labels, start))
+        return self.picks.pop(0)
 
 
-async def test_interactive_with_ollama_saves_detected_defaults() -> None:
+async def _run_picker(
+    *,
+    current: Config | None = None,
+    env: Mapping[str, str] | None = None,
+    tags: tuple[str, ...] | None = None,
+    login: bool = False,
+    catalogs: Mapping[str, tuple[str, ...] | None] | None = None,
+    chips: Mapping[str, ProbeChip] | None = None,
+    picks: list[int | None] | None = None,
+    answers: dict[str, str] | None = None,
+    confirms: dict[str, bool] | None = None,
+) -> tuple[Config, _Recorder, _Menu]:
     rec = _Recorder()
-    answers = {
-        "Default model?": "ollama/qwen3:8b",
-        "Embedding model?": "ollama/nomic-embed-text",
-    }
+    menu = _Menu(picks if picks is not None else [])
+    held_answers = answers or {}
+    held_confirms = confirms or {}
 
-    result = await run_interactive_setup(
-        current=Config(),
-        probe=lambda: _probe("nomic-embed-text", "qwen3:8b"),
-        ask=lambda question, default: answers.get(question, default),
-        confirm=lambda _question: True,
-        say=rec.say,
-        save=rec.save,
-    )
-    assert result.model == "ollama/qwen3:8b"
-    assert result.embed_model == "ollama/nomic-embed-text"
-    assert rec.saved == result
-    assert any("found Ollama (2 models)" in line for line in rec.said)
+    async def probe() -> tuple[str, ...] | None:
+        return tags
 
-
-async def test_interactive_default_answers_use_first_chat_and_embed() -> None:
-    rec = _Recorder()
-    seen_defaults: dict[str, str] = {}
+    async def fetch(provider: str) -> tuple[str, ...] | None:
+        return (catalogs or {}).get(provider)
 
     def ask(question: str, default: str) -> str:
-        seen_defaults[question] = default
-        return default  # user just hits Enter
+        return held_answers.get(question, default)
 
-    await run_interactive_setup(
-        current=Config(),
-        probe=lambda: _probe("nomic-embed-text", "llama3.2", "qwen3:8b"),
+    def confirm(question: str, default: bool) -> bool:
+        return held_confirms.get(question, default)
+
+    result = await run_provider_picker(
+        current=current if current is not None else Config(),
+        env=env or {},
+        probe=probe,
+        login=lambda: login,
+        fetch_catalog=fetch,
+        chips=chips or {},
+        now=_NOW,
+        choose=menu,
         ask=ask,
-        confirm=lambda _q: True,
+        confirm=confirm,
         say=rec.say,
         save=rec.save,
     )
-    # family preference is deliberate: qwen outranks llama in
-    # _PREFERRED_FAMILIES; embedding tags never offered; :cloud tags compete equally
-    assert seen_defaults["Default model?"] == "ollama/qwen3:8b"
-    assert seen_defaults["Embedding model?"] == "ollama/nomic-embed-text"
+    return result, rec, menu
 
 
-async def test_interactive_without_ollama_offers_cloud() -> None:
-    rec = _Recorder()
+async def test_picker_ollama_pick_pairs_a_detected_local_embedder() -> None:
+    result, rec, menu = await _run_picker(
+        tags=("nomic-embed-text", "llava", "qwen3:8b"),
+        picks=[0, 0],  # provider: ollama · model: llava (family-preferred start)
+    )
+    assert result.model == "ollama/llava"
+    assert result.embed_model == "ollama/nomic-embed-text"  # detected tag wins
+    assert rec.saved == result
+    provider_title, provider_labels, _start = menu.shown[0]
+    assert provider_title == "Pick a provider:"
+    assert provider_labels[0].startswith("ollama")
+    assert "3 local models" in provider_labels[0]
+    model_title, model_labels_shown, model_start = menu.shown[1]
+    assert model_title == "Pick a model (ollama):"
+    assert model_labels_shown[0] == "ollama/llava"  # embedders never offered as chat
+    assert model_labels_shown[-1].startswith("type a model name instead")
+    assert model_start == 0  # llava is the family-preferred cursor start
+    assert any("paired with ollama" in line for line in rec.said)
+    assert rec.said[-1].strip().endswith('smartpipe map "translate to Spanish"')
 
-    result = await run_interactive_setup(
-        current=Config(),
-        probe=lambda: _probe(),
-        ask=lambda _question, default: default,
-        confirm=lambda _q: True,
-        say=rec.say,
-        save=rec.save,
+
+async def test_picker_openai_catalog_pick_and_pairing() -> None:
+    result, rec, _menu = await _run_picker(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini", "o4-mini")},
+        picks=[0, 0],
     )
     assert result.model == "openai/gpt-5.4-mini"
-    assert any("no local chat model found" in line for line in rec.said)
+    assert result.embed_model == "openai/text-embedding-3-small"
+    assert rec.saved == result
+    assert any("✓ model openai/gpt-5.4-mini" in line for line in rec.said)
+    assert any("embed-model openai/text-embedding-3-small" in line for line in rec.said)
 
 
-async def test_interactive_with_only_embed_models_does_not_propose_embed_as_chat() -> None:
-    # regression (adversarial review): if Ollama has ONLY embedding models,
-    # the chat default must not be an embedding model — fall to the cloud prompt.
-    rec = _Recorder()
-    seen_defaults: dict[str, str] = {}
-
-    def ask(question: str, default: str) -> str:
-        seen_defaults[question] = default
-        return default
-
-    result = await run_interactive_setup(
-        current=Config(),
-        probe=lambda: _probe("nomic-embed-text", "mxbai-embed-large"),
-        ask=ask,
-        confirm=lambda _q: True,
-        say=rec.say,
-        save=rec.save,
+async def test_picker_never_overwrites_a_deliberate_embedder() -> None:
+    result, rec, _menu = await _run_picker(
+        current=Config(embed_model="jina/jina-clip-v2"),
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[0, 0],
     )
-    assert result.model == "openai/gpt-5.4-mini"  # not an embedding model
-    assert seen_defaults["Embedding model?"] == "ollama/nomic-embed-text"
+    assert result.embed_model == "jina/jina-clip-v2"  # user intent outranks the pairing
+    assert not any("paired" in line for line in rec.said)
 
 
-async def test_interactive_decline_does_not_save() -> None:
-    rec = _Recorder()
-    await run_interactive_setup(
-        current=Config(),
-        probe=lambda: _probe("qwen3:8b"),
-        ask=lambda _question, default: default,
-        confirm=lambda _q: False,
-        say=rec.say,
-        save=rec.save,
+async def test_picker_repairs_a_previously_paired_embedder() -> None:
+    result, _rec, _menu = await _run_picker(
+        current=Config(embed_model="openai/text-embedding-3-small"),
+        env={"GEMINI_API_KEY": "g"},
+        catalogs={"gemini": ("gemini-3.1-flash-lite",)},
+        picks=[0, 0],
     )
+    assert result.model == "gemini/gemini-3.1-flash-lite"
+    assert result.embed_model == "gemini/gemini-embedding-001"  # the old pair moves with us
+
+
+async def test_picker_catalog_failure_degrades_to_typed_input() -> None:
+    result, rec, menu = await _run_picker(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={},  # fetch returns None — the 403/timeout path
+        picks=[0],
+    )
+    assert result.model == "openai/gpt-5.4-mini"  # the provider-prefixed example default
+    assert len(menu.shown) == 1  # no model menu — typed input took over
+    assert any("couldn't fetch the live catalog" in line for line in rec.said)
+    assert any("openai/gpt-5.4-mini" in line and "OPENAI_API_KEY" in line for line in rec.said)
+
+
+async def test_picker_type_it_entry_routes_to_typed_input() -> None:
+    result, _rec, menu = await _run_picker(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[0, 1],  # the last menu entry is "type a model name instead…"
+        answers={"Default model?": "o4-mini"},
+    )
+    assert result.model == "openai/o4-mini"
+    assert menu.shown[1][1][-1].startswith("type a model name instead")
+
+
+async def test_picker_typed_junk_twice_is_a_usage_fault() -> None:
+    from smartpipe.core.errors import UsageFault
+
+    with pytest.raises(UsageFault):
+        await _run_picker(
+            env={"OPENAI_API_KEY": "sk-x"},
+            catalogs={},
+            picks=[0],
+            answers={
+                "Default model?": " ",
+                "Default model? (that wasn't a model ref: no model given — "
+                "try: --model ollama/qwen3:8b)": " ",
+            },
+        )
+
+
+async def test_picker_backup_question_loops_the_picker_once() -> None:
+    result, rec, menu = await _run_picker(
+        env={"OPENAI_API_KEY": "sk-x", "GEMINI_API_KEY": "g"},
+        catalogs={"openai": ("gpt-5.4-mini",), "gemini": ("gemini-3.1-flash-lite",)},
+        picks=[0, 0, 1, 0],  # provider · model · backup provider · backup model
+        confirms={"Add a backup model for provider outages?": True},
+    )
+    assert result.model == "openai/gpt-5.4-mini"
+    assert result.fallback_model == "gemini/gemini-3.1-flash-lite"
+    assert menu.shown[2][0] == "Pick a backup provider:"
+    assert any("fallback-model gemini/gemini-3.1-flash-lite" in line for line in rec.said)
+
+
+async def test_picker_backup_defaults_to_no() -> None:
+    result, _rec, menu = await _run_picker(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[0, 0],
+    )
+    assert result.fallback_model is None
+    assert len(menu.shown) == 2  # the picker never looped
+
+
+async def test_picker_backup_refuses_an_embedder() -> None:
+    result, rec, _menu = await _run_picker(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[0, 0, 0, 1],  # backup goes through "type it instead"
+        answers={"Backup model?": "text-embedding-3-small"},
+        confirms={"Add a backup model for provider outages?": True},
+    )
+    assert result.fallback_model is None
+    assert any("embeds" in line and "must chat" in line for line in rec.said)
+
+
+async def test_picker_cancel_at_the_provider_menu_saves_nothing() -> None:
+    current = Config(model="ollama/qwen3:8b")
+    result, rec, _menu = await _run_picker(
+        current=current, env={"OPENAI_API_KEY": "sk-x"}, picks=[None]
+    )
+    assert result == current
     assert rec.saved is None
     assert any("Not saved" in line for line in rec.said)
+
+
+async def test_picker_decline_save_stamps_nothing_but_still_offers_completions() -> None:
+    offered: list[bool] = []
+    rec = _Recorder()
+    menu = _Menu([0, 0])
+
+    async def probe() -> tuple[str, ...] | None:
+        return None
+
+    async def fetch(_provider: str) -> tuple[str, ...] | None:
+        return ("gpt-5.4-mini",)
+
+    result = await run_provider_picker(
+        current=Config(),
+        env={"OPENAI_API_KEY": "sk-x"},
+        probe=probe,
+        login=lambda: False,
+        fetch_catalog=fetch,
+        chips={},
+        now=_NOW,
+        choose=menu,
+        ask=lambda _q, default: default,
+        confirm=lambda question, default: False if question == "Save to config?" else default,
+        say=rec.say,
+        save=rec.save,
+        offer_completions=lambda: offered.append(True),
+    )
+    assert result.model == "openai/gpt-5.4-mini"  # returned, but…
+    assert rec.saved is None  # …never written
+    assert any("Not saved" in line for line in rec.said)
+    assert offered == [True]
+
+
+async def test_picker_completions_come_before_the_try_it_bait() -> None:
+    rec = _Recorder()
+    menu = _Menu([0, 0])
+
+    async def probe() -> tuple[str, ...] | None:
+        return ("llava",)
+
+    async def fetch(_provider: str) -> tuple[str, ...] | None:
+        return None
+
+    await run_provider_picker(
+        current=Config(),
+        env={},
+        probe=probe,
+        login=lambda: False,
+        fetch_catalog=fetch,
+        chips={},
+        now=_NOW,
+        choose=menu,
+        ask=lambda _q, default: default,
+        confirm=lambda _q, default: default,
+        say=rec.say,
+        save=rec.save,
+        offer_completions=lambda: rec.say("<completions offer>"),
+    )
+    # completions BEFORE the try-it invitation: a paste-me command printed while
+    # questions remain baits the paste into the next prompt (owner-hit)
+    offer_at = rec.said.index("<completions offer>")
+    try_it_at = next(i for i, line in enumerate(rec.said) if "Try it" in line)
+    assert offer_at < try_it_at
+
+
+async def test_picker_no_providers_screen_prints_every_fix() -> None:
+    result, rec, menu = await _run_picker(current=Config(), env={}, tags=None)
+    assert result == Config()
+    assert rec.saved is None
+    assert menu.shown == []  # nothing to pick from — no menu
+    transcript = "\n".join(rec.said)
+    assert "No providers connected yet" in transcript
+    assert "https://ollama.com" in transcript
+    assert "export OPENAI_API_KEY=" in transcript
+    assert "export GEMINI_API_KEY=" in transcript
+    assert "export ANTHROPIC_API_KEY=" in transcript
+    assert "export MISTRAL_API_KEY=" in transcript
+    assert "export OPENROUTER_API_KEY=" in transcript
+    assert "Connect one, then rerun: smartpipe config" in transcript
+
+
+async def test_picker_lists_undetected_providers_dim_with_fixes() -> None:
+    _result, rec, _menu = await _run_picker(
+        env={"OPENAI_API_KEY": "sk-x", "JINA_API_KEY": "j"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[0, 0],
+    )
+    transcript = "\n".join(rec.said)
+    assert "not connected (how to connect):" in transcript
+    assert "export ANTHROPIC_API_KEY=" in transcript
+    assert "embeddings only" in transcript  # the jina mention — never a chat choice
+
+
+async def test_picker_chips_annotate_probed_catalog_entries() -> None:
+    chips = {"openai/gpt-5.4-mini": ProbeChip(sees=True, hears=False, ts=_NOW - 3 * 86_400)}
+    _result, _rec, menu = await _run_picker(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini", "o4-mini")},
+        chips=chips,
+        picks=[0, 0],
+    )
+    model_labels_shown = menu.shown[1][1]
+    assert model_labels_shown[0] == "openai/gpt-5.4-mini  (sees — probed 3d ago)"
+    assert model_labels_shown[1] == "openai/o4-mini"  # no cache = no chips, no claims
+
+
+async def test_picker_openrouter_picks_canonicalize_nested_names() -> None:
+    result, _rec, _menu = await _run_picker(
+        env={"OPENROUTER_API_KEY": "sk-or"},
+        catalogs={"openrouter": ("x-ai/grok-4.5",)},
+        picks=[0, 0],
+    )
+    assert result.model == "openrouter/x-ai/grok-4.5"
+    assert result.embed_model is None  # no ratified pairing for openrouter
+
+
+async def test_picker_ollama_without_chat_models_degrades_to_typed() -> None:
+    result, rec, _menu = await _run_picker(
+        tags=("nomic-embed-text",),  # daemon up, but only embedders installed
+        picks=[0],
+    )
+    assert result.model == "ollama/qwen3:8b"  # the typed example default
+    assert any("ollama pull qwen3:8b" in line for line in rec.said)
 
 
 def test_set_embed_model_mistral(run_cli: RunCli, config_home: Path) -> None:
@@ -245,30 +476,6 @@ def test_profile_unknown_name_lists_known(
     code, _out, err = run_cli(["config", "profile", "yolo"])
     assert code == 2
     assert "profile 'yolo' doesn't exist" in err
-
-
-async def test_wizard_offers_profiles_first_on_a_fresh_setup(tmp_path: Path) -> None:
-    from smartpipe.cli.config_cmd import run_interactive_setup
-    from smartpipe.config.store import Config
-
-    said: list[str] = []
-    saved: list[Config] = []
-
-    async def probe() -> tuple[str, ...] | None:
-        raise AssertionError("picking a preset must not probe anything")
-
-    result = await run_interactive_setup(
-        current=Config(),
-        probe=probe,
-        ask=lambda question, default: "3",  # local
-        confirm=lambda question: True,
-        say=said.append,
-        save=saved.append,
-    )
-    assert result.profile == "local"
-    assert saved and saved[0].profile == "local"
-    assert any("gemma-4-e2b" in line for line in said)
-    assert any("smartpipe doctor" in line for line in said)
 
 
 # --- the wizard's completions offer ----------------------------------------------
@@ -332,21 +539,6 @@ def test_completions_offer_unknown_shell_stays_silent(tmp_path: Path) -> None:
     said = _offer(tmp_path, "/usr/bin/fish", confirmed=confirmed)
     assert said == [] and confirmed == []
     assert list(tmp_path.iterdir()) == []  # never touches files
-
-
-async def test_wizard_ends_with_the_completions_offer() -> None:
-    rec = _Recorder()
-    offered: list[bool] = []
-    await run_interactive_setup(
-        current=Config(),
-        probe=lambda: _probe("qwen3:8b"),
-        ask=lambda question, default: default,
-        confirm=lambda _question: True,
-        say=rec.say,
-        save=rec.save,
-        offer_completions=lambda: offered.append(True),
-    )
-    assert offered == [True]
 
 
 # --- config update-check --------------------------------------------------------

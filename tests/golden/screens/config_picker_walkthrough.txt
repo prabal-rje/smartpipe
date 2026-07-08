@@ -1,0 +1,20 @@
+smartpipe setup — pick a provider, pick a model
+
+  not connected (how to connect):
+    gemini      export GEMINI_API_KEY=...   (aistudio.google.com)
+    anthropic   export ANTHROPIC_API_KEY=sk-ant-...
+    mistral     export MISTRAL_API_KEY=...   (console.mistral.ai)
+    openrouter  export OPENROUTER_API_KEY=sk-or-...   (openrouter.ai/keys)
+
+Pick a provider:
+  1. ollama      2 local models
+  2. openai      API key
+Pick a model (ollama):
+  1. ollama/llava  (sees — probed 2d ago)
+  2. type a model name instead…
+
+  ✓ model ollama/llava
+  ✓ embed-model ollama/nomic-embed-text  (paired with ollama)
+
+  Saved. Try it:
+    echo "hello world" | smartpipe map "translate to Spanish"
