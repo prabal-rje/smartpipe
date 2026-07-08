@@ -134,6 +134,20 @@ The identity release.
   byte-identical to before - previews exist only where a human is
   looking. `smartpipe config media-previews off` turns them off.
 
+### Setup that reads the room
+- **`smartpipe config` is now a provider-first picker.** Detect what's
+  already connected (API keys in the environment, a ChatGPT login, local
+  Ollama), pick a provider, pick from its LIVE model catalog - arrow keys
+  on a real terminal, a numbered prompt everywhere else. Undetected
+  providers show the exact `export ..._API_KEY=` line (smartpipe never
+  prompts for or stores a key). Catalogs cache for a day; a failed fetch
+  degrades to typed input with provider-prefixed examples. Picking a
+  provider auto-pairs a coherent embedding model (announced, and never
+  overwrites one you chose yourself), and one y/N question adds a backup
+  `fallback-model` for provider outages. After a `doctor --probe`,
+  catalog entries carry capability chips (`sees, hears - probed 2d ago`)
+  - probed facts, never claims. All the setter subcommands still work.
+
 ### Getting it and keeping it current
 - **One-line install on every platform.**
   `curl -LsSf https://prabal-rje.github.io/smartpipe/install.sh | sh`
