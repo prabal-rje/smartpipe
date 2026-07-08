@@ -1,12 +1,12 @@
 # Visualizing results
 
-smartpipe emits data; your terminal already knows how to draw it. These recipes
+smartpipe emits data and standard terminal tools can render it. These recipes
 cover the views people actually reach for: distributions, ranked tables, live
 tallies, and the join threshold picker.
 
 ## A field's distribution (the 80% case)
 
-Built in twice over. `smartpipe chart` draws it (free, no model calls, `--save`
+Built in twice over. `smartpipe chart` draws it (no model calls, `--save`
 writes a dependency-free SVG):
 
 ```console
@@ -31,7 +31,7 @@ feature  ▇▇▇▇▇▇ 17
 ```
 
 And `--tally` counts any extracted field live on the status line and as one
-final stderr line, without touching stdout:
+final `stderr` line, without touching `stdout`:
 
 ```console
 $ cat tickets.txt \
@@ -40,7 +40,7 @@ $ cat tickets.txt \
 tally: bug 14 · feature 7 · question 3
 ```
 
-Or compose it the Unix way (works for any field, any time):
+Or compose it the Unix way (works for any field):
 
 ```console
 $ smartpipe map "Extract {label}" < tickets.txt \
@@ -66,7 +66,7 @@ $ … \
 
 ## A ranked table you can read
 
-`top_k` output is NDJSON with `_score`; [visidata](https://visidata.org) turns
+`top_k` output is JSONL with `_score`; [visidata](https://visidata.org) turns
 it into an interactive table:
 
 ```console

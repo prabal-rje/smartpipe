@@ -34,22 +34,44 @@ _SIMPLE_TYPES: dict[str, dict[str, object]] = {
     "boolean": {"type": "boolean"},
     "string[]": {"type": "array", "items": {"type": "string"}},
     "number[]": {"type": "array", "items": {"type": "number"}},
+    # D48: integer[]/boolean[] round out the primitive arrays
+    "integer[]": {"type": "array", "items": {"type": "integer"}},
+    "boolean[]": {"type": "array", "items": {"type": "boolean"}},
 }
 
 _BOUND = re.compile(r"(>=|<=)\s*(-?\d+(?:\.\d+)?)")
 _LENGTH = re.compile(r"(minLength|maxLength)=(\d+)")
 
 
-TYPE_MENU = "string · number · integer · boolean · enum(a, b, …) · string[] · number[]"
+TYPE_MENU = (
+    "string · number · integer · boolean · enum(a, b, …) · string[] · number[]"
+    " · any of them with ? for nullable (string?)"
+)
 
 
 def type_token(token: str) -> dict[str, object] | None:
     """One type token → a property dict, or None when it isn't a type.
 
-    Shared vocabulary with the braces (D37): one grammar, two homes."""
+    Shared vocabulary with the braces (D37): one grammar, two homes.
+    A trailing ``?`` makes the field nullable (D48) — the type becomes a
+    union with null, which every wire either supports (OpenAI strict,
+    Ollama) or degrades safely (Gemini: nullable flag)."""
+    nullable = token.endswith("?")
+    if nullable:
+        token = token[:-1].rstrip()
+        if token.startswith("enum("):
+            raise UsageFault(
+                "enum(…)? — model 'no answer' as an explicit value instead\n"
+                "  Example: status enum(paid, unpaid, unknown)\n"
+                "  (a null union inside enum is rejected by strict provider modes)"
+            )
     simple = _SIMPLE_TYPES.get(token)
     if simple is not None:
-        return dict(simple)
+        prop = dict(simple)
+        if nullable:
+            base = prop["type"]
+            prop["type"] = [base, "null"] if isinstance(base, str) else [*base, "null"]  # type: ignore[list-item]
+        return prop
     if token.startswith("enum(") and token.endswith(")"):
         values = [value.strip() for value in token[5:-1].split(",") if value.strip()]
         return {"enum": values} if values else None

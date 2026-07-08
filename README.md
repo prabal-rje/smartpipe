@@ -3,128 +3,151 @@
 [![CI](https://github.com/prabal-rje/smartpipe/actions/workflows/ci.yml/badge.svg)](https://github.com/prabal-rje/smartpipe/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/smartpipe-cli)](https://pypi.org/project/smartpipe-cli/)
 [![Python](https://img.shields.io/badge/python-3.11%E2%80%933.13-blue)](pyproject.toml)
+[![Docs](https://img.shields.io/badge/docs-prabal--rje.github.io%2Fsmartpipe-blue)](https://prabal-rje.github.io/smartpipe/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
-**Semantic pipes for your terminal.** (PyPI: [`smartpipe-cli`](https://pypi.org/project/smartpipe-cli/); the command is `smartpipe`.)
+**Semantic pipes and queries for your terminal.**
 
-Run PDFs, images, audio, video, and text through Unix verbs that understand their
-input. Use Ollama for local models, or choose a cloud provider explicitly.
+Run PDFs, images, audio, video, and text through Unix verbs that understand
+their input. Use Ollama for local models, or choose a cloud provider explicitly.
 
-> Formerly `sempipe` (which still works as a command alias). The import name,
-> `SMARTPIPE_*` env vars, and `~/.config/smartpipe` keep the old spelling.
+## Install
 
-```console
-$ uvx --from smartpipe-cli smartpipe   # zero-install trial (or: pip install smartpipe-cli)
-
-$ smartpipe map "summarize the key risk" --in 'filings/*.pdf'     # documents, figures included
-$ smartpipe filter "the caller sounds frustrated" --in 'calls/*.mp3'
-$ echo "hello world" \
-    | smartpipe map "translate to Spanish"
-hola mundo
+```bash
+# zero-install trial (or: pip install smartpipe-cli)
+uvx --from smartpipe-cli smartpipe
 ```
 
-A PDF arrives with its figures attached. A scanned page routes itself to a vision
-model and says so.
+## Point it at a model
 
-Audio is heard natively or transcribed. Video is watched where the wire supports
-it, and decomposed into frames plus transcript where it does not. Every degradation
-is disclosed per row.
+```bash
+# log in with a ChatGPT account — covers most people
+smartpipe auth login
+```
 
-No server. No YAML. No vector database. stdin to stdout, composing with
-`grep`, `jq`, `sort` - and `tail -f`: the per-item verbs stream.
+No ChatGPT plan? Use local [Ollama][ollama] or a cloud API key — see
+[Models & providers][models].
 
-## The verbs
+## Examples
 
-**Semantic** (call a model):
+```bash
+# summarize each filing, figures included
+smartpipe map "summarize the key risk" --in 'filings/*.pdf'
+
+# keep only the calls that sound frustrated — audio, understood
+smartpipe filter "the caller sounds frustrated" --in 'calls/*.mp3'
+
+# text on stdin works the same way
+echo "hello world" \
+| smartpipe map "translate to Spanish"
+# → hola mundo
+```
+
+PDFs pass through with their figures. Scanned pages route to a vision model.
+Audio is sent natively where the model hears it, transcribed locally otherwise.
+Video is sent whole where the wire supports it, or split into frames plus a
+transcript. Each conversion is noted per row.
+
+It composes with `grep`, `jq`, `sort`, and `tail -f`: `stdin` to `stdout`,
+one item at a time.
+
+## Verbs
+
+A **verb** is one operation on your data — `map`, `filter`, `cluster`. Each reads
+`stdin` (or `--in FILES`) and writes `stdout`, so verbs pipe into each other and
+into ordinary Unix tools. Every verb is documented at
+[prabal-rje.github.io/smartpipe][docs].
+
+**Semantic verbs** call a model:
 
 | Verb | What it does | Feels like |
 |---|---|---|
-| `map` | transform each item - text or media - with a prompt | `sed`, but it understands |
-| `extend` | add extracted fields; everything else survives | your record, plus columns |
-| `filter` | keep items matching a plain-English condition | `grep`, but semantic |
-| `embed` / `top_k` | vectors; rank by similarity | `sort \| head`, by meaning |
-| `reduce` | synthesize many items into one | `awk` END, but literate |
-| `join` | match two inputs (`--kind inner\|leftouter\|anti`) | SQL join, but semantic |
-| `cluster` | group by meaning, label each group | themes with sizes and quotes |
-| `distinct` | fold near-duplicates | `sort -u`, by meaning |
-| `diff` | what distinguishes two sets | the post-incident answer |
-| `outliers` | the items least like the rest | novelty, surfaced |
+| [`map`][map] | transform each item — text or media — with a prompt | `sed`, but it understands |
+| [`extend`][extend] | add extracted fields; keep everything else | your record, plus columns |
+| [`filter`][filter] | keep items matching a plain-English condition | `grep`, but semantic |
+| [`embed`][embed] / [`top_k`][top_k] | vectors; rank by similarity | `sort \| head`, by meaning |
+| [`reduce`][reduce] | synthesize many items into one | `awk` END, but literate |
+| [`join`][join] | match two inputs (`--kind inner\|leftouter\|anti`) | SQL join, but semantic |
+| [`cluster`][cluster] | group by meaning, label each group | themes with sizes and quotes |
+| [`distinct`][distinct] | fold near-duplicates | `sort -u`, by meaning |
+| [`diff`][diff] | what distinguishes two sets | the post-incident answer |
+| [`outliers`][outliers] | the items least like the rest | novelty, surfaced |
 
-**Free utilities** (never call a model): `where` (KQL-style predicates),
-`summarize` (count/avg/percentiles, time buckets), `sort`, `sample` (seeded),
-`getschema`, `split`, `chart` (terminal bars, SVG, facets, time series).
-Put them first - they cut the corpus before anything paid runs.
+**Free verbs** never call a model. Run them first to cut the corpus before any
+paid stage:
 
-## Sixty seconds
+| Verb | What it does | Feels like |
+|---|---|---|
+| [`where`][where] | filter on exact field predicates | SQL `WHERE` |
+| [`summarize`][summarize] | count, average, percentiles, time buckets | SQL `GROUP BY` |
+| [`sort`][sort] | order items by a field | `sort` |
+| [`sample`][sample] | take a seeded random subset | `shuf` |
+| [`getschema`][getschema] | list fields, types, and coverage | `head`, for structure |
+| [`split`][split] | break items into pieces (pages, minutes) | `split` |
+| [`chart`][cli] | terminal bars, SVG, facets, time series | quick plots |
 
-```console
-# 1. Point smartpipe at a model (local & free via Ollama, or cloud):
-$ smartpipe config
+## A one-minute tour
 
-# 2. Ask a question across a folder of mixed documents:
-$ smartpipe map "What does this say about pricing?" --in 'docs/*.pdf'
+```bash
+# 1. point smartpipe at a model (ChatGPT login, a cloud key, or local Ollama)
+smartpipe config
 
-# 3. Typed extraction - braces carry names, types, AND guidance:
-$ cat tickets.jsonl \
-    | smartpipe extend "Add {label enum(bug, feature, praise), urgency number: 0 to 1}"
+# 2. ask one question across a folder of mixed documents
+smartpipe map "What does this say about pricing?" --in 'docs/*.pdf'
 
-# 4. The analyst's Monday, one line:
-# group by meaning, label each theme; chart it for the deck
-$ cat feedback.txt \
-    | smartpipe cluster --top 8 \
-    | smartpipe chart cluster --save themes.svg
+# 3. typed extraction — braces carry names, types, and guidance
+cat tickets.jsonl \
+| smartpipe extend "Add {label enum(bug, feature, praise), urgency number: 0 to 1}"
 
-# 5. Free gates before paid judges - and watch the live token/media counts:
-# where cuts for free; the model judges only what remains
-$ cat app.log \
-    | smartpipe where 'text has "ERROR"' \
-    | smartpipe filter "an actual outage"
+# 4. group feedback by meaning, label each theme, chart it
+cat feedback.txt \
+| smartpipe cluster --top 8 \
+| smartpipe chart cluster --save themes.svg
 
-# 6. Save the whole pipeline as a file; it becomes a command:
-$ smartpipe run triage.sem --dry-run     # the stage graph + cost posture, zero calls
+# 5. cut for free with `where`, then let the model judge only what is left
+cat app.log \
+| smartpipe where 'text has "ERROR"' \
+| smartpipe filter "an actual outage"
+
+# 6. save a whole pipeline as a file; it runs as a command
+smartpipe run triage.sem --dry-run   # prints the stage graph and cost, makes zero calls
 ```
 
-New to any of this? The [ten-minute quickstart](docs/quickstart.md) assumes
-nothing - including that you know what a "model" is.
+New to this? The [ten-minute quickstart][quickstart] assumes nothing, including
+what a "model" is.
 
-## Honest about where your data goes, and what it costs
+## Where your data goes
 
-Some of smartpipe runs locally regardless of chat model choice: local embeddings
-(fastembed) and local transcription (whisper) ship built in.
+Some steps run locally no matter which chat model you pick: embeddings
+(`fastembed`) and transcription (`whisper`) are built in.
 
-For chat, [Ollama](https://ollama.com) gives you a local path when it runs on your
-machine. If you choose a cloud model, that provider sees the data for that run.
-Examples: `gpt-5.4-mini`, `claude-opus-4-8`, `gemini-3.1-flash-lite`,
-`mistral-large-latest`, and `openrouter/...`.
+For chat, [Ollama][ollama] runs models on your machine. Any cloud model sends
+that run's data to its provider — `gpt-5.4-mini`, `claude-opus-4-8`,
+`gemini-3.1-flash-lite`, `mistral-large-latest`, `openrouter/…`.
 
-API keys come from environment variables and are never stored. ChatGPT subscribers
-can use `smartpipe auth login` instead.
+API keys come from environment variables and are never stored. ChatGPT
+subscribers can run `smartpipe auth login` instead. `smartpipe usage` keeps
+local run and token totals; see [Privacy & security][privacy] for the details.
 
-Paid media conversions require `allow-captions`. Runs show live token/media counts
-and end with a receipt. `smartpipe usage` keeps local hour/day/week/month/lifetime
-totals, and the opt-in result cache makes repeated calls free.
+## Unix behavior
 
-## It behaves like a real Unix tool
-
-- **stdout is data, stderr is chatter.** Progress and receipts never contaminate your pipe.
-- **TTY-aware.** Human-readable at the terminal, NDJSON when piped - automatically.
+- **`stdout` is data, `stderr` is diagnostics.** Progress and receipts never
+  touch your pipe.
+- **Adapts to where it runs.** Readable tables at a terminal; `JSONL` when piped
+  into another command.
 - **Order-preserving.** Output order matches input order, even with parallel calls.
 - **Failure-tolerant.** One bad item is a warning, not a crash.
-- **Reproducible.** Temperature 0 everywhere, seeded sampling, deterministic clustering.
 
 ## Learn more
 
-Full docs in [`docs/`](docs/index.md) (or as a site - `uv run --group docs mkdocs serve`):
+Full docs: **[prabal-rje.github.io/smartpipe][docs]**.
 
-- [Quickstart](docs/quickstart.md) - zero to first result, gently
-- [Install](docs/install.md) - package and platform notes
-- [Working with files & media](docs/inputs/files.md) - PDFs, scans, images, audio, video
-- [The verbs](docs/reference/cli.md) - `map`, `extend`, `filter`, `cluster`,
-  `distinct`, `diff`, `where`, and the rest
-- [Training-data prep](docs/cookbook/training-data-prep.md) - the curator's loop
-  with receipts
-- [Custom verbs](docs/reference/custom-verbs.md), [`.sem` pipelines](docs/reference/sem-files.md),
-  [Troubleshooting](docs/troubleshooting.md), and [Privacy](docs/privacy.md)
+- [Quickstart][quickstart] — zero to first result
+- [Install][install] — packages and platforms
+- [Working with files & media][files] — PDFs, scans, images, audio, video
+- [CLI reference][cli] — every flag, format, and exit code
+- [Models & providers][models] — local Ollama, cloud keys, ChatGPT login
+- [Privacy & security][privacy]
 
 ## How to cite
 
@@ -148,3 +171,29 @@ GitHub's "Cite this repository" button (from [CITATION.cff](CITATION.cff)) gives
 Built in the open, under **Apache-2.0**. Contributor setup and the quality
 gates are in [CONTRIBUTING.md](CONTRIBUTING.md); the manual release pass
 lives in [`qa/`](qa/README.md). The CLI surface is a SemVer contract.
+
+[docs]: https://prabal-rje.github.io/smartpipe/
+[quickstart]: https://prabal-rje.github.io/smartpipe/quickstart/
+[install]: https://prabal-rje.github.io/smartpipe/install/
+[files]: https://prabal-rje.github.io/smartpipe/inputs/files/
+[cli]: https://prabal-rje.github.io/smartpipe/reference/cli/
+[models]: https://prabal-rje.github.io/smartpipe/concepts/models-and-providers/
+[privacy]: https://prabal-rje.github.io/smartpipe/privacy/
+[ollama]: https://ollama.com
+[map]: https://prabal-rje.github.io/smartpipe/verbs/map/
+[extend]: https://prabal-rje.github.io/smartpipe/verbs/extend/
+[filter]: https://prabal-rje.github.io/smartpipe/verbs/filter/
+[embed]: https://prabal-rje.github.io/smartpipe/verbs/embed/
+[top_k]: https://prabal-rje.github.io/smartpipe/verbs/top-k/
+[reduce]: https://prabal-rje.github.io/smartpipe/verbs/reduce/
+[join]: https://prabal-rje.github.io/smartpipe/verbs/join/
+[cluster]: https://prabal-rje.github.io/smartpipe/verbs/cluster/
+[distinct]: https://prabal-rje.github.io/smartpipe/verbs/distinct/
+[diff]: https://prabal-rje.github.io/smartpipe/verbs/diff/
+[outliers]: https://prabal-rje.github.io/smartpipe/verbs/outliers/
+[where]: https://prabal-rje.github.io/smartpipe/verbs/where/
+[summarize]: https://prabal-rje.github.io/smartpipe/verbs/summarize/
+[sort]: https://prabal-rje.github.io/smartpipe/verbs/sort/
+[sample]: https://prabal-rje.github.io/smartpipe/verbs/sample/
+[getschema]: https://prabal-rje.github.io/smartpipe/verbs/getschema/
+[split]: https://prabal-rje.github.io/smartpipe/verbs/split/

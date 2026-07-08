@@ -1,6 +1,6 @@
 # Log triage
 
-**Goal:** cut through a noisy log to the entries that actually matter, then summarize
+**Goal:** reduce a noisy log to the entries that matter, then summarize
 them - using meaning, not just string matching.
 
 ## Find the real problems

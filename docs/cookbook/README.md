@@ -2,7 +2,7 @@
 
 Real pipelines, copy-pasteable. Each recipe is a small composition of smartpipe verbs
 with the Unix tools you already use (or don't yet - the
-[five-line toolbox intro](../concepts/pipes-and-items.md#the-unix-toolbox-in-five-lines) has your back).
+[five-line toolbox intro](../concepts/pipes-and-items.md#the-unix-toolbox-in-five-lines) covers them).
 
 | Recipe | What it does |
 |---|---|
@@ -16,7 +16,7 @@ with the Unix tools you already use (or don't yet - the
 
 ## The shape of every recipe
 
-smartpipe verbs are filters - they read stdin (or files), write stdout, and compose:
+smartpipe verbs are filters - they read `stdin` (or files), write `stdout`, and compose:
 
 ```console
 $ cat data \
@@ -25,7 +25,7 @@ $ cat data \
     | jq ... > out.csv
 ```
 
-Because structured output is NDJSON, everything downstream of a `map` speaks `jq`,
+Because structured output is JSONL, everything downstream of a `map` speaks `jq`,
 `csv`, spreadsheets, or another `smartpipe` verb. Because plain output is just text,
 everything upstream can be `grep`, `head`, `find`, or `git`.
 

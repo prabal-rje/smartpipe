@@ -9,6 +9,7 @@ from smartpipe.engine.prompts import (
     plan_map,
     to_instruction,
 )
+from smartpipe.engine.schema import BARE_PROPERTY
 from smartpipe.models.base import CompletionRequest
 
 # --- instruction rendering ----------------------------------------------------
@@ -36,7 +37,10 @@ def test_shorthand_plans_structured_with_synthesized_schema() -> None:
     assert plan.mode == "structured"
     assert plan.schema == {
         "type": "object",
-        "properties": {"vendor": {}, "total": {}},
+        "properties": {
+            "vendor": dict(BARE_PROPERTY),
+            "total": dict(BARE_PROPERTY),
+        },
         "required": ["vendor", "total"],
         "additionalProperties": False,
     }

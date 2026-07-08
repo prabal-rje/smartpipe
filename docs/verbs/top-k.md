@@ -52,7 +52,7 @@ $ cat corpus.embeddings \
     | smartpipe top_k 5 --near "second question"
 ```
 
-The `vector` field is plumbing, so `top_k` drops it from the output and keeps the
+The `vector` field is an internal field, so `top_k` drops it from the output and keeps the
 rest of the record plus `_score`.
 
 ## Streaming: `--stream` (the live leaderboard)
@@ -65,11 +65,11 @@ $ tail -f tickets.jsonl \
 ```
 
 At a terminal the K-line board repaints in place as better matches arrive. In a
-pipe, every membership/order change emits an NDJSON **snapshot**: a
+pipe, every membership/order change emits a JSONL **snapshot**: a
 `{"_snapshot": N}` marker line, then the K records in rank order, each with
 `_score` and `_rank` - split on the markers to consume programmatically; no
-change means no output. `--stream` needs `K`, reads stdin only, and skips (rather
-than dies on) a record whose embedding dimensions don't match the query.
+change means no output. `--stream` needs `K`, reads `stdin` only, and skips (rather
+than fails on) a record whose embedding dimensions don't match the query.
 
 ## Options
 
@@ -90,14 +90,14 @@ than dies on) a record whose embedding dimensions don't match the query.
 Items that need embedding are sent in chunks of up to 64 texts per call
 (precomputed `vector` fields from `smartpipe embed` records are reused, never
 re-embedded). A failed chunk is retried item by item, so one bad item skips
-alone. `--stream` stays one item per call - a live leaderboard wants latency.
+alone. `--stream` stays one item per call - streaming processes one item at a time to keep latency low.
 
 
 ## Gotchas
 
 - **Use one embedding model for a corpus and its queries.** If the corpus was
   embedded with a different model than the query, the vector dimensions won't
-  match and `top_k` stops with a clear message. (Same-dimension but different
+  match and `top_k` stops with an error explaining the dimension mismatch. (Same-dimension but different
   models can't be detected - keep them consistent.)
 - **`top_k` buffers everything.** Unlike `map`/`filter`, it must see every item to
   rank, so it isn't a streaming operation.

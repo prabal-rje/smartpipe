@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.core.errors import ExitCode, ItemError, SetupFault
+from smartpipe.engine.schema import BARE_PROPERTY
 from smartpipe.io.writers import (
     OutputFormat,
     RenderMode,
@@ -133,7 +134,7 @@ async def test_structured_request_carries_schema() -> None:
     _code, _out, model = await _run("Extract {v}", "x\n", ['{"v": "y"}'])
     assert model.calls[0].json_schema == {
         "type": "object",
-        "properties": {"v": {}},
+        "properties": {"v": dict(BARE_PROPERTY)},
         "required": ["v"],
         "additionalProperties": False,
     }

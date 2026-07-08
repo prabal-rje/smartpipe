@@ -8,7 +8,7 @@
 $ smartpipe map "Extract {party_a, party_b, effective_date, total_value, governing_law}" --in 'contracts/*.pdf' --output csv > contracts.csv
 ```
 
-That's the whole thing. Each PDF becomes one item; smartpipe parses it to text
+Each PDF becomes one item; smartpipe parses it to text
 automatically, extracts the five fields, and writes
 a CSV you can open in Excel.
 
@@ -20,8 +20,8 @@ Initech,Umbrella Inc,2025-06-15,89000,California
 
 ## Enforce the shape for production
 
-Inline braces are great for exploration. For a pipeline you run every week, pin a
-[JSON Schema](../concepts/structured-output.md) so types are guaranteed and stray
+Inline braces are convenient for exploration. For a pipeline you run every week, pin a
+[JSON Schema](../concepts/structured-output.md) so types are enforced and stray
 fields are dropped:
 
 ```json
@@ -45,7 +45,7 @@ $ smartpipe map "Extract the contract details" --in 'contracts/*.pdf' --schema c
 ```
 
 Now `total_value` is a real number, and a document that doesn't parse cleanly is
-retried once, then skipped with a warning - the batch never dies on one bad file.
+retried once, then skipped with a warning - so a single bad file doesn't stop the batch.
 
 ## Narrow to the contracts you care about first
 

@@ -18,14 +18,14 @@ The seed defaults to `0`, so the same input gives the **same sample with no
 flags**. That's the property the iteration loop needs: tweak the prompt, run
 against the same 20 rows, and the comparison compares prompts, not samples.
 It's also what makes a sample *citable* - a training report or methods
-section can say "seed 0" and anyone can reproduce it. `--seed K` picks a
-different (still reproducible) sample; there is deliberately no
+section can say "seed 0" and rerunning with that seed on the same input
+selects the same rows. `--seed K` picks a different sample; there is no
 random-each-run mode.
 
 ## sample vs --max-calls
 
-`--max-calls` truncates the head of the stream - a belt against runaway
-spend, but heads are never representative (sorted exports, time-ordered
+`--max-calls` truncates the head of the stream - a cap on runaway
+spend, but a head isn't representative when the input is ordered (sorted exports, time-ordered
 logs). `sample` is the representative gate; use both:
 
 ```console

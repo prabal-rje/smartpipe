@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 __all__ = [
+    "BARE_PROPERTY",
     "is_strict_compatible",
     "load_schema",
     "parse_schema_draft",
@@ -30,20 +31,35 @@ __all__ = [
 _FENCE = re.compile(r"^```[A-Za-z0-9]*\n?|\n?```$")
 
 
+_SCALARS: tuple[str, ...] = ("string", "number", "integer", "boolean")
+# D48: what a BARE braces field admits - any scalar, or a list of scalars
+# (--explode workflows need lists); never null, never objects, never nesting
+BARE_PROPERTY: dict[str, object] = {
+    "type": [*_SCALARS, "array"],
+    "items": {"type": list(_SCALARS)},
+}
+
+
 def shorthand_to_schema(
     fields: Sequence[str],
     *,
     descriptions: Mapping[str, str] | None = None,
     types: Mapping[str, Mapping[str, object]] | None = None,
+    nullable: frozenset[str] = frozenset(),
 ) -> dict[str, object]:
     """Turn ``{vendor, total}`` fields into a strict JSON Schema. Inline types
-    (D37) and rung-2 descriptions (D22) ride each property; a fully-typed group
-    regains strict mode (every property carries a type)."""
+    (D37) and rung-2 descriptions (D22) ride each property. Bare fields mean
+    "any scalar" — never null, never nested (D48): the model picks string vs
+    number sensibly, but absence must be declared with ``?``."""
     notes = descriptions or {}
     typed = types or {}
 
     def _property(field: str) -> dict[str, object]:
         prop: dict[str, object] = dict(typed.get(field, {}))
+        if not prop:
+            prop = dict(BARE_PROPERTY)
+            if field in nullable:
+                prop["type"] = [*_SCALARS, "array", "null"]
         if field in notes:
             prop["description"] = notes[field]
         return prop

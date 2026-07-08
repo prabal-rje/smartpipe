@@ -1,6 +1,6 @@
 # `join` - match two inputs, semantically
 
-Merge stdin against a second input wherever a plain-English predicate holds.
+Merge `stdin` against a second input wherever a plain-English predicate holds.
 The SQL join's semantic cousin: no keys, no exact equality - meaning.
 
 ```console
@@ -21,7 +21,7 @@ a million calls. smartpipe does **embed → block → judge**:
    yes/no verdict prompt.
 
 Cost is `lines × k`, never `lines × right-size`. Before the first judge call,
-smartpipe tells you the worst case on stderr (when it exceeds a couple hundred):
+smartpipe tells you the worst case on `stderr` (when it exceeds a couple hundred):
 
 ```
 join: 1,204 left items · up to 5 candidates each = at most 6,020 model calls (cap with --max-calls)
@@ -42,7 +42,7 @@ Braces name a side's field - every brace must pick a side:
 
 | Option | Meaning |
 |---|---|
-| `--right FILE` | The finite side to index (JSONL or plain lines). Required; never stdin |
+| `--right FILE` | The finite side to index (JSONL or plain lines). Required; never `stdin` |
 | `--k N` | Candidates judged per left item (default 5 - **the recall knob**, see below) |
 | `--threshold FLOAT` | Similarity floor (0–1) a candidate must clear before judging |
 | `--model TEXT` | Chat model for the judge calls |
@@ -94,7 +94,7 @@ in the right file matches tickets without any judge call ever seeing 300 pages.
 
 `--unmatched FILE` writes every left item that matched nothing, verbatim, one
 line each - your worklist for a looser second pass (bigger `--k`, softer
-predicate, or a human). A final stderr note reports the split:
+predicate, or a human). A final `stderr` note reports the split:
 `join: 34 matched · 7 unmatched → leftovers.txt`.
 
 ## Streaming
@@ -130,9 +130,9 @@ $ … --kind leftouter \
 {"left": {...}, "right": null}                       ← every left row, match or not
 ```
 
-`anti` is reconciliation's native shape - "orders with no invoice" IS the
-deliverable, emitted passthrough so it pipes onward (into `cluster`, a CSV,
-a ticket). `leftouter` keeps every left row with `"right": null` where
+`anti` emits the unmatched left rows directly - "orders with no invoice" - as
+passthrough so they pipe onward (into `cluster`, a CSV, a ticket). `leftouter`
+keeps every left row with `"right": null` where
 nothing matched. The summary line works for every kind.
 
 

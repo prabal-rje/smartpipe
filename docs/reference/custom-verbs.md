@@ -40,10 +40,10 @@ The contract:
 
 - The entry point resolves to a **`click.Command`** - that's the whole
   interface.
-- **stdout is sacred**: results only; diagnostics to stderr.
+- **stdout is sacred**: results only; diagnostics to `stderr`.
 - Exit codes follow smartpipe's table (0 ok, 64 usage, …).
 - Never name a built-in - built-ins win, silently.
 - A plugin that fails to import (or isn't a Command) is **warned and
-  skipped**: your bug never takes down the CLI.
+  skipped**: a broken plugin is isolated; the other verbs still load.
 
 Discovery is lazy: built-in invocations never pay for plugin scanning.

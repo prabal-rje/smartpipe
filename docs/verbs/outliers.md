@@ -13,15 +13,15 @@ outliers: median neighbor distance 0.21 - these are 3.1x-3.9x out
 
 Embeddings only - no chat calls. The score is each item's mean cosine
 distance to its nearest neighbors (robust when the corpus has several normal
-clusters); the stderr line anchors it against the corpus median so the
-number means something.
+clusters); the `stderr` line anchors it against the corpus median so the
+distance has context.
 
-Output records mirror `top_k`'s shape (`_distance` where top_k has
+Output records mirror `top_k`'s shape (`_distance` where `top_k` has
 `_score`; original fields survive for JSON rows, `{"text": …}` for plain
-lines) - learning one verb teaches the other.
+lines).
 
 Small print: needs at least 3 items; rows that fail to embed are excluded
-with a warning (an unexamined item can't be scored).
+with a warning (items that fail to embed can't be scored).
 
 Typical loops: `smartpipe where 'level has "error"' | smartpipe outliers 5`
 (triage novel failures), `smartpipe outliers 20 < train.jsonl` (hunt label

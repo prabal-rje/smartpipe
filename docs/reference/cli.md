@@ -1,7 +1,7 @@
 # CLI reference
 
 The complete surface, in one page. As of 1.0 this is a contract governed by
-[SemVer](https://semver.org) - flags, formats, and exit codes won't change under you
+[SemVer](https://semver.org) - flags, formats, and exit codes won't change
 within a major version.
 
 ## Synopsis
@@ -10,10 +10,10 @@ within a major version.
 smartpipe <verb> [PROMPT] [OPTIONS]
 ```
 
-Input comes from stdin (each line an item - or ONE redirected binary document),
+Input comes from `stdin` (each line an item - or ONE redirected binary document),
 from files (`--in` / `--from-files`, each file an item), or both (`--in` files
-first, then the piped lines). Results go to **stdout**; progress and warnings go
-to **stderr**.
+first, then the piped lines). Results go to `stdout`; progress and warnings go
+to `stderr`.
 
 ## Verbs
 
@@ -21,7 +21,7 @@ to **stderr**.
 |---|---|---|
 | [`map`](../verbs/map.md) | transform each item with a prompt | one item in, one out |
 | [`filter`](../verbs/filter.md) | keep items matching a condition | semantic grep |
-| [`embed`](../verbs/embed.md) | items → vectors (NDJSON) | plumbing for `top_k` |
+| [`embed`](../verbs/embed.md) | items → vectors (JSONL) | plumbing for `top_k` |
 | [`top_k`](../verbs/top-k.md) | rank by similarity to a query | `sort \| head`, by meaning |
 | [`reduce`](../verbs/reduce.md) | synthesize many items into one | recursive, automatic |
 | [`join`](../verbs/join.md) | match stdin against a second input | embed-block-judge |
@@ -31,7 +31,7 @@ to **stderr**.
 | [`cluster`](../verbs/cluster.md) | group items by meaning; label each group | embeddings + 1 call per cluster |
 | [`diff`](../verbs/diff.md) | themes that distinguish stdin from --right FILE | embeddings + labels |
 | [`where`](../verbs/where.md) | keep rows matching a deterministic predicate | free - no model calls |
-| [`summarize`](../verbs/summarize.md) | count/avg/percentiles by field (KQL grammar) | free - no model calls |
+| [`summarize`](../verbs/summarize.md) | count/avg/percentiles by field | free - no model calls |
 | [`sample`](../verbs/sample.md) | keep N random rows, seeded + reproducible | free - no model calls |
 | [`getschema`](../verbs/getschema.md) | report the stream's fields, types, coverage | free - no model calls |
 | [`sort`](../verbs/sort.md) | order records by a field | free - no model calls |
@@ -53,7 +53,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `--embed-model TEXT` | Embedding model (`embed`, `top_k`). |
 | `--concurrency N` | Max parallel model calls (default 4). |
 | `--in GLOB` | Read each matching file as one item (repeatable). |
-| `--from-files` | Treat each stdin line as a filename. |
+| `--from-files` | Treat each `stdin` line as a filename. |
 | `--fields A,B` | Select + order columns of structured output (`map`, `embed`, `top_k`, `reduce` - never `filter`). |
 | `--allow-captions` | Let a CLOUD model convert images/audio/video to text for embedding/text verbs (paid; local models convert free; the `openai`/`gemini` profiles set this by default). |
 | `@file` / `--prompt-file FILE` | Read the prompt from a file (`map`, `filter`, `reduce`, `join`). Missing file = loud exit 64; `@@` escapes a literal leading `@`. |
@@ -142,7 +142,7 @@ Unknown keys in the file are errors (scripts run unattended). Full format:
 
 `--output` (or `SMARTPIPE_OUTPUT`): `auto` (default), `text`, `json`, `csv`, `tsv`.
 See [Output formats](../concepts/output-formats.md). `auto` shows a readable view at a
-terminal and NDJSON when piped; `csv`/`tsv` need structured (named-field) output.
+terminal and JSONL when piped; `csv`/`tsv` need structured (named-field) output.
 `--fields a,b` projects structured output to just those columns, in that order,
 identically in every format.
 
@@ -190,7 +190,7 @@ For per-item verbs (`map`, `filter`, `embed`), the **first Ctrl-C** stops new wo
 lets in-flight work finish for up to 10 seconds. Finished results are emitted in
 order.
 
-The command then prints `done: interrupted - N processed · M skipped` on stderr and
+The command then prints `done: interrupted - N processed · M skipped` on `stderr` and
 exits with the run's normal outcome code (`0`/`1`/`3`). Scripts can still tell whether
 the partial output is trustworthy.
 

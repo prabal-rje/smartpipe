@@ -44,7 +44,7 @@ items. Two forms:
 ## Streaming
 
 `filter` streams by nature - pipe a live source in and matches flow out as lines
-arrive, with a running `· N matched` tally on the stderr status line:
+arrive, with a running `· N matched` tally on the `stderr` status line:
 
 ```console
 $ tail -f app.log \

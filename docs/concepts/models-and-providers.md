@@ -58,10 +58,10 @@ $ export GEMINI_API_KEY=...             # aistudio.google.com
 $ export OPENROUTER_API_KEY=sk-or-...   # openrouter.ai/keys
 ```
 
-The anthropic SDK ships with smartpipe - Claude models work out of the box.
+The `anthropic` SDK ships with smartpipe - Claude models work out of the box.
 (smartpipe tells you if it's missing.) Mistral needs nothing extra - chat,
 `mistral-embed` embeddings, and `pixtral-*` vision all ride the built-in adapter.
-Any *other* OpenAI-compatible endpoint - Groq, OpenRouter, a local llama.cpp
+Any *other* OpenAI-compatible endpoint - Groq, OpenRouter, a local `llama.cpp`
 server - works by pointing smartpipe at it:
 
 ```console
@@ -80,8 +80,11 @@ $ echo "hi" \
 
 What to know:
 
-- **Which models:** the ChatGPT wire serves the Codex-era family (`gpt-5.x`,
-  `gpt-*-codex`). Older platform models like `gpt-5.4-mini` still need an API key.
+- **Which models:** the ChatGPT login serves the Codex-era family (`gpt-5.x`,
+  `gpt-*-codex`). The low-cost platform tiers — `gpt-5.4-mini` and `gpt-5.4-nano` —
+  are rejected on this wire (`"not supported ... with a ChatGPT account"`) and
+  need an API key. For cheap, high-volume runs, set `OPENAI_API_KEY` and use
+  `gpt-5.4-nano`, the low-cost OpenAI tier.
 - **Precedence:** an exported `OPENAI_API_KEY` always wins over a login - a key is
   an explicit, billable choice. Unset it to use your plan.
 - **No embeddings:** `embed`/`top_k` need an API key or a local model.
@@ -90,7 +93,7 @@ What to know:
   never stored - this file holds only login tokens.)
 - **Why no login for Anthropic/Mistral:** they don't offer one to third-party
   tools. OpenAI's login uses the same public OAuth client the Codex CLI and other
-  open-source tools use, and smartpipe identifies itself honestly (`originator:
+  open-source tools use, and smartpipe identifies itself (`originator:
   smartpipe`).
 
 ## Forcing a path (D24)
@@ -146,7 +149,7 @@ The cloud presets are **multimodal by default**: they set
 `allow-captions = true`, so images and audio convert to text through the
 profile's own model when a run needs it (fractions of a cent each, every
 conversion disclosed per row). Picking the profile is the consent; the wizard
-says so out loud. Bare no-profile setups keep the conservative `--allow-captions`
+states this. Bare no-profile setups keep the conservative `--allow-captions`
 opt-in.
 
 Create your own as a `[profiles.NAME]` table in the config file (keys: model,
@@ -176,8 +179,7 @@ When the same setting is specified more than one way, the most specific wins:
 --model flag  >  SMARTPIPE_MODEL env var  >  config file  >  Ollama autodetect
 ```
 
-`smartpipe config show` prints each value with its origin, so precedence is never a
-mystery.
+`smartpipe config show` prints each value with its origin, so you can see which value takes effect.
 
 ## Two models: chat and embedding
 
@@ -199,19 +201,19 @@ $ smartpipe config embed-model nomic-embed-text
 `smartpipe config stt-model openai/whisper-1` names a dedicated remote
 transcriber. When set, it runs FIRST in the audio ladder (a configured
 transcriber signals wanting verbatim text - LLM hearing paraphrases),
-falling back to the LLM rung and local whisper on failure. It is a paid
+falling back to the LLM rung and local `whisper` on failure. It is a paid
 cloud conversion, so the `allow-captions` consent gates it like every other
 one. Unset, smartpipe picks the sensible strategy automatically:
 
 | Your situation | Transcription |
 |---|---|
 | OpenAI **API key** | `whisper-1` via the API (it supports it) |
-| OpenAI **ChatGPT login** only | local whisper (the login wire has no STT) |
+| OpenAI **ChatGPT login** only | local whisper (the login wire has no speech-to-text (STT)) |
 | Gemini | the model hears audio natively |
 | Ollama | local whisper (no STT endpoint) |
 
 `SMARTPIPE_STT_MODEL` / `stt-model` override the matrix per run or per
-account. Only the openai wire exists today; the key accepts
+account. Only the `openai` wire exists today; the key accepts
 `provider/model` so more can land behind the same seam.
 
 

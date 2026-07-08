@@ -1,7 +1,6 @@
 # getschema - what's in this stream
 
-Everyone's first 30 seconds with a new file: which fields, what types, how
-complete. **Free - never calls a model.** The KQL name, kept on purpose.
+getschema reports which fields a stream has, their types, and how complete each is: **Free - never calls a model.**
 
 ```console
 $ cat data.jsonl \
@@ -13,11 +12,10 @@ tags       array           33%       ["a"]
 try: smartpipe chart id · smartpipe where 'id …'
 ```
 
-A table on a terminal, NDJSON records when piped. Mixed types show as
-unions (`integer|string`) - that's exactly the dirt worth seeing before a
+A table on a terminal, JSONL records when piped. Mixed types show as
+unions (`integer|string`) - that's the kind of inconsistency worth catching before a
 pipeline runs. Coverage counts non-null presence. Scans the first 10,000
-rows by default (a note says so); `--all` scans everything - state is
-per-field, so memory stays flat.
+rows by default (a note says so); `--all` scans everything without loading it all into memory.
 
 Plain-text input gets a one-line answer instead of an error:
 `plain text lines (no fields) - 4,112 lines · median 84 chars`.

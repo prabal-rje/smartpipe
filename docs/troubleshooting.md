@@ -7,8 +7,7 @@
 > four tiny paid calls, announced first.
 
 Symptom-indexed. Find your error message; each entry says what it means and the fix.
-Every one of these is also a friendly screen smartpipe prints on stderr - you shouldn't
-have to come here, but here's the reference.
+Each of these also prints as a screen on `stderr` when the error occurs; this page collects them for reference.
 
 ## "no model configured" (exit 2)
 
@@ -116,7 +115,7 @@ wrong. Raise the ceiling or narrow the input.
 ## "this model can't hear audio - …" (exit 3 on the skip path)
 
 You sent audio items to a model with no audio input. Two fixes, straight from
-the message: use a model that hears (`voxtral-*`, gemini models,
+the message: use a model that hears (`voxtral-*`, `gemini` models,
 `voxtral-*`) - otherwise smartpipe transcribes locally, so text verbs (and `map`, as a
 fallback) transcribe it locally with Whisper (`SMARTPIPE_WHISPER_MODEL` picks
 the size; tiny is the default). Details:
@@ -154,12 +153,12 @@ exit `3`.
 ## The output looks different when I pipe it
 
 Also by design. At a terminal, structured results show a readable view; piped, they
-become NDJSON. Force one with `--output json` (or `text`, `csv`, `tsv`). See
+become `jsonl` (one JSON object per line). Force one with `--output json` (or `text`, `csv`, `tsv`). See
 [output formats](concepts/output-formats.md).
 
 ## Why is there no ETA / percentage when I pipe input in?
 
-Piped stdin is a stream - smartpipe processes lines as they arrive and can't know how
+Piped `stdin` is a stream - smartpipe processes lines as they arrive and can't know how
 many are coming, so the progress line shows a count and rate instead. `--in` file
 mode knows its total and keeps the ETA.
 
@@ -179,14 +178,14 @@ side of a `| head` as expected.
 ## What does Ctrl-C do mid-run?
 
 For `map`/`filter`/`embed`: the first Ctrl-C stops new work, finishes what's in flight
-(≤10 s), writes those results, prints a `done: interrupted - …` summary to stderr, and
+(≤10 s), writes those results, prints a `done: interrupted - …` summary to `stderr`, and
 exits with the normal outcome code. Press Ctrl-C twice to bail immediately (exit 130).
 `reduce`/`top_k` exit immediately - they have no partial result to save.
 
 ## "stdin looks like binary data smartpipe can't parse" (exit 2)
 
 You redirected something smartpipe doesn't recognize (a zip? an executable?). On
-stdin it accepts text lines or a single PDF/DOCX/PPTX/XLSX/audio/image document.
+`stdin` it accepts text lines or a single PDF/DOCX/PPTX/XLSX/audio/image document.
 For files on disk, `--in 'file.ext'` is the general route.
 
 ## "model can't read images" - my image was skipped

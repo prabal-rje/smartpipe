@@ -15,7 +15,7 @@ reviewed intentionally.
 
 ## Runtime use
 
-smartpipe is an LLM client. It sends input only to the model endpoint selected
+smartpipe is an LLM client. It sends input to the model endpoint selected
 by the user: local providers such as Ollama when configured, or cloud
 providers when explicitly configured. The privacy documentation describes
 provider data flows and media handling in detail.

@@ -161,6 +161,17 @@ def to_gemini_schema(schema: Mapping[str, object]) -> dict[str, object]:
             continue
         if key == "type" and isinstance(value, str):
             translated["type"] = value.upper()
+        elif key == "type" and isinstance(value, list):
+            # D48: a null union becomes Gemini's nullable flag; a multi-type
+            # union has no dialect equivalent - drop it, the local validator
+            # (validate_and_coerce) remains the real guarantee either way
+            entries: list[object] = list(value)  # type: ignore[arg-type]
+            names = [entry for entry in entries if isinstance(entry, str)]
+            if "null" in names:
+                translated["nullable"] = True
+                names = [name for name in names if name != "null"]
+            if len(names) == 1:
+                translated["type"] = names[0].upper()
         elif key == "properties":
             record = as_record(value)
             if record is not None:

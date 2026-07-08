@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
+from smartpipe.engine.schema import BARE_PROPERTY
 from tests.conftest import RunCli
 
 if TYPE_CHECKING:
@@ -100,7 +101,7 @@ def test_optional_field_schema_completes_on_the_openai_wire(
         json.dumps(
             {
                 "type": "object",
-                "properties": {"a": {}, "b": {}},
+                "properties": {"a": dict(BARE_PROPERTY), "b": dict(BARE_PROPERTY)},
                 "required": ["a"],
                 "additionalProperties": False,
             }

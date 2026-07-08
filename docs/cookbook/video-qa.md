@@ -1,7 +1,6 @@
 # Video Q&A and scene digests
 
-Ask questions of video the way you'd ask them of text. On Gemini the model
-watches the file whole; everywhere else smartpipe samples frames + the
+Ask questions of video the way you'd ask them of text. On Gemini the model processes the whole file; everywhere else smartpipe samples frames + the
 soundtrack and sends what the model can take - disclosed per row either way.
 
 ## Ask one question of one clip
@@ -27,7 +26,7 @@ $ smartpipe map "Outline the sections with timestamps if visible" --in lecture.m
 
 One frame per 10 seconds, never more than 90 - the per-row note prints the
 frame count and the run receipt totals the megabytes, so the cost of a
-density choice is visible before it becomes a habit.
+density choice is visible up front.
 
 ## Segment first when clips are long
 
@@ -37,7 +36,7 @@ $ smartpipe split --by seconds:60 --in webinar.mp4 \
 ```
 
 `split` slices losslessly (keyframe-aligned); each segment stays real video,
-so the pieces ride the native wire on Gemini or sample independently
+so the pieces are sent as native video on Gemini or sampled independently
 elsewhere.
 
 ## Search a video library by meaning
@@ -47,6 +46,6 @@ $ smartpipe embed --in 'clips/*.mp4' > library.embeddings
 $ smartpipe top_k 5 --near "the demo where checkout fails" < library.embeddings
 ```
 
-Embedding uses the halves pivot (D36): each video's vector is the 50/50 mean
+Embedding blends both modalities: each video's vector is the 50/50 mean
 of its visual description and its speech transcript, so both what it shows
 and what it says are searchable.

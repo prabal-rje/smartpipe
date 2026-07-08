@@ -23,3 +23,6 @@ context/
 /plan/
 /TODO.md
 /idea.md
+
+# Local-only scratch folder — never tracked, never in the sdist
+/local/

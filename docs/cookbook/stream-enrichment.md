@@ -19,15 +19,15 @@ $ tail -f support-events.log \
     | jq -r 'select(.right.tier == "enterprise") | "\(.right.owner): \(.left.text)"'
 ```
 
-Every arriving line is embedded, blocked to its 3 nearest customers, and only
+Every arriving line is embedded, narrowed to its 3 nearest customers, and only
 those pairs are judged - then `jq` routes enterprise matches to their owner.
 First Ctrl-C drains in-flight judges and exits with the run's true outcome code.
 
 ## Cost control
 
-- The stderr preview tells you the per-line worst case up front
+- The `stderr` preview tells you the per-line worst case up front
   (`join: up to 3 model calls per input line`).
-- Belt it for long sessions: `--max-calls 500` stops intake at the cap and
+- For long sessions, add a cap: `--max-calls 500` stops intake at the cap and
   drains gracefully.
 - `--threshold 0.6` skips judging candidates that aren't even close.
 

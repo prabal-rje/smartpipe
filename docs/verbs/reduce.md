@@ -23,17 +23,16 @@ $ cat book.txt \
     | smartpipe reduce "List the main themes" --verbose
 ```
 
-## The headline feature: it just handles large inputs
+## Large inputs
 
-Most "summarize with an LLM" tools break the moment your input exceeds the model's
-context window. `reduce` doesn't. When the input is too big for one call, it:
+`reduce` handles inputs larger than the model's context window. When the input is too big for one call, it:
 
 1. splits the items into chunks that fit,
 2. summarizes each chunk into dense notes,
 3. and repeats on the notes - until everything fits in a final synthesis.
 
 There are **no flags to configure this** and no strategy to choose. It's automatic.
-Add `--verbose` to watch the tree on stderr:
+Add `--verbose` to watch the tree on `stderr`:
 
 ```
 reduce: 50,000 items → 41 chunks → 3 → 1
@@ -83,7 +82,7 @@ $ tail -f server.log \
 
 Each window's record carries `window_end` (the stream position); the final,
 incomplete window is flushed on Ctrl-C or EOF with `"partial": true` - buffered
-lines are never silently discarded. `--window` reads stdin only (not `--in`) and
+lines are flushed, not silently discarded. `--window` reads `stdin` only (not `--in`) and
 doesn't combine with `--group-by`.
 
 ## Options
@@ -94,7 +93,7 @@ doesn't combine with `--group-by`.
 | `--window N` | Stream mode: one reduce per N lines (tumbling) |
 | `--every M` | With `--window`: slide, reducing after every M lines |
 | `--schema FILE` | Validate the final result against a JSON Schema |
-| `--verbose` | Print the chunking tree on stderr |
+| `--verbose` | Print the chunking tree on `stderr` |
 | `--model TEXT` | Model for this run |
 | `--concurrency N` | Max parallel model calls |
 | `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md)) |
@@ -106,8 +105,8 @@ doesn't combine with `--group-by`.
   the exit code is `1` to signal the partial result. Only if *every* chunk fails do
   you get an empty result and exit `3`.
 - **Token estimates are deliberately conservative.** smartpipe errs toward smaller
-  chunks, which means an extra level of summarization now and then - never a
-  truncated call that silently loses your data.
+  chunks, which means an extra level of summarization now and then - rather than a
+  truncated call that could silently lose data.
 
 ## See also
 

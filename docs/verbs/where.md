@@ -12,8 +12,8 @@ $ cat orders.jsonl \
 
 ## The filter-early idiom
 
-`where` exists so the paid stages only see what matters - the same discipline
-KQL enforces ("cheapest predicate first"):
+`where` exists so the paid stages only see what matters - cheapest predicate
+first:
 
 ```console
 $ cat app.log \
@@ -22,14 +22,14 @@ $ cat app.log \
 ```
 
 On a 100k-line log, judging every line costs real money; `where` first cuts
-the corpus for free, often 50×. Rule of thumb: **`where` for facts, `filter`
+the corpus for free. Rule of thumb: **`where` for facts, `filter`
 for judgment.**
 
 ## The predicate language
 
 | Form | Meaning |
 |---|---|
-| `FIELD has "word"` | word-bounded match, case-insensitive (KQL semantics) |
+| `FIELD has "word"` | word-bounded match, case-insensitive |
 | `FIELD contains "text"` | substring, case-insensitive |
 | `FIELD matches /re/` | Python regex search, case-sensitive |
 | `FIELD == VALUE` / `!=` | numeric when both sides are numbers, else exact string |
@@ -40,10 +40,10 @@ for judgment.**
 input, `text` is the only field there is). Booleans compare by their JSON
 spelling: `pass == true`.
 
-## Honest silence
+## Missing fields
 
 Missing fields evaluate false - streams keep flowing - but the run ends with
-a disclosure so silence never lies:
+a disclosure noting which fields were missing:
 
 ```
 where: 2,114 of 104,882 matched

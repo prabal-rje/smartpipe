@@ -1,7 +1,7 @@
 # Training-data prep, end to end
 
-The loop a model trainer or dataset curator actually runs, with the receipts
-that go in the dataset card. Every stage streams NDJSON to the next.
+The loop a model trainer or dataset curator runs, with the receipts
+that go in the dataset card. Every stage streams JSONL to the next.
 
 ## 1. Know what you're holding
 
@@ -11,7 +11,7 @@ $ smartpipe getschema --all < raw.jsonl
 
 ## 2. Decontaminate
 
-Near-duplicates measurably hurt models; fold them first, and keep the
+Near-duplicates degrade training; fold them first, and keep the
 receipt for the card:
 
 ```console
@@ -29,9 +29,9 @@ $ smartpipe where 'lang == "en"' < deduped.jsonl \
     | smartpipe where 'quality >= 0.7 and refusal == false' > candidates.jsonl
 ```
 
-`where` costs nothing - put every deterministic gate before the paid judge.
+`where` runs locally with no model calls - put every deterministic gate before the paid judge.
 Use enum-typed extractions for anything you'll group later
-(`{label enum(code, prose, math)}`), or the groups fragment.
+(`{label enum(code, prose, math)}`), or the `groups` fragment.
 
 ## 4. Split reproducibly
 
@@ -40,7 +40,7 @@ $ smartpipe sample 5000 --seed 42 < candidates.jsonl > eval.jsonl
 sample: 5,000 of 402,118 (seed 42)
 ```
 
-Seeded by default - the split is citable and survives re-runs.
+Seeded by default, so the same seed over the same input reproduces the split and you can cite it.
 
 ## 5. Balance tables and drift checks
 
@@ -52,7 +52,7 @@ $ smartpipe diff --right v1-train.jsonl < candidates.jsonl     # drift BEFORE th
 
 ## Cost discipline for big runs
 
-- `sample 20` while iterating on prompts; `--max-calls` as the belt on
+- `sample 20` while iterating on prompts; `--max-calls` as a hard cap on
   every paid stage.
 - Turn on the cache (`smartpipe config cache on`): identical calls are free
   on re-run, which also makes an interrupted run resume cheaply.

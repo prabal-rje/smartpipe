@@ -1,11 +1,11 @@
 # Pipes & items
 
 smartpipe is built for the Unix pipe. Understanding what it treats as "one item" is
-the whole mental model - everything else follows.
+the whole mental model.
 
 ## What counts as one item?
 
-- **Reading from stdin (a pipe or redirect):** each **line** is one item.
+- **Reading from `stdin` (a pipe or redirect):** each **line** is one item.
 
   ```console
   $ cat server.log | smartpipe filter "database timeout"
@@ -27,25 +27,25 @@ the whole mental model - everything else follows.
 smartpipe looks at each line and notices whether it's a JSON object:
 
 - A plain line (`disk full on /var`) is just text.
-- A line that's a JSON object (`{"host": "web1", "level": "error"}`) is an
-  **NDJSON record** - smartpipe parses it so verbs can reference its fields with
+- A line that's a JSON object (`{"host": "web1", "level": "error"}`) is a
+  **JSONL record** - smartpipe parses it so verbs can reference its fields with
   `{braces}`.
 
 This is why `filter "{priority} is wrong"` needs JSON Lines input: it reads the
 `priority` field out of each record. Plain text has no fields to read.
 
-## NDJSON, in five lines
+## JSONL, in five lines
 
-**NDJSON** (newline-delimited JSON, also called JSON Lines) is just one JSON object
-per line:
+**JSONL** (JSON Lines, also called newline-delimited JSON or NDJSON) is just one
+JSON object per line:
 
 ```
 {"vendor": "Acme", "total": 1250}
 {"vendor": "Globex", "total": 990}
 ```
 
-It's the lingua franca of Unix data pipelines because every line is independently
-valid - you can `grep`, `head`, `split`, and stream it. smartpipe emits NDJSON when
+It's the common exchange format for Unix data pipelines because every line is independently
+valid - you can `grep`, `head`, `split`, and stream it. smartpipe emits JSONL when
 it produces structured output, so its results flow straight into `jq`:
 
 ```console
@@ -54,7 +54,7 @@ $ cat receipts.txt \
     | jq 'select(.total > 1000)'
 ```
 
-## Streams just work
+## Streams are read incrementally
 
 The per-item verbs (`map`, `filter`, `embed`) read stdin **incrementally**: each line
 is processed as it arrives, and results flow out as they complete. That means
@@ -69,11 +69,11 @@ an end-of-file that isn't coming. Two practical notes:
   which redefine "the whole set" as a window or a running board. See the
   [live monitoring cookbook](../cookbook/live-monitoring.md).
 
-## stdout is data, stderr is chatter
+## `stdout` is data, `stderr` is diagnostics
 
-One rule makes smartpipe safe in any pipeline: **only results go to stdout.**
+One rule makes smartpipe safe in any pipeline: **only results go to `stdout`.**
 Progress spinners, warnings about skipped items, and diagnostics all go to
-**stderr**. So this always sees clean data:
+`stderr`. So this always sees clean data:
 
 ```console
 $ cat notes.txt \
@@ -84,7 +84,7 @@ and you still see the progress and any warnings on your terminal.
 
 ## It dies like a filter
 
-Resilience is the name of the game for Unix tools, and that includes *ending* well.
+A good Unix tool ends cleanly, not just runs cleanly - and that includes *ending* well.
 If downstream closes the pipe (`smartpipe … | head -1`), smartpipe dies instantly and
 silently with the conventional code (141) - never an error screen. Ctrl-C drains
 in-flight work for the per-item verbs and reports what it saved. One bad item is a

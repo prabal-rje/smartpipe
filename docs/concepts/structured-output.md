@@ -18,7 +18,7 @@ $ echo "Invoice from Acme Corp, dated 2026-01-15, total $1250" \
 ```
 
 A single field works too: `map "Extract {total}"`. Types are inferred by the model
-- good enough for exploration. To put a literal brace in a prompt, double it:
+- suitable for exploration. To put a literal brace in a prompt, double it:
 `{{` and `}}`.
 
 ## The ladder, top to bottom
@@ -31,12 +31,12 @@ Five rungs; each teaches the next. Climb only as far as your task needs:
 | 2 | `{vendor: the supplier name, total}` | + plain-English guidance per field |
 | 2.5 | `{vendor string: the supplier, status enum(paid, unpaid)}` | + real types inline (same vocabulary as the DSL); a fully-typed group regains server-side strict mode |
 | 3 | `--schema-from "vendor string; total number >= 0; status enum(paid, unpaid)"` | + real types and constraints - parsed deterministically, **no model call, typos fail free** |
-| 4 | `smartpipe schema "an invoice with …" > invoice.json` | a drafted schema **file** (one model call, meta-validated; a failed draft exits 3 with empty stdout) |
+| 4 | `smartpipe schema "an invoice with …" > invoice.json` | a drafted schema **file** (one model call, meta-validated; a failed draft exits 3 with empty `stdout`) |
 | 5 | `--schema invoice.json` | full JSON Schema control |
 
 Braces carry names, types, and descriptions (`ident [type] [: description]`).
-Constraints (`>=`, lengths, `optional`) stay in the DSL or the file - that's
-where the fence stands now.
+Constraints (`>=`, lengths, `optional`) stay in the DSL or the file; braces
+don't carry them.
 
 ## Already have Pydantic or Zod models? Export them
 
@@ -59,10 +59,8 @@ fields, missing per-property types, `$ref`s). smartpipe detects that and falls
 back to client-side validation automatically, so exported schemas still work;
 they just may not get the server-side guarantee.
 
-(Native `--schema-from-pydantic module:Model` was considered and rejected:
-it would import and execute your application code from a CLI flag and pull
-pydantic into a frozen dependency budget, for something a one-liner already
-does.)
+(There is no native `--schema-from-pydantic` flag; the one-liner above already
+covers it.)
 
 ## `--schema-from` - the deterministic DSL
 
@@ -73,8 +71,8 @@ does.)
 - Constraints: `>= N` · `<= N` (numbers) · `minLength=N` · `maxLength=N`
   (strings) · `optional`
 
-Everything is required unless marked `optional` (which also, correctly, stops
-smartpipe claiming the provider's strict mode). Any typo is a usage error naming
+Everything is required unless marked `optional` (which also stops
+smartpipe from claiming the provider's strict mode). Any typo is a usage error naming
 the exact fragment - before a single model call.
 
 ## `--schema` file - for production

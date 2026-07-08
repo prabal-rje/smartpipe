@@ -2,8 +2,8 @@
 
 `split` is the free verb: it turns items too big for a model's context window
 into budget-sized chunk items, with **zero model calls**. It exists because a
-300-page PDF is one item, and no amount of cleverness makes one item fit an 8k
-window without changing what you asked.
+300-page PDF is one item, and one item cannot fit an 8k
+window without being split into smaller pieces.
 
 ```console
 $ smartpipe split --in '10k-filings/*.pdf' \
@@ -20,8 +20,7 @@ One JSON record per chunk:
 ```
 
 - Chunks break at **paragraph boundaries** first, then lines, then a hard cut -
-  and the chunks of a document concatenate back to its exact text (a
-  property-based test pins this: nothing added, nothing lost).
+  and the chunks of a document concatenate back to its exact text (nothing added, nothing lost).
 - `source` carries provenance: which document, which part.
 - Items already under the budget pass through whole, `source` unchanged.
 
@@ -43,14 +42,14 @@ $ smartpipe split --by minutes:10 --in call.wav \
 
 Notes: `--max-tokens N` is shorthand for `--by tokens:N`. `--by pages` reads PDF
 files (DOCX has no fixed pages; the error says so). Audio slicing is native for
-wav; other formats need `ffmpeg` on PATH. Audio slices travel as base64 inside
-the NDJSON records, so segment lines are large; that's the cost of a pipe that
-carries sound.
+`wav`; other formats need `ffmpeg` on `PATH`. Audio slices travel as base64 inside
+the JSONL records, so segment lines are large; expect larger output lines when
+slicing audio.
 
 ## `--media`: the images inside documents
 
 `--media` extracts figures embedded in PDFs/DOCX/PPTX/XLSX as image items with
-provenance (`report.pdf p.7 img.2`), byte-identical, icon-floor applied. Feed
+provenance (`report.pdf p.7 img.2`), byte-identical (decorative icons below a minimum size are skipped). Feed
 them straight to a vision model:
 
 ```console

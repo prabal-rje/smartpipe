@@ -5,7 +5,7 @@ meaning, not keyword.
 
 ## The résumé screen
 
-The classic: rank a stack of résumés against a role.
+A common case: rank a stack of résumés against a role.
 
 ```console
 $ smartpipe top_k 5 --near "senior distributed systems engineer, Rust, Kubernetes" --in 'resumes/*.pdf'

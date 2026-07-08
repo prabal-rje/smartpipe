@@ -15,6 +15,7 @@ from smartpipe.engine.prompts import (
     parse_prompt,
     render,
 )
+from smartpipe.engine.schema import BARE_PROPERTY
 
 # --- tokenizing ---------------------------------------------------------------
 
@@ -146,7 +147,10 @@ def test_description_reaches_the_schema() -> None:
     plan = plan_map(tokens, schema=None)
     assert plan.schema is not None
     properties = plan.schema["properties"]
-    assert properties == {"vendor": {"description": "who sent it"}, "total": {}}
+    assert properties == {
+        "vendor": {**BARE_PROPERTY, "description": "who sent it"},
+        "total": dict(BARE_PROPERTY),
+    }
 
 
 def test_descriptions_do_not_change_strictness() -> None:
@@ -218,7 +222,8 @@ def test_fully_typed_braces_regain_strict_mode() -> None:
     assert is_strict_compatible(typed.schema) is True  # every property carries a type
     mixed = plan_map(parse_prompt("Extract {a string, b}", allow_descriptions=True), schema=None)
     assert mixed.schema is not None
-    assert is_strict_compatible(mixed.schema) is False  # one untyped hole = honest non-strict
+    # D48: bare fields carry the scalar union now, so mixed groups are strict too
+    assert is_strict_compatible(mixed.schema) is True
 
 
 def test_unknown_inline_type_names_the_menu() -> None:

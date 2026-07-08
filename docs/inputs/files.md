@@ -35,7 +35,7 @@ Each stdin line is treated as a filename; each file becomes one item.
 
 ## The user never names a parser
 
-This is the point: you don't tell smartpipe *how* to read a file. It detects the kind
+You don't tell smartpipe *how* to read a file. It detects the kind
 and extracts the text automatically.
 
 | You point at… | smartpipe does… |
@@ -43,7 +43,7 @@ and extracts the text automatically.
 | `.txt` `.md` `.csv` `.json` | reads it as text |
 | `.pdf` `.docx` `.pptx` `.xlsx` `.html` `.epub` | extracts the text (built in) |
 | `.mp3` `.wav` `.flac` … | carries the audio bytes; the next verb either sends them to an audio-capable model or transcribes them through the configured ladder |
-| anything unreadable | skips it with a warning - never crashes |
+| anything unreadable | skips it with a warning |
 
 Detection is by extension first, with a magic-byte fallback for files whose name
 doesn't say what they are.
@@ -53,7 +53,7 @@ doesn't say what they are.
 Parsing documents, audio, video, and charts ships with the normal install:
 
 ```console
-$ pip install smartpipe-cli    # everything ships in the box - documents, video, charts, all of it
+$ pip install smartpipe-cli    # documents, audio, video, and charts all included
 ```
 
 If a parser is unavailable in a broken or unsupported environment, smartpipe tells
@@ -64,8 +64,8 @@ you exactly what is missing once, then skips those files.
 - **`map` / `reduce`** work on the extracted text, exactly like any other item.
 - **`embed`** embeds the extracted text; the record's `source` is the file's path.
 - **`filter` / `top_k`** emit the **filename** (not the document's text) - so ranking
-  or filtering a folder of documents gives you back a list of paths, the useful Unix
-  result. `top_k` appends the score: `resumes/alice.pdf⇥0.87`.
+  or filtering a folder of documents gives you back a list of paths you can pipe
+  onward. `top_k` appends the score: `resumes/alice.pdf⇥0.87`.
 
 ## Skipped files never stop the run
 
@@ -114,7 +114,7 @@ $ cat extra-notes.txt \
 A video file becomes an item carrying its bytes.
 
 On gemini models, the video rides the native wire whole: visuals and soundtrack
-together. Everywhere else, `map`/`extend` convert it locally with ffmpeg into frames
+together. Everywhere else, `map`/`extend` convert it locally with `ffmpeg` into frames
 plus audio.
 
 The default is **one frame per second up to 24**, evenly spread past that. Tune the
@@ -136,7 +136,7 @@ vector carries what it *shows* as well as what it *says*. `split --by
 seconds:N` slices video losslessly (keyframe-aligned) into segments that stay
 video.
 
-## Documents carry their figures (D32)
+## Documents carry their figures
 
 `map "summarize" --in report.pdf` sends the text **and** the embedded images -
 up to 8 figures per document (a stderr note counts them:
@@ -157,7 +157,7 @@ level there.
 
 Document parsing extracts **text**; figures embedded in a PDF/DOCX/PPTX/XLSX
 don't ride along implicitly (a 100-page deck can carry 300 decorative logos -
-an item explosion you should choose, not inherit). When you want them:
+which would explode one document into hundreds of items). When you want them:
 
 ```console
 $ smartpipe split --media --in report.pdf \
@@ -168,20 +168,19 @@ $ smartpipe split --media --in report.pdf \
 Each embedded image becomes an item with page provenance, byte-identical
 (never re-encoded), and the next verb *sees* it. Icons under 4 KB are dropped
 and counted once on stderr. Office formats yield every embedded PNG/JPEG/GIF/WebP;
-PDFs yield JPEG-compressed images (the overwhelming majority of real photos in
-PDFs - other encodings would need re-encoding and are skipped for now).
+PDFs yield JPEG-compressed images (other encodings are skipped for now).
 
 ## Audio: heard natively, or transcribed
 
 An audio file (`.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`) becomes an item carrying
 its **bytes**, not an eager transcript:
 
-- `map` with an audio-capable model (gemini models, `voxtral-*`) sends the sound to
+- `map` with an audio-capable model (`gemini` models, `voxtral-*`) sends the sound to
   that configured endpoint - tone and speaker changes included.
 
 - With a text-only model, smartpipe needs a transcript. It uses a configured remote
   transcriber (`stt-model`, or OpenAI `whisper-1` on the OpenAI API-key path when
-  consent allows it); otherwise it uses local faster-whisper (`tiny` by default),
+  consent allows it); otherwise it uses local `faster-whisper` (`tiny` by default),
   then retries as text. `SMARTPIPE_WHISPER_MODEL=small` (or `medium`, `large-v3`)
   trades speed for accuracy; the first use of a size downloads its weights once.
   Audio never leaves your machine on the local whisper path.

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
+from smartpipe.engine.schema import BARE_PROPERTY
 from tests.conftest import RunCli
 
 if TYPE_CHECKING:
@@ -53,7 +54,10 @@ def test_braces_inside_the_file_are_live_grammar(
     import json
 
     body = json.loads(route.calls.last.request.content)
-    assert body["format"]["properties"]["vendor"] == {"description": "the supplier"}
+    assert body["format"]["properties"]["vendor"] == {
+        **BARE_PROPERTY,
+        "description": "the supplier",
+    }
 
 
 def test_missing_file_is_the_pinned_error(run_cli: RunCli) -> None:

@@ -1,70 +1,76 @@
 # smartpipe
 
-**Semantic pipes for your terminal.**
+**Semantic pipes and queries for your terminal.**
 
-Run PDFs, images, audio, video, and text through Unix-style verbs:
-`map`, `filter`, `top_k`, `reduce`, and more.
+Run PDFs, images, audio, video, and text through Unix verbs that understand
+their input: `map`, `filter`, `top_k`, `reduce`, and more. Use Ollama for local
+models, or choose a cloud provider explicitly. Either way it stays ordinary
+`stdin`/`stdout` composition.
 
-Use Ollama for local model calls, or choose a cloud provider explicitly.
-smartpipe keeps normal stdin/stdout composition either way.
-
-```console
-$ cat reviews.txt \
-    | smartpipe filter "the reviewer is sarcastic" \
-    | smartpipe map "Extract {product, complaint}"
+```bash
+cat reviews.txt \
+| smartpipe filter "the reviewer is sarcastic" \
+| smartpipe map "Extract {product, complaint}"
 ```
 
 ## Start here
 
-- **[Install](install.md)** - one command and current platform notes.
-- **[Quickstart](quickstart.md)** - from zero to a working pipeline in a minute,
+- **[Install](install.md)** — one command, plus current platform notes.
+- **[Quickstart](quickstart.md)** — from zero to a working pipeline in a minute,
   local or cloud.
 
-## The verbs
+## Verbs
 
-| Verb | Does | Like |
+A **verb** is one operation on your data. Each reads `stdin` (or `--in FILES`)
+and writes `stdout`, so verbs pipe into each other and into ordinary Unix tools.
+
+**Semantic verbs** call a model:
+
+| Verb | What it does | Feels like |
 |---|---|---|
 | [`map`](verbs/map.md) | transform each item with a prompt | `sed`, but it understands |
 | [`filter`](verbs/filter.md) | keep items matching a condition | `grep`, but semantic |
-| [`embed`](verbs/embed.md) | items → vectors | plumbing for `top_k` |
-| [`top_k`](verbs/top-k.md) | rank by similarity to a query | `sort \| head`, by meaning |
-| [`reduce`](verbs/reduce.md) | synthesize many items into one | `awk` END, but literate |
 | [`extend`](verbs/extend.md) | add extracted fields, keep the rest | your record, plus columns |
-| [`join`](verbs/join.md) | match two inputs semantically | `join`, but it understands |
+| [`embed`](verbs/embed.md) / [`top_k`](verbs/top-k.md) | vectors; rank by similarity | `sort \| head`, by meaning |
+| [`reduce`](verbs/reduce.md) | synthesize many items into one | `awk` END, but literate |
+| [`join`](verbs/join.md) | match two inputs semantically | SQL join, but semantic |
 | [`cluster`](verbs/cluster.md) | group by meaning, label each group | themes with sizes and quotes |
 | [`distinct`](verbs/distinct.md) | fold near-duplicates | `sort -u`, by meaning |
 | [`diff`](verbs/diff.md) | what distinguishes two sets | the post-incident answer |
 | [`outliers`](verbs/outliers.md) | the items least like the rest | novelty, surfaced |
 
-**Free utilities** (never call a model): [`where`](verbs/where.md) ·
-[`summarize`](verbs/summarize.md) · [`sort`](verbs/sort.md) ·
-[`sample`](verbs/sample.md) · [`getschema`](verbs/getschema.md) ·
-[`split`](verbs/split.md) · `chart` - deterministic prep and reporting
-around the semantic core, so paid stages only see what matters.
+**Free verbs** never call a model. Run them first to cut the corpus before any
+paid stage:
+
+| Verb | What it does | Feels like |
+|---|---|---|
+| [`where`](verbs/where.md) | filter on exact field predicates | SQL `WHERE` |
+| [`summarize`](verbs/summarize.md) | count, average, percentiles, time buckets | SQL `GROUP BY` |
+| [`sort`](verbs/sort.md) | order items by a field | `sort` |
+| [`sample`](verbs/sample.md) | take a seeded random subset | `shuf` |
+| [`getschema`](verbs/getschema.md) | list fields, types, and coverage | `head`, for structure |
+| [`split`](verbs/split.md) | break items into pieces (pages, minutes) | `split` |
+| [`chart`](reference/cli.md) | terminal bars, SVG, facets, time series | quick plots |
 
 ## Concepts
 
-- [Pipes & items](concepts/pipes-and-items.md) - the mental model (what's "one item"?)
-- [Models & providers](concepts/models-and-providers.md) - local vs cloud, model strings
-- [Structured output](concepts/structured-output.md) - braces and `--schema`
-- [Output formats](concepts/output-formats.md) - auto, json, csv, tsv
-- [File inputs](inputs/files.md) - point any verb at documents
+- [Pipes & items](concepts/pipes-and-items.md) — the mental model (what is "one item"?)
+- [Models & providers](concepts/models-and-providers.md) — local vs cloud, model strings
+- [Structured output](concepts/structured-output.md) — braces and `--schema`
+- [Output formats](concepts/output-formats.md) — `auto`, `json`, `csv`, `tsv`
+- [File inputs](inputs/files.md) — point any verb at documents
 
 ## Recipes & reference
 
-- [Cookbook](cookbook/README.md) - contract extraction, log triage, ranking documents, live monitoring, stream enrichment
-- [CLI reference](reference/cli.md) - every flag, format, and exit code
-- [`.sem` stage files](reference/sem-files.md) - save a pipe stage as an executable script
-- [Troubleshooting](troubleshooting.md) - find your error message
-- [How smartpipe compares](comparison.md) - where it fits among the alternatives
-- [Privacy & security](privacy.md) - where data goes, no telemetry, no tool-use surface
+- [Cookbook](cookbook/README.md) — contract extraction, log triage, ranking, live monitoring
+- [CLI reference](reference/cli.md) — every flag, format, and exit code
+- [`.sem` stage files](reference/sem-files.md) — save a pipe stage as an executable script
+- [Troubleshooting](troubleshooting.md) — find your error message
+- [Comparison](comparison.md) — where smartpipe fits among the alternatives
+- [Privacy & security](privacy.md) — where data goes
 
-## Why smartpipe
+## Background
 
-It brings the semantic-operator vocabulary of data frameworks like DocETL to real
-Unix pipes.
-
-It can use local Ollama models or configured cloud providers. It also handles file
-parsing, recursive chunking, and terminal-adaptive output.
-
-See [the comparison](comparison.md) for the landscape.
+smartpipe brings the semantic-operator vocabulary of data frameworks like DocETL
+to Unix pipes, and adds file parsing, recursive chunking, and terminal-adaptive
+output. See [the comparison](comparison.md) for the landscape.

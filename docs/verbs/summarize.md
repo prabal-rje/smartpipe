@@ -1,7 +1,7 @@
 # summarize - the numbers, deterministically
 
-Aggregate records in one pass. **Free - never calls a model.** KQL's own
-grammar and output naming, because it's the most-proven syntax for this job.
+Aggregate records in one pass. **Free - never calls a model.** A compact
+grammar: `count()`, `avg()`, percentiles, and `by FIELD` grouping.
 
 ```console
 $ cat orders.jsonl \
@@ -19,17 +19,17 @@ $ cat orders.jsonl \
 
 Semantics worth knowing: groups sort largest first; a record missing the
 `by` field groups under `null`, visibly; non-numeric values in numeric
-aggregations are skipped and counted on stderr (never a crash); a group
+aggregations are skipped and counted on `stderr` (the run continues); a group
 with no numeric values reports `null`, not zero. Percentile aggregations
 hold each group's values in memory - everything else streams.
 
 ## Time buckets
 
-`by bin(ts, 1h)` groups by UTC time bucket (buckets: 1m 5m 15m 1h 6h 1d).
-The fence: timestamps parse as **ISO-8601 or epoch seconds/milliseconds
+`by bin(ts, 1h)` groups by UTC time bucket (buckets: `1m` `5m` `15m` `1h` `6h` `1d`).
+Limitation: timestamps parse as **ISO-8601 or epoch seconds/milliseconds
 only** - anything else groups under `null` and any other format is a
-preprocessing job for jq/date. `chart --by-time ts:1h` draws the same
-buckets chronologically, zero-filled (gaps are signal).
+preprocessing job for `jq`/`date`. `chart --by-time ts:1h` draws the same
+buckets chronologically, zero-filled (empty buckets are shown, not dropped).
 
 The natural pairs: `map "…{label}" | summarize 'count() by label'` for the
 numbers, `| chart label` for the picture.

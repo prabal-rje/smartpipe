@@ -178,3 +178,14 @@ async def test_usage_metadata_feeds_the_meter(
     await _model(client).complete(CompletionRequest(system="s", user="u"))
     view = metering.snapshot()
     assert (view.tokens_in, view.tokens_out) == (90, 7)
+
+
+def test_nullable_union_becomes_the_nullable_flag() -> None:
+    # D48: {type: [string, null]} → Gemini dialect {type: STRING, nullable: true}
+    assert to_gemini_schema({"type": ["string", "null"]}) == {"type": "STRING", "nullable": True}
+
+
+def test_scalar_union_drops_type_but_keeps_shape() -> None:
+    # no dialect equivalent for a multi-type union - local validation guards it
+    out = to_gemini_schema({"type": ["string", "number", "integer", "boolean"]})
+    assert "type" not in out and "nullable" not in out

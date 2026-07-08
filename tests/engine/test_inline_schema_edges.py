@@ -8,7 +8,7 @@ import pytest
 
 from smartpipe.core.errors import UsageFault
 from smartpipe.engine.prompts import BraceToken, parse_prompt, plan_map, to_instruction
-from smartpipe.engine.schema import is_strict_compatible
+from smartpipe.engine.schema import BARE_PROPERTY, is_strict_compatible
 
 
 def _schema(prompt: str) -> dict[str, object]:
@@ -97,7 +97,7 @@ def test_comma_in_description_reads_as_a_second_field() -> None:
     # fields, so the tail becomes a real second field, never a silent drop
     assert _properties("Extract {a string: hello, world}") == {
         "a": {"type": "string", "description": "hello"},
-        "world": {},
+        "world": dict(BARE_PROPERTY),  # D48 bare = scalar-or-scalar-list
     }
 
 

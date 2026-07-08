@@ -10,6 +10,7 @@ from hypothesis import strategies as st
 
 from smartpipe.core.errors import ItemError, SetupFault
 from smartpipe.engine.schema import (
+    BARE_PROPERTY,
     is_strict_compatible,
     load_schema,
     shorthand_to_schema,
@@ -22,7 +23,11 @@ from smartpipe.engine.schema import (
 def test_shorthand_builds_strict_object_schema() -> None:
     assert shorthand_to_schema(("vendor", "total")) == {
         "type": "object",
-        "properties": {"vendor": {}, "total": {}},
+        # D48: bare fields are any-scalar-not-null, so strict wires can hold them
+        "properties": {
+            "vendor": dict(BARE_PROPERTY),
+            "total": dict(BARE_PROPERTY),
+        },
         "required": ["vendor", "total"],
         "additionalProperties": False,
     }
@@ -178,9 +183,9 @@ def test_never_raises_other_than_item_error(text: str) -> None:
 
 def test_shorthand_schema_is_not_strict_untyped_properties() -> None:
     # live-caught: strict mode demands a 'type' per property; the brace
-    # shorthand's permissive {} therefore rides non-strict (the client-side
-    # validator stays the guarantee either way)
-    assert is_strict_compatible(shorthand_to_schema(["vendor", "total"])) is False
+    # D48 upgraded bare fields to typed scalar unions - shorthand now rides
+    # STRICT mode, so providers can't even emit the null we used to admit
+    assert is_strict_compatible(shorthand_to_schema(["vendor", "total"])) is True
 
 
 def test_optional_field_is_not_strict_compatible() -> None:
@@ -248,3 +253,18 @@ def test_array_items_recurse_for_strictness() -> None:
         "additionalProperties": False,
     }
     assert is_strict_compatible(schema) is False  # items object is open + optional
+
+
+def test_bare_fields_accept_scalars_but_not_null() -> None:
+    # D48: bare {product} means "any scalar" - null needs an explicit '?'
+    schema = shorthand_to_schema(("vendor", "total"))
+    validate_and_coerce('{"vendor": "Acme", "total": 1250}', schema)  # number still fine
+    with pytest.raises(ItemError, match="does not match"):
+        validate_and_coerce('{"vendor": null, "total": 1}', schema)
+    with pytest.raises(ItemError, match="does not match"):
+        validate_and_coerce('{"vendor": {"nested": true}, "total": 1}', schema)
+
+
+def test_nullable_bare_field_admits_null() -> None:
+    schema = shorthand_to_schema(("vendor",), nullable=frozenset({"vendor"}))
+    assert validate_and_coerce('{"vendor": null}', schema) == {"vendor": None}

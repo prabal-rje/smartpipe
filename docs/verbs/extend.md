@@ -1,8 +1,7 @@
 # extend - your record, plus columns
 
 Add extracted fields to each record. Everything the record already had
-survives; the new fields land beside it. This is `map` for people who own a
-*dataset* rather than a question - results flow straight back into the
+survives; the new fields land beside it. Like `map`, but it keeps the whole input record instead of returning only the answer - results flow straight back into the
 pipeline that produced them.
 
 ```console
@@ -23,8 +22,8 @@ the [video frame controls](map.md#video-frame-control)
 - **Plain text lines** become records: `{"text": <the line>, …new fields}` -
   the on-ramp from text files to structured pipelines.
 - **Collisions**: an extracted field with an existing name **overwrites** it
-  (re-running enrichment stays idempotent), disclosed once per field on
-  stderr: `note: overwriting 'sentiment' on incoming records`.
+  (so re-running adds no duplicate columns), disclosed once per field on
+  `stderr`: `note: overwriting 'sentiment' on incoming records`.
 - **`--explode FIELD`** emits one row per list element with the *merged*
   record's other fields copied onto every row - provenance rides along.
 - **Media records** (from `split`): the base64 transport fields are dropped
@@ -36,4 +35,4 @@ the [video frame controls](map.md#video-frame-control)
 Typical loops: feature columns for a model (`extend "Add {complaint_type
 enum(billing, product, support), urgency number: 0 to 1}"`), judge scores
 onto training rows (`extend "Add {quality number: 0 to 1, refusal boolean}"`
-then `where 'quality >= 0.7'`), IOC extraction onto alerts.
+then `where 'quality >= 0.7'`), indicator-of-compromise (IOC) extraction onto alerts.

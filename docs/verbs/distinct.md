@@ -11,7 +11,7 @@ distinct: kept 412 of 1,208 (573 exact + 223 near duplicates folded)
 ```
 
 Output preserves input order and bytes (passthrough). First occurrence wins,
-so re-runs keep the same representatives.
+so the first occurrence in each group is the one kept.
 
 ## Audit before you trust
 
@@ -23,7 +23,7 @@ $ cat alerts.jsonl \
 ```
 
 `--show-groups` emits one record per kept item with everything that folded
-into it - read a few groups once, then trust the receipt.
+into it - read a few groups once, then rely on the group counts.
 
 ## The knob, and why it exists
 
@@ -50,9 +50,9 @@ note says which path ran). Audio and video still pivot either way.
 
 ## Why bother
 
-- **Training data (the big one):** near-duplicate contamination measurably
+- **Training data:** near-duplicate contamination
   hurts models; `smartpipe distinct < candidates.jsonl > train-clean.jsonl` is
-  the cheapest data-quality win available, and the receipt is the number for
+  a cheap data-quality win, and the receipt is the number for
   your dataset card.
 - **Cost:** every folded duplicate is a model call you don't pay for in the
   `map`/`filter` stages downstream.

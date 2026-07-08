@@ -6,7 +6,7 @@ import pytest
 
 from smartpipe.core.errors import UsageFault
 from smartpipe.engine.schema import is_strict_compatible
-from smartpipe.engine.schema_dsl import dsl_to_schema
+from smartpipe.engine.schema_dsl import dsl_to_schema, type_token
 
 
 def test_the_flagship_example() -> None:
@@ -92,3 +92,15 @@ def test_bad_name_is_rejected() -> None:
 def test_blank_input_is_rejected() -> None:
     with pytest.raises(UsageFault, match="describes no fields"):
         dsl_to_schema("  ;  ")
+
+
+def test_nullable_type_tokens() -> None:
+    assert type_token("string?") == {"type": ["string", "null"]}
+    assert type_token("number?") == {"type": ["number", "null"]}
+    assert type_token("boolean?") == {"type": ["boolean", "null"]}
+    assert type_token("string[]?") == {"type": ["array", "null"], "items": {"type": "string"}}
+
+
+def test_nullable_enum_is_guided_to_a_value() -> None:
+    with pytest.raises(UsageFault, match="explicit value"):
+        type_token("enum(a, b)?")

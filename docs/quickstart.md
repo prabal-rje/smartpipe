@@ -22,7 +22,7 @@ that does the thinking). Let's get both.
 $ pip install smartpipe-cli
 ```
 
-(Details and alternatives - pipx, uv - are in [install.md](install.md).)
+(Details and alternatives - `pipx`, `uv` - are in [install.md](install.md).)
 
 ## 2. Get a model
 
@@ -50,7 +50,7 @@ Cloud models are typically faster and stronger, and cost a small amount per use.
 
 ```console
 $ smartpipe config model gpt-5.4-mini
-$ export OPENAI_API_KEY=sk-...           # smartpipe never stores your key
+$ export OPENAI_API_KEY=sk-...           # smartpipe reads the key from this variable, not from a saved file
 ```
 
 Either way, `smartpipe config` (with no arguments) walks you through this
@@ -77,7 +77,7 @@ bonjour
 merci
 ```
 
-One line in, one line out - in the same order, always.
+One line in, one line out, in the same order.
 
 ## 4. Your first extraction
 

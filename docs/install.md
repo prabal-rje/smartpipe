@@ -42,27 +42,27 @@ $ uv add smartpipe-cli
 
 ## Everything ships in the box
 
-One install gives you the entire multimodal surface - documents (PDF, DOCX,
-PPTX, XLSX, HTML, EPUB), video (a static ffmpeg is bundled), charts with
+One install gives you everything smartpipe supports - documents (PDF, DOCX,
+PPTX, XLSX, HTML, EPUB), video (a static `ffmpeg` is bundled), charts with
 `--save`, Claude models, local Whisper transcription, and local embeddings.
 There are no optional extras at all - one name installs everything. (If an
 old guide tells you `pip install 'smartpipe-cli[something]'`, pip will warn
 about the unknown extra and install the same complete package anyway.)
 
-Two local models download once on first use and cache on disk: whisper
+Two local models download once on first use and cache on disk: `whisper`
 (~75 MB) and the local embedder (~130 MB). Every download is announced.
 
 Supported pythons: **3.11-3.13 for the complete box**. On **Python 3.14**, three components (documents,
-whisper, local embeddings) wait on upstream wheels (onnxruntime, av) - the
+`whisper`, local embeddings) wait on upstream wheels (`onnxruntime`, `av`) - the
 install works and everything else runs; those paths degrade with clear
 messages (`doctor` shows exactly what's waiting), and embeddings fall back
-to Ollama's nomic model. Python 3.11-3.13 has the complete box today.
+to Ollama's `nomic` model. Python 3.11-3.13 has the complete box today.
 
 ## Tab completion
 
 One line per shell. Completions cover verbs and flags - and `--model` /
 `--embed-model` suggest your configured model plus whatever Ollama has installed
-(instantly; if Ollama doesn't answer within 150 ms, you just get no suggestions).
+(if Ollama doesn't answer within 150 ms, you just get no suggestions).
 
 **zsh** - add to `~/.zshrc`:
 

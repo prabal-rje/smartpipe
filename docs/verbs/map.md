@@ -1,6 +1,6 @@
 # `map` - transform each item
 
-> Need your input record's fields to SURVIVE alongside the extraction?
+> Need your input record's fields to survive alongside the extraction?
 > That's [`extend`](extend.md) - map that merges.
 
 Applies a prompt to every input item. One item in, one result out.
@@ -12,7 +12,7 @@ Applies a prompt to every input item. One item in, one result out.
 $ cat notes.txt \
     | smartpipe map "Translate to French"
 
-# Structured extraction - braces name the fields you want back (NDJSON out):
+# Structured extraction - braces name the fields you want back (JSONL out):
 $ cat receipts.txt \
     | smartpipe map "Extract {vendor, date, total}"
 {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
@@ -44,14 +44,14 @@ for the full grammar.)
 ## Images
 
 `map` is the vision verb: an image item (from `--in 'photos/*.jpg'` or a redirected
-image on stdin) is sent to the model as an image, and your prompt describes what to
+image on `stdin`) is sent to the model as an image, and your prompt describes what to
 do with it - including structured extraction (`"Extract {brand, color}"`). Needs a
 vision-capable model (`ollama/qwen3-vl`, `gpt-5.4-mini`, `claude-opus-4-8`, …);
 without one, the item skips with a hint.
 
 ## Streaming
 
-`map` processes stdin incrementally - results appear as input arrives, so live
+`map` processes `stdin` incrementally - results appear as input arrives, so live
 sources work with no flag:
 
 ```console
@@ -64,9 +64,9 @@ $ tail -f app.log \
 
 | Option | Meaning |
 |---|---|
-| `--schema FILE` | Enforce a JSON Schema file on the output (production-grade extraction - see below) |
+| `--schema FILE` | Enforce a JSON Schema file on the output (strict extraction - see below) |
 | `--model TEXT` | Model for this run (e.g. `ollama/qwen3:8b`, `gpt-5.4-mini`, `claude-opus-4-8`) |
-| `--output FORMAT` | `auto` (default) · `text` · `json`. `auto` = human-readable at a terminal, NDJSON when piped |
+| `--output FORMAT` | `auto` (default) · `text` · `json`. `auto` = human-readable at a terminal, JSONL when piped |
 | `--concurrency N` | Max parallel model calls (default 4) |
 | `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md)) |
 | `--verbose` / `--debug` | More detail on stderr / full tracebacks |
@@ -103,7 +103,7 @@ recombines.
 
 `map` is the multimodal verb: image items reach vision models as images, audio
 items reach audio models as sound (`--in 'calls/*.wav'`). A model that can't
-hear falls back to local transcription (built in - whisper ships with smartpipe) when it is
+hear falls back to local transcription (built in - `whisper` ships with smartpipe) when it is
 present; details in [File inputs](../inputs/files.md#audio-heard-natively-or-transcribed).
 
 ## Inline braces vs. `--schema`
@@ -123,8 +123,8 @@ present; details in [File inputs](../inputs/files.md#audio-heard-natively-or-tra
   for one line (even after a retry), that line is skipped with a `⚠ skipped:`
   note on stderr, and the rest keep going. The exit code is `1` when anything was
   skipped, `0` when all succeeded.
-- **stdout is only results.** Warnings and the progress spinner go to stderr, so
-  `| jq` and `> file` always see clean data.
+- **`stdout` is only results.** Warnings and the progress spinner go to `stderr`, so
+  `| jq` and `> file` see clean data.
 - **Empty input is success.** `cat empty | smartpipe map …` prints nothing and exits
   `0`, just like `grep`.
 
@@ -146,11 +146,11 @@ $ smartpipe map "summarize" --in long.mp4 --frame-every 2 --max-frames 120
 ```
 
 - `--frame-every SECONDS` is a **density guarantee** - one frame per period,
-  and the default 24-frame cap lifts (a guarantee that silently caps isn't
-  one).
+  and the default 24-frame cap lifts (so the default 24-frame cap no longer
+  applies).
 - `--max-frames N` is a **budget** - when both are set, the smaller wins.
 - The per-row note prints the frame count, and the run receipt shows the
   image megabytes actually sent, so a 600-frame decision is a visible one.
 - The text-verb caption pivot keeps its small fixed sample; these flags
-  govern frames sent natively to a vision model. On gemini the video is
+  govern frames sent natively to a vision model. On `gemini` the video is
   watched natively and no frames are extracted at all.

@@ -31,7 +31,7 @@ fields = ["severity", "customer", "product"]
 ```
 
 Make them executable once (`chmod +x *.sem`), and each behaves exactly like the
-command it stands for - stdin in, stdout out, same exit codes, same everything.
+command it stands for - `stdin` in, `stdout` out, same exit codes, same behavior.
 
 ## The format
 
@@ -71,7 +71,7 @@ command it stands for - stdin in, stdout out, same exit codes, same everything.
 
 `config.toml` ignores keys it doesn't know (a config must survive version
 skew). A `.sem` script is the opposite trade: it runs unattended, so a typo'd
-`promt` silently ignored would be a disaster discovered in production. The
+`promt` silently ignored would surface only later, in production. The
 error names the key and lists the valid ones for that verb:
 
 ```console
@@ -93,7 +93,7 @@ $ smartpipe run extract.sem --model ollama/qwen3:8b     # wins over the file's m
 ## The shebang
 
 `#!/usr/bin/env -S smartpipe run` needs `env -S` (GNU coreutils ≥ 8.30, any
-modern macOS). If your platform lacks it, the spelled-out form always works:
+modern macOS). If your platform lacks it, the spelled-out form works everywhere:
 
 ```console
 $ smartpipe run extract.sem < cards.txt
@@ -104,13 +104,13 @@ $ smartpipe run extract.sem < cards.txt
 Multi-stage pipeline files were considered and rejected: they would re-implement
 `|` - ordering, buffering, and error propagation the shell already does better.
 One file = one stage keeps every `.sem` composable with everything else on your
-system, which is the whole point of smartpipe.
+system, so each .sem stays composable with other tools on your system.
 
 
 ## Pipelines: several stages in one file
 
 A `.sem` file can hold a whole pipeline as `[stage.NAME]` tables, run in
-order - the team's weekly triage as one reviewable, versionable artifact:
+order - so the whole pipeline lives in one file you can review and version-control:
 
 ```toml
 [stage.hot]
@@ -137,12 +137,10 @@ stage picture      chart cluster --save …     [free]
 ```
 
 Each stage reads the previous stage's output (`input = "name"` picks any
-EARLIER stage instead); the first stage reads stdin, the last writes stdout.
-Stage receipts on stderr carry their stage name (`[hot] where: 214 of 9,102
+EARLIER stage instead); the first stage reads `stdin`, the last writes `stdout`.
+Stage receipts on `stderr` carry their stage name (`[hot] where: 214 of 9,102
 matched`). Stage keys are validated exactly like single-stage files - a typo
 is a loud error, never silently ignored. Single-stage files are unchanged;
 extra CLI flags apply to them only.
 
-All verbs are scriptable now - including the D38 additions (where, extend,
-distinct, outliers, cluster, diff, summarize, sample, getschema, sort,
-chart).
+All verbs are scriptable now, including where, extend, distinct, outliers, cluster, diff, summarize, sample, getschema, sort, chart.
