@@ -56,3 +56,49 @@ def test_keyboard_interrupt_exits_130(run_cli: RunCli, monkeypatch: pytest.Monke
     monkeypatch.setattr("smartpipe.cli.root.cli.main", _interrupt)
     code, _out, _err = run_cli(["--version"])
     assert code == 130
+
+
+# --- the update-check hooks (notify-next-run; plan/ux.md "update notice") -------
+
+
+@pytest.fixture
+def update_hooks(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    calls = {"begin": 0, "notify": 0}
+    from smartpipe.io import update_check
+
+    def count(name: str) -> object:
+        def bump(*args: object, **kwargs: object) -> None:
+            del args, kwargs
+            calls[name] += 1
+
+        return bump
+
+    monkeypatch.setattr(update_check, "begin_background_check", count("begin"))
+    monkeypatch.setattr(update_check, "emit_update_notice", count("notify"))
+    return calls
+
+
+def test_a_run_begins_the_check_and_notifies_at_the_end(
+    run_cli: RunCli, update_hooks: dict[str, int]
+) -> None:
+    code, _out, _err = run_cli(["--version"])
+    assert code == 0
+    assert update_hooks == {"begin": 1, "notify": 1}
+
+
+def test_a_failing_run_never_notifies(run_cli: RunCli, update_hooks: dict[str, int]) -> None:
+    code, _out, _err = run_cli(["frobnicate"])
+    assert code == 64
+    assert update_hooks["notify"] == 0
+
+
+def test_the_update_command_itself_never_notifies(
+    run_cli: RunCli, update_hooks: dict[str, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "smartpipe.cli.update_cmd.install_paths",
+        lambda: ("/somewhere/python", "/somewhere/app"),  # unknown channel: no prompt
+    )
+    code, _out, _err = run_cli(["update"])
+    assert code == 0
+    assert update_hooks["notify"] == 0

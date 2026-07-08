@@ -1,0 +1,1 @@
+done — uv tool upgrade smartpipe-cli finished cleanly; check: smartpipe --version

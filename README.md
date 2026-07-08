@@ -18,9 +18,28 @@ their input.
 ## Install
 
 ```bash
-# zero-install trial (or: pip install smartpipe-cli)
-uvx --from smartpipe-cli smartpipe
+# macOS / Linux
+curl -LsSf https://prabal-rje.github.io/smartpipe/install.sh | sh
 ```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://prabal-rje.github.io/smartpipe/install.ps1 | iex"
+```
+
+The installer uses Homebrew when you have it, uv otherwise. Prefer your own
+package manager? Any of these works:
+
+```bash
+brew install prabal-rje/tap/smartpipe   # Homebrew
+uv tool install smartpipe-cli           # uv
+pipx install smartpipe-cli              # pipx
+pip install smartpipe-cli               # pip
+uvx --from smartpipe-cli smartpipe      # zero-install trial
+```
+
+Stay current with `smartpipe update` - it detects how smartpipe was installed
+and runs that tool's own upgrade.
 
 ## Point it at a model
 

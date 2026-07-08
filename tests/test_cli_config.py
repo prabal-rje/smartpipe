@@ -332,3 +332,27 @@ async def test_wizard_ends_with_the_completions_offer() -> None:
         offer_completions=lambda: offered.append(True),
     )
     assert offered == [True]
+
+
+# --- config update-check --------------------------------------------------------
+
+
+def test_update_check_off_persists(run_cli: RunCli, config_home: Path) -> None:
+    code, out, _err = run_cli(["config", "update-check", "off"])
+    assert code == 0
+    assert "update-check off" in out
+    assert load_config(config_home).update_check is False
+
+
+def test_update_check_on_persists(run_cli: RunCli, config_home: Path) -> None:
+    run_cli(["config", "update-check", "off"])
+    code, out, _err = run_cli(["config", "update-check", "on"])
+    assert code == 0
+    assert "update-check on" in out
+    assert load_config(config_home).update_check is True
+
+
+def test_update_check_junk_value_is_usage_error(run_cli: RunCli, config_home: Path) -> None:
+    code, _out, err = run_cli(["config", "update-check", "maybe"])
+    assert code == 64
+    assert "on" in err and "off" in err

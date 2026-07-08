@@ -1,0 +1,3 @@
+error: can't run 'brew' — it isn't on PATH here
+  smartpipe tried: brew upgrade smartpipe
+  Run that yourself in a shell where brew works.

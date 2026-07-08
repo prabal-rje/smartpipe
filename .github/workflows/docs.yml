@@ -2,7 +2,7 @@ name: docs
 on:
   push:
     branches: [main]
-    paths: ["docs/**", "mkdocs.yml", ".github/workflows/docs.yml"]
+    paths: ["docs/**", "mkdocs.yml", ".github/workflows/docs.yml", "packaging/install/**"]
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -26,6 +26,9 @@ jobs:
       # the player streams same-origin from Pages - iOS Safari needs honest
       # byte-range handling that the release-asset redirect does not give it
       - run: curl -sL -o site/demo/smartpipe-demo.mp4 https://github.com/prabal-rje/smartpipe/releases/download/demo-assets/smartpipe-demo.mp4
+      # the one-line installers publish at the site root so the curl/irm
+      # commands in the README never change across releases
+      - run: cp packaging/install/install.sh packaging/install/install.ps1 site/
       - uses: actions/upload-pages-artifact@v3
         with: { path: site }
       - id: deployment

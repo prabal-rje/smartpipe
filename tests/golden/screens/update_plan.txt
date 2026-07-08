@@ -1,0 +1,2 @@
+smartpipe 1.4.0 — installed with uv tool
+  will run: uv tool upgrade smartpipe-cli

@@ -164,3 +164,24 @@ def test_save_refuses_to_overwrite_a_corrupt_file(tmp_path: Path) -> None:
     with pytest.raises(SetupFault):
         save_config(path, Config(model="y"))
     assert path.read_text(encoding="utf-8") == "model =\n"  # untouched
+
+
+# --- update-check (the auto update check's persisted kill switch) ---------------
+
+
+def test_update_check_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    save_config(path, Config(update_check=False))
+    assert load_config(path).update_check is False
+    save_config(path, Config(update_check=True))
+    assert load_config(path).update_check is True
+    save_config(path, Config(update_check=None))
+    assert load_config(path).update_check is None
+    assert "update-check" not in path.read_text(encoding="utf-8")  # None = unset
+
+
+def test_update_check_wrong_type_fails_loudly(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('update-check = "yes"\n', encoding="utf-8")
+    with pytest.raises(SetupFault, match="update-check"):
+        load_config(path)
