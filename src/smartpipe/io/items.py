@@ -23,6 +23,7 @@ __all__ = [
     "describe_source",
     "item_from_file",
     "item_from_line",
+    "source_record",
 ]
 
 _BOM = "﻿"
@@ -39,8 +40,29 @@ _warned_meta: set[str] = set()  # once per field name per process, like the degr
 @dataclass(frozen=True, slots=True)
 class ItemSource:
     kind: Literal["stdin", "file"]
-    name: str  # "-" for stdin, else the path as given
-    index: int  # 0-based line number (stdin) or file ordinal
+    name: str  # "-" for stdin, else the path (or an adopted human label)
+    index: int  # 0-based line number (stdin) or file/segment ordinal
+    cut: str = "lines"  # how the item was cut: lines|jsonl|file|tokens|pages|minutes|seconds
+    path: str | None = None  # the origin path when `name` carries a human label
+    label: str | None = None  # adopted human wording ("report.pdf §3/12")
+
+
+def source_record(source: ItemSource) -> dict[str, object]:
+    """The ``__source`` spine record (item 13): how the item was cut travels
+    with it — ``{path, as, line|page|segment}`` plus an optional human label."""
+    record: dict[str, object] = {"path": source.path or source.name, "as": source.cut}
+    match source.cut:
+        case "lines" | "jsonl":
+            record["line"] = source.index + 1
+        case "pages":
+            record["page"] = source.index + 1
+        case "file":
+            pass  # a whole file has no inner position
+        case _:  # tokens / minutes / seconds / future cuts
+            record["segment"] = source.index + 1
+    if source.label is not None:
+        record["label"] = source.label
+    return record
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,19 +97,47 @@ def item_from_line(line: str, index: int) -> Item:
 
 def item_from_file(text: str, path: str, index: int) -> Item:
     """A whole file is one item: its extracted text, with no JSON sniffing (a
-    document's text isn't an NDJSON line). ``filter``/``top_k`` emit its path."""
+    document's text isn't a JSONL line). ``filter``/``top_k`` emit its path."""
     return Item(
         raw=text,
         text=text,
         data=None,
-        source=ItemSource(kind="file", name=path, index=index),
+        source=ItemSource(kind="file", name=path, index=index, cut="file"),
     )
 
 
 def _named_source(data: Mapping[str, object] | None, index: int) -> ItemSource:
-    # split emits {"source": "call.mp3 §00:10-00:20"} — keep that provenance
-    name = data.get("source") if data is not None else None
-    return ItemSource(kind="stdin", name=name if isinstance(name, str) else "-", index=index)
+    """The line's provenance: an incoming ``__source`` record is ADOPTED (the
+    round-trip half of item 13 — split's cut survives the pipe); otherwise the
+    line is a fresh lines/jsonl cut at this position."""
+    if data is None:
+        return ItemSource(kind="stdin", name="-", index=index, cut="lines")
+    from smartpipe.core.jsontools import as_record
+
+    carried = as_record(data.get("__source"))
+    if carried is None:
+        return ItemSource(kind="stdin", name="-", index=index, cut="jsonl")
+    path = carried.get("path")
+    cut = carried.get("as")
+    label = carried.get("label")
+    position = next(
+        (
+            value
+            for key in ("line", "page", "segment")
+            if isinstance(value := carried.get(key), int)
+        ),
+        None,
+    )
+    named_path = path if isinstance(path, str) else "-"
+    named_label = label if isinstance(label, str) else None
+    return ItemSource(
+        kind="stdin",
+        name=named_label or named_path,
+        index=position - 1 if position is not None else index,
+        cut=cut if isinstance(cut, str) else "jsonl",
+        path=named_path,
+        label=named_label,
+    )
 
 
 def _warn_unknown_meta(data: Mapping[str, object] | None) -> None:

@@ -4,7 +4,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from smartpipe.io.items import ItemSource, describe_source, item_from_line
+from smartpipe.io.items import ItemSource, describe_source, item_from_line, source_record
 
 
 def test_plain_line() -> None:
@@ -163,3 +163,63 @@ def test_single_underscore_fields_are_user_data(capsys: pytest.CaptureFixture[st
     item = item_from_line('{"_mine": 1}\n', 0)
     assert item.data is not None
     assert capsys.readouterr().err == ""  # one leading underscore belongs to the user
+
+
+# --- __source: granularity in the spine (wave 2, item 13) ------------------------
+
+
+def test_plain_line_is_cut_as_lines() -> None:
+    item = item_from_line("hello\n", 4)
+    assert item.source.cut == "lines"
+    assert source_record(item.source) == {"path": "-", "as": "lines", "line": 5}
+
+
+def test_record_line_is_cut_as_jsonl() -> None:
+    item = item_from_line('{"a": 1}\n', 0)
+    assert item.source.cut == "jsonl"
+    assert source_record(item.source) == {"path": "-", "as": "jsonl", "line": 1}
+
+
+def test_file_item_is_cut_as_file() -> None:
+    from smartpipe.io.items import item_from_file
+
+    item = item_from_file("body", "reports/a.pdf", 2)
+    assert item.source.cut == "file"
+    assert source_record(item.source) == {"path": "reports/a.pdf", "as": "file"}
+
+
+def test_incoming_source_record_is_adopted() -> None:
+    import json
+
+    line = (
+        json.dumps(
+            {
+                "text": "chunk",
+                "__source": {
+                    "path": "report.pdf",
+                    "as": "tokens",
+                    "segment": 3,
+                    "label": "report.pdf §3/12",
+                },
+            }
+        )
+        + "\n"
+    )
+    item = item_from_line(line, 9)
+    assert item.source.cut == "tokens"
+    assert describe_source(item.source) == "report.pdf §3/12"  # the label speaks for humans
+    assert source_record(item.source) == {
+        "path": "report.pdf",
+        "as": "tokens",
+        "segment": 3,
+        "label": "report.pdf §3/12",
+    }
+
+
+def test_source_record_uses_page_and_segment_keys() -> None:
+    from smartpipe.io.items import ItemSource
+
+    pages = ItemSource(kind="file", name="r.pdf", index=1, cut="pages")
+    assert source_record(pages) == {"path": "r.pdf", "as": "pages", "page": 2}
+    seconds = ItemSource(kind="stdin", name="call.wav", index=0, cut="seconds")
+    assert source_record(seconds) == {"path": "call.wav", "as": "seconds", "segment": 1}
