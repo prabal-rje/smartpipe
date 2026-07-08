@@ -95,6 +95,27 @@ The identity release.
   pipeline example now route `cluster --explode members` into
   `chart cluster --top 8`, which draws real sizes.
 
+### Every example, run for real
+- **The docs were audited by executing them**: all 236 example blocks
+  (README, docs, SKILL files, CLI help) inventoried, statically checked,
+  and ~105 run verbatim against a generated corpus of real-format files.
+  Three code bugs surfaced and are fixed with pinning tests:
+  - **Quoted globs reach the reader.** `smartpipe 'logs/*.jsonl'` - a
+    documented form - exited 64 ("no verb"); unexpanded glob tokens now
+    route to reader mode, and an unmatched glob errs loudly.
+  - **Video is refused pre-send on wires that can't watch.** The
+    ChatGPT-login (codex) and anthropic adapters silently dropped video
+    parts and sent prompt-only requests - the model answered "no video
+    provided", no degraded note fired, and video-RAG examples embedded
+    that refusal prose as vectors. Both wires now raise before sending,
+    so the documented ladder (`degraded: … video → frames+audio`)
+    actually engages.
+  - 7 broken and 12 misleading example sites corrected against observed
+    behavior (SKILL files now run verbatim; the `.sem` key table is
+    re-derived from the runtime's own validation errors; `__score`
+    spelling; stale "oversized items are refused" claims rewritten for
+    auto-chunking).
+
 ### The terminal shows your media
 - **Media previews at the human view.** At a terminal (and through
   `readable`), the first media part of an item now renders under its

@@ -120,7 +120,7 @@ smartpipe run extract.sem < cards.txt
 Multi-stage pipeline files were considered and rejected: they would re-implement
 `|` - ordering, buffering, and error propagation the shell already does better.
 One file = one stage keeps every `.sem` composable with everything else on your
-system, so each .sem stays composable with other tools on your system.
+system.
 
 
 ## Pipelines: several stages in one file
@@ -159,5 +159,3 @@ Stage receipts on `stderr` carry their stage name (`[hot] where: 214 of 9,102
 matched`). Stage keys are validated exactly like single-stage files - a typo
 is a loud error, never silently ignored. Single-stage files are unchanged;
 extra CLI flags apply to them only.
-
-All verbs are scriptable now, including where, extend, distinct, outliers, cluster, diff, summarize, sample, getschema, sort, chart.
