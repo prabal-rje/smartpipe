@@ -6,7 +6,9 @@ on:
   pull_request:
   workflow_dispatch: {}  # run the full cross-platform matrix on demand
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # event_name in the group so a dispatched full-matrix never cancels (or
+  # is canceled by) the cheap push checks - only same-kind runs supersede
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 env:
   NO_COLOR: "1"
