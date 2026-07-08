@@ -2,3 +2,4 @@ node_modules/
 .remotion/
 out/*
 !out/smartpipe-demo.mp4
+out/
