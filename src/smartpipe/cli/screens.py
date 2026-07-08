@@ -123,7 +123,7 @@ _UTILITIES: tuple[tuple[str, str], ...] = (
     ("split", "Break oversized items into chunks"),
     ("write", "Route items to files (the egress door)"),
     ("readable", "Render records as blocks for human eyes"),
-    ("chart", "Draw a bar chart of results (--save writes SVG)"),
+    ("chart", "Draw a bar chart of results (--save writes SVG/PNG)"),
     ("config", "Configure models and settings"),
 )
 

@@ -1,4 +1,4 @@
-"""``smartpipe chart`` — bars in the terminal, SVG on disk. No model calls."""
+"""``smartpipe chart`` — bars in the terminal, SVG/PNG on disk. No model calls."""
 
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ __all__ = ["chart_command"]
 @click.option(
     "--save",
     type=click.Path(path_type=Path),
-    help="Also write the chart as an SVG file (no extra dependencies).",
+    help="Also write the chart to a file — SVG or PNG, by extension.",
 )
-@click.option("--title", help="Title for the saved SVG.")
+@click.option("--title", help="Title for the saved chart.")
 @click.option("--facet", "facet", help="Several distributions in one pass: --facet label,severity.")
 @click.option(
     "--by-time",
@@ -49,7 +49,7 @@ def chart_command(
       cat app.jsonl | smartpipe where 'level == "error"' | smartpipe chart --by-time ts:1h
 
     Reads JSONL records (counts FIELD) or plain lines (counts each line).
-    The chart is the result — it goes to stdout; --save adds an SVG.
+    The chart is the result — it goes to stdout; --save adds an SVG or PNG.
     """
     facets = tuple(name.strip() for name in facet.split(",") if name.strip()) if facet else ()
     code = run_chart(

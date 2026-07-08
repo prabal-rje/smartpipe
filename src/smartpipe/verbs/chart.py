@@ -1,8 +1,9 @@
 """The ``chart`` verb: JSONL in, a bar chart out. Free — no model calls.
 
-The chart IS the result, so it goes to stdout; ``--save`` additionally writes a
-dependency-free SVG. Counts a field across records (or tallies whole lines),
-which makes it the natural tail for the tools upstream:
+The chart IS the result, so it goes to stdout; ``--save`` additionally writes
+an SVG or PNG (matplotlib, format by extension). Counts a field across records
+(or tallies whole lines), which makes it the natural tail for the tools
+upstream:
 
     … | smartpipe map "Extract {label}" | smartpipe chart label
 """
@@ -15,10 +16,12 @@ from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import ExitCode, UsageFault
 from smartpipe.engine.chart import (
+    ChartFormat,
     render_bars,
     render_bars_tty,
-    render_svg,
-    render_svg_panels,
+    render_figure,
+    render_figure_panels,
+    render_figure_timeseries,
     render_timeseries_tty,
 )
 from smartpipe.io import diagnostics
@@ -32,6 +35,21 @@ if TYPE_CHECKING:
 __all__ = ["ChartRequest", "run_chart"]
 
 _DEFAULT_TOP = 20
+
+
+def _save_format(path: Path) -> ChartFormat:
+    """The output format, named by the file extension — anything else is a fault."""
+    match path.suffix.lower():
+        case ".svg":
+            return "svg"
+        case ".png":
+            return "png"
+        case _:
+            raise UsageFault(
+                "--save writes SVG or PNG — name the format by extension\n"
+                "  Try: --save labels.svg   or   --save labels.png\n"
+                f"  (got: {path.name})"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +81,8 @@ def run_chart(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCo
         raise UsageFault("--facet replaces the FIELD argument — pass one or the other")
     if request.by_time is not None and (request.facets or request.field is not None):
         raise UsageFault("--by-time replaces FIELD/--facet — pass one of the three")
+    if request.save is not None:
+        _save_format(request.save)  # fail fast, before a single line is consumed
     if request.by_time is not None:
         return _run_by_time(request, stdin=stdin, stdout=stdout)
     if request.facets:
@@ -83,10 +103,11 @@ def run_chart(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCo
     if dropped > 0:
         diagnostics.note(f"{dropped} more values below the top {len(ranked)} (--top widens)")
     if request.save is not None:
-        request.save.write_text(
-            render_svg(ranked, title=request.title or request.field), encoding="utf-8"
+        payload = render_figure(
+            ranked, title=request.title or request.field, fmt=_save_format(request.save)
         )
-        diagnostics.note(f"chart saved: {request.save} (SVG — opens anywhere, converts to png)")
+        request.save.write_bytes(payload)
+        diagnostics.note(f"chart saved: {request.save}")
     return ExitCode.OK
 
 
@@ -118,8 +139,9 @@ def _run_facets(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> Exit
     ]
     stdout.write("\n".join(sections) + "\n")
     if request.save is not None:
-        request.save.write_text(render_svg_panels(panels, title=request.title), encoding="utf-8")
-        diagnostics.note(f"chart saved: {request.save} (SVG — opens anywhere, converts to png)")
+        payload = render_figure_panels(panels, title=request.title, fmt=_save_format(request.save))
+        request.save.write_bytes(payload)
+        diagnostics.note(f"chart saved: {request.save}")
     return ExitCode.OK
 
 
@@ -161,10 +183,11 @@ def _run_by_time(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> Exi
         )
         stdout.write(rendered + "\n")
         if request.save is not None:
-            request.save.write_text(
-                render_svg(rows, title=request.title or field), encoding="utf-8"
+            payload = render_figure_timeseries(
+                rows, title=request.title or field, fmt=_save_format(request.save)
             )
-            diagnostics.note(f"chart saved: {request.save} (SVG — opens anywhere, converts to png)")
+            request.save.write_bytes(payload)
+            diagnostics.note(f"chart saved: {request.save}")
     if unparseable:
         diagnostics.note(
             f"{unparseable:,} rows with unparseable '{field}' — "

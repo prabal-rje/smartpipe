@@ -75,7 +75,6 @@ setuptools
 six
 sniffio
 soupsieve
-svgwrite
 sympy
 tokenizers
 tomli-w

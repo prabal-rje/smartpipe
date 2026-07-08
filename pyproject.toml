@@ -46,11 +46,9 @@ dependencies = [
   "pypdf>=5.0",
   "imageio-ffmpeg>=0.5",
   # Charts (owner ruling, 2026-07-08): plotext draws the terminal side,
-  # matplotlib renders --save (SVG/PNG). svgwrite is dead upstream; it stays
-  # only until its last caller is re-platformed, then it goes.
+  # matplotlib renders --save (SVG/PNG). svgwrite was dropped - dead upstream.
   "plotext>=5",
   "matplotlib>=3.8",
-  "svgwrite>=1.4",
 ]
 
 [project.scripts]
@@ -119,6 +117,9 @@ ignore = ["A005"]
 "src/smartpipe/parsing/extract.py" = ["N818"]
 # Dev scripts print by design - they ARE the report (join-eval, future tooling).
 "scripts/*" = ["T201"]
+# Local stubs mirror upstream signatures verbatim - matplotlib really names
+# its savefig kwarg `format`; renaming it in the stub would break call sites.
+"typings/**" = ["A002"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

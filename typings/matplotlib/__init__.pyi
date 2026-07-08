@@ -1,0 +1,9 @@
+"""Minimal local stub: the chart verb renders --save figures (SVG/PNG)."""
+
+from collections.abc import Mapping
+from contextlib import AbstractContextManager
+
+def use(backend: str) -> None: ...
+def rc_context(
+    rc: Mapping[str, object] | None = ..., fname: str | None = ...
+) -> AbstractContextManager[None]: ...
