@@ -9,7 +9,7 @@
 **Semantic pipes and queries for your terminal.**
 
 Run PDFs, images, audio, video, and text through Unix verbs that understand
-their input. Use Ollama for local models, or choose a cloud provider explicitly.
+their input.
 
 [![smartpipe demo - click to play with sound and controls](https://github.com/prabal-rje/smartpipe/releases/download/demo-assets/smartpipe-teaser-v2.gif)](https://prabal-rje.github.io/smartpipe/demo/)
 
@@ -187,7 +187,7 @@ If smartpipe is useful in your research, cite it (or run `smartpipe cite`):
   author = {Gupta, Prabal},
   title = {smartpipe: semantic pipes for your terminal},
   year = {2026},
-  version = {1.3.1},
+  version = {1.4.0rc1},
   license = {Apache-2.0},
   url = {https://github.com/prabal-rje/smartpipe}
 }

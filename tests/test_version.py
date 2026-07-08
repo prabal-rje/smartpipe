@@ -4,5 +4,7 @@ import smartpipe
 
 
 def test_version_is_semver() -> None:
-    major, minor, patch = smartpipe.__version__.split(".")
-    assert all(part.isdigit() for part in (major, minor, patch))
+    # PEP 440: X.Y.Z with an optional rcN tail (release candidates are real)
+    import re
+
+    assert re.fullmatch(r"\d+\.\d+\.\d+(rc\d+)?", smartpipe.__version__)
