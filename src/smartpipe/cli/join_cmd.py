@@ -27,6 +27,14 @@ __all__ = ["join_command"]
 
 @click.command(name="join")
 @click.argument("predicate", required=False)
+@click.option(
+    "--on",
+    "on_keys",
+    multiple=True,
+    metavar="EXPR",
+    help="Key equality: 'left.FIELD == right.FIELD' (repeatable, AND-ed). "
+    "Alone: a free deterministic join; with a prompt: blocks the candidate pairs.",
+)
 @click.argument("paths", nargs=-1, required=False)
 @click.option(
     "--prompt-file",
@@ -117,6 +125,7 @@ __all__ = ["join_command"]
 @input_options
 def join_command(
     predicate: str | None,
+    on_keys: tuple[str, ...],
     prompt_file: Path | None,
     right: Path,
     k: int,
@@ -155,7 +164,11 @@ def join_command(
     """
     request = JoinRequest(
         allow_captions=allow_captions,
-        predicate=resolve_prompt(predicate, prompt_file),
+        predicate=(
+            None
+            if on_keys and predicate is None and prompt_file is None
+            else resolve_prompt(predicate, prompt_file)
+        ),
         right=right,
         k=k,
         threshold=threshold,
@@ -163,6 +176,7 @@ def join_command(
         kind=kind,
         model_flag=model_flag,
         fallback_flag=fallback_flag,
+        on=on_keys,
         bare=bare,
         full=full,
         embed_model_flag=embed_model_flag,

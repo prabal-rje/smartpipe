@@ -13,6 +13,7 @@ A bad right side costs zero chat calls.
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, replace
 from functools import partial
 from typing import TYPE_CHECKING, Protocol
@@ -26,7 +27,7 @@ from smartpipe.engine.prompts import (
     build_repair_request,
     parse_join_predicate,
 )
-from smartpipe.engine.ranking import rank
+from smartpipe.engine.ranking import rank, select
 from smartpipe.engine.runner import (
     Done,
     FailurePolicy,
@@ -69,7 +70,7 @@ _PREVIEW_THRESHOLD = 200  # estimated judge calls before the cost line appears (
 
 @dataclass(frozen=True, slots=True)
 class JoinRequest:
-    predicate: str
+    predicate: str | None
     right: Path
     k: int
     threshold: float | None
@@ -84,6 +85,7 @@ class JoinRequest:
     kind: str = "inner"  # inner | leftouter | anti (D38/11)
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
     bare: bool = False  # --bare: strip __ metadata from record output (item 18)
+    on: tuple[str, ...] = ()  # --on 'left.F == right.F' (repeatable, AND-ed) — item 21
     full: bool = False  # --full: disable the TTY preview's truncation (item 19)
 
 
@@ -149,9 +151,21 @@ async def run_join(
     stdout: TextIO,
     stop: asyncio.Event | None = None,
 ) -> ExitCode:
-    tokens = parse_join_predicate(request.predicate)  # UsageFault on bad grammar
+    on_pairs = _parse_on(request.on)
+    if request.predicate is None and on_pairs is None:
+        raise UsageFault(
+            "join needs a predicate or --on\n"
+            '  Semantic: smartpipe join "ticket {left.text} concerns {right.name}" --right …\n'
+            "  Deterministic: smartpipe join --on 'left.sku == right.sku' --right …"
+        )
     if request.k < 1:
         raise UsageFault(f"--k must be >= 1, got {request.k}")
+    if request.predicate is None:
+        assert on_pairs is not None
+        return await _run_key_join(
+            request, on_pairs, context, stdin=stdin, stdout=stdout, stop=stop
+        )
+    tokens = parse_join_predicate(request.predicate)  # UsageFault on bad grammar
     right_items = _load_right(request.right)
     embed_model = await context.embedding_model(request.embed_model_flag)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
@@ -185,10 +199,17 @@ async def run_join(
         chat, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber(chat.ref)
     )
     book = PairBook(policy=FailurePolicy(), right_name=request.right.name)
+    right_blocks = _right_blocks(kept_right, on_pairs)
+    avoided = [0]  # pairs never considered thanks to equality blocking (item 21)
     spinner.start(total=total)
 
     async def worker(item: Item) -> tuple[Item, tuple[tuple[int, float], ...]]:
         current = slot.current  # captured per item: the failover swaps wholesale
+        block: list[int] | None = None
+        if on_pairs is not None and right_blocks is not None:
+            key = _key_of(item, tuple(left for left, _right in on_pairs))
+            block = right_blocks.get(key, []) if key is not None else []
+            avoided[0] += len(kept_right) - len(block)
         matches = await _join_one(
             item,
             log=log,
@@ -202,6 +223,7 @@ async def run_join(
             request=request,
             book=book,
             stop=stop,
+            block=block,
         )
         slot.tally(str(current.ref))
         return item, matches
@@ -273,6 +295,8 @@ async def run_join(
         diagnostics.note(f"join: {matched_pairs} matched · {unmatched_count} unmatched")
     if slot.switched:
         diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
+    if avoided[0]:
+        diagnostics.note(f"join --on: {avoided[0]:,} pairs never considered (equality blocking)")
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped + book.skipped)
         return interrupted_exit_code(done=done, skipped=skipped + book.skipped)
@@ -293,6 +317,7 @@ async def _join_one(
     request: JoinRequest,
     book: PairBook,
     stop: asyncio.Event | None,
+    block: list[int] | None = None,
 ) -> tuple[tuple[int, float], ...]:
     item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
     budget = embed_budget(embed_model.ref.provider)
@@ -307,7 +332,18 @@ async def _join_one(
     else:
         vector = (await embed_model.embed([item.text]))[0]
     matches: list[tuple[int, float]] = []
-    for position, score in candidates(vector, index, k=request.k, threshold=request.threshold):
+    if block is not None:
+        # --on with a prompt (item 21): embedding + judge run ONLY within the
+        # equality block — the same select() semantics, restricted
+        ranked = select(
+            rank(vector, [index.vectors[p] for p in block]),
+            k=request.k,
+            threshold=request.threshold,
+        )
+        pairs = tuple((block[i], score) for i, score in ranked)
+    else:
+        pairs = candidates(vector, index, k=request.k, threshold=request.threshold)
+    for position, score in pairs:
         if stop is not None and stop.is_set():
             break
         right_item = kept_right[position]
@@ -326,6 +362,129 @@ async def _join_one(
         if verdict:
             matches.append((position, score))
     return tuple(matches)
+
+
+def _parse_on(expressions: tuple[str, ...]) -> tuple[tuple[str, str], ...] | None:
+    """--on 'left.FIELD == right.FIELD' (item 21): repeatable, AND-ed."""
+    if not expressions:
+        return None
+    import re
+
+    pairs: list[tuple[str, str]] = []
+    pattern = re.compile(r"^left\.([A-Za-z_][A-Za-z0-9_]*)\s*==\s*right\.([A-Za-z_][A-Za-z0-9_]*)$")
+    for expression in expressions:
+        matched = pattern.match(expression.strip())
+        if matched is None:
+            raise UsageFault(
+                f"--on wants left.FIELD == right.FIELD, got {expression!r}\n"
+                "  Example: --on 'left.sku == right.sku'   (repeat --on to AND more keys)"
+            )
+        pairs.append((matched.group(1), matched.group(2)))
+    return tuple(pairs)
+
+
+def _key_of(item: Item, fields: tuple[str, ...]) -> tuple[str, ...] | None:
+    """The item's equality key: canonicalized field values; None when any key
+    field is missing — a missing key never equals anything."""
+    record = item.data if item.data is not None else {"text": item.text}
+    values: list[str] = []
+    for name in fields:
+        value = record.get(name)
+        if value is None:
+            return None
+        values.append(
+            value
+            if isinstance(value, str)
+            else json.dumps(value, sort_keys=True, separators=(",", ":"))
+        )
+    return tuple(values)
+
+
+def _right_blocks(
+    kept_right: list[Item], on_pairs: tuple[tuple[str, str], ...] | None
+) -> dict[tuple[str, ...], list[int]] | None:
+    if on_pairs is None:
+        return None
+    fields = tuple(right for _left, right in on_pairs)
+    blocks: dict[tuple[str, ...], list[int]] = {}
+    for position, right_item in enumerate(kept_right):
+        key = _key_of(right_item, fields)
+        if key is not None:
+            blocks.setdefault(key, []).append(position)
+    return blocks
+
+
+async def _run_key_join(
+    request: JoinRequest,
+    on_pairs: tuple[tuple[str, str], ...],
+    context: JoinContext,
+    *,
+    stdin: TextIO,
+    stdout: TextIO,
+    stop: asyncio.Event | None,
+) -> ExitCode:
+    """--on alone (item 21): a deterministic key-equality join — zero model
+    calls, works with --kind inner/leftouter/anti and --unmatched."""
+    right_items = _load_right(request.right)
+    blocks = _right_blocks(right_items, on_pairs)
+    assert blocks is not None
+    spinner = make_stderr_spinner()
+    writer = context.writer(
+        request.output,
+        structured=request.kind != "anti",
+        stdout=spinner.guard(stdout),
+        fields=request.fields,
+        bare=request.bare,
+    )
+    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
+    spinner.start(total=total)
+    left_fields = tuple(left for left, _right in on_pairs)
+    done = 0
+    matched_pairs = 0
+    unmatched_count = 0
+    unmatched_sink = (
+        request.unmatched.open("w", encoding="utf-8") if request.unmatched is not None else None
+    )
+    try:
+        async for left in items_iter:
+            if stop is not None and stop.is_set():
+                break
+            key = _key_of(left, left_fields)
+            positions = blocks.get(key, []) if key is not None else []
+            if request.kind != "anti":
+                for position in positions:
+                    writer.write_record(
+                        {"left": _payload(left), "right": _payload(right_items[position])}
+                    )
+            matched_pairs += len(positions)
+            if not positions:
+                unmatched_count += 1
+                match request.kind:
+                    case "anti":
+                        writer.write_text(left.raw)
+                    case "leftouter":
+                        writer.write_record({"left": _payload(left), "right": None})
+                    case _:
+                        if unmatched_sink is not None:
+                            unmatched_sink.write(left.raw + "\n")
+            done += 1
+            spinner.advance()
+    finally:
+        spinner.finish()
+        writer.flush()
+        if unmatched_sink is not None:
+            unmatched_sink.close()
+    if request.unmatched is not None:
+        diagnostics.note(
+            f"join: {matched_pairs} matched · {unmatched_count} unmatched → "
+            f"{request.unmatched.name}"
+        )
+    elif request.kind != "inner":
+        diagnostics.note(f"join: {matched_pairs} matched · {unmatched_count} unmatched")
+    if stop is not None and stop.is_set():
+        diagnostics.interrupted_summary(processed=done, skipped=0)
+        return interrupted_exit_code(done=done, skipped=0)
+    return outcome_exit_code(done=done, skipped=0)
 
 
 def _payload(item: Item) -> dict[str, object]:

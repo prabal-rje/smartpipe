@@ -517,3 +517,113 @@ async def test_anti_with_unmatched_file_is_a_usage_fault(tmp_path: Path) -> None
             embed,
             judge,
         )
+
+
+# --- join --on (wave 2, item 21) ---------------------------------------------------
+
+
+class _NoModels:
+    """--on alone must resolve neither model."""
+
+    async def chat_model(self, flag: str | None = None) -> ChatModel:
+        raise AssertionError("--on alone never resolves a chat model")
+
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("no fallback here")
+
+    async def embedding_model(self, flag: str | None = None) -> object:
+        raise AssertionError("--on alone never resolves an embedding model")
+
+    def remote_transcriber(self, chat_ref: object | None = None) -> None:
+        return None
+
+    def concurrency(self, flag: int | None = None) -> int:
+        return 2
+
+    def writer(
+        self,
+        output_flag: OutputFormat,
+        *,
+        structured: bool,
+        stdout: TextSink,
+        fields: tuple[str, ...] | None = None,
+        bare: bool = False,
+        full: bool = False,
+    ) -> ResultWriter:
+        from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
+
+        mode = RenderMode.NDJSON if structured else RenderMode.TEXT
+        return make_writer(WriterConfig(mode=mode, color=False, width=80, fields=fields), stdout)
+
+
+def _on_request(tmp_path: Path, right_rows: list[str], **kw: object) -> JoinRequest:
+    right = tmp_path / "right.jsonl"
+    right.write_text("\n".join(right_rows) + "\n", encoding="utf-8")
+    return JoinRequest(
+        predicate=None,
+        right=right,
+        k=5,
+        threshold=None,
+        model_flag=None,
+        embed_model_flag=None,
+        concurrency_flag=None,
+        output=OutputFormat.JSON,
+        on=("left.sku == right.sku",),
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+async def test_on_alone_is_a_free_key_equality_join(tmp_path: Path) -> None:
+    import json as _json
+
+    request = _on_request(
+        tmp_path,
+        ['{"sku": "A1", "name": "bolt"}', '{"sku": "B2", "name": "nut"}'],
+    )
+    out = io.StringIO()
+    code = await run_join(
+        request,
+        _NoModels(),  # type: ignore[arg-type]
+        stdin=io.StringIO('{"sku": "A1", "qty": 3}\n{"sku": "ZZ", "qty": 1}\n'),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    rows = [_json.loads(line) for line in out.getvalue().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["left"]["qty"] == 3
+    assert rows[0]["right"]["name"] == "bolt"
+    assert "__score" not in rows[0]  # deterministic: no similarity to report
+
+
+async def test_on_alone_supports_anti_kind(tmp_path: Path) -> None:
+    request = _on_request(tmp_path, ['{"sku": "A1"}'], kind="anti")
+    out = io.StringIO()
+    code = await run_join(
+        request,
+        _NoModels(),  # type: ignore[arg-type]
+        stdin=io.StringIO('{"sku": "A1"}\n{"sku": "ZZ"}\n'),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert out.getvalue() == '{"sku": "ZZ"}\n'  # unmatched rows, verbatim
+
+
+async def test_bad_on_expression_is_a_usage_screen(tmp_path: Path) -> None:
+    request = _on_request(tmp_path, ['{"sku": "A1"}'])
+    request = replace_dataclass(request, on=("sku == sku",))
+    with pytest.raises(UsageFault, match=r"left\.FIELD == right\.FIELD"):
+        await run_join(
+            request,
+            _NoModels(),  # type: ignore[arg-type]
+            stdin=io.StringIO('{"sku": "A1"}\n'),
+            stdout=io.StringIO(),
+        )
+
+
+def replace_dataclass(request: JoinRequest, **kw: object) -> JoinRequest:
+    from dataclasses import replace as _replace
+
+    return _replace(request, **kw)  # type: ignore[arg-type]
