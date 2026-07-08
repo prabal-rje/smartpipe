@@ -9,7 +9,7 @@ import sys
 import click
 
 from smartpipe.cli.completions import complete_embed_models
-from smartpipe.cli.input_options import input_options, input_spec
+from smartpipe.cli.input_options import input_options, input_spec, positional_paths
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.outliers import OutliersRequest, run_outliers
@@ -19,6 +19,7 @@ __all__ = ["outliers_command"]
 
 @click.command(name="outliers")
 @click.argument("count", type=int, default=5)
+@click.argument("paths", nargs=-1, required=False)
 @click.option(
     "--embed-model",
     "model_flag",
@@ -43,6 +44,7 @@ def outliers_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    paths: tuple[str, ...],
 ) -> None:
     """Rank the N items least like the rest — novelty, surfaced.
 
@@ -61,7 +63,9 @@ def outliers_command(
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,
         allow_captions=allow_captions,
-        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
     )
     code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:

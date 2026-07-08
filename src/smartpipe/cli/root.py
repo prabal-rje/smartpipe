@@ -104,6 +104,25 @@ class _RootGroup(click.Group):
             ctx.exit(int(ExitCode.OK))
         return super().parse_args(ctx, args)
 
+    def resolve_command(
+        self, ctx: click.Context, args: list[str]
+    ) -> tuple[str | None, click.Command | None, list[str]]:
+        # Reader mode (item 16): a first argument that is no verb but exists on
+        # disk makes the binary the reader — `smartpipe report.pdf` emits items.
+        # Verbs always win names; `./name` forces the file when one shadows a verb.
+        head = args[0]
+        if not head.startswith("-") and self.get_command(ctx, head) is None:
+            from pathlib import Path as _Path
+
+            if head.startswith(("./", "../", "/")) or _Path(head).exists():
+                from smartpipe.cli.read_cmd import read_command
+
+                return read_command.name, read_command, args
+            raise click.UsageError(
+                f"no verb '{head}', no file '{head}' — typo, or quote your prompt?"
+            )
+        return super().resolve_command(ctx, args)
+
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
         # Muscle-memory forgiveness for top_k's spelling; not shown in help.
         built_in = super().get_command(ctx, _ALIASES.get(cmd_name, cmd_name))

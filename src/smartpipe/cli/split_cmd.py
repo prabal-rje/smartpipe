@@ -8,7 +8,7 @@ import sys
 
 import click
 
-from smartpipe.cli.input_options import input_options, input_spec
+from smartpipe.cli.input_options import input_options, input_spec, positional_paths
 from smartpipe.cli.interrupts import graceful_interrupts
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.split import SplitRequest, run_split
@@ -17,6 +17,7 @@ __all__ = ["split_command"]
 
 
 @click.command(name="split")
+@click.argument("paths", nargs=-1, required=False)
 @click.option(
     "--by",
     "by_flag",
@@ -43,6 +44,7 @@ def split_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    paths: tuple[str, ...],
 ) -> None:
     """Break oversized items into budget-sized chunks. Free — no model calls.
 
@@ -60,7 +62,9 @@ def split_command(
         max_tokens_flag=max_tokens,
         by_flag=by_flag,
         media=media,
-        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
     )
     code = asyncio.run(_run(request))
     if code is not ExitCode.OK:

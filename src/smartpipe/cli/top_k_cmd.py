@@ -9,7 +9,7 @@ import sys
 import click
 
 from smartpipe.cli.completions import complete_embed_models
-from smartpipe.cli.input_options import fields_option, input_options, input_spec
+from smartpipe.cli.input_options import fields_option, input_options, input_spec, positional_paths
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.top_k import TopKRequest, run_top_k
@@ -19,6 +19,7 @@ __all__ = ["top_k_command"]
 
 @click.command(name="top_k")
 @click.argument("k", type=int, required=False)
+@click.argument("paths", nargs=-1, required=False)
 @click.option("--near", required=True, help="Rank items by similarity to this query.")
 @click.option("--threshold", type=float, help="Keep everything at or above this similarity (0-1).")
 @click.option(
@@ -48,6 +49,7 @@ def top_k_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    paths: tuple[str, ...],
 ) -> None:
     """Rank items by similarity to a query and return the top K.
 
@@ -68,7 +70,9 @@ def top_k_command(
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,
         stream=stream,
-        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
         fields=fields,
     )
     code = asyncio.run(_run(request, max_calls))

@@ -14,6 +14,7 @@ from smartpipe.cli.input_options import (
     fields_option,
     input_options,
     input_spec,
+    positional_paths,
     resolve_prompt,
 )
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
@@ -26,6 +27,7 @@ __all__ = ["extend_command"]
 
 @click.command(name="extend")
 @click.argument("prompt", required=False)
+@click.argument("paths", nargs=-1, required=False)
 @click.option(
     "--prompt-file",
     "prompt_file",
@@ -116,6 +118,7 @@ def extend_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    paths: tuple[str, ...],
 ) -> None:
     """Add extracted fields to each record — everything it had survives.
 
@@ -145,7 +148,9 @@ def extend_command(
         keep_invalid=keep_invalid,
         concurrency_flag=concurrency_flag,
         fields=fields,
-        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
     )
     code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:

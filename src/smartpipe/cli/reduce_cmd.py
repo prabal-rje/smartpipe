@@ -14,6 +14,7 @@ from smartpipe.cli.input_options import (
     fields_option,
     input_options,
     input_spec,
+    positional_paths,
     resolve_prompt,
 )
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
@@ -25,6 +26,7 @@ __all__ = ["reduce_command"]
 
 @click.command(name="reduce")
 @click.argument("prompt", required=False)
+@click.argument("paths", nargs=-1, required=False)
 @click.option(
     "--prompt-file",
     "prompt_file",
@@ -77,6 +79,7 @@ def reduce_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    paths: tuple[str, ...],
 ) -> None:
     """Synthesize all input items into a single result.
 
@@ -100,7 +103,9 @@ def reduce_command(
         verbose=verbose,
         window=window,
         every=every,
-        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
         fields=fields,
     )
     code = asyncio.run(_run(request, max_calls))

@@ -14,6 +14,7 @@ from smartpipe.cli.input_options import (
     fields_option,
     input_options,
     input_spec,
+    positional_paths,
     resolve_prompt,
 )
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
@@ -26,6 +27,7 @@ __all__ = ["join_command"]
 
 @click.command(name="join")
 @click.argument("predicate", required=False)
+@click.argument("paths", nargs=-1, required=False)
 @click.option(
     "--prompt-file",
     "prompt_file",
@@ -120,6 +122,7 @@ def join_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    paths: tuple[str, ...],
 ) -> None:
     """Match stdin against a second input, semantically. Emits matched pairs.
 
@@ -148,7 +151,9 @@ def join_command(
         embed_model_flag=embed_model_flag,
         concurrency_flag=concurrency_flag,
         output=OutputFormat(output),
-        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
         fields=fields,
     )
     code = asyncio.run(_run(request, max_calls))

@@ -23,6 +23,8 @@ __all__ = [
     "describe_source",
     "item_from_file",
     "item_from_line",
+    "item_record",
+    "media_record",
     "source_record",
 ]
 
@@ -200,6 +202,29 @@ def _one_media(data: Mapping[str, object] | None) -> MediaData | None:
         return build(base64.b64decode(encoded, validate=True), mime)
     except (binascii.Error, ValueError):
         return None  # not ours — treat as a plain JSON line
+
+
+def media_record(part: MediaData) -> dict[str, object]:
+    """One media part as its ``__media`` spine object: {kind, mime, data_b64}."""
+    import base64
+
+    kind = type(part).__name__.removesuffix("Data").lower()
+    return {
+        "kind": kind,
+        "mime": part.mime,
+        "data_b64": base64.b64encode(part.data).decode("ascii"),
+    }
+
+
+def item_record(item: Item) -> dict[str, object]:
+    """The record an item IS (laws 1-2): its own fields, or ``{"text": …}`` for
+    plain text, with media and provenance riding the ``__`` spine."""
+    record: dict[str, object] = dict(item.data) if item.data is not None else {"text": item.text}
+    if item.media and "__media" not in record:
+        parts = [media_record(part) for part in item.media]
+        record["__media"] = parts[0] if len(parts) == 1 else parts
+    record["__source"] = source_record(item.source)
+    return record
 
 
 def describe_source(source: ItemSource) -> str:

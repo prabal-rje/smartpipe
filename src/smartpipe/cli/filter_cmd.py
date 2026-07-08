@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 from smartpipe.cli.completions import complete_chat_models
-from smartpipe.cli.input_options import input_options, input_spec, resolve_prompt
+from smartpipe.cli.input_options import input_options, input_spec, positional_paths, resolve_prompt
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.filter import FilterRequest, run_filter
@@ -20,6 +20,7 @@ __all__ = ["filter_command"]
 
 @click.command(name="filter")
 @click.argument("condition", required=False)
+@click.argument("paths", nargs=-1, required=False)
 @click.option(
     "--prompt-file",
     "prompt_file",
@@ -55,6 +56,7 @@ def filter_command(
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
+    paths: tuple[str, ...],
 ) -> None:
     """Keep items matching a plain-English condition. Semantic grep.
 
@@ -75,7 +77,9 @@ def filter_command(
         model_flag=model_flag,
         fallback_flag=fallback_flag,
         concurrency_flag=concurrency_flag,
-        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
+        input=input_spec(
+            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+        ),
     )
     code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:
