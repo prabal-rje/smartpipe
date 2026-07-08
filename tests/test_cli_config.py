@@ -11,8 +11,8 @@ from tests.conftest import RunCli
 
 @pytest.fixture
 def config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path)
-    monkeypatch.setenv("APPDATA", str(tmp_path)  # the windows config root (D09))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path))  # the windows config root (D09)
     monkeypatch.delenv("SMARTPIPE_MODEL", raising=False)
     monkeypatch.delenv("SMARTPIPE_EMBED_MODEL", raising=False)
     return tmp_path / "smartpipe" / "config.toml"
@@ -209,8 +209,8 @@ def test_set_embed_model_mistral(run_cli: RunCli, config_home: Path) -> None:
 def test_profile_switch_and_list(
     run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path)
-    monkeypatch.setenv("APPDATA", str(tmp_path)  # the windows config root (D09))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path))  # the windows config root (D09)
     code, _out, err = run_cli(["config", "profile", "local"])
     assert code == 0
     assert "profile 'local' active — model: ollama/gemma-4-e2b" in err
@@ -223,8 +223,8 @@ def test_profile_switch_and_list(
 def test_profile_unknown_name_lists_known(
     run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path)
-    monkeypatch.setenv("APPDATA", str(tmp_path)  # the windows config root (D09))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path))  # the windows config root (D09)
     code, _out, err = run_cli(["config", "profile", "yolo"])
     assert code == 2
     assert "profile 'yolo' doesn't exist" in err
