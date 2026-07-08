@@ -6,8 +6,10 @@ import asyncio
 import glob
 import io
 import os
+import queue
 import sys
 import tempfile
+import threading
 import types
 from typing import TYPE_CHECKING
 
@@ -32,21 +34,38 @@ def pathlib_read(path: str) -> bytes:
 
 
 class _BytePipe:
+    """A real OS pipe with writes pumped through ONE ordered background thread.
+
+    Windows anonymous pipes buffer ~8 KiB (POSIX: 64 KiB); a straddle-sized
+    os.write on the event-loop thread blocked forever there while the reader
+    task could never run - the CI hang that burned a 6-hour runner. The pump
+    thread may block harmlessly; the loop stays free to drain.
+    """
+
     def __init__(self) -> None:
         r_fd, self.w_fd = os.pipe()
         self.reader: TextIO = os.fdopen(r_fd, "r", encoding="utf-8")
         self._open = True
+        self._queue: queue.SimpleQueue[bytes | None] = queue.SimpleQueue()
+        self._pump_thread = threading.Thread(target=self._pump, daemon=True)
+        self._pump_thread.start()
+
+    def _pump(self) -> None:
+        while (chunk := self._queue.get()) is not None:
+            os.write(self.w_fd, chunk)
+        os.close(self.w_fd)
 
     def write(self, data: bytes) -> None:
-        os.write(self.w_fd, data)
+        self._queue.put(data)
 
     def close_write(self) -> None:
         if self._open:
-            os.close(self.w_fd)
             self._open = False
+            self._queue.put(None)  # the pump closes the fd → reader sees EOF
 
     def close(self) -> None:
         self.close_write()
+        self._pump_thread.join(timeout=5)
         self.reader.close()
 
 
