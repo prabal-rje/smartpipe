@@ -131,6 +131,7 @@ _UTILITIES: tuple[tuple[str, str], ...] = (
     ("readable", "Render records as blocks for human eyes"),
     ("chart", "Draw a bar chart of results (--save writes SVG/PNG)"),
     ("config", "Configure models and settings"),
+    ("update", "Upgrade smartpipe with the tool that installed it"),
 )
 
 _NAME_WIDTH = max(len(name) for name, _ in (*_VERBS, *_UTILITIES)) + 2

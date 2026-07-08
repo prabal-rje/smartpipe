@@ -154,6 +154,7 @@ The identity release.
   `note: smartpipe X.Y.Z is available (you have A.B.C) - run: smartpipe
   update`. Rc users aren't nagged about older stables. Off switches:
   `SMARTPIPE_NO_UPDATE_CHECK=1` or `smartpipe config update-check off`.
+  The welcome screen's utility list now includes `update`.
 
 ### Docs: a shape, not a pile
 - New Learn track (`docs/learn/1…6`), `concepts/the-item.md` (the five

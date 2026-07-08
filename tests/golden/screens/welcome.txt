@@ -30,6 +30,7 @@ Utilities (free — no model calls):
   readable   Render records as blocks for human eyes
   chart      Draw a bar chart of results (--save writes SVG/PNG)
   config     Configure models and settings
+  update     Upgrade smartpipe with the tool that installed it
 
 Get started:
   smartpipe config                                     # one-minute interactive setup
