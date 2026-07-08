@@ -170,14 +170,33 @@ _OPENAI_NOISE = (
 )
 
 
+_DATED_SNAPSHOT = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+
+
 def parse_openai_catalog(payload: object) -> tuple[str, ...]:
     """Chat completions models only — the /v1/models list mixes in embeddings,
-    audio, image, and moderation endpoints that would poison the menu."""
-    return tuple(
-        name
-        for name in _data_ids(payload)
-        if _OPENAI_CHAT.match(name) and not any(noise in name for noise in _OPENAI_NOISE)
-    )
+    audio, image, and moderation endpoints that would poison the menu. The
+    live payload lists OLDEST first and repeats every alias as a dated
+    snapshot, so unsorted the 30-cap menu shows gpt-3.5 relics and hides the
+    flagships: sort newest-created first, drop `-YYYY-MM-DD` snapshots."""
+    record = as_record(payload)
+    entries = as_items(record.get("data")) if record is not None else None
+    rows: list[tuple[int, str]] = [
+        (_created_stamp(entry), name)
+        for item in entries or ()
+        if (entry := as_record(item)) is not None
+        and (name := as_str(entry.get("id"))) is not None
+        and _OPENAI_CHAT.match(name)
+        and not any(noise in name for noise in _OPENAI_NOISE)
+        and not _DATED_SNAPSHOT.search(name)
+    ]
+    rows.sort(key=lambda pair: pair[0], reverse=True)  # stable: ties keep arrival order
+    return _deduped(name for _, name in rows)
+
+
+def _created_stamp(entry: Mapping[str, object]) -> int:
+    created = entry.get("created")
+    return created if isinstance(created, int) else 0
 
 
 _GEMINI_NOISE = ("embedding", "tts", "image-generation")  # generateContent-capable, not chat

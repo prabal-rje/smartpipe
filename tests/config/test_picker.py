@@ -156,6 +156,22 @@ def test_openai_catalog_keeps_chat_models_only() -> None:
     assert parse_openai_catalog(payload) == ("gpt-5.4-mini", "o4-mini", "chatgpt-4o-latest")
 
 
+def test_openai_catalog_newest_first_and_no_dated_snapshots() -> None:
+    """The live /v1/models payload lists oldest-first and includes dated
+    snapshots - unsorted, the 30-cap menu shows gpt-3.5 relics and hides
+    the current flagships. Sort by created (newest first), drop snapshots."""
+    payload = {
+        "data": [
+            {"id": "gpt-3.5-turbo", "created": 1_100},
+            {"id": "gpt-5.4", "created": 1_400},
+            {"id": "gpt-5.4-2026-03-05", "created": 1_401},
+            {"id": "gpt-5.5", "created": 1_500},
+            {"id": "o4-mini", "created": 1_300},
+        ]
+    }
+    assert parse_openai_catalog(payload) == ("gpt-5.5", "gpt-5.4", "o4-mini", "gpt-3.5-turbo")
+
+
 def test_openai_catalog_tolerates_junk_shapes() -> None:
     assert parse_openai_catalog({"data": "nope"}) == ()
     assert parse_openai_catalog([1, 2]) == ()
