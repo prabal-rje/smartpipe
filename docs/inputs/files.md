@@ -217,3 +217,9 @@ For long scans, `split --by pages --media` processes every page. The whole-docum
 item caps at 8 images for request-size sanity. Pick a model that can see
 (`gpt-5.4-mini`, `gemini-3.1-flash-lite`, `ollama/llava`); `smartpipe doctor --probe`
 verifies actual ability.
+
+Better still: name a dedicated document parser. With
+`smartpipe config ocr-model mistral-ocr-latest` (or any vision model - a
+local `ollama/llava` is free), ingested PDFs and images parse straight to
+markdown, one item per page, disclosed per row -
+[the ocr-model role](../concepts/models-and-providers.md#the-ocr-model-role).
