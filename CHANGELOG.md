@@ -435,6 +435,10 @@ estimated dollars.
   live-caught). `doctor` now closes with a bold yellow pointer at `--probe`.
   Also fixed live: streaming `embed` emitted the pre-conversion item text
   (empty for media), so records now carry the text the vector actually means.
+  And the streaming path (piped stdin) skipped the native media route
+  entirely - image-only items caption-pivoted even on jina-clip while the
+  finite-corpus branch embedded pixels. Both branches now share one router
+  (live-verified: `dims: 1024` from jina-clip-v2 on a piped image).
 - **Gemini watches video natively (D34).** Gemini chat moved to Google's
   native `:generateContent` wire — the only wired endpoint with video input.
   `map "what happens?" --in demo.mp4 --model gemini-2.5-flash` sends the

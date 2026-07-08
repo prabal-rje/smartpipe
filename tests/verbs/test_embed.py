@@ -102,3 +102,42 @@ async def test_tty_stdout_gets_a_redirect_note(
     monkeypatch.setattr("smartpipe.io.tty.stdout_is_tty", lambda: True)
     await _run("x\n")
     assert "redirect to a file" in capsys.readouterr().err
+
+
+async def test_streaming_path_embeds_images_natively() -> None:
+    """The first live jina call caption-pivoted: only the finite-corpus branch
+    checked the native route. The streaming worker must route pixels too."""
+    from smartpipe.io import diagnostics
+    from smartpipe.io.items import Item, ItemSource
+    from smartpipe.models.base import ImageData
+    from smartpipe.verbs import embed as embed_module
+    from smartpipe.verbs.convert import make_converter
+
+    _embed_one = embed_module._embed_one  # pyright: ignore[reportPrivateUsage] — worker under test
+
+    class FakeClip:
+        ref = ModelRef("jina", "jina-clip-v2")
+
+        def __init__(self) -> None:
+            self.calls: list[object] = []
+
+        async def embed(self, texts: object) -> tuple[tuple[float, ...], ...]:
+            raise AssertionError("text path must not run for an image-only item")
+
+        async def embed_parts(self, parts: object) -> tuple[tuple[float, ...], ...]:
+            self.calls.append(parts)
+            return ((0.1, 0.2),)
+
+    item = Item(
+        raw="",
+        text="",
+        data=None,
+        source=ItemSource(kind="file", name="p.png", index=0),
+        media=(ImageData(b"\x89PNG", "image/png"),),
+    )
+    model = FakeClip()
+    log = diagnostics.DegradationLog()
+    converter = make_converter(None, allow_paid=False, log=log, stt=None)
+    _out, vector = await _embed_one(model, item, log, converter)
+    assert vector == (0.1, 0.2)
+    assert model.calls  # pixels reached the media embedder, not the caption rung

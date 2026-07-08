@@ -160,6 +160,17 @@ async def _embed_one(
     log: diagnostics.DegradationLog,
     converter: Converter,
 ) -> tuple[Item, tuple[float, ...]]:
+    # D39/04: a media-native embedder takes image items as PIXELS on the
+    # streaming path too — the first live jina call caption-pivoted because
+    # only the finite-corpus branch checked this route (live-caught)
+    from smartpipe.verbs.common import native_route, note_native_once
+
+    native = native_route(item, model)
+    if native is not None:
+        media_model, image = native
+        note_native_once(model)
+        vectors = await media_model.embed_parts([image])
+        return item, vectors[0]
     video = next((part for part in item.media if isinstance(part, VideoData)), None)
     if video is not None and converter.chat is not None:
         return await embed_video_halves(model, item, video, converter)  # 50/50 (D36)

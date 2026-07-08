@@ -41,6 +41,7 @@ __all__ = [
     "ensure_text",
     "interrupted_exit_code",
     "make_failover",
+    "native_route",
     "outcome_exit_code",
     "prepend",
     "resolve_schema",
@@ -379,10 +380,23 @@ def batched(items: Sequence[T], size: int) -> Iterator[tuple[T, ...]]:
     return (tuple(items[start : start + size]) for start in range(0, len(items), size))
 
 
-_native_noted = False  # one disclosure per process, not per item  # noqa: N816-ish (module state)
+_native_noted = False  # one disclosure per process, not per item
 
 
-def _native_route(item: Item, model: object) -> tuple[MediaEmbeddingModel, ImageData] | None:
+def note_native_once(model: object) -> None:
+    """One disclosure per run when pixels replace captions - shared by the
+    finite and streaming embed paths."""
+    global _native_noted
+    if not _native_noted:
+        _native_noted = True
+        ref = getattr(model, "ref", None)
+        diagnostics.note(
+            f"media embedded natively ({getattr(ref, 'provider', '?')}/{getattr(ref, 'name', '?')})"
+            " — no captions"
+        )
+
+
+def native_route(item: Item, model: object) -> tuple[MediaEmbeddingModel, ImageData] | None:
     """The native-path test (D39/04): a media-capable embedder + an
     image-ONLY item (no meaningful text). Text-bearing items keep embedding
     their text; audio/video keep the pivot ladder. Returns the narrowed
@@ -499,20 +513,14 @@ async def embed_in_batches(
         if stop is not None and stop.is_set():
             return
         if item.media:
-            native = _native_route(item, model)
+            native = native_route(item, model)
             if native is not None:
                 media_model, image = native
                 # D39/04: the embedder takes images natively — no captions
                 for outcome in await _drain(embed_batch(pending)):
                     yield outcome
                 pending = []
-                global _native_noted
-                if not _native_noted:
-                    _native_noted = True
-                    diagnostics.note(
-                        f"media embedded natively ({model.ref.provider}/{model.ref.name})"
-                        " — no captions"
-                    )
+                note_native_once(model)
                 try:
                     vectors = await media_model.embed_parts([image])
                 except ItemError as exc:
