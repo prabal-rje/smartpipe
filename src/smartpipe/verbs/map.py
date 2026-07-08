@@ -27,7 +27,7 @@ from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import load_schema, validate_and_coerce
 from smartpipe.io import diagnostics, readers
 from smartpipe.io.inputs import STDIN
-from smartpipe.io.items import describe_source
+from smartpipe.io.items import describe_source, source_record
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.models.base import AudioData, VideoData
 from smartpipe.verbs.common import (
@@ -150,7 +150,7 @@ async def run_map(
         window=partial(context.context_window, model.ref),
     )
 
-    async def worker(item: Item) -> str | Mapping[str, object]:
+    async def worker(item: Item) -> tuple[Item, str | Mapping[str, object]]:
         current = slot.current  # captured per item: the failover swaps wholesale
         budget = await gate.budget_for_oversized(item.text)
         if budget is not None:
@@ -167,7 +167,7 @@ async def run_map(
             keep_invalid=request.keep_invalid,
         )
         slot.tally(str(current.ref))
-        return result
+        return item, result
 
     policy = breaker_policy(model.ref.provider)
     failover = (
@@ -190,8 +190,13 @@ async def run_map(
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):
-                for row in _rows(outcome.value, request.explode_field):
-                    _write(writer, structured=structured, value=row)
+                item, value = outcome.value
+                if isinstance(value, str) and item.data is not None:
+                    # records in, records out (item 14, law 4): a plain-prompt
+                    # answer on a RECORD input is itself a record, spine attached
+                    value = {"result": value, "__source": source_record(item.source)}
+                for row in _rows(value, request.explode_field):
+                    _write(writer, value=row)
                     if tally is not None and isinstance(row, Mapping):
                         tally.add(row)
                         spinner.extra = tally.live_segment()
@@ -399,8 +404,8 @@ def _rows(
     return list(explode_record(value, explode_field))
 
 
-def _write(writer: ResultWriter, *, structured: bool, value: str | Mapping[str, object]) -> None:
-    if structured and not isinstance(value, str):
-        writer.write_record(value)
+def _write(writer: ResultWriter, *, value: str | Mapping[str, object]) -> None:
+    if isinstance(value, str):
+        writer.write_text(value)  # the human door: plain text leaves as plain text (law 5)
     else:
-        writer.write_text(value if isinstance(value, str) else str(value))
+        writer.write_record(value)

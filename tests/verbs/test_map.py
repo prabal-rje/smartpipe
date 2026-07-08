@@ -552,3 +552,22 @@ async def test_unusable_fallback_notes_and_keeps_the_breaker_screen(
     err = capsys.readouterr().err
     assert "fallback model unusable — model 'gpt-4o-mini' needs an OpenAI API key" in err
     assert backup.calls == []  # never reached
+
+
+# --- records in, records out (wave 2, item 14) ------------------------------------
+
+
+async def test_plain_prompt_on_a_record_emits_a_record() -> None:
+    import json
+
+    code, out, _model = await _run("summarize", '{"id": 7, "body": "crash"}\n', ["short"])
+    assert code == ExitCode.OK
+    row = json.loads(out)
+    assert row["result"] == "short"
+    assert row["__source"] == {"path": "-", "as": "jsonl", "line": 1}
+
+
+async def test_plain_prompt_on_text_lines_keeps_text_output() -> None:
+    code, out, _model = await _run("summarize", "just a line\n", ["short"])
+    assert code == ExitCode.OK
+    assert out == "short\n"  # law 5: simple records leave as plain text
