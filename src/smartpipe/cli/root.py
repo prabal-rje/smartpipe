@@ -267,6 +267,13 @@ def main() -> None:
         # on the GitHub runner: exit 141 at a moving test).
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     debug = "SMARTPIPE_DEBUG" in os.environ
+    # notify-next-run (npm-style): a daemon thread refreshes the release cache
+    # while the command works; the note prints from the CACHED answer at the
+    # end, so the check adds zero latency. Both hooks are self-gating (TTY,
+    # CI, kill switches) and swallow every failure.
+    from smartpipe.io import update_check
+
+    update_check.begin_background_check()
     try:
         result = cli.main(
             standalone_mode=False,
@@ -300,5 +307,7 @@ def main() -> None:
         diagnostics.die(UsageFault(exc.format_message()), debug=debug)
     except Exception as exc:  # the last-resort BUG screen (exit 70) — never a raw traceback
         diagnostics.internal_error(exc, debug=debug)
+    if sys.argv[1:2] != ["update"]:  # right after updating, the nag would be noise
+        update_check.emit_update_notice(__version__)
     if isinstance(result, int) and result != 0:
         raise SystemExit(result)

@@ -138,6 +138,14 @@ def config_set_cache(state: str) -> None:
     click.echo(f"cache {state} — stored replies live in ~/.cache/smartpipe (smartpipe cache clear)")
 
 
+@config_command.command(name="update-check")
+@click.argument("state", type=click.Choice(["on", "off"]))
+def config_set_update_check(state: str) -> None:
+    """Turn the daily release check on or off (off also silences the notice)."""
+    _update(lambda c: replace(c, update_check=state == "on"))
+    click.echo(f"update-check {state} — smartpipe asks PyPI for the latest release once a day")
+
+
 def _update(change: Callable[[Config], Config]) -> None:
     path = config_path(os.environ)
     save_config(path, change(load_config(path)))

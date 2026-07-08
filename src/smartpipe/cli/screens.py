@@ -21,6 +21,7 @@ __all__ = [
     "openai_needs_key_or_login",
     "schema_rejected",
     "stdin_document_failed",
+    "update_available",
 ]
 
 CHATGPT_LOGIN_EXPIRED = """\
@@ -234,6 +235,11 @@ def provider_down(provider: str, failures: int) -> str:
         "  Work already done is safe — rerunning is cheap (cached answers are free).\n"
         "  Try again in a minute, or pick another model: --model …"
     )
+
+
+def update_available(latest: str, current: str) -> str:
+    """The end-of-run update notice (stderr, via diagnostics.note, TTY-only)."""
+    return f"smartpipe {latest} is available (you have {current}) — run: smartpipe update"
 
 
 def missing_anthropic_extra(model: str) -> str:

@@ -62,6 +62,7 @@ _SCREENS: dict[str, str] = {
     "cloud_model_missing": screens.cloud_model_missing("gpt-4o-mini-typo", "api.openai.com"),
     "schema_rejected": screens.schema_rejected("api.openai.com", "missing required property"),
     "provider_down": screens.provider_down("ollama", 5),
+    "update_available": screens.update_available("1.5.0", "1.4.0"),
 }
 
 
@@ -101,5 +102,6 @@ def test_every_screen_export_is_pinned() -> None:
         "missing_anthropic_extra",
         "cloud_model_missing",
         "schema_rejected",
+        "update_available",
     }
     assert exported == covered, "a screens.py export is not pinned in _SCREENS"
