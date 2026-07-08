@@ -126,9 +126,9 @@ async def run_extend(
 
     async def worker(item: Item) -> tuple[Item, Mapping[str, object]]:
         current = slot.current  # captured per item: the failover swaps wholesale
-        budget = await gate.budget_for_oversized(item.text)
-        if budget is not None:
-            raise ItemError(gate.refusal(item.text, budget))  # D26: no silent chunking
+        over = await gate.budget_for_oversized(item.text, item.media)
+        if over is not None:
+            raise ItemError(gate.refusal(over))  # D26: no silent chunking
         result = await map_one(
             current,
             plan,

@@ -161,10 +161,10 @@ async def run_map(
 
     async def worker(item: Item) -> tuple[Item, str | Mapping[str, object]]:
         current = slot.current  # captured per item: the failover swaps wholesale
-        budget = await gate.budget_for_oversized(item.text)
-        if budget is not None:
+        over = await gate.budget_for_oversized(item.text, item.media)
+        if over is not None:
             # D26: silently chunking would change what was asked — teach the pipeline
-            raise ItemError(gate.refusal(item.text, budget))
+            raise ItemError(gate.refusal(over))
         result = await map_one(
             current,
             plan,

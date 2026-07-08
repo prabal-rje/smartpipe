@@ -60,3 +60,57 @@ def test_media_kinds_split_in_the_receipt() -> None:
 def test_empty_meter_is_silent() -> None:
     assert metering.status_segment() == ""
     assert metering.receipt() is None
+
+
+# --- clip_seconds (D26 v2: the duration probe behind media_tokens) ---------------
+
+
+def test_clip_seconds_reads_wav_headers_pure() -> None:
+    seconds = metering.clip_seconds(_wav_bytes(83.0), "audio/wav")
+    assert seconds is not None
+    assert 82.5 <= seconds <= 83.5
+
+
+def test_clip_seconds_asks_ffmpeg_for_other_containers(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fake ffmpeg that prints a Duration banner — hermetic, no real codec."""
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    fake = tmp_path / "ffmpeg"
+    fake.write_text('#!/bin/sh\necho "Duration: 00:01:23.00" >&2\n', encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setattr(metering, "_ffmpeg_exe", lambda: str(fake))
+    assert metering.clip_seconds(b"opus-ish bytes", "audio/ogg") == 83.0
+
+
+def test_clip_seconds_is_none_when_ffmpeg_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(metering, "_ffmpeg_exe", lambda: None)
+    assert metering.clip_seconds(b"whatever", "audio/mpeg") is None
+
+
+def test_ffmpeg_discovery_failure_degrades_to_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    from smartpipe.core.errors import ItemError
+    from smartpipe.parsing import extract
+
+    def missing() -> str:
+        raise ItemError("ffmpeg is unavailable")
+
+    monkeypatch.setattr(extract, "ffmpeg_exe", missing)
+    assert metering.clip_seconds(b"opus bytes", "audio/ogg") is None
+
+
+def test_clip_seconds_is_none_when_ffmpeg_cannot_read_the_clip(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    fake = tmp_path / "ffmpeg"
+    fake.write_text('#!/bin/sh\necho "Invalid data" >&2\nexit 1\n', encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setattr(metering, "_ffmpeg_exe", lambda: str(fake))
+    assert metering.clip_seconds(b"garbage", "video/mp4") is None

@@ -130,6 +130,29 @@ async def test_map_probe_can_widen_and_allow() -> None:
     assert context.probes == 1  # asked exactly once
 
 
+async def test_window_gate_counts_media_alongside_text() -> None:
+    import struct
+
+    from smartpipe.models.base import ImageData
+    from smartpipe.verbs.common import WindowGate
+
+    async def no_window() -> int | None:
+        return None
+
+    gate = WindowGate(provider="ollama", model_name="fake", overhead=500, window=no_window)
+    assert await gate.budget_for_oversized("tiny text") is None  # text alone fits
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + struct.pack(">I", 13)
+        + b"IHDR"
+        + struct.pack(">II", 9000, 9000)
+        + b"\x08\x06\x00\x00\x00"
+    )
+    over = await gate.budget_for_oversized("tiny text", (ImageData(png, "image/png"),))
+    assert over is not None  # the same text + a 81-megapixel image overflows
+    assert over.estimate > over.budget
+
+
 async def test_filter_judges_chunks_and_any_match_keeps_the_item() -> None:
     model = ChunkJudge()
     out = io.StringIO()

@@ -32,6 +32,7 @@ __all__ = [
     "embedded_images",
     "extract",
     "ffmpeg_exe",
+    "ffprobe_duration",
     "pdf_page_texts",
     "slice_audio",
     "slice_video",
@@ -357,7 +358,7 @@ def ffmpeg_exe() -> str:
         return exe
 
 
-def _ffprobe_duration(exe: str, source: str) -> float:
+def ffprobe_duration(exe: str, source: str) -> float:
     """Parse "Duration: HH:MM:SS.cc" from ffmpeg's banner (no ffprobe needed)."""
     import re
     import subprocess
@@ -399,7 +400,7 @@ def video_to_parts(
     try:
         with open(source, "wb") as handle:
             handle.write(video.data)
-        duration = _ffprobe_duration(exe, source)
+        duration = ffprobe_duration(exe, source)
         if every_seconds is not None:
             # D43: the density guarantee — one frame per period, cap honored
             rate = 1.0 / every_seconds

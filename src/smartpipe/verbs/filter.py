@@ -129,13 +129,13 @@ async def run_filter(
 
     async def worker(item: Item) -> tuple[Item, bool]:
         current = slot.current  # captured per item: the failover swaps wholesale
-        budget = await gate.budget_for_oversized(item.text)
-        if budget is None:
+        over = await gate.budget_for_oversized(item.text, item.media)
+        if over is None:
             matched = await _judge(current, tokens, item, log, converter)
         else:
             # D26: judge the chunks — any match keeps the whole item (--not inverts after)
             matched = False
-            for chunk in split_text(item.text, budget):
+            for chunk in split_text(item.text, over.budget):
                 if await _judge(current, tokens, replace(item, text=chunk), log, converter):
                     matched = True
                     break
