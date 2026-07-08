@@ -245,7 +245,14 @@ def main() -> None:
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     debug = "SMARTPIPE_DEBUG" in os.environ
     try:
-        result = cli.main(standalone_mode=False, prog_name="smartpipe")
+        result = cli.main(
+            standalone_mode=False,
+            prog_name="smartpipe",
+            # click glob-expands wildcard args itself on windows - that would
+            # pre-explode a quoted --in '*.txt' into positionals and break the
+            # "we expand our own globs" contract (D43-era; caught by CI round 10)
+            windows_expand_args=False,
+        )
     except BrokenPipeError:  # Windows / buffered-flush edge; POSIX rarely reaches here
         with contextlib.suppress(OSError, ValueError):  # silence the shutdown flush
             os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
