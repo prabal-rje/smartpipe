@@ -25,7 +25,7 @@ that degrade per-item with the provider's real reason quoted.
 - **No optional extras, ever (D46).** Claude models, document parsing
   (PDF/DOCX/PPTX/XLSX/HTML/EPUB), video (bundled static ffmpeg), and chart
   `--save` all ship in the core install now, joining D44's whisper and local
-  embeddings. One `pip install smartpipe` is the entire multimodal surface.
+  embeddings. One `pip install smartpipe-cli` is the entire multimodal surface.
   The old extra names (`[files]`, `[video]`, `[charts]`, `[anthropic]`,
   `[audio]`, `[all]`) remain as empty aliases so historical commands keep
   working. `doctor`'s extras row now verifies the bundled components and
@@ -74,7 +74,7 @@ that degrade per-item with the provider's real reason quoted.
   project). The DISTRIBUTION and repository are `smartpipe`; the command,
   package, import name, env vars (`SMARTPIPE_*`), and config directory stay
   `smartpipe` — zero breakage, and `smartpipe` also works as a command alias.
-  Install: `pip install smartpipe`.
+  Install: `pip install smartpipe-cli`.
 
 ### Fixed
 - **A restricted key refusing MEDIA no longer kills the run (D43c).** The

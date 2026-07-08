@@ -23,7 +23,7 @@ dependencies, use [pipx](https://pipx.pypa.io) - it installs command-line tools
 into isolated environments:
 
 ```console
-$ pipx install smartpipe
+$ pipx install smartpipe-cli
 ```
 
 ## With uv
@@ -31,9 +31,9 @@ $ pipx install smartpipe
 If you use [uv](https://docs.astral.sh/uv):
 
 ```console
-$ uv tool install smartpipe      # like pipx
+$ uv tool install smartpipe-cli   # like pipx
 # or, inside a project:
-$ uv add smartpipe
+$ uv add smartpipe-cli
 ```
 
 > **Name note:** the PyPI *distribution* is `smartpipe-cli` (the plain name

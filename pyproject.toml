@@ -33,7 +33,7 @@ dependencies = [
   # every provider SDK. No extras, ever. Imports stay function-local so the
   # startup budget holds; models download once on first use.
   # Three components wait on upstream 3.14 wheels (onnxruntime, av) — the
-  # markers keep `pip install smartpipe` working on 3.14; runtime detection
+  # markers keep `pip install smartpipe-cli` working on 3.14; runtime detection
   # degrades those paths honestly until the wheels land.
   "faster-whisper>=1.0; python_version < '3.14'",
   "fastembed>=0.4; python_version < '3.14'",
@@ -47,7 +47,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # D46: everything ships in core. These empty aliases keep every historical
-# "pip install 'smartpipe[…]'" command working instead of erroring.
+# "pip install 'smartpipe-cli[…]'" command working instead of erroring.
 anthropic = []
 files = []
 audio = []

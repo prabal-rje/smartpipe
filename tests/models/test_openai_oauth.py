@@ -282,6 +282,7 @@ async def test_device_start_http_error(
         await start_device_flow(client)
 
 
+@_mac_ci
 async def test_browser_flow_reports_an_error_param(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter
 ) -> None:
