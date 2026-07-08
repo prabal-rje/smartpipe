@@ -78,7 +78,7 @@ __all__ = ["extend_command"]
     "--keep-invalid",
     "keep_invalid",
     is_flag=True,
-    help='Failed extractions become {"_invalid": true, "_error": …, "_raw": …} rows, not skips.',
+    help='Failed extractions become {"__invalid": true, "__error": …, "__raw": …} rows, not skips.',
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")

@@ -150,7 +150,7 @@ def test_human_writer_plain_text_is_unstyled() -> None:
 
 def test_human_writer_renders_invalid_rows_as_one_dim_compact_line() -> None:
     stream, writer = _writer(RenderMode.HUMAN, color=True)
-    writer.write_record({"_invalid": True, "_error": "'v' is required", "_raw": "x" * 100})
+    writer.write_record({"__invalid": True, "__error": "'v' is required", "__raw": "x" * 100})
     body = [line for line in stream.getvalue().splitlines() if line]
     assert len(body) == 1  # never a key/value block
     line = body[0]
@@ -162,13 +162,13 @@ def test_human_writer_renders_invalid_rows_as_one_dim_compact_line() -> None:
 
 def test_human_writer_invalid_line_is_plain_without_color() -> None:
     stream, writer = _writer(RenderMode.HUMAN)
-    writer.write_record({"_invalid": True, "_error": "boom", "_raw": "short reply"})
+    writer.write_record({"__invalid": True, "__error": "boom", "__raw": "short reply"})
     assert stream.getvalue() == "✗ invalid: boom · short reply\n\n"
 
 
 def test_human_writer_invalid_raw_flattens_to_one_line() -> None:
     stream, writer = _writer(RenderMode.HUMAN)
-    writer.write_record({"_invalid": True, "_error": "boom", "_raw": "a\nb\tc"})
+    writer.write_record({"__invalid": True, "__error": "boom", "__raw": "a\nb\tc"})
     assert stream.getvalue() == "✗ invalid: boom · a b c\n\n"
 
 
@@ -178,5 +178,5 @@ def test_ndjson_invalid_rows_bypass_fields_projection() -> None:
     writer = make_writer(
         WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=("v",)), stream
     )
-    writer.write_record({"_invalid": True, "_error": "e", "_raw": "r"})
-    assert stream.getvalue() == '{"_invalid":true,"_error":"e","_raw":"r"}\n'
+    writer.write_record({"__invalid": True, "__error": "e", "__raw": "r"})
+    assert stream.getvalue() == '{"__invalid":true,"__error":"e","__raw":"r"}\n'

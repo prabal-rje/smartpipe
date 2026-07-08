@@ -173,9 +173,9 @@ async def test_keep_invalid_emits_a_marker_row_instead_of_a_skip() -> None:
     )
     assert code == ExitCode.OK  # a kept row is a result, not a failure
     row = json.loads(out.getvalue())
-    assert row["_invalid"] is True
-    assert row["_raw"] == "bad twice"
-    assert row["_error"]  # the validator's message rides along
+    assert row["__invalid"] is True
+    assert row["__raw"] == "bad twice"
+    assert row["__error"]  # the validator's message rides along
     assert len(model.calls) == 2  # the one repair retry still ran first
 
 

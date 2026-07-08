@@ -42,7 +42,7 @@ def test_keep_invalid_reaches_the_verb(run_cli: RunCli, respx_mock: respx.MockRo
     assert code == 0
     row = json.loads(out)
     assert row["id"] == 1  # the base record survives
-    assert row["_invalid"] is True
-    assert row["_raw"] == "still nope"
+    assert row["__invalid"] is True
+    assert row["__raw"] == "still nope"
     assert "sentiment" not in row
     assert "skipped" not in err

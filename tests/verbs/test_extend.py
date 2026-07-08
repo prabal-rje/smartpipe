@@ -166,9 +166,9 @@ async def test_keep_invalid_merges_markers_onto_the_base_record() -> None:
     assert code is ExitCode.OK
     (row,) = [json.loads(line) for line in out.getvalue().splitlines()]
     assert row["id"] == 7 and row["body"] == "crashes"  # the base record survives
-    assert row["_invalid"] is True
-    assert row["_raw"] == "not json, ever"
-    assert row["_error"]
+    assert row["__invalid"] is True
+    assert row["__raw"] == "not json, ever"
+    assert row["__error"]
     assert "sentiment" not in row  # no extracted fields on a failed row
     assert model.calls == 2  # original + the one repair retry
 

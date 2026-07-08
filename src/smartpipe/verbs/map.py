@@ -317,7 +317,7 @@ async def _attempt(
 
 def invalid_row(*, error: str, raw: str) -> dict[str, object]:
     """The --keep-invalid marker row: what failed, why, and the model's words."""
-    return {"_invalid": True, "_error": error, "_raw": raw}
+    return {"__invalid": True, "__error": error, "__raw": raw}
 
 
 def _transcribe_or_skip(audio: AudioData, native_failure: ItemError) -> str:

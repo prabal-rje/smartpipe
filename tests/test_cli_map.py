@@ -69,9 +69,9 @@ def test_keep_invalid_keeps_the_row_and_exits_clean(
     code, out, err = run_cli(["map", "Extract {v}", "--keep-invalid"], stdin="a\n")
     assert code == 0
     row = json.loads(out)
-    assert row["_invalid"] is True
-    assert row["_raw"] == "still not json"
-    assert row["_error"]
+    assert row["__invalid"] is True
+    assert row["__raw"] == "still not json"
+    assert row["__error"]
     assert "skipped" not in err
 
 

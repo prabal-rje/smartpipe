@@ -165,7 +165,7 @@ _RAW_PREVIEW_CELLS = 70  # --keep-invalid TTY line: this much of the raw reply
 def _is_invalid_row(record: Mapping[str, object]) -> bool:
     """A --keep-invalid marker row — projection and block rendering both step
     aside for these: the row IS the failure report, not extracted data."""
-    return record.get("_invalid") is True
+    return record.get("__invalid") is True
 
 
 def _lookup(record: Mapping[str, object], name: str) -> object:
@@ -358,8 +358,8 @@ class _HumanWriter:
         """A --keep-invalid row at the terminal: one dim compact line — marker,
         the validator's complaint, the first ~70 cells of the raw reply. The
         full JSON row is a pipe thing; a human wants the gist, not the wreckage."""
-        error = str(record.get("_error", ""))
-        raw = " ".join(str(record.get("_raw", "")).split())  # flatten to one line
+        error = str(record.get("__error", ""))
+        raw = " ".join(str(record.get("__raw", "")).split())  # flatten to one line
         if display_width(raw) > _RAW_PREVIEW_CELLS:
             raw = clip_to_width(raw, _RAW_PREVIEW_CELLS) + _ELLIPSIS
         line = f"✗ invalid: {error} · {raw}"
