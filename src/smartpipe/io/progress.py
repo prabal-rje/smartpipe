@@ -1,9 +1,11 @@
 """Progress feedback — always stderr, always TTY-gated, gone on completion.
 
 Spec §6.1: a single spinner line overwritten in place, with count, percent, and
-an ETA that appears only after a few completions. When stderr is not a terminal
-(a cron job, a pipe), progress is suppressed entirely — stdout stays sacred and
-the log stays clean. The render functions are pure; ``Spinner`` adds the clock,
+an ETA that appears only after a few completions. The animation renders only in
+a pipeline's FINAL stage — stderr and stdout both terminals. A piped stdout
+(mid-pipe stage) or a piped stderr (cron) suppresses it entirely — stdout stays
+sacred, the log stays clean, and two smartpipes in one pipe never fight over
+the terminal row. The render functions are pure; ``Spinner`` adds the clock,
 throttling, and the stderr writes.
 """
 
@@ -177,12 +179,15 @@ class _GuardedSink:
 
 
 def make_stderr_spinner() -> Spinner:
-    """A spinner wired to the real stderr — enabled only when stderr is a TTY,
-    with a Braille or ASCII frame set depending on the encoding."""
+    """A spinner wired to the real stderr — animated only in a pipeline's final
+    stage (stderr AND stdout both TTYs; a piped stdout means a downstream process
+    owns the terminal, so mid-pipe stages keep line-atomic notes and the receipt
+    but never a ``\\r`` animation), with a Braille or ASCII frame set depending
+    on the encoding."""
     encoding = (sys.stderr.encoding or "").lower()
     return Spinner(
         stream=sys.stderr,
-        enabled=tty.stderr_is_tty(),
+        enabled=tty.stderr_is_tty() and tty.stdout_is_tty(),
         ascii_only="utf" not in encoding,
         clock=time.monotonic,
     )

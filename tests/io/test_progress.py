@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
+from smartpipe.io import tty
 from smartpipe.io.progress import (
     Spinner,
     format_eta,
+    make_stderr_spinner,
     render_known,
     render_unknown,
 )
@@ -177,6 +181,25 @@ def test_guard_is_a_passthrough_when_the_spinner_is_disabled() -> None:
     stream = io.StringIO()
     spinner = Spinner(stream=io.StringIO(), enabled=False, ascii_only=True, clock=_Clock())
     assert spinner.guard(stream) is stream
+
+
+def test_spinner_disabled_when_stdout_is_piped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A piped stdout means another stage owns the terminal — no animation."""
+    monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
+    monkeypatch.setattr(tty, "stdout_is_tty", lambda: False)
+    assert make_stderr_spinner().enabled is False
+
+
+def test_spinner_disabled_when_stderr_is_piped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tty, "stderr_is_tty", lambda: False)
+    monkeypatch.setattr(tty, "stdout_is_tty", lambda: True)
+    assert make_stderr_spinner().enabled is False
+
+
+def test_spinner_enabled_only_at_the_final_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
+    monkeypatch.setattr(tty, "stdout_is_tty", lambda: True)
+    assert make_stderr_spinner().enabled is True
 
 
 def test_guarded_flush_reaches_the_target() -> None:

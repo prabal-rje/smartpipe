@@ -222,6 +222,24 @@ async def test_map_routes_results_through_the_spinner_arbiter(
             assert not drawn, f"result bytes landed under the status line: {chunk!r}"
 
 
+async def test_piped_stdout_run_animates_nothing_on_stderr(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mid-pipeline stage (stderr TTY, stdout pipe): line-atomic stderr notes
+    survive, but zero carriage-return animation bytes reach stderr."""
+    from smartpipe.io import tty
+
+    monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
+    monkeypatch.setattr(tty, "stdout_is_tty", lambda: False)
+    context = FakeContext(model=FakeChat(replies=["ok", "__RAISE_ITEM__"]), concurrency=1)
+    out = io.StringIO()
+    code = await run_map(_request("x"), context, stdin=io.StringIO("a\nb\n"), stdout=out)
+    assert code == ExitCode.PARTIAL
+    err = capsys.readouterr().err
+    assert "\r" not in err
+    assert "skipped: line 2" in err  # the line-atomic warning stays
+
+
 # --- fatal errors propagate ---------------------------------------------------
 
 
