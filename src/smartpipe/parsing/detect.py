@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from pathlib import Path
 
-__all__ = ["FileKind", "Route", "audio_mime", "detect_kind", "route", "video_mime"]
+__all__ = ["FileKind", "Route", "audio_mime", "detect_kind", "image_mime", "route", "video_mime"]
 
 Route = Literal["text", "doc", "audio", "video", "image", "skip"]
 
@@ -176,3 +176,17 @@ _VIDEO_MIME_BY_SUFFIX = {
 
 def video_mime(path: Path) -> str:
     return _VIDEO_MIME_BY_SUFFIX.get(path.suffix.lower(), "video/mp4")
+
+
+_IMAGE_MIME_BY_SUFFIX = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
+def image_mime(path: Path) -> str:
+    """The wire mime for an image file — suffix-driven, png as the safe default."""
+    return _IMAGE_MIME_BY_SUFFIX.get(path.suffix.lower(), "image/png")

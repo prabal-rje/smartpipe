@@ -76,3 +76,34 @@ async def test_charges_count_calls_not_texts() -> None:
 def test_limit_below_one_is_rejected() -> None:
     with pytest.raises(ValueError, match="must be >= 1"):
         CallBudget(limit=0, stop=None)
+
+
+async def test_media_embedder_keeps_embed_parts_under_the_belt() -> None:
+    """Item 40: wrapping a JOINT embedder must not demote pixels to captions —
+    the budget wrapper stays a MediaEmbeddingModel, and charges per call."""
+    from smartpipe.models.base import ImageData, ModelRef, supports_media_embedding
+
+    class FakeClip:
+        ref = ModelRef("jina", "jina-clip-v2")
+
+        def __init__(self) -> None:
+            self.calls: list[list[str | ImageData]] = []
+
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            raise AssertionError("the wrapper routes text through embed_parts")
+
+        async def embed_parts(
+            self, parts: Sequence[str | ImageData]
+        ) -> tuple[tuple[float, ...], ...]:
+            self.calls.append(list(parts))
+            return tuple((1.0,) for _ in parts)
+
+    inner = FakeClip()
+    budget = CallBudget(limit=2, stop=asyncio.Event())
+    model = budgeted_embed(inner, budget)
+    await model.embed(["hello"])  # the text side charges too
+    probe: object = model  # narrow a view; `model` keeps its EmbeddingModel face
+    assert supports_media_embedding(probe)
+    await probe.embed_parts([ImageData(b"png", "image/png")])
+    assert budget.calls == 2
+    assert len(inner.calls) == 2

@@ -21,7 +21,14 @@ if TYPE_CHECKING:
     import asyncio
     from collections.abc import Sequence
 
-    from smartpipe.models.base import ChatModel, CompletionRequest, EmbeddingModel, ModelRef
+    from smartpipe.models.base import (
+        ChatModel,
+        CompletionRequest,
+        EmbeddingModel,
+        ImageData,
+        MediaEmbeddingModel,
+        ModelRef,
+    )
 
 __all__ = ["CallBudget", "budgeted_chat", "budgeted_embed"]
 
@@ -86,9 +93,35 @@ class _BudgetedEmbed:
         return await self.inner.embed(texts)
 
 
+@dataclass(frozen=True, slots=True)
+class _BudgetedMediaEmbed:
+    """The budget belt for a JOINT text+image embedder: the wrapper must keep
+    ``embed_parts`` visible, or the belt would silently demote pixels to the
+    caption pivot (capability follows the wrapper, item 40)."""
+
+    inner: MediaEmbeddingModel
+    budget: CallBudget
+
+    @property
+    def ref(self) -> ModelRef:
+        return self.inner.ref
+
+    async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+        self.budget.charge()
+        return await self.inner.embed_parts(list(texts))
+
+    async def embed_parts(self, parts: Sequence[str | ImageData]) -> tuple[tuple[float, ...], ...]:
+        self.budget.charge()
+        return await self.inner.embed_parts(parts)
+
+
 def budgeted_chat(inner: ChatModel, budget: CallBudget) -> ChatModel:
     return _BudgetedChat(inner, budget)
 
 
 def budgeted_embed(inner: EmbeddingModel, budget: CallBudget) -> EmbeddingModel:
+    from smartpipe.models.base import supports_media_embedding
+
+    if supports_media_embedding(inner):
+        return _BudgetedMediaEmbed(inner, budget)
     return _BudgetedEmbed(inner, budget)
