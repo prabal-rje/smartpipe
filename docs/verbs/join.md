@@ -3,10 +3,10 @@
 Merge `stdin` against a second input wherever a plain-English predicate holds.
 The SQL join's semantic cousin: no keys, no exact equality - meaning.
 
-```console
-$ cat tickets.jsonl \
-    | smartpipe join "ticket {left.text} concerns product {right.name}" --right products.jsonl
-{"left": {"text": "the laser printer keeps smoking"}, "right": {"name": "LaserJet 9"}, "_score": 0.91}
+```bash
+cat tickets.jsonl \
+| smartpipe join "ticket {left.text} concerns product {right.name}" --right products.jsonl
+# → {"left": {"text": "the laser printer keeps smoking"}, "right": {"name": "LaserJet 9"}, "_score": 0.91}
 ```
 
 ## How it works (and why it's affordable)
@@ -44,7 +44,7 @@ Braces name a side's field - every brace must pick a side:
 |---|---|
 | `--right FILE` | The finite side to index (JSONL or plain lines). Required; never `stdin` |
 | `--k N` | Candidates judged per left item (default 5 - **the recall knob**, see below) |
-| `--threshold FLOAT` | Similarity floor (0–1) a candidate must clear before judging |
+| `--threshold FLOAT` | Similarity floor (0-1) a candidate must clear before judging |
 | `--model TEXT` | Chat model for the judge calls |
 | `--embed-model TEXT` | Embedding model for both sides |
 | `--fields A,B` | Project output columns - dotted paths reach the sides: `--fields left.id,right.name,_score` |
@@ -102,9 +102,9 @@ predicate, or a human). A final `stderr` note reports the split:
 The left side streams flag-free, like every per-item verb - so join is a live
 enrichment operator:
 
-```console
-$ tail -f events.log \
-    | smartpipe join "event {left.text} involves customer {right.name}" --right customers.jsonl
+```bash
+tail -f events.log \
+| smartpipe join "event {left.text} involves customer {right.name}" --right customers.jsonl
 ```
 
 The right side can never stream (an index can't be built from a tail): `--right -`
@@ -121,13 +121,13 @@ is a usage error that says so.
 `--kind` picks which set the pipe receives (default `inner`, today's
 matched-pairs behavior):
 
-```console
-$ cat orders.jsonl \
-    | smartpipe join "the same purchase" --right invoices.jsonl --kind anti
-{"id": 4411, "customer": "acme", "total": 240.0}    ← unmatched LEFT rows, verbatim
-$ … --kind leftouter \
-    | head -1
-{"left": {...}, "right": null}                       ← every left row, match or not
+```bash
+cat orders.jsonl \
+| smartpipe join "the same purchase" --right invoices.jsonl --kind anti
+# → {"id": 4411, "customer": "acme", "total": 240.0}    ← unmatched LEFT rows, verbatim
+… --kind leftouter \
+| head -1
+# → {"left": {...}, "right": null}                       ← every left row, match or not
 ```
 
 `anti` emits the unmatched left rows directly - "orders with no invoice" - as

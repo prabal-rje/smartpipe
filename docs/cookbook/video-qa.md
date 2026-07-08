@@ -5,8 +5,8 @@ soundtrack and sends what the model can take - disclosed per row either way.
 
 ## Ask one question of one clip
 
-```console
-$ smartpipe map "What is the speaker's main claim?" --in talk.mp4
+```bash
+smartpipe map "What is the speaker's main claim?" --in talk.mp4
 ```
 
 ## A scene-change digest (density matters)
@@ -14,14 +14,14 @@ $ smartpipe map "What is the speaker's main claim?" --in talk.mp4
 The default sampling (1 fps up to 24 frames) is right for "what is this?".
 For "what CHANGES?", guarantee the density:
 
-```console
-$ smartpipe map "List each distinct scene with a one-line description {scenes string[]}" --in demo.mp4 --frame-every 1 --explode scenes
+```bash
+smartpipe map "List each distinct scene with a one-line description {scenes string[]}" --in demo.mp4 --frame-every 1 --explode scenes
 ```
 
 ## A long lecture on a budget
 
-```console
-$ smartpipe map "Outline the sections with timestamps if visible" --in lecture.mp4 --frame-every 10 --max-frames 90
+```bash
+smartpipe map "Outline the sections with timestamps if visible" --in lecture.mp4 --frame-every 10 --max-frames 90
 ```
 
 One frame per 10 seconds, never more than 90 - the per-row note prints the
@@ -30,9 +30,9 @@ density choice is visible up front.
 
 ## Segment first when clips are long
 
-```console
-$ smartpipe split --by seconds:60 --in webinar.mp4 \
-    | smartpipe map "summarize this minute"
+```bash
+smartpipe split --by seconds:60 --in webinar.mp4 \
+| smartpipe map "summarize this minute"
 ```
 
 `split` slices losslessly (keyframe-aligned); each segment stays real video,
@@ -44,9 +44,9 @@ elsewhere.
 Hundreds of screen recordings become searchable by meaning, with no vector
 database - the index is a flat file of NDJSON vectors. Build it once:
 
-```console
+```bash
 # Index the library once: each clip's vector is half what it SHOWS, half what it SAYS
-$ smartpipe embed --in 'sessions/**/*.mp4' > sessions.embeddings
+smartpipe embed --in 'sessions/**/*.mp4' > sessions.embeddings
 ```
 
 Embedding blends both modalities: each video's vector is the 50/50 mean
@@ -56,11 +56,11 @@ and what it says are searchable.
 From then on, any question, any day - ranking against the saved vectors is
 free, and the vision pass pays only for the sessions that actually matter:
 
-```console
+```bash
 # Rank against the saved vectors (no re-embedding), then a vision pass over only the top hits
-$ smartpipe top_k 3 --near "user gives up after the coupon code fails at checkout" < sessions.embeddings \
-    | jq -r .source \
-    | smartpipe map "Describe the failure {user_goal string, failure_point string, on_screen_error string}" --from-files --frame-every 2 --max-frames 60
+smartpipe top_k 3 --near "user gives up after the coupon code fails at checkout" < sessions.embeddings \
+| jq -r .source \
+| smartpipe map "Describe the failure {user_goal string, failure_point string, on_screen_error string}" --from-files --frame-every 2 --max-frames 60
 ```
 
 `jq -r .source` turns the ranked records back into file paths, `--from-files`

@@ -5,15 +5,15 @@ Every verb can read files instead of stdin lines. Point it at documents and each
 
 ## `--in` - a glob of files
 
-```console
+```bash
 # Each PDF is one item; summarize each:
-$ smartpipe map "Summarize this document" --in 'reports/*.pdf'
+smartpipe map "Summarize this document" --in 'reports/*.pdf'
 
 # Rank résumés by relevance (the classic):
-$ smartpipe top_k 5 --near "distributed systems engineer" --in 'resumes/*.pdf'
+smartpipe top_k 5 --near "distributed systems engineer" --in 'resumes/*.pdf'
 
 # Keep the documents that mention a topic:
-$ smartpipe filter "discusses budget cuts" --in 'board-notes/**/*.md'
+smartpipe filter "discusses budget cuts" --in 'board-notes/**/*.md'
 ```
 
 > **Quote the pattern.** Write `--in '*.pdf'` with quotes so your shell passes the
@@ -24,11 +24,11 @@ $ smartpipe filter "discusses budget cuts" --in 'board-notes/**/*.md'
 
 Compose with `find`, `ls`, `git`, or anything that lists paths:
 
-```console
-$ find . -name '*.md' -mtime -7 \
-    | smartpipe map "Summarize" --from-files
-$ git ls-files '*.py' \
-    | smartpipe filter "has a TODO comment" --from-files
+```bash
+find . -name '*.md' -mtime -7 \
+| smartpipe map "Summarize" --from-files
+git ls-files '*.py' \
+| smartpipe filter "has a TODO comment" --from-files
 ```
 
 Each stdin line is treated as a filename; each file becomes one item.
@@ -52,8 +52,8 @@ doesn't say what they are.
 
 Parsing documents, audio, video, and charts ships with the normal install:
 
-```console
-$ pip install smartpipe-cli    # documents, audio, video, and charts all included
+```bash
+pip install smartpipe-cli    # documents, audio, video, and charts all included
 ```
 
 If a parser is unavailable in a broken or unsupported environment, smartpipe tells
@@ -78,9 +78,9 @@ warning on stderr - the rest of the batch still runs. The exit code reflects it:
 Point `map` at images and each one is sent - bytes and all - to the model, with the
 prompt applied to what it *sees*:
 
-```console
-$ smartpipe map "Describe the product shown" --in 'photos/*.jpg' --model ollama/qwen3-vl
-$ smartpipe map "Extract {brand, color}" --in shelf.png --model gpt-5.4-mini
+```bash
+smartpipe map "Describe the product shown" --in 'photos/*.jpg' --model ollama/qwen3-vl
+smartpipe map "Extract {brand, color}" --in shelf.png --model gpt-5.4-mini
 ```
 
 The chat model must be vision-capable; if it isn't, the item is skipped with a
@@ -92,8 +92,8 @@ with a pointer to `map`.
 Redirect a single document and it becomes one item - smartpipe sniffs the bytes,
 spools, and parses it exactly as `--in` would:
 
-```console
-$ smartpipe map "Summarize this document" < report.pdf
+```bash
+smartpipe map "Summarize this document" < report.pdf
 ```
 
 One document per run (stdin is one stream); for many documents use `--in`.
@@ -104,9 +104,9 @@ Unrecognizable binary data stops with a clear message instead of garbling.
 `--in` composes with piped stdin: the files come first (glob-sorted), then the
 stdin lines, one run:
 
-```console
-$ cat extra-notes.txt \
-    | smartpipe map "Summarize" --in 'reports/*.pdf'
+```bash
+cat extra-notes.txt \
+| smartpipe map "Summarize" --in 'reports/*.pdf'
 ```
 
 ## Video: watched, or frames + soundtrack
@@ -120,9 +120,9 @@ plus audio.
 The default is **one frame per second up to 24**, evenly spread past that. Tune the
 sampling when it matters:
 
-```console
-$ smartpipe map "what changes between scenes?" --in demo.mp4 --frame-every 1
-$ smartpipe map "summarize this lecture" --in talk.mp4 --frame-every 5 --max-frames 120
+```bash
+smartpipe map "what changes between scenes?" --in demo.mp4 --frame-every 1
+smartpipe map "summarize this lecture" --in talk.mp4 --frame-every 5 --max-frames 120
 ```
 
 `--frame-every SECONDS` guarantees the density (and lifts the 24-frame cap);
@@ -143,9 +143,9 @@ up to 8 figures per document (a stderr note counts them:
 `report.pdf: 5 figures attached (3 more capped)`), icons under 4 KB dropped.
 Per page, fused:
 
-```console
-$ smartpipe split --by pages --media --in report.pdf \
-    | smartpipe map "summarize this page, including what each figure shows"
+```bash
+smartpipe split --by pages --media --in report.pdf \
+| smartpipe map "summarize this page, including what each figure shows"
 ```
 
 One item per page with that page's text and figures together. Text verbs
@@ -159,10 +159,10 @@ Document parsing extracts **text**; figures embedded in a PDF/DOCX/PPTX/XLSX
 don't ride along implicitly (a 100-page deck can carry 300 decorative logos -
 which would explode one document into hundreds of items). When you want them:
 
-```console
-$ smartpipe split --media --in report.pdf \
-    | smartpipe map "describe this figure"
-{"image_b64": "…", "mime": "image/jpeg", "source": "report.pdf p.7 img.2"}
+```bash
+smartpipe split --media --in report.pdf \
+| smartpipe map "describe this figure"
+# → {"image_b64": "…", "mime": "image/jpeg", "source": "report.pdf p.7 img.2"}
 ```
 
 Each embedded image becomes an item with page provenance, byte-identical

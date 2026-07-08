@@ -31,11 +31,11 @@ dependencies = [
   "httpx>=0.27",
   "jsonschema>=4.23",
   "tomli-w>=1.0",
-  # D44/D46 (owner): seamless beats slim — the ENTIRE multimodal surface
+  # D44/D46 (owner): seamless beats slim - the ENTIRE multimodal surface
   # ships in the box: STT, local embeddings, documents, video, charts, and
   # every provider SDK. No extras, ever. Imports stay function-local so the
   # startup budget holds; models download once on first use.
-  # Three components wait on upstream 3.14 wheels (onnxruntime, av) — the
+  # Three components wait on upstream 3.14 wheels (onnxruntime, av) - the
   # markers keep `pip install smartpipe-cli` working on 3.14; runtime detection
   # degrades those paths honestly until the wheels land.
   "faster-whisper>=1.0; python_version < '3.14'",
@@ -50,7 +50,7 @@ dependencies = [
 
 [project.scripts]
 smartpipe = "smartpipe.cli.root:main"
-sempipe = "smartpipe.cli.root:main"  # compat alias — the old name keeps working
+sempipe = "smartpipe.cli.root:main"  # compat alias - the old name keeps working
 
 [project.urls]
 Homepage = "https://github.com/prabal-rje/smartpipe"
@@ -76,7 +76,7 @@ docs = [
 packages = ["src/smartpipe"]
 
 [tool.hatch.build.targets.sdist]
-# Ship the package and docs — never the private working documents
+# Ship the package and docs - never the private working documents
 # (plan/, CLAUDE.md, TODO.md, idea.md, context/), and no venvs or build junk.
 include = [
   "src",
@@ -112,7 +112,7 @@ ignore = ["A005"]
 # MissingExtra is a control-flow signal (skip this file), named to read as prose
 # in a warning; an "Error" suffix would misrepresent it. Consistent with errors.py.
 "src/smartpipe/parsing/extract.py" = ["N818"]
-# Dev scripts print by design — they ARE the report (join-eval, future tooling).
+# Dev scripts print by design - they ARE the report (join-eval, future tooling).
 "scripts/*" = ["T201"]
 
 [tool.pytest.ini_options]

@@ -5,16 +5,16 @@ Turns each item into a vector embedding. This is a utility verb - it exists to f
 
 ## Examples
 
-```console
+```bash
 # Embed a corpus and save it for reuse:
-$ cat docs/*.md \
-    | smartpipe embed > corpus.embeddings
+cat docs/*.md \
+| smartpipe embed > corpus.embeddings
 
 # Embed a single query (useful in scripts):
-$ echo "senior Python backend engineer" \
-    | smartpipe embed \
-    | jq '.vector | length'
-768
+echo "senior Python backend engineer" \
+| smartpipe embed \
+| jq '.vector | length'
+# → 768
 ```
 
 ## Output

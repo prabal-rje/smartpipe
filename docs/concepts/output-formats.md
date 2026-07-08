@@ -30,9 +30,9 @@ You can also set a default with the `SMARTPIPE_OUTPUT` environment variable.
 
 Point structured output straight into a spreadsheet:
 
-```console
-$ cat cards.txt \
-    | smartpipe map "Extract {name, email, role}" --output csv > people.csv
+```bash
+cat cards.txt \
+| smartpipe map "Extract {name, email, role}" --output csv > people.csv
 ```
 
 ```
@@ -58,11 +58,11 @@ CSV and TSV need **structured** output - there have to be named columns. Ask for
 fields with braces or `--schema`; a plain-text prompt with `--output csv` is a
 usage error that tells you so.
 
-```console
-$ echo hi \
-    | smartpipe map "shout" --output csv
-error: --output csv needs structured output - a table needs named columns
-  add braces to the prompt (e.g. "Extract {name, email}") or pass --schema
+```bash
+echo hi \
+| smartpipe map "shout" --output csv
+# → error: --output csv needs structured output - a table needs named columns
+# →   add braces to the prompt (e.g. "Extract {name, email}") or pass --schema
 ```
 
 ## `--fields` - pick and order your columns
@@ -71,12 +71,12 @@ error: --output csv needs structured output - a table needs named columns
 that order. It works the same in every format - JSONL, the terminal view, CSV,
 and TSV - on `map`, `embed`, `top_k`, and `reduce`:
 
-```console
-$ cat cards.txt \
-    | smartpipe map "Extract {name, email, role}" --fields name,email --output tsv
-name	email
-Ada Lovelace	ada@example.com
-Grace Hopper	grace@example.com
+```bash
+cat cards.txt \
+| smartpipe map "Extract {name, email, role}" --fields name,email --output tsv
+# → name	email
+# → Ada Lovelace	ada@example.com
+# → Grace Hopper	grace@example.com
 ```
 
 The projection rules:
@@ -92,12 +92,12 @@ The projection rules:
   pick from, so `--fields` is a usage error that says exactly that. (`filter`
   never has the flag - its output is a byte-faithful subset of its input.)
 
-```console
-$ cat notes.txt \
-    | smartpipe map "shout" --fields name
-error: --fields selects columns from structured output
-  This run produces plain text - there are no named fields to pick from.
-  Add braces to the prompt (e.g. "Extract {name, email}") or pass --schema.
+```bash
+cat notes.txt \
+| smartpipe map "shout" --fields name
+# → error: --fields selects columns from structured output
+# →   This run produces plain text - there are no named fields to pick from.
+# →   Add braces to the prompt (e.g. "Extract {name, email}") or pass --schema.
 ```
 
 ## See also

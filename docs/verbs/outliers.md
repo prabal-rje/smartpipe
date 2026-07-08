@@ -4,11 +4,11 @@
 everything**. Novelty, surfaced - the failure shape you haven't seen, the
 mislabeled training row, the alert that isn't like the others.
 
-```console
-$ cat today.log \
-    | smartpipe outliers 5
-outliers: median neighbor distance 0.21 - these are 3.1x-3.9x out
-{"text": "kernel: watchdog: BUG: soft lockup CPU#3", "_distance": 0.81, "source": "line 48122"}
+```bash
+cat today.log \
+| smartpipe outliers 5
+# → outliers: median neighbor distance 0.21 - these are 3.1x-3.9x out
+# → {"text": "kernel: watchdog: BUG: soft lockup CPU#3", "_distance": 0.81, "source": "line 48122"}
 ```
 
 Embeddings only - no chat calls. The score is each item's mean cosine

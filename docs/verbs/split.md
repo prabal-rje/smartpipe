@@ -5,10 +5,10 @@ into budget-sized chunk items, with **zero model calls**. It exists because a
 300-page PDF is one item, and one item cannot fit an 8k
 window without being split into smaller pieces.
 
-```console
-$ smartpipe split --in '10k-filings/*.pdf' \
-    | smartpipe map "list the risk factors {risk}" \
-    | smartpipe reduce "merge into one deduplicated risk register"
+```bash
+smartpipe split --in '10k-filings/*.pdf' \
+| smartpipe map "list the risk factors {risk}" \
+| smartpipe reduce "merge into one deduplicated risk register"
 ```
 
 ## What comes out
@@ -34,10 +34,10 @@ One JSON record per chunk:
 | `pages` | `--by pages:5` | PDF page groups with real page numbers, `report.pdf p.6-10` |
 | `minutes` / `seconds` | `--by minutes:10` | **audio slices that stay audio** - each rides the pipe as a playable segment (`call.mp3 §00:10-00:20`), so the next verb can *hear* it natively |
 
-```console
-$ smartpipe split --by minutes:10 --in call.wav \
-    | smartpipe map "what was agreed?" --model voxtral-mini-latest \
-    | smartpipe reduce "merge the agreements"
+```bash
+smartpipe split --by minutes:10 --in call.wav \
+| smartpipe map "what was agreed?" --model voxtral-mini-latest \
+| smartpipe reduce "merge the agreements"
 ```
 
 Notes: `--max-tokens N` is shorthand for `--by tokens:N`. `--by pages` reads PDF
@@ -52,9 +52,9 @@ slicing audio.
 provenance (`report.pdf p.7 img.2`), byte-identical (decorative icons below a minimum size are skipped). Feed
 them straight to a vision model:
 
-```console
-$ smartpipe split --media --in 'decks/*.pptx' \
-    | smartpipe map "what does this chart claim? {claim}"
+```bash
+smartpipe split --media --in 'decks/*.pptx' \
+| smartpipe map "what does this chart claim? {claim}"
 ```
 
 ## Options

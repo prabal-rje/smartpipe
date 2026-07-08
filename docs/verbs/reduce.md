@@ -5,22 +5,22 @@ actually read - a summary, a synthesis, a report drawn from everything at once.
 
 ## Examples
 
-```console
+```bash
 # Summarize a pile of notes:
-$ cat meeting-notes/*.md \
-    | smartpipe reduce "Write a one-page executive summary"
+cat meeting-notes/*.md \
+| smartpipe reduce "Write a one-page executive summary"
 
 # Structured synthesis:
-$ cat incidents.jsonl \
-    | smartpipe reduce "Write a root-cause analysis" --schema rca.json
+cat incidents.jsonl \
+| smartpipe reduce "Write a root-cause analysis" --schema rca.json
 
 # One summary per group:
-$ cat feedback.jsonl \
-    | smartpipe reduce "Summarize the sentiment" --group-by product
+cat feedback.jsonl \
+| smartpipe reduce "Summarize the sentiment" --group-by product
 
 # See how it chunks a large input:
-$ cat book.txt \
-    | smartpipe reduce "List the main themes" --verbose
+cat book.txt \
+| smartpipe reduce "List the main themes" --verbose
 ```
 
 ## Large inputs
@@ -46,11 +46,11 @@ That line reads left to right: 50,000 items became 41 chunk-summaries, those bec
 With JSON Lines input, `--group-by FIELD` runs a separate reduction for each
 distinct value of `FIELD`, emitting one record per group:
 
-```console
-$ cat reviews.jsonl \
-    | smartpipe reduce "Summarize complaints" --group-by product
-{"group": "Widget", "result": "Users report..."}
-{"group": "Gadget", "result": "The main issue..."}
+```bash
+cat reviews.jsonl \
+| smartpipe reduce "Summarize complaints" --group-by product
+# → {"group": "Widget", "result": "Users report..."}
+# → {"group": "Gadget", "result": "The main issue..."}
 ```
 
 Inside the prompt, `{field}` refers to the group's value - so
@@ -63,9 +63,9 @@ there's no single item to read it from.)
 Point `--schema` at a JSON Schema to get a validated object instead of prose - the
 same enforcement and one-shot repair as [`map`](map.md):
 
-```console
-$ cat reports.jsonl \
-    | smartpipe reduce "Synthesize findings" --schema summary.json
+```bash
+cat reports.jsonl \
+| smartpipe reduce "Synthesize findings" --schema summary.json
 ```
 
 ## Streaming: `--window`
@@ -74,10 +74,10 @@ A stream never ends, so give `reduce` a boundary: `--window N` synthesizes every
 lines and emits each result immediately; `--every M` makes the windows slide (a
 fresh take on the last N lines after every M new ones):
 
-```console
-$ tail -f server.log \
-    | smartpipe reduce --window 100 --every 20 "current error trend?"
-{"window_end": 100, "result": "…"}
+```bash
+tail -f server.log \
+| smartpipe reduce --window 100 --every 20 "current error trend?"
+# → {"window_end": 100, "result": "…"}
 ```
 
 Each window's record carries `window_end` (the stream position); the final,

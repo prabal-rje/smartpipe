@@ -3,13 +3,13 @@
 Keep N random rows. **Free - never calls a model.** Reservoir sampling: one
 pass, constant memory, input order preserved in the output.
 
-```console
-$ cat huge.jsonl \
-    | smartpipe sample 20 \
-    | smartpipe map "Extract {label}" --tally label
-$ cat evals.jsonl \
-    | smartpipe sample 50 --seed 7 > eval-subset.jsonl
-sample: 50 of 12,408 (seed 7)
+```bash
+cat huge.jsonl \
+| smartpipe sample 20 \
+| smartpipe map "Extract {label}" --tally label
+cat evals.jsonl \
+| smartpipe sample 50 --seed 7 > eval-subset.jsonl
+# → sample: 50 of 12,408 (seed 7)
 ```
 
 ## Deterministic by default
@@ -28,8 +28,8 @@ random-each-run mode.
 spend, but a head isn't representative when the input is ordered (sorted exports, time-ordered
 logs). `sample` is the representative gate; use both:
 
-```console
-$ cat huge.jsonl \
-    | smartpipe sample 20 \
-    | smartpipe map "…" --max-calls 25
+```bash
+cat huge.jsonl \
+| smartpipe sample 20 \
+| smartpipe map "…" --max-calls 25
 ```

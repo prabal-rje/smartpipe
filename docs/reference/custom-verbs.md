@@ -7,18 +7,18 @@ Two ways to add a verb to smartpipe; built-ins always win over both.
 Any `.sem` file (single stage or a whole pipeline) in
 `~/.config/smartpipe/verbs/` becomes a command named after the file:
 
-```console
-$ cat ~/.config/smartpipe/verbs/triage.sem
-[stage.hot]
-verb = "where"
-predicate = 'text has "ERROR"'
+```bash
+cat ~/.config/smartpipe/verbs/triage.sem
+# → [stage.hot]
+# → verb = "where"
+# → predicate = 'text has "ERROR"'
 
-[stage.themes]
-verb = "cluster"
-top = 8
+# → [stage.themes]
+# → verb = "cluster"
+# → top = 8
 
-$ cat week.log \
-    | smartpipe triage
+cat week.log \
+| smartpipe triage
 ```
 
 Full key validation applies (typos are loud), the file is shareable and

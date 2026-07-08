@@ -7,16 +7,16 @@ the whole mental model.
 
 - **Reading from `stdin` (a pipe or redirect):** each **line** is one item.
 
-  ```console
-  $ cat server.log | smartpipe filter "database timeout"
+  ```bash
+  cat server.log | smartpipe filter "database timeout"
   ```
 
   Each line of the log is judged on its own.
 
 - **Reading files (`--in` / `--from-files`):** each **file** is one item.
 
-  ```console
-  $ smartpipe map "Summarize this document" --in 'reports/*.pdf'
+  ```bash
+  smartpipe map "Summarize this document" --in 'reports/*.pdf'
   ```
 
   See [File inputs](../inputs/files.md) for the details, including how documents
@@ -48,10 +48,10 @@ It's the common exchange format for Unix data pipelines because every line is in
 valid - you can `grep`, `head`, `split`, and stream it. smartpipe emits JSONL when
 it produces structured output, so its results flow straight into `jq`:
 
-```console
-$ cat receipts.txt \
-    | smartpipe map "Extract {vendor, total}" \
-    | jq 'select(.total > 1000)'
+```bash
+cat receipts.txt \
+| smartpipe map "Extract {vendor, total}" \
+| jq 'select(.total > 1000)'
 ```
 
 ## Streams are read incrementally
@@ -75,9 +75,9 @@ One rule makes smartpipe safe in any pipeline: **only results go to `stdout`.**
 Progress spinners, warnings about skipped items, and diagnostics all go to
 `stderr`. So this always sees clean data:
 
-```console
-$ cat notes.txt \
-    | smartpipe map "summarize" > summaries.txt    # only results in the file
+```bash
+cat notes.txt \
+| smartpipe map "summarize" > summaries.txt    # only results in the file
 ```
 
 and you still see the progress and any warnings on your terminal.

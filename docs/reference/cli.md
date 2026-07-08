@@ -87,11 +87,11 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 
 ## `config`
 
-```console
-$ smartpipe config                     # interactive first-run setup
-$ smartpipe config show                # effective settings + where each comes from
-$ smartpipe config model MODEL         # set the default chat model
-$ smartpipe config embed-model MODEL   # set the default embedding model
+```bash
+smartpipe config                     # interactive first-run setup
+smartpipe config show                # effective settings + where each comes from
+smartpipe config model MODEL         # set the default chat model
+smartpipe config embed-model MODEL   # set the default embedding model
 ```
 
 API keys are **never** stored - they're read from the environment.
@@ -101,11 +101,11 @@ preserved, comments are not.
 
 ## `auth`
 
-```console
-$ smartpipe auth login             # log in with ChatGPT (browser)
-$ smartpipe auth login --headless  # device-code flow for remote machines
-$ smartpipe auth status            # logged in? which account?
-$ smartpipe auth logout            # remove the stored tokens
+```bash
+smartpipe auth login             # log in with ChatGPT (browser)
+smartpipe auth login --headless  # device-code flow for remote machines
+smartpipe auth status            # logged in? which account?
+smartpipe auth logout            # remove the stored tokens
 ```
 
 With a login and no `OPENAI_API_KEY`, OpenAI models ride your ChatGPT plan
@@ -113,14 +113,14 @@ With a login and no `OPENAI_API_KEY`, OpenAI models ride your ChatGPT plan
 
 ## `cite`
 
-```console
-$ smartpipe cite                       # print a BibTeX entry for citing smartpipe
+```bash
+smartpipe cite                       # print a BibTeX entry for citing smartpipe
 ```
 
 ## `doctor`
 
-```console
-$ smartpipe doctor        # config · Ollama · models · keys · login · extras · completions
+```bash
+smartpipe doctor        # config · Ollama · models · keys · login · extras · completions
 ```
 
 One line per check with its fix inline; exit 0 all-green, 1 if anything needs
@@ -128,9 +128,9 @@ attention. Never makes a paid model call; key lines report presence, never value
 
 ## `run`
 
-```console
-$ smartpipe run extract.sem < cards.txt        # execute a saved stage
-$ smartpipe run extract.sem --model ollama/qwen3:8b   # flags override the file
+```bash
+smartpipe run extract.sem < cards.txt        # execute a saved stage
+smartpipe run extract.sem --model ollama/qwen3:8b   # flags override the file
 ```
 
 A `.sem` file pins one verb invocation in TOML; with a

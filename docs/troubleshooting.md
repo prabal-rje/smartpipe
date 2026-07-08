@@ -34,9 +34,9 @@ The model name isn't pulled locally. `ollama pull X`, or pick one you have with
 
 Two ways forward, pick one:
 
-```console
-$ export OPENAI_API_KEY=sk-…      # platform billing
-$ smartpipe auth login              # or use your ChatGPT Plus/Pro plan
+```bash
+export OPENAI_API_KEY=sk-…      # platform billing
+smartpipe auth login              # or use your ChatGPT Plus/Pro plan
 ```
 
 ## "the ChatGPT login has expired" (exit 2)
@@ -48,8 +48,8 @@ The refresh token was revoked (password change, session cleanup). Run
 
 A cloud model needs a key, and smartpipe reads it from the environment (never a file):
 
-```console
-$ export ANTHROPIC_API_KEY=sk-ant-…
+```bash
+export ANTHROPIC_API_KEY=sk-ant-…
 ```
 
 ## "Claude models need an extra" (exit 2)
@@ -68,10 +68,10 @@ everything). Files that need it are skipped until you do.
 You ran a verb with nothing to read. Pipe something in, redirect a file, or use
 `--in`:
 
-```console
-$ cat notes.txt \
-    | smartpipe map "summarize"
-$ smartpipe map "summarize" --in 'notes/*.txt'
+```bash
+cat notes.txt \
+| smartpipe map "summarize"
+smartpipe map "summarize" --in 'notes/*.txt'
 ```
 
 ## "no files matched: …" (exit 64)
@@ -83,9 +83,9 @@ doesn't expand it first: `--in '*.pdf'`.
 
 CSV/TSV need named columns. Ask for fields with braces or a schema:
 
-```console
-$ … \
-    | smartpipe map "Extract {name, email}" --output csv
+```bash
+… \
+| smartpipe map "Extract {name, email}" --output csv
 ```
 
 ## "the endpoint doesn't know the model 'X'" (exit 2)

@@ -7,8 +7,8 @@ meaning, not keyword.
 
 A common case: rank a stack of résumés against a role.
 
-```console
-$ smartpipe top_k 5 --near "senior distributed systems engineer, Rust, Kubernetes" --in 'resumes/*.pdf'
+```bash
+smartpipe top_k 5 --near "senior distributed systems engineer, Rust, Kubernetes" --in 'resumes/*.pdf'
 ```
 
 Output is the five closest files, best first, each with a similarity score:
@@ -28,13 +28,13 @@ resumes/nguyen.pdf	0.81
 If you'll run several queries against the same corpus, embed it once and reuse the
 vectors - much cheaper than re-embedding every time:
 
-```console
-$ smartpipe embed --in 'docs/**/*.md' > corpus.embeddings
+```bash
+smartpipe embed --in 'docs/**/*.md' > corpus.embeddings
 
-$ cat corpus.embeddings \
-    | smartpipe top_k 10 --near "our data retention policy"
-$ cat corpus.embeddings \
-    | smartpipe top_k 10 --near "incident response runbook"
+cat corpus.embeddings \
+| smartpipe top_k 10 --near "our data retention policy"
+cat corpus.embeddings \
+| smartpipe top_k 10 --near "incident response runbook"
 ```
 
 `top_k` sees the precomputed `vector` in each record and skips re-embedding.
@@ -43,10 +43,10 @@ $ cat corpus.embeddings \
 
 Feed the top files straight into `map` to pull structured data from just the winners:
 
-```console
-$ smartpipe top_k 20 --near "indemnification clause" --in 'legal/*.pdf' \
-    | cut -f1 \
-    | smartpipe map "Extract {clause_text, liability_cap}" --from-files --output csv
+```bash
+smartpipe top_k 20 --near "indemnification clause" --in 'legal/*.pdf' \
+| cut -f1 \
+| smartpipe map "Extract {clause_text, liability_cap}" --from-files --output csv
 ```
 
 `cut -f1` drops the score column, leaving filenames; `--from-files` feeds them to
@@ -56,8 +56,8 @@ $ smartpipe top_k 20 --near "indemnification clause" --in 'legal/*.pdf' \
 
 Don't know how many are relevant? Keep everything above a similarity bar:
 
-```console
-$ smartpipe top_k --near "GDPR compliance" --threshold 0.8 --in 'policies/*.pdf'
+```bash
+smartpipe top_k --near "GDPR compliance" --threshold 0.8 --in 'policies/*.pdf'
 ```
 
 ## See also

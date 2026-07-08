@@ -15,8 +15,8 @@ cat reviews.txt \
 
 ## Start here
 
-- **[Install](install.md)** — one command, plus current platform notes.
-- **[Quickstart](quickstart.md)** — from zero to a working pipeline in a minute,
+- **[Install](install.md)** - one command, plus current platform notes.
+- **[Quickstart](quickstart.md)** - from zero to a working pipeline in a minute,
   local or cloud.
 
 ## Verbs
@@ -54,21 +54,21 @@ paid stage:
 
 ## Concepts
 
-- [Pipes & items](concepts/pipes-and-items.md) — the mental model (what is "one item"?)
-- [Models & providers](concepts/models-and-providers.md) — local vs cloud, model strings
-- [Structured output](concepts/structured-output.md) — braces and `--schema`
-- [Output formats](concepts/output-formats.md) — `auto`, `json`, `csv`, `tsv`
-- [File inputs](inputs/files.md) — point any verb at documents
+- [Pipes & items](concepts/pipes-and-items.md) - the mental model (what is "one item"?)
+- [Models & providers](concepts/models-and-providers.md) - local vs cloud, model strings
+- [Structured output](concepts/structured-output.md) - braces and `--schema`
+- [Output formats](concepts/output-formats.md) - `auto`, `json`, `csv`, `tsv`
+- [File inputs](inputs/files.md) - point any verb at documents
 
 ## Recipes & reference
 
-- [Cookbook](cookbook/README.md) — invoice reconciliation, video RAG, meeting
+- [Cookbook](cookbook/README.md) - invoice reconciliation, video RAG, meeting
   digests, log triage, training-data prep, live monitoring, and more
-- [CLI reference](reference/cli.md) — every flag, format, and exit code
-- [`.sem` stage files](reference/sem-files.md) — save a pipe stage as an executable script
-- [Troubleshooting](troubleshooting.md) — find your error message
-- [Comparison](comparison.md) — where smartpipe fits among the alternatives
-- [Privacy & security](privacy.md) — where data goes
+- [CLI reference](reference/cli.md) - every flag, format, and exit code
+- [`.sem` stage files](reference/sem-files.md) - save a pipe stage as an executable script
+- [Troubleshooting](troubleshooting.md) - find your error message
+- [Comparison](comparison.md) - where smartpipe fits among the alternatives
+- [Privacy & security](privacy.md) - where data goes
 ## Background
 
 smartpipe brings the semantic-operator vocabulary of data frameworks like DocETL

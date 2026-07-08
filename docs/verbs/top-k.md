@@ -5,24 +5,24 @@ Sorts items by semantic closeness to a query and returns the best matches. Like
 
 ## Examples
 
-```console
+```bash
 # Find the 5 most relevant résumés:
-$ cat resumes/*.txt \
-    | smartpipe top_k 5 --near "distributed systems engineer"
+cat resumes/*.txt \
+| smartpipe top_k 5 --near "distributed systems engineer"
 
 # Rank a precomputed corpus (embed once, query many times):
-$ cat corpus.embeddings \
-    | smartpipe top_k 10 --near "Q3 revenue strategy"
+cat corpus.embeddings \
+| smartpipe top_k 10 --near "Q3 revenue strategy"
 
 # Threshold mode: everything above a similarity of 0.8, no fixed count:
-$ cat articles.jsonl \
-    | smartpipe top_k --near "climate policy" --threshold 0.8
+cat articles.jsonl \
+| smartpipe top_k --near "climate policy" --threshold 0.8
 
 # The three-stage pipeline: embed, rank, extract:
-$ cat legal/*.txt \
-    | smartpipe embed \
-    | smartpipe top_k 20 --near "indemnification" \
-    | smartpipe map "Extract {clause_text, liability_cap}"
+cat legal/*.txt \
+| smartpipe embed \
+| smartpipe top_k 20 --near "indemnification" \
+| smartpipe map "Extract {clause_text, liability_cap}"
 ```
 
 ## How it works
@@ -43,13 +43,13 @@ If an item already carries a `vector` (because it came from `smartpipe embed`),
 `top_k` uses it directly instead of re-embedding - so you can embed a large corpus
 once and run many queries against it cheaply:
 
-```console
-$ cat docs/*.md \
-    | smartpipe embed > corpus.embeddings
-$ cat corpus.embeddings \
-    | smartpipe top_k 5 --near "first question"
-$ cat corpus.embeddings \
-    | smartpipe top_k 5 --near "second question"
+```bash
+cat docs/*.md \
+| smartpipe embed > corpus.embeddings
+cat corpus.embeddings \
+| smartpipe top_k 5 --near "first question"
+cat corpus.embeddings \
+| smartpipe top_k 5 --near "second question"
 ```
 
 The `vector` field is an internal field, so `top_k` drops it from the output and keeps the
@@ -59,9 +59,9 @@ rest of the record plus `_score`.
 
 Keep a running top-K over a live stream:
 
-```console
-$ tail -f tickets.jsonl \
-    | smartpipe top_k 5 --stream --near "billing dispute"
+```bash
+tail -f tickets.jsonl \
+| smartpipe top_k 5 --stream --near "billing dispute"
 ```
 
 At a terminal the K-line board repaints in place as better matches arrive. In a
@@ -77,7 +77,7 @@ than fails on) a record whose embedding dimensions don't match the query.
 |---|---|
 | `K` (positional) | Return at most this many items |
 | `--near TEXT` | The query to rank against (required) |
-| `--threshold FLOAT` | Keep everything at or above this similarity (0–1) |
+| `--threshold FLOAT` | Keep everything at or above this similarity (0-1) |
 | `--stream` | Live leaderboard over a stream (needs `K`) |
 | `--embed-model TEXT` | The embedding model |
 | `--concurrency N` | Max parallel model calls |

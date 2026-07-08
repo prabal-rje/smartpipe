@@ -7,9 +7,9 @@ end you'll have run a real semantic transform over your own text.
 
 A one-line pipeline that reads text and rewrites every line through an AI model:
 
-```console
-$ cat notes.txt \
-    | smartpipe map "translate to French"
+```bash
+cat notes.txt \
+| smartpipe map "translate to French"
 ```
 
 `map` is the verb: it applies your instruction to each line and prints the result.
@@ -18,8 +18,8 @@ that does the thinking). Let's get both.
 
 ## 1. Install smartpipe
 
-```console
-$ pip install smartpipe-cli
+```bash
+pip install smartpipe-cli
 ```
 
 (Details and alternatives - `pipx`, `uv` - are in [install.md](install.md).)
@@ -35,12 +35,12 @@ path:
 [Ollama](https://ollama.com) runs open models on your own machine - no account, no
 API key, and model requests stay on that machine.
 
-```console
-$ # 1. Install Ollama from https://ollama.com
-$ # 2. Download a small, capable model (~5 GB):
-$ ollama pull qwen3:8b
-$ # 3. Tell smartpipe to use it:
-$ smartpipe config model ollama/qwen3:8b
+```bash
+# 1. Install Ollama from https://ollama.com
+# 2. Download a small, capable model (~5 GB):
+ollama pull qwen3:8b
+# 3. Tell smartpipe to use it:
+smartpipe config model ollama/qwen3:8b
 ```
 
 ### Path B - cloud
@@ -48,9 +48,9 @@ $ smartpipe config model ollama/qwen3:8b
 If you have an API key (OpenAI, Anthropic, Mistral, Gemini, or OpenRouter), point smartpipe at a cloud model.
 Cloud models are typically faster and stronger, and cost a small amount per use.
 
-```console
-$ smartpipe config model gpt-5.4-mini
-$ export OPENAI_API_KEY=sk-...           # smartpipe reads the key from this variable, not from a saved file
+```bash
+smartpipe config model gpt-5.4-mini
+export OPENAI_API_KEY=sk-...           # smartpipe reads the key from this variable, not from a saved file
 ```
 
 Either way, `smartpipe config` (with no arguments) walks you through this
@@ -61,20 +61,20 @@ screen - without spending a model call.
 
 ## 3. Your first transform
 
-```console
-$ echo "hello world" \
-    | smartpipe map "translate to Spanish"
-hola mundo
+```bash
+echo "hello world" \
+| smartpipe map "translate to Spanish"
+# → hola mundo
 ```
 
 `echo` feeds one line in; `map` transforms it; the result comes out. Try it with a
 file:
 
-```console
-$ printf "good morning\nthank you\n" \
-    | smartpipe map "translate to French"
-bonjour
-merci
+```bash
+printf "good morning\nthank you\n" \
+| smartpipe map "translate to French"
+# → bonjour
+# → merci
 ```
 
 One line in, one line out, in the same order.
@@ -84,20 +84,20 @@ One line in, one line out, in the same order.
 Put field names in `{braces}` and smartpipe asks the model for structured data back,
 as JSON:
 
-```console
-$ echo "Invoice from Acme Corp, dated 2026-01-15, total $1250" \
-    | smartpipe map "Extract {vendor, date, total}"
-{"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
+```bash
+echo "Invoice from Acme Corp, dated 2026-01-15, total $1250" \
+| smartpipe map "Extract {vendor, date, total}"
+# → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 ```
 
 Because that's JSON, it composes with `jq` (never met `jq`? one-line intro in
 [the Unix toolbox](concepts/pipes-and-items.md#the-unix-toolbox-in-five-lines)):
 
-```console
-$ echo "Invoice from Acme Corp, total $1250" \
-    | smartpipe map "Extract {vendor, total}" \
-    | jq -r .total                 # jq pulls one field out of the JSON
-1250
+```bash
+echo "Invoice from Acme Corp, total $1250" \
+| smartpipe map "Extract {vendor, total}" \
+| jq -r .total                 # jq pulls one field out of the JSON
+# → 1250
 ```
 
 That's the whole idea: smartpipe turns messy text into structured data you can pipe
