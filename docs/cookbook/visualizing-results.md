@@ -6,8 +6,8 @@ tallies, and the join threshold picker.
 
 ## A field's distribution (the 80% case)
 
-Built in twice over. `smartpipe chart` draws it (no model calls, `--save`
-writes a dependency-free SVG):
+Built in twice over. `smartpipe chart` draws it (no model calls; `--save`
+writes an SVG or PNG - the extension picks the format):
 
 ```bash
 cat tickets.txt \

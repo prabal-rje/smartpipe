@@ -40,7 +40,7 @@ to `stderr`.
 | [`getschema`](../verbs/getschema.md) | report the stream's fields, types, coverage | free - no model calls |
 | [`sort`](../verbs/sort.md) | order records by a field | free - no model calls |
 | [`split`](../verbs/split.md) | break oversized items into chunk items | free - no model calls |
-| `chart` | bar-chart a field's values; `--save` writes SVG | free - no model calls |
+| `chart` | bar-chart a field's values; `--save` writes SVG or PNG | free - no model calls |
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing (`--probe` adds the paid modality matrix) | exit 0 = ready |
@@ -92,7 +92,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `cache` | `stats` · `clear` (auto-swept: 30-day TTL + 500 MB LRU cap - `cache-days`, `cache-max-mb`) |
 | `sort` | `--by FIELD` (required), `--desc` |
 | `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
-| `chart` | `FIELD` (or whole lines), `--facet f1,f2,…`, `--by-time FIELD:BUCKET`, `--top N`, `--save FILE.svg`, `--title` |
+| `chart` | `FIELD` (or whole lines), `--facet f1,f2,…`, `--by-time FIELD:BUCKET`, `--top N`, `--save FILE.svg` / `FILE.png`, `--title` |
 
 ## `config`
 

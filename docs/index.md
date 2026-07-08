@@ -56,7 +56,7 @@ paid stage:
 | [`sample`](verbs/sample.md) | take a seeded random subset | `shuf` |
 | [`getschema`](verbs/getschema.md) | list fields, types, and coverage | `head`, for structure |
 | [`split`](verbs/split.md) | break items into pieces (pages, minutes) | `split` |
-| [`chart`](reference/cli.md) | terminal bars, SVG, facets, time series | quick plots |
+| [`chart`](reference/cli.md) | terminal bars, SVG/PNG, facets, time series | quick plots |
 
 Some semantic verbs have a **conditionally free mode**: `join --on` (key
 equality, no prompt), `distinct --exact` (hash-only folding), `map`/`extend`

@@ -51,8 +51,8 @@ cat app-reviews.jsonl \
 
 `extend` enriches in place, so the original review text rides along into
 `coded-reviews.jsonl` - the spreadsheet artifact analysts actually keep.
-`chart --facet` draws both distributions in the terminal and `--save` writes a
-dependency-free SVG for the deck. With the result cache on
+`chart --facet` draws both distributions in the terminal and `--save` writes an
+SVG for the deck (`--save review-mix.png` renders a PNG instead). With the result cache on
 (`smartpipe config cache on`), re-running to tweak the chart title costs zero
 model calls.
 
