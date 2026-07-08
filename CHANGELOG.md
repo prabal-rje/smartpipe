@@ -5,6 +5,84 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+The identity release, staged: everything below ships together as v2.0.0.
+
+### The item — one law for everything in a pipe
+- **The `__` metadata spine.** Tool metadata lives in a reserved
+  double-underscore namespace that rides every record: `__source` (path plus
+  HOW the item was cut - file, lines, jsonl, pages, minutes, segment index),
+  `__media` (one transport object for bytes crossing a pipe), `__score`
+  (join), `__invalid`/`__error`/`__raw` (kept failures). Known fields
+  round-trip through saved files; unknown `__` fields warn once and carry.
+  User data owns everything up to one leading underscore.
+- **Records in, records out.** A plain-prompt `map` over records now returns
+  a record (`{"result": …}` plus the spine) instead of bare prose - structure
+  and provenance survive transformation. Text lines still leave as text.
+- **The `--as` ingestion dial** (`file` | `lines` | `jsonl`) on every input
+  verb. Auto defaults: `.jsonl` means rows (loud per-line errors on
+  non-JSON), everything else means whole-document; stdin keeps per-line
+  sniffing; `--as file` slurps stdin whole (new). Media files refuse text
+  granularities with signposts to `split`.
+- **The binary is the reader.** `smartpipe report.pdf | …` - a first
+  argument that exists on disk streams items; verbs always win names,
+  `./name` disambiguates. Every input verb also takes positional FILE
+  arguments; `--in` survives as a hidden alias.
+- **`write` — the egress mirror.** Items route to files by template
+  (`{name}`, `{stem}`, `{index}`, any record field for content fan-out);
+  egress mirrors ingress via the spine - whole-file items become files,
+  line/row items reassemble into their sources in original order. Emits
+  written paths so pipes continue. Text-only records leave as plain text.
+- **`readable` — the human door.** The same YAML-ish renderer as the TTY
+  preview, as an explicit pipe stage: nesting indented, lists bulleted,
+  multi-line strings as block scalars, spine dimmed, long values truncated
+  with counts (`--full` to disable), media summarized (`image/png (48 KB)`)
+  - never base64. Piped machine output is untouched JSONL; `--bare` strips
+  the spine from it.
+- **Mixed streams are visible.** A kind census notes mixed inputs;
+  `where`/`summarize` report rows that had no fields; `--strict-rows` turns
+  the notes into errors. Multi-line plain output into a pipe warns that
+  line framing is ambiguous (use `--output json`).
+
+### Judgment you can gate, retry, and keep
+- **`--keep-invalid`** (map/extend): after the repair retry fails, keep the
+  failure as one JSON row (`__invalid`/`__error`/`__raw`) instead of a skip
+  - dim one-liner at a TTY, full row when piped.
+- **`smartpipe schema`** - the free rungs: compile braces/DSL to JSON Schema,
+  `--check FILE` validates rows (exit 0/1), `--example` prints a validating
+  instance, bare stdin mode is a REPL. **`--dry-run`** (map/extend) prints
+  the composed first request and exits before any model resolution.
+- **Nullability is declared.** `?` on any type (`string?`, `number[]?`, bare
+  `field?`) compiles to a null union; bare fields mean scalar-or-scalar-list
+  and never admit null (D48, shipped earlier in this cycle).
+- **Circuit breaker + `fallback-model`.** Five consecutive transport
+  failures stop the run with a provider-down screen (`SMARTPIPE_BREAKER`
+  tunes; 0 disables) - or, with a configured fallback, the run switches
+  chat models wholesale, re-runs the failed window on the successor, and
+  the receipt splits counts per model. Embedding fallback is refused
+  (one vector space per run). One fallback, no chains.
+- **Deterministic rungs.** `join --on 'left.K == right.K'` alone is a free
+  key-equality join (all kinds, `--unmatched`); with a prompt it becomes
+  blocking - equality narrows pairs, the judge reasons within blocks, the
+  receipt reports pairs avoided. `distinct --exact` folds byte/value
+  duplicates only (records canonicalized, media hashed by bytes) - zero
+  model calls. Verb tables mark the free rungs.
+
+### The terminal behaves
+- Result writes pause/erase/redraw the status line under an arbiter - the
+  spinner can never interleave with output again. Only the final pipe stage
+  (stdout a TTY) animates; mid-pipe stages stay line-atomic.
+- Records render at the TTY as YAML-ish blocks. The welcome screen links
+  docs, cookbook, and issues. The wizard offers to install shell
+  completions (consented, idempotent).
+
+### Docs: a shape, not a pile
+- New Learn track (`docs/learn/1…6`), `concepts/the-item.md` (the five
+  laws), `concepts/feeding-smartpipe.md` (the ingestion chapter), nav
+  regrouped Learn/Verbs/Concepts/Cookbook/Reference, index as mode-router,
+  every example reconciled to the new syntax with outputs from tests, qa/
+  flows extended (a live walk of which caught and fixed a real write
+  round-trip bug).
+
 ## [1.3.1] — 2026-07-08
 
 ### Fixed
