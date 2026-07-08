@@ -95,6 +95,27 @@ The identity release.
   pipeline example now route `cluster --explode members` into
   `chart cluster --top 8`, which draws real sizes.
 
+### Getting it and keeping it current
+- **One-line install on every platform.**
+  `curl -LsSf https://prabal-rje.github.io/smartpipe/install.sh | sh`
+  (macOS/Linux) and the `install.ps1` analog for Windows PowerShell, both
+  published at the docs-site root. The script uses Homebrew when present,
+  otherwise bootstraps uv and runs `uv tool install smartpipe-cli`;
+  `SMARTPIPE_VERSION` pins a version; it ends with a loud
+  `smartpipe --version` verify. brew/uv/pipx/pip remain as explicit
+  alternatives.
+- **`smartpipe update`.** Detects how smartpipe was installed (homebrew,
+  uv tool, pipx, or pip - fingerprinted from the executable path), shows
+  the exact upgrade command, asks consent (`--yes` skips), runs it, and
+  reports honestly. Unrecognized installs get the per-channel commands
+  instead of a guess.
+- **A calm update notice.** At most once a day smartpipe checks PyPI in a
+  background thread (2 s cap, silent on any failure) and - on a later
+  run, at a terminal, never in CI, never on stdout - prints one dim line:
+  `note: smartpipe X.Y.Z is available (you have A.B.C) - run: smartpipe
+  update`. Rc users aren't nagged about older stables. Off switches:
+  `SMARTPIPE_NO_UPDATE_CHECK=1` or `smartpipe config update-check off`.
+
 ### Docs: a shape, not a pile
 - New Learn track (`docs/learn/1…6`), `concepts/the-item.md` (the five
   laws), `concepts/feeding-smartpipe.md` (the ingestion chapter), nav
