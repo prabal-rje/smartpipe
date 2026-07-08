@@ -79,3 +79,14 @@ Per release, after the PyPI publish lands:
 4. Commit the bump to the tap repo (`git commit -m "smartpipe X.Y.Z"`), push,
    and mirror the same change back to `packaging/homebrew/smartpipe.rb` here
    so the two never drift.
+
+## 5. Install surfaces stay version-agnostic
+
+The one-line installers (`packaging/install/install.sh` / `install.ps1`,
+published at the docs-site root by `docs.yml`) and every install command in
+the README and `docs/install.md` must either install "latest" with no version
+baked in, or carry their own bump automation (the Homebrew formula above is
+the one deliberate exception, and it has its ritual). A hardcoded version in
+any other install surface goes stale the moment a release lands — check this
+before every tag. `SMARTPIPE_VERSION` is the *user-side* pin; it never
+belongs inside the scripts.
