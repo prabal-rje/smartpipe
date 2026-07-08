@@ -34,3 +34,7 @@ Get started:
   echo "hello" | smartpipe map "translate to Spanish"
 
 'smartpipe <command> --help' shows examples for each command.
+
+docs      https://prabal-rje.github.io/smartpipe
+cookbook  https://prabal-rje.github.io/smartpipe/cookbook/
+issues    https://github.com/prabal-rje/smartpipe/issues

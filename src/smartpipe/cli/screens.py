@@ -152,6 +152,10 @@ WELCOME = f"""\
 {_GET_STARTED}
 
 'smartpipe <command> --help' shows examples for each command.
+
+{_c("docs      https://prabal-rje.github.io/smartpipe", "2")}
+{_c("cookbook  https://prabal-rje.github.io/smartpipe/cookbook/", "2")}
+{_c("issues    https://github.com/prabal-rje/smartpipe/issues", "2")}
 """
 
 NO_MODEL = """\
