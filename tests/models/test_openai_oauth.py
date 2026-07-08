@@ -174,11 +174,15 @@ async def test_device_flow_unexpected_status_fails_loudly(
 # --- the browser flow, end to end --------------------------------------------------
 
 
-@pytest.mark.skipif(
+# GH macOS runners refuse loopback connects to fresh listeners; ubuntu
+# carries these e2e flows and they run on real Macs locally.
+_mac_ci = pytest.mark.skipif(
     sys.platform == "darwin" and bool(os.environ.get("CI")),
-    reason="GH macOS runners refuse loopback connects to fresh listeners; "
-    "ubuntu carries this e2e and it runs on real Macs locally",
+    reason="GH macOS runner refuses loopback connects",
 )
+
+
+@_mac_ci
 async def test_browser_flow_end_to_end(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter
 ) -> None:
@@ -214,6 +218,7 @@ async def test_browser_flow_end_to_end(
     assert credential.account_id == "acct-1"
 
 
+@_mac_ci
 async def test_browser_flow_rejects_a_wrong_state(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter
 ) -> None:

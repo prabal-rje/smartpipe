@@ -14,8 +14,10 @@ jobs:
         # document/whisper/local-embedding tests self-skip (upstream wheels)
         python: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     env:
       NO_COLOR: "1"
+      PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
