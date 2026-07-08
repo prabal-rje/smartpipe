@@ -89,7 +89,7 @@ search at `eval-rows × k` cost, and one run emits both deliverables:
 # cost is eval-rows x 10 judge calls, never eval x train
 cat eval-v4.jsonl \
 | smartpipe join "eval question {left.prompt} and training example {right.text} ask the same question" --right train.jsonl --k 10 --unmatched eval-clean.jsonl \
-| smartpipe sort --by _score --desc > contamination-pairs.jsonl
+| smartpipe sort --by __score --desc > contamination-pairs.jsonl
 ```
 
 `contamination-pairs.jsonl` names the exact leaked training rows for

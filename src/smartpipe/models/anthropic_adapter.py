@@ -109,6 +109,15 @@ def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
             "this model can't hear audio — try an audio model "
             "(voxtral, gemini) — smartpipe transcribes locally otherwise"
         )
+    from smartpipe.models.base import VideoData
+
+    if any(isinstance(part, VideoData) for part in request.media):
+        # no video input on the messages API either — refuse pre-send at zero
+        # cost so the ladder converts (a silent drop = confident wrong answer)
+        raise ItemError(
+            "this endpoint can't watch video — map converts video to "
+            "frames + audio automatically; use map, or split --by seconds"
+        )
     import base64
 
     blocks: list[dict[str, object]] = [

@@ -119,13 +119,21 @@ class CodexChatModel:
 
 def build_payload(model: str, request: CompletionRequest) -> dict[str, object]:
     content: list[dict[str, object]] = [{"type": "input_text", "text": request.user}]
-    from smartpipe.models.base import AudioData, ImageData
+    from smartpipe.models.base import AudioData, ImageData, VideoData
 
     if any(isinstance(part, AudioData) for part in request.media):
         # audio on the ChatGPT login wire is unverified — fail free, name the fixes
         raise ItemError(
             "this model can't hear audio — try an audio model "
             "(voxtral, gemini) — smartpipe transcribes locally otherwise"
+        )
+    if any(isinstance(part, VideoData) for part in request.media):
+        # the responses wire has no video input — refuse pre-send at zero cost so
+        # the ladder converts to frames+audio (silently dropping it would send a
+        # prompt-only request and return a confident wrong answer)
+        raise ItemError(
+            "this endpoint can't watch video — map converts video to "
+            "frames + audio automatically; use map, or split --by seconds"
         )
     for part in request.media:
         if isinstance(part, ImageData):

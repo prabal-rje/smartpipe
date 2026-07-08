@@ -113,11 +113,15 @@ class _RootGroup(click.Group):
         # Reader mode (item 16): a first argument that is no verb but exists on
         # disk makes the binary the reader — `smartpipe report.pdf` emits items.
         # Verbs always win names; `./name` forces the file when one shadows a verb.
+        # A quoted glob (`smartpipe 'logs/*.jsonl'`) is a reader too: the reader
+        # expands its own patterns (D43); a spaceless token with glob chars can
+        # only be a pattern, never a prompt.
         head = args[0]
         if not head.startswith("-") and self.get_command(ctx, head) is None:
             from pathlib import Path as _Path
 
-            if head.startswith(("./", "../", "/")) or _Path(head).exists():
+            looks_like_glob = " " not in head and any(char in head for char in "*?[")
+            if head.startswith(("./", "../", "/")) or looks_like_glob or _Path(head).exists():
                 from smartpipe.cli.read_cmd import read_command
 
                 return read_command.name, read_command, args

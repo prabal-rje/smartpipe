@@ -43,8 +43,12 @@ granularity IS split: `split --by pages:10 big.pdf`, `--by minutes:10 call.mp3`,
 
 ## Oversized items (bigger than the model's window)
 
-Currently REFUSED per item with a note telling you the sizes and to split
-first (run continues; auto-chunking is landing — trust the note text):
+HANDLED automatically, loudly: `map`/`extend` chunk + combine, `filter`/`join`
+judge chunk-by-chunk (any match keeps the item), embedding verbs mean-pool.
+One stderr note per oversized row discloses the plan BEFORE spend
+(`~48,200 tokens over budget - 7 chunks + 1 combine call`) and every chunk
+call counts against `--max-calls`. `--whole` restores per-item refusal.
+Want the chunks visible and addressable instead? Split first:
 
 ```console
 smartpipe split --by pages:10 big.pdf | smartpipe map "..." | smartpipe reduce "..."

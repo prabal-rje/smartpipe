@@ -122,3 +122,27 @@ def test_codex_wire_refuses_audio_in_the_builder() -> None:
 
     with pytest.raises(ItemError, match="can't hear audio"):
         build_payload("gpt-5.4", _hear_request())
+
+
+def _watch_request() -> CompletionRequest:
+    from smartpipe.models.base import VideoData
+
+    video = VideoData(data=b"\x00\x00\x00\x18ftypmp42fakevideo", mime="video/mp4")
+    return CompletionRequest(system=None, user="What happens?", media=(video,))
+
+
+def test_codex_wire_refuses_video_in_the_builder() -> None:
+    """Silently dropping the video sends a prompt-only request and gets a
+    confident wrong answer — the ladder (map converts to frames+audio) only
+    fires on a pre-send refusal, exactly like openai_compat's."""
+    from smartpipe.models.openai_codex import build_payload
+
+    with pytest.raises(ItemError, match="can't watch video"):
+        build_payload("gpt-5.4", _watch_request())
+
+
+def test_anthropic_refuses_video_in_the_builder() -> None:
+    from smartpipe.models.anthropic_adapter import build_kwargs
+
+    with pytest.raises(ItemError, match="can't watch video"):
+        build_kwargs("claude-haiku-4-5", _watch_request())

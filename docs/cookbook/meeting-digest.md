@@ -29,7 +29,8 @@ Stage by stage:
 
 ## Notes
 
-- Audio slicing is native for wav; mp3 and friends need `ffmpeg` on PATH.
+- Audio slicing is native for wav; mp3 and friends use the bundled `ffmpeg`
+  (a static build ships in the box; a PATH `ffmpeg` also works).
 - Audio slices travel as base64 inside the NDJSON records, so segment lines are
   large - that's the cost of a pipe that carries sound.
 - Ten minutes is a slice you can replay while triaging the digest; drop to

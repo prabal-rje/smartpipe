@@ -134,8 +134,7 @@ covers it:
 
 - `map "Extract {vendor, total}"` → asks for those output fields.
 - `filter "{priority} is wrong given {description}"` → substitutes each item's
-  `priority` and `description` values into the condition. *(filter ships in a later
-  release.)*
+  `priority` and `description` values into the condition.
 
 Comma-separated groups (`{a, b}`) are a `map`-only shorthand; in `filter`/`reduce`
 each `{field}` is a single input reference.

@@ -44,7 +44,8 @@ smartpipe split --by minutes:10 call.wav \
 
 Notes: `--max-tokens N` is shorthand for `--by tokens:N`. `--by pages` reads PDF
 files (DOCX has no fixed pages; the error says so). Audio slicing is native for
-`wav`; other formats need `ffmpeg` on `PATH`. Audio slices travel as base64 under the `__media` spine field, so segment
+`wav`; other formats use the bundled `ffmpeg` (a static build ships in the box;
+a PATH `ffmpeg` also works). Audio slices travel as base64 under the `__media` spine field, so segment
 lines are large; expect larger output lines when slicing audio.
 
 ## `--media`: the images inside documents
@@ -69,8 +70,8 @@ smartpipe split --media 'decks/*.pptx' \
 
 ## When you need it
 
-The other verbs tell you. `map` refuses an over-window item with the exact
-pipeline above (silently chunking would change what you asked); `filter`,
-`embed`, and `top_k` handle oversized items automatically (chunk-judging and
-vector mean-pooling) - reach for `split` when you want the chunking *visible*
-and the chunk results *addressable*, e.g. to reduce them afterward.
+The other verbs handle overflow themselves, loudly: `map`/`extend` auto-chunk
+and combine (with a disclosed plan; `--whole` restores the refusal), `filter`
+and `join` judge chunk-by-chunk, `embed` and `top_k` mean-pool vectors - reach
+for `split` when you want the chunking *visible* and the chunk results
+*addressable*, e.g. to reduce them afterward.
