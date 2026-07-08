@@ -11,7 +11,7 @@
 Run PDFs, images, audio, video, and text through Unix verbs that understand
 their input.
 
-[![smartpipe demo - click to play with sound and controls](https://github.com/prabal-rje/smartpipe/releases/download/demo-assets/smartpipe-teaser-v2.gif)](https://prabal-rje.github.io/smartpipe/demo/)
+[![smartpipe demo - click to play with sound and controls](https://github.com/prabal-rje/smartpipe/releases/download/demo-assets/smartpipe-teaser-v3.gif)](https://prabal-rje.github.io/smartpipe/demo/)
 
 *[▶ Watch the full 70-second demo](https://prabal-rje.github.io/smartpipe/demo/) - sound, controls, no download.*
 
