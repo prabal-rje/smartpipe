@@ -134,6 +134,33 @@ The identity release.
   byte-identical to before - previews exist only where a human is
   looking. `smartpipe config media-previews off` turns them off.
 
+### Documents parse where they enter, vectors stay honest
+- **The `ocr-model` role: a document parser at ingestion.** Set
+  `smartpipe config ocr-model mistral/mistral-ocr-latest` (or
+  `SMARTPIPE_OCR_MODEL`, or `--ocr-model` per run) and ingested PDFs and
+  images parse through it - one item per page on the `pages` cut,
+  markdown as the text, disclosed per row and metered as a paid
+  conversion. Mistral refs ride the dedicated `/v1/ocr` wire
+  (live-verified, whole PDFs in one call); any other model ref works as
+  chat-vision with extract-the-text framing, so `ollama/llava` is a free
+  local OCR. Parse failures fall back to the local extraction ladder,
+  disclosed, never fatal. Unset = exactly the old behavior.
+- **The `media-embed-model` role: one joint space for pixels and prose.**
+  Text keeps `embed-model`; media routes to the joint-space model
+  (jina-clip-v2 and friends). If a run would mix two vector spaces, the
+  geometry fence stops it with exit 64 BEFORE any spend, naming both
+  models and both fixes. A text query now ranks an image corpus in the
+  joint space - that is the point.
+- **Embed rows carry their provenance.** Output rows are now
+  `{"text", "vector", "__embedder", "__source"}` - the spine like every
+  other verb, plus the model that made the vector. `top_k` refuses a
+  corpus whose stamp disagrees with the query's embedder (the
+  same-dimensions-different-model trap), and reads old-style rows for
+  one release. Two bugs died en route: records piped from the reader
+  embedded their serialized JSON instead of their content text, and
+  `--max-calls` silently demoted pixels to captions by stripping the
+  media-embedding capability.
+
 ### Setup that reads the room
 - **`smartpipe config` is now a provider-first picker.** Detect what's
   already connected (API keys in the environment, a ChatGPT login, local
