@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import ExitCode, ItemError, TooManyFailures, UsageFault
@@ -39,11 +40,13 @@ from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import ItemSource, describe_source, item_from_line
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.verbs.common import (
+    ModelSlot,
     breaker_policy,
     embed_budget,
     embed_in_batches,
     ensure_text,
     interrupted_exit_code,
+    make_failover,
     outcome_exit_code,
 )
 from smartpipe.verbs.convert import Converter, make_converter
@@ -79,6 +82,7 @@ class JoinRequest:
     unmatched: Path | None = None  # write zero-match left items here, verbatim
     allow_captions: bool = False  # cloud conversions opt-in (D33)
     kind: str = "inner"  # inner | leftouter | anti (D38/11)
+    fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
 
 
 class JoinContext(Protocol):
@@ -87,6 +91,8 @@ class JoinContext(Protocol):
     """The first verb that needs BOTH models — the container already has both."""
 
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
+    def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
+    async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
     def concurrency(self, flag: int | None = None) -> int: ...
     def writer(
@@ -149,6 +155,8 @@ async def run_join(
         embed_model, right_items, request.right.name, log
     )
     chat = await context.chat_model(request.model_flag)
+    slot = ModelSlot(chat)
+    fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
     concurrency = context.concurrency(request.concurrency_flag)
     if request.kind not in ("inner", "leftouter", "anti"):
         raise UsageFault("--kind takes inner, leftouter, or anti")
@@ -174,12 +182,13 @@ async def run_join(
     spinner.start(total=total)
 
     async def worker(item: Item) -> tuple[Item, tuple[tuple[int, float], ...]]:
+        current = slot.current  # captured per item: the failover swaps wholesale
         matches = await _join_one(
             item,
             log=log,
             converter=converter,
             embed_model=embed_model,
-            chat=chat,
+            chat=current,
             tokens=tokens,
             index=index,
             kept_right=kept_right,
@@ -188,16 +197,26 @@ async def run_join(
             book=book,
             stop=stop,
         )
+        slot.tally(str(current.ref))
         return item, matches
 
+    policy = breaker_policy(chat.ref.provider)
+    failover = (
+        make_failover(
+            slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
+        )
+        if fallback is not None
+        else None
+    )
     done = 0
     skipped = 0
     outcomes = run_ordered(
         items_iter,
         worker,
         concurrency=concurrency,
-        failure_policy=breaker_policy(chat.ref.provider),
+        failure_policy=policy,
         stop=stop,
+        failover=failover,
     )
     matched_pairs = 0
     unmatched_count = 0
@@ -246,6 +265,8 @@ async def run_join(
         )
     elif request.kind != "inner":
         diagnostics.note(f"join: {matched_pairs} matched · {unmatched_count} unmatched")
+    if slot.switched:
+        diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped + book.skipped)
         return interrupted_exit_code(done=done, skipped=skipped + book.skipped)

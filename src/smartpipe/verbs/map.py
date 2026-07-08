@@ -31,9 +31,11 @@ from smartpipe.io.items import describe_source
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.models.base import AudioData, VideoData
 from smartpipe.verbs.common import (
+    ModelSlot,
     WindowGate,
     breaker_policy,
     interrupted_exit_code,
+    make_failover,
     outcome_exit_code,
     resolve_schema,
 )
@@ -70,12 +72,15 @@ class MapRequest:
     max_frames: int | None = None  # --max-frames N: video frame budget (D43)
     keep_invalid: bool = False  # --keep-invalid: failed validations become marker rows
     dry_run: bool = False  # --dry-run: print the composed first request, spend nothing
+    fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
 
 
 class MapContext(Protocol):
     """The slice of the container ``map`` needs — a DI seam so tests inject fakes."""
 
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
+    def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
+    async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
     def writer(
@@ -104,6 +109,8 @@ async def run_map(
     if request.dry_run:  # before model resolution: a dry run is free even pre-setup
         return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
     model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
+    slot = ModelSlot(model)
+    fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
     structured = plan.mode == "structured"
     spinner = make_stderr_spinner()
     # the arbiter: result writes pause the status line, so they never interleave
@@ -144,12 +151,13 @@ async def run_map(
     )
 
     async def worker(item: Item) -> str | Mapping[str, object]:
+        current = slot.current  # captured per item: the failover swaps wholesale
         budget = await gate.budget_for_oversized(item.text)
         if budget is not None:
             # D26: silently chunking would change what was asked — teach the pipeline
             raise ItemError(gate.refusal(item.text, budget))
-        return await map_one(
-            model,
+        result = await map_one(
+            current,
             plan,
             instruction,
             item,
@@ -158,15 +166,26 @@ async def run_map(
             max_frames=request.max_frames,
             keep_invalid=request.keep_invalid,
         )
+        slot.tally(str(current.ref))
+        return result
 
+    policy = breaker_policy(model.ref.provider)
+    failover = (
+        make_failover(
+            slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
+        )
+        if fallback is not None
+        else None
+    )
     done = 0
     skipped = 0
     outcomes = run_ordered(
         items_iter,
         worker,
         concurrency=concurrency,
-        failure_policy=breaker_policy(model.ref.provider),
+        failure_policy=policy,
         stop=stop,
+        failover=failover,
     )
     try:
         async for outcome in outcomes:
@@ -187,6 +206,8 @@ async def run_map(
         log.finish()
     if tally is not None and tally.counts:
         diagnostics.note(tally.final_line())
+    if slot.switched:
+        diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped)
         return interrupted_exit_code(done=done, skipped=skipped)

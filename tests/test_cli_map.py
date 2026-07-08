@@ -97,6 +97,32 @@ def test_dry_run_works_without_any_model_configured(
     assert "--- user ---" in out
 
 
+def test_fallback_model_flag_switches_wholesale(
+    run_cli: RunCli, respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SMARTPIPE_BREAKER", "2")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    respx_mock.post(CHAT).mock(return_value=httpx.Response(500, json={"error": "overloaded"}))
+    respx_mock.post("https://api.openai.com/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "B"}}]})
+    )
+    code, out, err = run_cli(
+        ["map", "x", "--concurrency", "1", "--fallback-model", "gpt-4o-mini"],
+        stdin="a\nb\nc\n",
+    )
+    assert code == 0
+    assert out == "B\nB\nB\n"  # one combined stream — the window re-ran on the fallback
+    assert "switching to openai/gpt-4o-mini for the rest of the run" in err
+    receipt = "answers: openai/gpt-4o-mini ×3"  # noqa: RUF001
+    assert receipt in err  # every answer came from the fallback
+
+
+def test_fallback_model_refuses_an_embedder(run_cli: RunCli) -> None:
+    code, _out, err = run_cli(["map", "x", "--fallback-model", "nomic-embed-text"], stdin="a\n")
+    assert code == 64
+    assert "chat models only" in err
+
+
 def test_bad_grammar_is_usage_error_before_any_model_call(
     run_cli: RunCli, respx_mock: respx.MockRouter
 ) -> None:

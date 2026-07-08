@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from smartpipe.io.writers import ResultWriter, TextSink
+    from smartpipe.models.base import ChatModel
 
 
 # --- fakes --------------------------------------------------------------------
@@ -51,6 +52,12 @@ class FakeContext:
 
     async def chat_model(self, flag: str | None = None) -> FakeChat:
         return self.model
+
+    def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
+        return None  # no failover configured in these tests
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("fallback never resolved without a configured ref")
 
     def concurrency(self, flag: int | None = None) -> int:
         return self.concurrency_value
@@ -434,3 +441,114 @@ async def test_breaker_env_junk_is_a_usage_fault(monkeypatch: pytest.MonkeyPatch
     context = FakeContext(model=FakeChat(replies=["ok"]))
     with pytest.raises(UsageFault, match="SMARTPIPE_BREAKER must be a whole number"):
         await run_map(_request("x"), context, stdin=io.StringIO("a\n"), stdout=io.StringIO())
+
+
+# --- fallback-model failover (item 11) --------------------------------------------
+
+
+class FailoverContext(FakeContext):
+    """A context with a configured fallback: primary down, backup healthy."""
+
+    def __init__(self, primary: FakeChat, backup: FakeChat, *, concurrency: int = 1) -> None:
+        super().__init__(model=primary, concurrency=concurrency)
+        self.backup = backup
+
+    def fallback_ref(self, flag: str | None = None) -> ModelRef:
+        return self.backup.ref
+
+    async def fallback_chat_model(self, ref: object) -> FakeChat:
+        return self.backup
+
+
+async def test_failover_switches_wholesale_and_answers_everything(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    primary = DownModel(replies=[])
+    backup = FakeChat(replies=["B"])
+    backup.ref = ModelRef("openai", "gpt-4o-mini")
+    context = FailoverContext(primary, backup)
+    out = io.StringIO()
+    code = await run_map(
+        _request("x"), context, stdin=io.StringIO("a\nb\nc\nd\ne\nf\ng\n"), stdout=out
+    )
+    assert code == ExitCode.OK  # nothing lost: the window re-ran on the backup
+    assert out.getvalue() == "B\n" * 7  # one combined output stream, in order
+    assert len(primary.calls) == 5  # the breaker window, then never again
+    assert len(backup.calls) == 7  # the re-run window + the rest
+    err = capsys.readouterr().err
+    assert (
+        "ollama looks down (5 consecutive transport failures) — "
+        "switching to openai/gpt-4o-mini for the rest of the run"
+    ) in err
+    receipt = "answers: openai/gpt-4o-mini ×7"  # noqa: RUF001
+    assert receipt in err  # the receipt keeps the seam visible
+    assert "skipped" not in err  # the held window was answered, not skipped
+
+
+async def test_failover_receipt_splits_counts_by_model(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SMARTPIPE_BREAKER", "2")
+
+    class FlakyPrimary(FakeChat):
+        async def complete(self, request: CompletionRequest) -> str:
+            from smartpipe.core.errors import TransportError
+
+            self.calls.append(request)
+            if len(self.calls) <= 3:
+                return "A"
+            raise TransportError("openai error 503: overloaded")
+
+    primary = FlakyPrimary(replies=[])
+    backup = FakeChat(replies=["B"])
+    backup.ref = ModelRef("openai", "gpt-4o-mini")
+    context = FailoverContext(primary, backup)
+    out = io.StringIO()
+    code = await run_map(
+        _request("x"), context, stdin=io.StringIO("a\nb\nc\nd\ne\nf\n"), stdout=out
+    )
+    assert code == ExitCode.OK
+    assert out.getvalue() == "A\nA\nA\nB\nB\nB\n"
+    assert "answers: ollama/fake ×3 · openai/gpt-4o-mini ×3" in capsys.readouterr().err  # noqa: RUF001
+
+
+async def test_failover_on_a_dead_backup_dies_loudly(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from smartpipe.core.errors import SetupFault
+
+    primary = DownModel(replies=[])
+    backup = DownModel(replies=[])
+    backup.ref = ModelRef("openai", "gpt-4o-mini")
+    context = FailoverContext(primary, backup)
+    with pytest.raises(SetupFault, match="looks down"):
+        await run_map(
+            _request("x"),
+            context,
+            stdin=io.StringIO("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\n"),
+            stdout=io.StringIO(),
+        )
+    assert len(primary.calls) == 5  # one window on the primary
+    assert len(backup.calls) == 5  # one window on the backup, then honest death
+
+
+async def test_unusable_fallback_notes_and_keeps_the_breaker_screen(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from smartpipe.core.errors import SetupFault
+
+    class KeylessContext(FailoverContext):
+        async def fallback_chat_model(self, ref: object) -> FakeChat:
+            raise SetupFault("error: model 'gpt-4o-mini' needs an OpenAI API key")
+
+    primary = DownModel(replies=[])
+    backup = FakeChat(replies=["B"])
+    backup.ref = ModelRef("openai", "gpt-4o-mini")
+    context = KeylessContext(primary, backup)
+    with pytest.raises(SetupFault, match="ollama looks down"):
+        await run_map(
+            _request("x"), context, stdin=io.StringIO("a\nb\nc\nd\ne\nf\n"), stdout=io.StringIO()
+        )
+    err = capsys.readouterr().err
+    assert "fallback model unusable — model 'gpt-4o-mini' needs an OpenAI API key" in err
+    assert backup.calls == []  # never reached

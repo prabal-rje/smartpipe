@@ -101,6 +101,8 @@ def _check_config(env: Mapping[str, str]) -> tuple[Config | None, CheckResult]:
     if not path.exists():
         return config, CheckResult("config", "skip", "no config file (defaults apply)")
     described = config.model or "no default model"
+    if config.fallback_model:
+        described += f" · fallback: {config.fallback_model}"
     return config, CheckResult("config", "ok", f"{human_path(path)} parses (model: {described})")
 
 

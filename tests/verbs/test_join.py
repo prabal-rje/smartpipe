@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from smartpipe.io.writers import TextSink
+    from smartpipe.models.base import ChatModel
 
 
 class FakeEmbed:
@@ -74,6 +75,12 @@ class FakeContext:
 
     async def embedding_model(self, flag: str | None = None) -> FakeEmbed:
         return self.embed
+
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None  # no failover configured in these tests
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("fallback never resolved without a configured ref")
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic transcripts

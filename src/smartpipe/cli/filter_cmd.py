@@ -9,6 +9,7 @@ from pathlib import Path
 
 import click
 
+from smartpipe.cli.completions import complete_chat_models
 from smartpipe.cli.input_options import input_options, input_spec, resolve_prompt
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
@@ -27,6 +28,12 @@ __all__ = ["filter_command"]
 )
 @click.option("--not", "invert", is_flag=True, help="Keep items that do NOT match (like grep -v).")
 @click.option("--model", "model_flag", help="Model for this run.")
+@click.option(
+    "--fallback-model",
+    "fallback_flag",
+    shell_complete=complete_chat_models,
+    help="Chat model to switch to if the primary looks down (circuit breaker).",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @click.option(
@@ -41,6 +48,7 @@ def filter_command(
     prompt_file: Path | None,
     invert: bool,
     model_flag: str | None,
+    fallback_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
     allow_captions: bool,
@@ -64,6 +72,7 @@ def filter_command(
         condition=resolve_prompt(condition, prompt_file),
         invert=invert,
         model_flag=model_flag,
+        fallback_flag=fallback_flag,
         concurrency_flag=concurrency_flag,
         input=input_spec(in_patterns, from_files=from_files),
     )

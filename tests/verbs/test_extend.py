@@ -15,6 +15,7 @@ from smartpipe.verbs.extend import ExtendRequest, base_fields, run_extend
 
 if TYPE_CHECKING:
     from smartpipe.io.writers import ResultWriter, TextSink
+    from smartpipe.models.base import ChatModel
 
 
 class SentimentModel:
@@ -38,6 +39,12 @@ class FakeContext:
 
     async def context_window(self, ref: ModelRef) -> int | None:
         return None  # no window info: the gate never trips
+
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None  # no failover configured in these tests
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("fallback never resolved without a configured ref")
 
     def concurrency(self, flag: int | None = None) -> int:
         return 2

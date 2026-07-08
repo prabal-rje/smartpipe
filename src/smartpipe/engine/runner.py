@@ -97,6 +97,7 @@ async def run_ordered(
     concurrency: int,
     failure_policy: FailurePolicy,
     stop: asyncio.Event | None = None,
+    failover: Callable[[], Awaitable[bool]] | None = None,
 ) -> AsyncIterator[ItemOutcome[R]]:
     """``stop`` (set by the interrupt shell) halts *intake*: no new workers spawn,
     but everything already in flight completes and is emitted in order — the drain
@@ -105,9 +106,18 @@ async def run_ordered(
     Intake runs as its OWN task so that waiting for the next input item never
     blocks the emission of already-completed outcomes — the streaming property
     (a live stream can pause mid-flow; results must still come out).
+
+    ``failover`` (fallback-model): while it is armed, transport skips are HELD
+    rather than emitted — they may yet be answered. At the breaker threshold the
+    hook runs once: True means the caller switched models, so the held window
+    re-runs through ``worker`` (in order) and the run continues; False (nothing
+    configured / fallback unusable) flushes the held skips and dies on the
+    provider-down screen. One fallback, then honest death — a second trip goes
+    through the ordinary breaker path above.
     """
     item_iter = aiter(items)
     pending: dict[int, asyncio.Task[ItemOutcome[R]]] = {}
+    originals: dict[int, Item] = {}  # in-flight items, kept for the failover re-run
     slots = asyncio.Semaphore(concurrency)
     progressed = asyncio.Event()  # set whenever intake adds a task or finishes
     intake_done = False
@@ -117,9 +127,32 @@ async def run_ordered(
     consecutive = 0
     transport_streak = 0
     succeeded = False
+    failover_pending = failover if failure_policy.transport_limit > 0 else None
+    window: list[tuple[Item, Skipped]] = []  # the held transport streak
 
     def stopping() -> bool:
         return stop is not None and stop.is_set()
+
+    def account(outcome: ItemOutcome[R], *, breaker: bool = True) -> None:
+        """Halt bookkeeping for one EMITTED outcome; raises when a rule fires."""
+        nonlocal total, skipped, consecutive, transport_streak, succeeded
+        total += 1
+        if isinstance(outcome, Skipped):
+            skipped += 1
+            consecutive += 1
+            transport_streak = transport_streak + 1 if outcome.transport else 0
+            if breaker and should_trip_breaker(failure_policy, transport_streak=transport_streak):
+                raise SetupFault(failure_policy.transport_screen)
+            if should_halt(failure_policy, total=total, skipped=skipped):
+                raise TooManyFailures(skipped, total, outcome.reason)
+            if should_halt_consecutive(
+                failure_policy, succeeded=succeeded, consecutive=consecutive
+            ):
+                raise TooManyFailures(skipped, total, outcome.reason)
+        else:
+            consecutive = 0
+            transport_streak = 0
+            succeeded = True
 
     async def intake() -> None:
         nonlocal intake_done
@@ -135,6 +168,7 @@ async def run_ordered(
                 except StopAsyncIteration:
                     slots.release()
                     break
+                originals[index] = item
                 pending[index] = asyncio.create_task(_run_one(worker, item))
                 index += 1
                 progressed.set()
@@ -148,6 +182,9 @@ async def run_ordered(
             task = pending.get(next_to_emit)
             if task is None:
                 if intake_done and not pending:
+                    for _held_item, held_skip in window:  # a trailing streak still reports
+                        yield held_skip
+                        account(held_skip, breaker=False)
                     return
                 progressed.clear()
                 # re-check before sleeping: intake may have progressed between the
@@ -158,27 +195,35 @@ async def run_ordered(
                 await progressed.wait()
                 continue
             outcome = await task
+            item = originals.pop(next_to_emit)
             del pending[next_to_emit]
             slots.release()
             next_to_emit += 1
-            yield outcome
-            total += 1
-            if isinstance(outcome, Skipped):
-                skipped += 1
-                consecutive += 1
-                transport_streak = transport_streak + 1 if outcome.transport else 0
-                if should_trip_breaker(failure_policy, transport_streak=transport_streak):
+            if failover_pending is not None and isinstance(outcome, Skipped) and outcome.transport:
+                window.append((item, outcome))
+                if len(window) < failure_policy.transport_limit:
+                    continue
+                switch = failover_pending
+                failover_pending = None  # one fallback, then honest death
+                held = list(window)
+                window.clear()
+                if not await switch():
+                    # the window still reports, but no halt rule may outrun the
+                    # provider-down screen — this death IS the breaker's verdict
+                    for _held_item, held_skip in held:
+                        yield held_skip
                     raise SetupFault(failure_policy.transport_screen)
-                if should_halt(failure_policy, total=total, skipped=skipped):
-                    raise TooManyFailures(skipped, total, outcome.reason)
-                if should_halt_consecutive(
-                    failure_policy, succeeded=succeeded, consecutive=consecutive
-                ):
-                    raise TooManyFailures(skipped, total, outcome.reason)
-            else:
-                consecutive = 0
-                transport_streak = 0
-                succeeded = True
+                for held_item, _held_skip in held:  # re-run the window on the fallback
+                    retry = await _run_one(worker, held_item)
+                    yield retry
+                    account(retry)
+                continue
+            for _held_item, held_skip in window:  # the wire answered — flush the streak
+                yield held_skip
+                account(held_skip, breaker=False)
+            window.clear()
+            yield outcome
+            account(outcome)
     finally:
         intake_task.cancel()
         for task in pending.values():

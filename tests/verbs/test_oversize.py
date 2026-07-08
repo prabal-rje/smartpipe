@@ -15,6 +15,7 @@ from smartpipe.verbs.map import MapRequest, run_map
 
 if TYPE_CHECKING:
     from smartpipe.io.writers import TextSink
+    from smartpipe.models.base import ChatModel
 
 # past the openai table budget (128k * 0.6 - 500 ≈ 76.3k tokens): the gate engages
 BIG = "word " * 70_000  # ~87.5k estimated tokens
@@ -58,6 +59,12 @@ class Ctx:
     async def context_window(self, ref: object) -> int | None:
         self.probes += 1
         return self.window
+
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None  # no failover configured in these tests
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("fallback never resolved without a configured ref")
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1

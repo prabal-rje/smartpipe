@@ -83,6 +83,12 @@ __all__ = ["map_command"]
     help="Video frame budget (default 24; the smaller of the two flags wins).",
 )
 @click.option(
+    "--fallback-model",
+    "fallback_flag",
+    shell_complete=complete_chat_models,
+    help="Chat model to switch to if the primary looks down (circuit breaker).",
+)
+@click.option(
     "--dry-run",
     "dry_run",
     is_flag=True,
@@ -108,6 +114,7 @@ def map_command(
     tally_field: str | None,
     explode_field: str | None,
     model_flag: str | None,
+    fallback_flag: str | None,
     output: str,
     dry_run: bool,
     keep_invalid: bool,
@@ -143,6 +150,7 @@ def map_command(
         frame_every=frame_every,
         max_frames=max_frames,
         model_flag=model_flag,
+        fallback_flag=fallback_flag,
         output=OutputFormat(output),
         dry_run=dry_run,
         keep_invalid=keep_invalid,

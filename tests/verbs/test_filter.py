@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from smartpipe.io.writers import ResultWriter, TextSink
+    from smartpipe.models.base import ChatModel
 
 
 class FakeChat:
@@ -43,6 +44,12 @@ class FakeContext:
 
     async def context_window(self, ref: object) -> int | None:
         return None  # the static table stands in these tests
+
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None  # no failover configured in these tests
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("fallback never resolved without a configured ref")
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic order for assertions

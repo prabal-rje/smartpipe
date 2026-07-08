@@ -67,6 +67,12 @@ __all__ = ["join_command"]
     help="Write left items with zero matches to FILE, verbatim (inner only).",
 )
 @click.option(
+    "--fallback-model",
+    "fallback_flag",
+    shell_complete=complete_chat_models,
+    help="Chat model to switch to if the primary looks down (circuit breaker).",
+)
+@click.option(
     "--model",
     "model_flag",
     shell_complete=complete_chat_models,
@@ -104,6 +110,7 @@ def join_command(
     unmatched: Path | None,
     kind: str,
     model_flag: str | None,
+    fallback_flag: str | None,
     embed_model_flag: str | None,
     output: str,
     concurrency_flag: int | None,
@@ -136,6 +143,7 @@ def join_command(
         unmatched=unmatched,
         kind=kind,
         model_flag=model_flag,
+        fallback_flag=fallback_flag,
         embed_model_flag=embed_model_flag,
         concurrency_flag=concurrency_flag,
         output=OutputFormat(output),

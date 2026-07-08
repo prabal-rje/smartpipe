@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from smartpipe.io.writers import TextSink
+    from smartpipe.models.base import ChatModel
 
 
 def _make_test_video(path: Path, *, seconds: int = 2, silent: bool = False) -> None:
@@ -161,6 +162,12 @@ class Ctx:
 
     async def context_window(self, ref: object) -> int | None:
         return None
+
+    def fallback_ref(self, flag: str | None = None) -> None:
+        return None  # no failover configured in these tests
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        raise AssertionError("fallback never resolved without a configured ref")
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1

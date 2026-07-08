@@ -298,3 +298,49 @@ def test_stt_auto_matrix(client: httpx.AsyncClient) -> None:
 
     oauth_only = _container(client)  # no key: the ChatGPT login can't transcribe
     assert oauth_only.remote_transcriber(openai_ref) is None
+
+
+# --- fallback-model resolution (item 11) ----------------------------------------
+
+
+def test_fallback_ref_is_none_when_unset(client: httpx.AsyncClient) -> None:
+    assert _container(client).fallback_ref() is None
+
+
+def test_fallback_ref_precedence_flag_env_config(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client,
+        env={"SMARTPIPE_FALLBACK_MODEL": "gpt-4o"},
+        config=Config(fallback_model="ollama/qwen3:8b"),
+    )
+    assert str(container.fallback_ref("claude-opus-4-8")) == "anthropic/claude-opus-4-8"
+    assert str(container.fallback_ref()) == "openai/gpt-4o"
+    unflagged = _container(client, config=Config(fallback_model="ollama/qwen3:8b"))
+    assert str(unflagged.fallback_ref()) == "ollama/qwen3:8b"
+
+
+@pytest.mark.parametrize(
+    "embedder",
+    ["nomic-embed-text", "text-embedding-3-small", "local/clip", "jina/clip-v2", "mistral-embed"],
+)
+def test_fallback_refuses_embedding_models(client: httpx.AsyncClient, embedder: str) -> None:
+    from smartpipe.core.errors import UsageFault
+
+    with pytest.raises(UsageFault, match="chat models only"):
+        _container(client).fallback_ref(embedder)
+
+
+async def test_fallback_chat_model_builds_the_normal_wire(client: httpx.AsyncClient) -> None:
+    container = _container(client, env={"OPENAI_API_KEY": "sk-test"})
+    ref = container.fallback_ref("gpt-4o-mini")
+    assert ref is not None
+    model = await container.fallback_chat_model(ref)
+    assert isinstance(model, OpenAIChatModel)
+
+
+async def test_fallback_chat_model_missing_key_is_setup_fault(client: httpx.AsyncClient) -> None:
+    container = _container(client)
+    ref = container.fallback_ref("gpt-4o-mini")
+    assert ref is not None
+    with pytest.raises(SetupFault):
+        await container.fallback_chat_model(ref)

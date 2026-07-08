@@ -373,3 +373,132 @@ async def test_breaker_zero_disables() -> None:
         items, _scripted_worker("tttttttt"), concurrency=1, policy=_breaker_policy(limit=0)
     )
     assert len(outcomes) == 8  # unlimited transport failures, no breaker
+
+
+# --- failover (fallback-model): the breaker window re-runs on model B ----------
+
+
+async def test_failover_reruns_the_window_and_the_rest_on_model_b() -> None:
+    switched = False
+
+    async def worker(item: Item) -> str:
+        if not switched and item.source.index >= 3:
+            raise TransportError("connect timeout after retries")
+        return f"{'B' if switched else 'A'}:{item.source.index}"
+
+    async def failover() -> bool:
+        nonlocal switched
+        switched = True
+        return True
+
+    items = [_item(i) for i in range(10)]
+    outcomes = [
+        outcome
+        async for outcome in run_ordered(
+            _stream(items),
+            worker,
+            concurrency=1,
+            failure_policy=_breaker_policy(),
+            failover=failover,
+        )
+    ]
+    # every item answered, in order — the buffered window (3,4,5) by model B
+    assert [outcome.index for outcome in outcomes] == list(range(10))
+    values = [outcome.value for outcome in outcomes if isinstance(outcome, Done)]
+    assert values == [f"A:{i}" for i in range(3)] + [f"B:{i}" for i in range(3, 10)]
+
+
+async def test_failover_declined_flushes_the_window_then_dies() -> None:
+    async def worker(item: Item) -> str:
+        raise TransportError("boom")
+
+    async def failover() -> bool:
+        return False  # nothing configured / fallback unusable
+
+    items = [_item(i) for i in range(5)]
+    seen: list[ItemOutcome[str]] = []
+    with pytest.raises(SetupFault, match="looks down"):
+        async for outcome in run_ordered(
+            _stream(items),
+            worker,
+            concurrency=1,
+            failure_policy=_breaker_policy(),
+            failover=failover,
+        ):
+            seen.append(outcome)
+    assert len(seen) == 3  # the held window was still reported before death
+    assert all(isinstance(outcome, Skipped) for outcome in seen)
+
+
+async def test_breaker_on_the_fallback_dies_loudly() -> None:
+    switches = 0
+
+    async def worker(item: Item) -> str:
+        raise TransportError("boom")  # both providers down
+
+    async def failover() -> bool:
+        nonlocal switches
+        switches += 1
+        return True
+
+    items = [_item(i) for i in range(12)]
+    seen: list[ItemOutcome[str]] = []
+    with pytest.raises(SetupFault, match="looks down"):
+        async for outcome in run_ordered(
+            _stream(items),
+            worker,
+            concurrency=1,
+            failure_policy=_breaker_policy(),
+            failover=failover,
+        ):
+            seen.append(outcome)
+    assert switches == 1  # one fallback, then honest death — never a chain
+    assert len(seen) == 3  # the re-run window's skips were reported
+
+
+async def test_window_flushes_in_order_when_the_wire_answers_again() -> None:
+    async def worker(item: Item) -> str:
+        if item.source.index in (0, 1):
+            raise TransportError("blip")
+        return "ok"
+
+    async def failover() -> bool:  # pragma: no cover — the streak never reaches 3
+        raise AssertionError("failover consulted below the threshold")
+
+    items = [_item(i) for i in range(4)]
+    outcomes = [
+        outcome
+        async for outcome in run_ordered(
+            _stream(items),
+            worker,
+            concurrency=1,
+            failure_policy=_breaker_policy(),
+            failover=failover,
+        )
+    ]
+    assert [outcome.index for outcome in outcomes] == [0, 1, 2, 3]  # order held
+    assert [isinstance(outcome, Skipped) for outcome in outcomes] == [True, True, False, False]
+
+
+async def test_trailing_window_flushes_at_end_of_input() -> None:
+    async def worker(item: Item) -> str:
+        if item.source.index >= 2:
+            raise TransportError("blip")
+        return "ok"
+
+    async def failover() -> bool:  # pragma: no cover — the streak never reaches 3
+        raise AssertionError("failover consulted below the threshold")
+
+    items = [_item(i) for i in range(4)]
+    outcomes = [
+        outcome
+        async for outcome in run_ordered(
+            _stream(items),
+            worker,
+            concurrency=1,
+            failure_policy=_breaker_policy(),
+            failover=failover,
+        )
+    ]
+    assert [outcome.index for outcome in outcomes] == [0, 1, 2, 3]
+    assert [isinstance(outcome, Skipped) for outcome in outcomes] == [False, False, True, True]
