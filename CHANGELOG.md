@@ -95,6 +95,18 @@ The identity release.
   pipeline example now route `cluster --explode members` into
   `chart cluster --top 8`, which draws real sizes.
 
+### The terminal shows your media
+- **Media previews at the human view.** At a terminal (and through
+  `readable`), the first media part of an item now renders under its
+  summary line: images as color thumbnails, video as a three-frame strip
+  sampled at 10/50/90% of its duration (never frame zero - intros are
+  black), audio as a peak-envelope waveform. Audio and video that still
+  live on disk get a clickable `▶ play (0:42, 2.1 MB)` link (OSC 8 -
+  opens your system player in iTerm2/kitty/WezTerm/Ghostty/Windows
+  Terminal). Piped output, JSONL, NO_COLOR, and `--bare` are
+  byte-identical to before - previews exist only where a human is
+  looking. `smartpipe config media-previews off` turns them off.
+
 ### Getting it and keeping it current
 - **One-line install on every platform.**
   `curl -LsSf https://prabal-rje.github.io/smartpipe/install.sh | sh`
