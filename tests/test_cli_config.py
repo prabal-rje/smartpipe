@@ -144,7 +144,9 @@ async def test_interactive_default_answers_use_first_chat_and_embed() -> None:
         say=rec.say,
         save=rec.save,
     )
-    assert seen_defaults["Default model?"] == "ollama/llama3.2"  # first non-embed
+    # family preference is deliberate (D-wizard fix): qwen outranks llama in
+    # _PREFERRED_LOCAL; embedding tags and :cloud passthroughs are never offered
+    assert seen_defaults["Default model?"] == "ollama/qwen3:8b"
     assert seen_defaults["Embedding model?"] == "ollama/nomic-embed-text"
 
 

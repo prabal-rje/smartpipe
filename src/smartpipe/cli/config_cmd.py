@@ -223,19 +223,22 @@ async def run_interactive_setup(
         )
     embed_answer = ask("Embedding model?", f"ollama/{_first_embed(names)}")
 
-    updated = replace(
-        current,
-        model=str(parse_model_ref(model_answer)),
-        embed_model=str(parse_model_ref(embed_answer)),
-    )
+    model_ref = _parsed_or_reprompt(model_answer, ask, "Default model?")
+    embed_ref = _parsed_or_reprompt(embed_answer, ask, "Embedding model?")
+    updated = replace(current, model=str(model_ref), embed_model=str(embed_ref))
     if confirm("Save to config?"):
         save(updated)
-        say("\n  Saved. Try it:")
-        say(f"    {_TRY_IT}")
+        saved = True
     else:
         say("\n  Not saved. Set a model any time with: smartpipe config model <name>")
+        saved = False
+    # completions BEFORE the try-it invitation: printing a paste-me command
+    # while questions remain baits the paste into the next prompt (owner-hit)
     if offer_completions is not None:
         offer_completions()
+    if saved:
+        say("\n  Saved. Try it:")
+        say(f"    {_TRY_IT}")
     return updated
 
 
@@ -275,10 +278,37 @@ def offer_shell_completions(
     say(f"  ✓ added to {rc}: {line}")
 
 
+_PREFERRED_LOCAL = ("llava", "gemma", "qwen", "llama", "mistral", "phi")
+
+
 def _first_chat(names: tuple[str, ...]) -> str | None:
-    """The first non-embedding model, or None — never propose an embedding
-    model as the chat default just because it's the only thing installed."""
-    return next((name for name in names if "embed" not in name.lower()), None)
+    """A sensible LOCAL chat default: prefer known families (vision-capable
+    first), never an embedding model, and never a ':cloud' passthrough tag —
+    suggesting one as "local" both misleads and 400s on some accounts
+    (owner-hit: kimi-k2.7-code:cloud came first in the tag list)."""
+    local = [n for n in names if "embed" not in n.lower() and not n.endswith(":cloud")]
+    for family in _PREFERRED_LOCAL:
+        for name in local:
+            if family in name.lower():
+                return name
+    return local[0] if local else None
+
+
+def _parsed_or_reprompt(answer: str, ask: Callable[[str, str], str], question: str) -> object:
+    """Validate a wizard answer NOW — a saved typo ('\\', stray paste) otherwise
+    surfaces later as a confusing provider 400 (owner-hit). Two strikes, then
+    UsageFault with the config-command escape hatch."""
+    from smartpipe.core.errors import UsageFault
+
+    for attempt in range(2):
+        try:
+            return parse_model_ref(answer.strip())
+        except UsageFault as fault:
+            if attempt == 1:
+                raise
+            first = str(fault).splitlines()[0]
+            answer = ask(f"{question} (that wasn't a model ref: {first})", "")
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _first_embed(names: tuple[str, ...]) -> str:
