@@ -39,7 +39,7 @@ def write_command(template: str, field: str | None, keep_meta: bool, as_mode: st
 
     \b
     Examples:
-      cat results.jsonl | smartpipe write 'out/{stem}.jsonl'
+      smartpipe results.jsonl | smartpipe write 'out/{stem}.jsonl'
       … | smartpipe map "translate" | smartpipe write 'fr/{name}'
       … | smartpipe write 'by-lang/{lang}.jsonl'          # content fan-out
       … | smartpipe write 'figs/{stem}-{index}.png'       # media: one file each
