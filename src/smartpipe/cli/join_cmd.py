@@ -119,6 +119,7 @@ def join_command(
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
 ) -> None:
     """Match stdin against a second input, semantically. Emits matched pairs.
 
@@ -147,7 +148,7 @@ def join_command(
         embed_model_flag=embed_model_flag,
         concurrency_flag=concurrency_flag,
         output=OutputFormat(output),
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
         fields=fields,
     )
     code = asyncio.run(_run(request, max_calls))

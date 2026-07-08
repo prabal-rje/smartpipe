@@ -54,6 +54,7 @@ def filter_command(
     allow_captions: bool,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
 ) -> None:
     """Keep items matching a plain-English condition. Semantic grep.
 
@@ -74,7 +75,7 @@ def filter_command(
         model_flag=model_flag,
         fallback_flag=fallback_flag,
         concurrency_flag=concurrency_flag,
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
     )
     code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:

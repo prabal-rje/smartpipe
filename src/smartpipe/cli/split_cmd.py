@@ -42,6 +42,7 @@ def split_command(
     max_tokens: int | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
 ) -> None:
     """Break oversized items into budget-sized chunks. Free — no model calls.
 
@@ -59,7 +60,7 @@ def split_command(
         max_tokens_flag=max_tokens,
         by_flag=by_flag,
         media=media,
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
     )
     code = asyncio.run(_run(request))
     if code is not ExitCode.OK:

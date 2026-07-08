@@ -76,6 +76,7 @@ def reduce_command(
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
 ) -> None:
     """Synthesize all input items into a single result.
 
@@ -99,7 +100,7 @@ def reduce_command(
         verbose=verbose,
         window=window,
         every=every,
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
         fields=fields,
     )
     code = asyncio.run(_run(request, max_calls))

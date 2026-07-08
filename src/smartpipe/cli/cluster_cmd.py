@@ -57,6 +57,7 @@ def cluster_command(
     allow_captions: bool,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
 ) -> None:
     """Group items by meaning and label each group — themes, sized, with quotes.
 
@@ -80,7 +81,7 @@ def cluster_command(
         embed_flag=embed_flag,
         concurrency_flag=concurrency_flag,
         allow_captions=allow_captions,
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
     )
     code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:

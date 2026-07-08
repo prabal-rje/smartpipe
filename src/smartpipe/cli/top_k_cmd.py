@@ -47,6 +47,7 @@ def top_k_command(
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
 ) -> None:
     """Rank items by similarity to a query and return the top K.
 
@@ -67,7 +68,7 @@ def top_k_command(
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,
         stream=stream,
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
         fields=fields,
     )
     code = asyncio.run(_run(request, max_calls))

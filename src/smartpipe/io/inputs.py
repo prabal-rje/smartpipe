@@ -19,6 +19,7 @@ __all__ = ["STDIN", "InputSpec", "expand_globs"]
 class InputSpec:
     patterns: tuple[str, ...]  # --in globs (may be empty)
     from_files: bool  # --from-files: each stdin line names a file
+    as_mode: str | None = None  # --as file|lines|jsonl; None = auto (item 15)
 
 
 # The default: no file flags → read stdin lines. Shared because it's immutable.

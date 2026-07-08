@@ -115,6 +115,7 @@ def extend_command(
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
+    as_mode: str | None,
 ) -> None:
     """Add extracted fields to each record — everything it had survives.
 
@@ -144,7 +145,7 @@ def extend_command(
         keep_invalid=keep_invalid,
         concurrency_flag=concurrency_flag,
         fields=fields,
-        input=input_spec(in_patterns, from_files=from_files),
+        input=input_spec(in_patterns, from_files=from_files, as_mode=as_mode),
     )
     code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:

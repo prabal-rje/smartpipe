@@ -24,7 +24,8 @@ _FIELDS_HINT = (
 
 
 def input_options(command: _Command) -> _Command:
-    """Attach ``--in`` (glob of files as items) and ``--from-files`` (stdin names files)."""
+    """Attach the shared input dials: ``--in`` (glob of files as items),
+    ``--from-files`` (stdin names files), and ``--as`` (granularity, item 15)."""
     command = click.option(
         "--in",
         "in_patterns",
@@ -38,11 +39,21 @@ def input_options(command: _Command) -> _Command:
         is_flag=True,
         help="Treat each stdin line as a filename; read each file as one item.",
     )(command)
+    command = click.option(
+        "--as",
+        "as_mode",
+        type=click.Choice(["file", "lines", "jsonl"]),
+        default=None,
+        help="Cut granularity: file = one item per file/whole stdin; "
+        "lines = every line is text; jsonl = strict one-record-per-line.",
+    )(command)
     return command
 
 
-def input_spec(in_patterns: tuple[str, ...], *, from_files: bool) -> InputSpec:
-    return InputSpec(patterns=tuple(in_patterns), from_files=from_files)
+def input_spec(
+    in_patterns: tuple[str, ...], *, from_files: bool, as_mode: str | None = None
+) -> InputSpec:
+    return InputSpec(patterns=tuple(in_patterns), from_files=from_files, as_mode=as_mode)
 
 
 def fields_option(command: _Command) -> _Command:
