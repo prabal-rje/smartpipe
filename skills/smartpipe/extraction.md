@@ -30,10 +30,10 @@ Richer schemas: `--schema file.json` (full JSON Schema). enum needs a real
 ## Iterate free, then spend
 
 ```console
-smartpipe schema '{vendor string, total number >= 0}'        # compiled schema, zero calls
+smartpipe schema 'vendor string; total number >= 0'          # compiled schema, zero calls (constraints live in the DSL, never in braces)
 smartpipe schema '{vendor string}' --check out.jsonl          # validate old output, exit 0/1
 smartpipe map "Extract {vendor, total}" invoices/*.pdf --dry-run   # the exact request, zero calls
-smartpipe sample 20 --as jsonl posts.jsonl | smartpipe extend "…"  # rehearse on fixed rows
+smartpipe sample 20 < posts.jsonl | smartpipe extend "…"      # rehearse on fixed rows (sample reads stdin only)
 ```
 
 ## Robust batch runs

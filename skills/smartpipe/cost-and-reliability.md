@@ -35,7 +35,8 @@ The idiom: free cut → embed cut → judge remnant.
 - `fallback-model` (config/env/flag): when the breaker trips, the run switches
   chat models wholesale, re-runs the failed window, receipt shows both models.
   Embedding fallback does not exist (vector spaces don't mix).
-- Oversized items: refused per item with sizes + the split fix (see
+- Oversized items: auto-chunked with a disclosed plan; chunk calls count
+  against `--max-calls`; `--whole` restores per-item refusal (see
   [ingestion](ingestion.md)).
 - Capability gaps (model can't see/hear): converted via ladders when possible,
   else per-item skip naming the reason. `smartpipe doctor --probe` tests

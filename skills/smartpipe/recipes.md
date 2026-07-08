@@ -18,12 +18,12 @@ smartpipe top_k 3 --near "user hits the checkout bug" < lib.embeddings
 
 # dataset cleaning ritual: free dedupe → judge → gate (belted + tallied)
 smartpipe distinct --exact --as jsonl corpus.jsonl \
-| smartpipe extend "Add {quality number: 0 to 1, refusal boolean}" --tally quality --max-calls 50000 \
+| smartpipe extend "Add {quality number: 0 to 1, refusal boolean}" --tally refusal --max-calls 50000 \
 | smartpipe where 'quality >= 0.7 and refusal == false' > clean.jsonl
 
-# alert storm → named causes + the one weird thing
-smartpipe where 'status has "firing"' --as jsonl alerts.jsonl | smartpipe cluster --top 5
-smartpipe where 'status has "firing"' --as jsonl alerts.jsonl | smartpipe outliers 3
+# alert storm → named causes + the one weird thing (where reads stdin only)
+smartpipe where 'status has "firing"' < alerts.jsonl | smartpipe cluster --top 5
+smartpipe where 'status has "firing"' < alerts.jsonl | smartpipe outliers 3
 
 # live tail triage (streaming; free cut keeps the judge affordable)
 tail -f app.log \
@@ -40,3 +40,4 @@ smartpipe split --by pages:10 big.pdf \
 smartpipe split --by minutes:10 recordings/*.mp3 \
 | smartpipe extend "Add {decisions string[], action_items string[]}" \
 | smartpipe reduce "Weekly digest: decisions and action items by owner, cite source recording and time"
+```
