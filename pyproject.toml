@@ -45,6 +45,11 @@ dependencies = [
   "pdfminer.six>=20231228",
   "pypdf>=5.0",
   "imageio-ffmpeg>=0.5",
+  # Charts (owner ruling, 2026-07-08): plotext draws the terminal side,
+  # matplotlib renders --save (SVG/PNG). svgwrite is dead upstream; it stays
+  # only until its last caller is re-platformed, then it goes.
+  "plotext>=5",
+  "matplotlib>=3.8",
   "svgwrite>=1.4",
 ]
 
