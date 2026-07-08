@@ -73,6 +73,7 @@ class MapRequest:
     keep_invalid: bool = False  # --keep-invalid: failed validations become marker rows
     dry_run: bool = False  # --dry-run: print the composed first request, spend nothing
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
+    bare: bool = False  # --bare: strip __ metadata from record output (item 18)
 
 
 class MapContext(Protocol):
@@ -90,6 +91,7 @@ class MapContext(Protocol):
         structured: bool,
         stdout: TextSink,
         fields: tuple[str, ...] | None = None,
+        bare: bool = False,
     ) -> ResultWriter: ...
 
 
@@ -115,7 +117,11 @@ async def run_map(
     spinner = make_stderr_spinner()
     # the arbiter: result writes pause the status line, so they never interleave
     writer = context.writer(
-        request.output, structured=structured, stdout=spinner.guard(stdout), fields=request.fields
+        request.output,
+        structured=structured,
+        stdout=spinner.guard(stdout),
+        fields=request.fields,
+        bare=request.bare,
     )
     concurrency = context.concurrency(request.concurrency_flag)
 

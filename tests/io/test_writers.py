@@ -180,3 +180,24 @@ def test_ndjson_invalid_rows_bypass_fields_projection() -> None:
     )
     writer.write_record({"__invalid": True, "__error": "e", "__raw": "r"})
     assert stream.getvalue() == '{"__invalid":true,"__error":"e","__raw":"r"}\n'
+
+
+# --- --bare: strip the __ spine (wave 2, item 18) ---------------------------------
+
+
+def test_bare_strips_meta_from_jsonl_records() -> None:
+    stream = io.StringIO()
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, bare=True), stream
+    )
+    writer.write_record({"result": "hola", "__source": {"path": "-", "as": "lines", "line": 1}})
+    assert stream.getvalue() == '{"result":"hola"}\n'
+
+
+def test_bare_never_guts_an_invalid_marker_row() -> None:
+    stream = io.StringIO()
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, bare=True), stream
+    )
+    writer.write_record({"__invalid": True, "__error": "e", "__raw": "r"})
+    assert stream.getvalue() == '{"__invalid":true,"__error":"e","__raw":"r"}\n'

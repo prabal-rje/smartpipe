@@ -85,6 +85,12 @@ __all__ = ["map_command"]
     help="Video frame budget (default 24; the smaller of the two flags wins).",
 )
 @click.option(
+    "--bare",
+    "bare",
+    is_flag=True,
+    help="Strip __ metadata fields from record output (for > redirections).",
+)
+@click.option(
     "--fallback-model",
     "fallback_flag",
     shell_complete=complete_chat_models,
@@ -117,6 +123,7 @@ def map_command(
     explode_field: str | None,
     model_flag: str | None,
     fallback_flag: str | None,
+    bare: bool,
     output: str,
     dry_run: bool,
     keep_invalid: bool,
@@ -155,6 +162,7 @@ def map_command(
         max_frames=max_frames,
         model_flag=model_flag,
         fallback_flag=fallback_flag,
+        bare=bare,
         output=OutputFormat(output),
         dry_run=dry_run,
         keep_invalid=keep_invalid,

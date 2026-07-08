@@ -320,3 +320,12 @@ def test_explode_without_structure_is_a_usage_error(run_cli: RunCli) -> None:
     code, _out, err = run_cli(["map", "summarize", "--explode", "risks"], stdin="x\n")
     assert code == 64
     assert "--explode needs structured output" in err
+
+
+def test_bare_strips_the_spine_from_record_results(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.post(CHAT).mock(return_value=_reply("short"))
+    code, out, _err = run_cli(["map", "summarize", "--bare"], stdin='{"id": 7}\n')
+    assert code == 0
+    assert json.loads(out) == {"result": "short"}  # no __source under --bare

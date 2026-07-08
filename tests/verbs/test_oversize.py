@@ -79,6 +79,7 @@ class Ctx:
         structured: bool,
         stdout: TextSink,
         fields: tuple[str, ...] | None = None,
+        bare: bool = False,
     ) -> ResultWriter:
         return make_writer(WriterConfig(mode=RenderMode.TEXT, color=False, width=80), stdout)
 

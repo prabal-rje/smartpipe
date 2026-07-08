@@ -202,6 +202,7 @@ class AppContainer:
         structured: bool,
         stdout: TextSink,
         fields: tuple[str, ...] | None = None,
+        bare: bool = False,
     ) -> ResultWriter:
         mode = resolve_format(
             output_flag,
@@ -215,6 +216,7 @@ class AppContainer:
             color=tty.stdout_supports_color(self.color_mode),
             width=tty.terminal_width(),
             fields=fields,
+            bare=bare,
         )
         return make_writer(config, stdout)
 

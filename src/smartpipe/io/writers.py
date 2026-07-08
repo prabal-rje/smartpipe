@@ -75,6 +75,7 @@ class WriterConfig:
     color: bool
     width: int
     fields: tuple[str, ...] | None = None  # honored from stage 9
+    bare: bool = False  # --bare: strip __ metadata from record output (item 18)
 
 
 class ResultWriter(Protocol):
@@ -139,9 +140,9 @@ def _require_structured(fmt: OutputFormat, *, structured: bool) -> None:
 def make_writer(config: WriterConfig, stdout: TextSink) -> ResultWriter:
     match config.mode:
         case RenderMode.TEXT:
-            return _TextWriter(stream=stdout, fields=config.fields)
+            return _TextWriter(stream=stdout, fields=config.fields, bare=config.bare)
         case RenderMode.NDJSON:
-            return _NdjsonWriter(stream=stdout, fields=config.fields)
+            return _NdjsonWriter(stream=stdout, fields=config.fields, bare=config.bare)
         case RenderMode.HUMAN:
             return _HumanWriter(
                 stream=stdout, color=config.color, width=config.width, fields=config.fields
@@ -163,9 +164,17 @@ _RAW_PREVIEW_CELLS = 70  # --keep-invalid TTY line: this much of the raw reply
 
 
 def _is_invalid_row(record: Mapping[str, object]) -> bool:
-    """A --keep-invalid marker row — projection and block rendering both step
-    aside for these: the row IS the failure report, not extracted data."""
+    """A --keep-invalid marker row — projection, --bare, and block rendering
+    all step aside for these: the row IS the failure report, not extracted data."""
     return record.get("__invalid") is True
+
+
+def _strip_meta(record: Mapping[str, object], *, bare: bool) -> Mapping[str, object]:
+    """--bare (item 18): drop the __ spine for people redirecting with `>`.
+    Never fstat-sniffed — content must not depend on pipe vs file."""
+    if not bare or _is_invalid_row(record):
+        return record
+    return {key: value for key, value in record.items() if not key.startswith("__")}
 
 
 def _lookup(record: Mapping[str, object], name: str) -> object:
@@ -202,6 +211,7 @@ def _project(
 class _TextWriter:
     stream: TextSink
     fields: tuple[str, ...] | None = None  # top_k routes structured records through TEXT
+    bare: bool = False
     warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
@@ -209,6 +219,7 @@ class _TextWriter:
         self.stream.flush()
 
     def write_record(self, record: Mapping[str, object]) -> None:
+        record = _strip_meta(record, bare=self.bare)
         if self.fields is not None and not _is_invalid_row(record):
             record = _project(record, self.fields, self.warned)
         self.write_text(_compact_json(dict(record)))
@@ -224,12 +235,14 @@ class _TextWriter:
 class _NdjsonWriter:
     stream: TextSink
     fields: tuple[str, ...] | None = None
+    bare: bool = False
     warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
         self.write_record({"result": line})
 
     def write_record(self, record: Mapping[str, object]) -> None:
+        record = _strip_meta(record, bare=self.bare)
         if self.fields is not None and not _is_invalid_row(record):
             record = _project(record, self.fields, self.warned)
         self.stream.write(f"{_compact_json(dict(record))}\n")

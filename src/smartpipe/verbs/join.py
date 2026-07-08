@@ -83,6 +83,7 @@ class JoinRequest:
     allow_captions: bool = False  # cloud conversions opt-in (D33)
     kind: str = "inner"  # inner | leftouter | anti (D38/11)
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
+    bare: bool = False  # --bare: strip __ metadata from record output (item 18)
 
 
 class JoinContext(Protocol):
@@ -102,6 +103,7 @@ class JoinContext(Protocol):
         structured: bool,
         stdout: TextSink,
         fields: tuple[str, ...] | None = None,
+        bare: bool = False,
     ) -> ResultWriter: ...
 
 
@@ -171,6 +173,7 @@ async def run_join(
         structured=request.kind != "anti",  # anti emits left rows verbatim
         stdout=spinner.guard(stdout),
         fields=request.fields,
+        bare=request.bare,
     )
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     preview_cost(total, request.k, len(index))

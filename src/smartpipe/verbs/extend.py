@@ -72,6 +72,7 @@ class ExtendRequest:
     keep_invalid: bool = False  # --keep-invalid: failure markers merge onto the base record
     dry_run: bool = False  # --dry-run: print the composed first request, spend nothing
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
+    bare: bool = False  # --bare: strip __ metadata from record output (item 18)
 
 
 async def run_extend(
@@ -97,7 +98,11 @@ async def run_extend(
     spinner = make_stderr_spinner()
     # the arbiter: result writes pause the status line, so they never interleave
     writer = context.writer(
-        request.output, structured=True, stdout=spinner.guard(stdout), fields=request.fields
+        request.output,
+        structured=True,
+        stdout=spinner.guard(stdout),
+        fields=request.fields,
+        bare=request.bare,
     )
     concurrency = context.concurrency(request.concurrency_flag)
 

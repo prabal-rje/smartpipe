@@ -75,6 +75,7 @@ class FakeContext:
         structured: bool,
         stdout: TextSink,
         fields: tuple[str, ...] | None = None,
+        bare: bool = False,
     ) -> ResultWriter:
         mode = RenderMode.NDJSON if structured else RenderMode.TEXT
         return make_writer(WriterConfig(mode=mode, color=False, width=80, fields=fields), stdout)

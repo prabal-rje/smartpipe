@@ -69,6 +69,12 @@ __all__ = ["join_command"]
     help="Write left items with zero matches to FILE, verbatim (inner only).",
 )
 @click.option(
+    "--bare",
+    "bare",
+    is_flag=True,
+    help="Strip __ metadata fields from record output (for > redirections).",
+)
+@click.option(
     "--fallback-model",
     "fallback_flag",
     shell_complete=complete_chat_models,
@@ -113,6 +119,7 @@ def join_command(
     kind: str,
     model_flag: str | None,
     fallback_flag: str | None,
+    bare: bool,
     embed_model_flag: str | None,
     output: str,
     concurrency_flag: int | None,
@@ -148,6 +155,7 @@ def join_command(
         kind=kind,
         model_flag=model_flag,
         fallback_flag=fallback_flag,
+        bare=bare,
         embed_model_flag=embed_model_flag,
         concurrency_flag=concurrency_flag,
         output=OutputFormat(output),

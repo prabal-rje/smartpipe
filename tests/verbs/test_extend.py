@@ -59,6 +59,7 @@ class FakeContext:
         structured: bool,
         stdout: TextSink,
         fields: tuple[str, ...] | None = None,
+        bare: bool = False,
     ) -> ResultWriter:
         from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 

@@ -23,13 +23,19 @@ __all__ = ["read_command"]
 @click.command(name="read", hidden=True)
 @click.argument("paths", nargs=-1, required=True)
 @click.option(
+    "--bare",
+    "bare",
+    is_flag=True,
+    help="Strip __ metadata fields from the emitted records.",
+)
+@click.option(
     "--as",
     "as_mode",
     type=click.Choice(["file", "lines", "jsonl"]),
     default=None,
     help="Cut granularity: file = one item per file; lines = text rows; jsonl = strict records.",
 )
-def read_command(paths: tuple[str, ...], as_mode: str | None) -> None:
+def read_command(paths: tuple[str, ...], as_mode: str | None, bare: bool) -> None:
     """Emit the named files' items as JSONL records (reader mode).
 
     \b
@@ -38,18 +44,20 @@ def read_command(paths: tuple[str, ...], as_mode: str | None) -> None:
       smartpipe notes.txt --as lines           # one record per line
       smartpipe 'logs/*.jsonl'                 # strict records, per row
     """
-    code = asyncio.run(_run(InputSpec(patterns=paths, from_files=False, as_mode=as_mode)))
+    code = asyncio.run(_run(InputSpec(patterns=paths, from_files=False, as_mode=as_mode), bare))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(spec: InputSpec) -> ExitCode:
+async def _run(spec: InputSpec, bare: bool) -> ExitCode:
     from smartpipe.io.readers import resolve_items
     from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 
     items, _total = resolve_items(spec, sys.stdin)
     # records for machines, always — reader mode's whole output IS the record
-    writer = make_writer(WriterConfig(mode=RenderMode.NDJSON, color=False, width=80), sys.stdout)
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, bare=bare), sys.stdout
+    )
     produced = 0
     async for item in items:
         writer.write_record(item_record(item))
