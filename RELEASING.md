@@ -47,3 +47,35 @@ $ make docs-check                  # once wired: link scan + mkdocs --strict
 
 Preconditions: matrix green on the exact HEAD, `git status --porcelain` empty.
 `git tag vX.Y.Z && git push origin main --tags` — plain push, never force.
+
+## 4. Homebrew tap
+
+The formula lives in this repo at `packaging/homebrew/smartpipe.rb`; the tap
+is a separate one-file repo Homebrew clones by naming convention.
+
+One-time setup (owner):
+
+```console
+$ gh repo create prabal-rje/homebrew-tap --public --description "Homebrew tap for smartpipe"
+$ git clone https://github.com/prabal-rje/homebrew-tap && cd homebrew-tap
+$ mkdir -p Formula && cp <smartpipe-repo>/packaging/homebrew/smartpipe.rb Formula/
+$ git add Formula/smartpipe.rb && git commit -m "smartpipe formula" && git push
+```
+
+Users then install with:
+
+```console
+$ brew install prabal-rje/tap/smartpipe
+```
+
+Per release, after the PyPI publish lands:
+
+1. Update `url` in the formula to the new sdist
+   (`.../smartpipe_cli-X.Y.Z.tar.gz`).
+2. Refresh the checksum:
+   `curl -sL <url> | shasum -a 256` → paste into `sha256`.
+3. Sanity-check locally: `brew install --build-from-source Formula/smartpipe.rb`
+   then `brew test smartpipe`.
+4. Commit the bump to the tap repo (`git commit -m "smartpipe X.Y.Z"`), push,
+   and mirror the same change back to `packaging/homebrew/smartpipe.rb` here
+   so the two never drift.
