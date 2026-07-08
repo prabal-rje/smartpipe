@@ -140,3 +140,11 @@ def test_whisper_size_env_override() -> None:
 
     assert whisper_size({}) == "tiny"
     assert whisper_size({"SMARTPIPE_WHISPER_MODEL": "small"}) == "small"
+
+
+def test_text_files_normalize_crlf(tmp_path: Path) -> None:
+    # a Windows-authored file must yield clean text on every platform
+    crlf = tmp_path / "win.txt"
+    crlf.write_bytes(b"line one\r\nline two\r")
+    extracted = extract(crlf, "text")
+    assert extracted.text == "line one\nline two\n"

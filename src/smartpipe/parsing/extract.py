@@ -88,6 +88,10 @@ def extract(path: Path, kind: FileKind) -> Extracted:
 def _read_text(path: Path) -> Extracted:
     raw = path.read_bytes()
     text = raw.decode("utf-8", errors="replace")
+    # universal newlines: a Windows-authored file yields clean text items
+    # (CRLF kept leaking \r into item text - caught by the reader tests on
+    # the windows CI leg)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     if "�" in text and b"\xef\xbf\xbd" not in raw:
         return Extracted(text=text, warning="not valid UTF-8; some bytes were replaced")
     return Extracted(text=text)
