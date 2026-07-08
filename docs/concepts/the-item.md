@@ -37,6 +37,13 @@ Media crates (images, audio, video) support only `--as file`; the finer cuts
 live in `split --by minutes/seconds` (clips) and nowhere (images have no
 finer granularity).
 
+An item bigger than the model's window is still ONE item - the verbs handle
+the overflow themselves (chunk + combine in `map`/`extend`, any-chunk match
+in `filter`/`join`, the recursive tree in `reduce`, mean-pooling in the
+embedding verbs), disclose the plan on stderr before spending anything, and
+`--whole` opts back into refusal. The full per-verb matrix lives in
+[when it doesn't fit](feeding-smartpipe.md#when-it-doesnt-fit).
+
 Worked example - translate a folder, four ways:
 
 ```bash

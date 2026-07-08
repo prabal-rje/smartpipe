@@ -9,7 +9,9 @@ Fixtures live in `qa/fixtures/` (regenerate with
 `uv run python qa/make_fixtures.py` — deterministic, the diff must be
 empty). `tickets.jsonl` is ~115 rows with planted duplicates, an outlier,
 missing fields, and mixed types; `logs.jsonl` has an incident spike at
-15:00; every 7th order in `orders.jsonl` has no invoice.
+15:00; every 7th order in `orders.jsonl` has no invoice; `big_report.txt`
+is ~0.5 MB of deliberately oversized filler with the headline finding
+planted in its closing paragraph.
 
 **Conventions:** run with a configured cloud profile unless the step says
 otherwise; add `--max-calls` belts exactly as written; a step passes only if
@@ -184,6 +186,24 @@ $ head -40 qa/fixtures/tickets.jsonl | smartpipe map "Extract {label}" --max-cal
 - [ ] The `| head` pipe exits promptly (SIGPIPE handled, exit 141 or 0).
 - [ ] Ctrl-C drains gracefully: partial results flushed, interrupted
       summary printed, exit 130.
+
+## 12. Oversized items are handled, not skipped (D26 v2)
+
+```console
+$ smartpipe map "one-sentence summary of this report" qa/fixtures/big_report.txt --max-calls 12
+$ smartpipe map "one-sentence summary of this report" qa/fixtures/big_report.txt --whole; echo "exit=$?"
+```
+- [ ] BEFORE any spend, the chunk note prints on stderr:
+      `note: qa/fixtures/big_report.txt ~125,… tokens over budget - N chunks
+      + 1 combine call` (the exact counts vary by provider window).
+- [ ] Exactly ONE summary line lands on stdout, and it mentions the
+      Rotterdam automation pilot / 23 percent unit-cost drop — the planted
+      headline lives in the LAST chunk, so only a real chunk+combine pass
+      finds it.
+- [ ] The `run: … tokens` receipt shows hundreds of thousands of input
+      tokens — every chunk call metered, nothing hidden.
+- [ ] The `--whole` run spends NOTHING: one `⚠ skipped: …token budget —
+      split it first…` line with the split recipe, empty stdout, exit=3.
 
 ---
 

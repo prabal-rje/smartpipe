@@ -169,6 +169,43 @@ def _orders_and_invoices(rng: random.Random) -> tuple[list[str], list[str]]:
     return orders, invoices
 
 
+REPORT_SENTENCES = (
+    "Quarterly throughput held steady across all three fulfilment hubs.",
+    "The Frankfurt hub cleared its seasonal backlog two weeks ahead of forecast.",
+    "Carrier renegotiations trimmed line-haul rates on the northern corridor.",
+    "Warehouse cycle counts matched the ledger within a tenth of a percent.",
+    "The night shift pilot reduced dock-to-stock time by a third.",
+    "Returns processing remains the slowest station in the network.",
+    "Packaging waste fell again after the right-sizing project landed.",
+    "Driver retention improved once the new rota software rolled out.",
+    "The Lyon cross-dock absorbed the overflow without added headcount.",
+    "Forecast accuracy for bulky goods still trails the network average.",
+)
+
+
+def _big_report(rng: random.Random) -> str:
+    """A deliberately HUGE document (~0.5 MB ≈ 125k estimated tokens — past
+    every wired provider's table budget) so the QA oversize flow can watch
+    map's auto-chunk disclosure fire. The headline finding is planted in the
+    closing paragraph, where only a whole-document pass would see it."""
+    paragraphs = [
+        "ACME LOGISTICS - ANNUAL OPERATIONS REVIEW "
+        "(QA fixture: deliberately oversized; see qa/README.md section 12)"
+    ]
+    total = 0
+    while total < 500_000:
+        sentences = [rng.choice(REPORT_SENTENCES) for _ in range(rng.randrange(4, 9))]
+        paragraph = " ".join(sentences)
+        paragraphs.append(paragraph)
+        total += len(paragraph) + 2
+    paragraphs.append(
+        "Headline finding: unit costs fell 23 percent after the Rotterdam "
+        "automation pilot, and the board approved a fleet-wide rollout for "
+        "next fiscal year."
+    )
+    return "\n\n".join(paragraphs) + "\n"
+
+
 def _media(assets: Path) -> list[str]:
     wav = base64.b64encode((assets / "probe.wav").read_bytes()).decode()
     png = base64.b64encode((assets / "probe.png").read_bytes()).decode()
@@ -198,6 +235,9 @@ def main() -> None:
     orders, invoices = _orders_and_invoices(rng)
     (FIXTURES / "orders.jsonl").write_text("\n".join(orders) + "\n", encoding="utf-8")
     (FIXTURES / "invoices.jsonl").write_text("\n".join(invoices) + "\n", encoding="utf-8")
+    # NB: new rng-consuming fixtures append AFTER the existing ones — the shared
+    # rng sequence is what keeps regeneration a no-op diff for the older files
+    (FIXTURES / "big_report.txt").write_text(_big_report(rng), encoding="utf-8")
     assets = Path(__file__).parent.parent / "src" / "smartpipe" / "assets"
     (FIXTURES / "media.jsonl").write_text("\n".join(_media(assets)) + "\n", encoding="utf-8")
     triage = FIXTURES / "triage.sem"
