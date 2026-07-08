@@ -414,24 +414,26 @@ async def test_unmatched_left_items_land_in_the_file(tmp_path: Path) -> None:
     assert sink.read_text(encoding="utf-8") == "coffee is cold\n"  # verbatim, one line
 
 
-async def test_oversized_right_is_judged_on_its_best_chunk(
+class ChunkAwareEmbed:
+    def __init__(self) -> None:
+        self.ref = ModelRef("openai", "text-embedding-3-small")
+
+    async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+        # lowercase "espresso " (the left query + the needle sentence) points
+        # one way; the JSON prefix ("EspressoPro") and filler point the other
+        return tuple((1.0, 0.0) if "espresso " in text else (0.0, 1.0) for text in texts)
+
+
+async def test_oversized_right_is_judged_best_chunk_first(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """An 80k-token right row no longer skips: pooled for blocking, and the judge
-    reads only the most-relevant chunk (W3/D26)."""
+    """An 80k-token right row no longer skips: pooled for blocking, and the
+    ANY-true judge reads the most-relevant chunk FIRST (D26 v2) — a match there
+    costs exactly one call."""
 
     filler = "unrelated filler prose about logistics and weather. " * 5_000  # ~65k tokens
     needle = "The EspressoPro Nine thousand is our flagship espresso machine."
     big_right = json.dumps({"name": "EspressoPro", "desc": filler + needle})
-
-    class ChunkAwareEmbed:
-        def __init__(self) -> None:
-            self.ref = ModelRef("openai", "text-embedding-3-small")
-
-        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
-            # lowercase "espresso " (the left query + the needle sentence) points
-            # one way; the JSON prefix ("EspressoPro") and filler point the other
-            return tuple((1.0, 0.0) if "espresso " in text else (0.0, 1.0) for text in texts)
 
     class SpyJudge:
         def __init__(self) -> None:
@@ -459,12 +461,89 @@ async def test_oversized_right_is_judged_on_its_best_chunk(
     )
     assert code is ExitCode.OK
     assert '"__score"' in out.getvalue()  # the pair matched — no skip
-    assert len(judge.seen) == 1
+    assert len(judge.seen) == 1  # best-first + early exit: ONE call
     statement = judge.seen[0]
-    assert "EspressoPro Nine thousand" in statement  # the needle chunk was chosen
+    assert "EspressoPro Nine thousand" in statement  # the needle chunk was read first
     assert len(statement) < 20_000  # the judge never saw the 260k-char monster
     err = capsys.readouterr().err
-    assert "oversized → best-chunk judge" in err  # row-disclosed
+    assert "oversized → any-chunk judge" in err  # row-disclosed
+    assert "matched in chunk 1/" in err  # the disclosure names the chunk
+
+
+async def test_oversized_right_falls_through_chunks_until_the_match(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When the best-ranked chunk does NOT satisfy the predicate, the judge
+    walks the remaining chunks (OR semantics) instead of giving up."""
+
+    filler = "unrelated filler prose about logistics and weather. " * 5_000
+    needle = "The EspressoPro Nine thousand is our flagship espresso machine."
+    big_right = json.dumps({"name": "EspressoPro", "desc": filler + needle})
+
+    class NeedleJudge:
+        """Says yes only to the JSON head chunk ('"desc"' lives nowhere else) —
+        which the embedding ranks BELOW the espresso-needle chunk."""
+
+        def __init__(self) -> None:
+            self.ref = ModelRef("ollama", "judge")
+            self.seen: list[str] = []
+
+        async def complete(self, request: CompletionRequest) -> str:
+            self.seen.append(request.user)
+            verdict = "true" if '"desc"' in request.user else "false"
+            return f'{{"match": {verdict}}}'
+
+    right = tmp_path / "products.jsonl"
+    right.write_text(big_right + "\n", encoding="utf-8")
+    judge = NeedleJudge()
+    out = io.StringIO()
+    code = await run_join(
+        _request(
+            right,
+            k=1,
+            predicate="the complaint {left.text} matches this description: {right.text}",
+        ),
+        FakeContext(ChunkAwareEmbed(), judge),  # type: ignore[arg-type]
+        stdin=io.StringIO("my espresso tastes burnt\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert '"__score"' in out.getvalue()  # a later chunk carried the match
+    assert len(judge.seen) > 1  # the best chunk said no; the walk continued
+    assert "matched in chunk" in capsys.readouterr().err
+
+
+async def test_join_whole_refuses_oversized_sides(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    filler = "unrelated filler prose about logistics and weather. " * 5_000
+    big_right = json.dumps({"name": "EspressoPro", "desc": filler})
+
+    class NeverJudge:
+        def __init__(self) -> None:
+            self.ref = ModelRef("ollama", "judge")
+            self.seen: list[str] = []
+
+        async def complete(self, request: CompletionRequest) -> str:
+            raise AssertionError("no pair may reach the judge")
+
+    right = tmp_path / "products.jsonl"
+    right.write_text(big_right + "\n", encoding="utf-8")
+    out = io.StringIO()
+    code = await run_join(
+        _request(
+            right,
+            k=1,
+            whole=True,
+            predicate="the complaint {left.text} matches this description: {right.text}",
+        ),
+        FakeContext(ChunkAwareEmbed(), NeverJudge()),  # type: ignore[arg-type]
+        stdin=io.StringIO("my espresso tastes burnt\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK  # left items judged against an EMPTY index: no matches
+    err = capsys.readouterr().err
+    assert "token budget — split it first" in err  # the old refusal wording
 
 
 # --- join kinds (D38/11) -----------------------------------------------------------

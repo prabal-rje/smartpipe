@@ -291,11 +291,14 @@ def embed_budget(provider: str) -> int:
 
 @dataclass(frozen=True, slots=True)
 class Oversize:
-    """One item past the window: its combined text+media estimate, and the
-    best-known per-call budget the auto-chunk strategies must fit."""
+    """One item past the window: its combined text+media estimate, the
+    best-known per-call budget the auto-chunk strategies must fit, and the
+    media share of the estimate (media can't be text-chunked — it rides the
+    first chunk, and its cost shrinks the text budget)."""
 
     estimate: int
     budget: int
+    media_tokens: int = 0
 
 
 @dataclass
@@ -324,11 +327,12 @@ class WindowGate:
 
         if self._budget is None:
             self._budget = budget_for(self.provider, prompt_overhead=self.overhead)
-        estimate = estimate_tokens(text)
+        media_estimate = 0
         if media:
             from smartpipe.io import metering
 
-            estimate += media_tokens(media, self.provider, seconds_of=metering.clip_seconds)
+            media_estimate = media_tokens(media, self.provider, seconds_of=metering.clip_seconds)
+        estimate = estimate_tokens(text) + media_estimate
         if estimate <= self._budget:
             return None
         if not self._probed:
@@ -337,14 +341,14 @@ class WindowGate:
             if probed is not None:
                 widened = budget_for(self.provider, prompt_overhead=self.overhead, window=probed)
                 self._budget = max(self._budget, widened)
-        return None if estimate <= self._budget else Oversize(estimate, self._budget)
+        if estimate <= self._budget:
+            return None
+        return Oversize(estimate, self._budget, media_estimate)
 
     def refusal(self, over: Oversize) -> str:
-        return (
-            f"~{over.estimate:,} tokens is past {self.model_name}'s "
-            f"~{over.budget:,}-token budget — split it first: "
-            'smartpipe split FILE | smartpipe map "..." | smartpipe reduce "..."'
-        )
+        from smartpipe.verbs.oversize import refusal
+
+        return refusal(over.estimate, self.model_name, over.budget)
 
 
 def resolve_schema(

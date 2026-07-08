@@ -167,6 +167,16 @@ def test_multi_piece_chunks_respect_the_budget(body: str, budget: int) -> None:
         assert estimate_tokens(chunk) <= budget or len(chunk) <= budget * 4 + 2
 
 
+def test_cjk_text_cuts_to_token_budget_not_character_budget() -> None:
+    # 1000 ideographs ≈ 1000 tokens; a flat 4-chars-per-token cut would leave
+    # one 250-token-budget chunk 4x over budget (D26 v2)
+    text = "字" * 1_000
+    chunks = split_text(text, budget=250)
+    assert len(chunks) >= 4
+    assert all(estimate_tokens(chunk) <= 250 for chunk in chunks)
+    assert "".join(chunks) == text  # nothing added, nothing lost
+
+
 def test_mean_pool_averages_componentwise() -> None:
     assert mean_pool([(1.0, 0.0), (0.0, 1.0)]) == (0.5, 0.5)
     assert mean_pool([(2.0, 4.0)]) == (2.0, 4.0)

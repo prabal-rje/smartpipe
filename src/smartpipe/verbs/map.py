@@ -39,6 +39,7 @@ from smartpipe.verbs.common import (
     outcome_exit_code,
     resolve_schema,
 )
+from smartpipe.verbs.oversize import transform_oversized
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -75,6 +76,7 @@ class MapRequest:
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
     bare: bool = False  # --bare: strip __ metadata from record output (item 18)
     full: bool = False  # --full: disable the TTY preview's truncation (item 19)
+    whole: bool = False  # --whole: refuse oversized items instead of auto-chunking (D26 v2)
 
 
 class MapContext(Protocol):
@@ -162,19 +164,25 @@ async def run_map(
     async def worker(item: Item) -> tuple[Item, str | Mapping[str, object]]:
         current = slot.current  # captured per item: the failover swaps wholesale
         over = await gate.budget_for_oversized(item.text, item.media)
-        if over is not None:
-            # D26: silently chunking would change what was asked — teach the pipeline
+        if over is not None and request.whole:
+            # --whole: the old D26 refusal — reproducibility beats handling
             raise ItemError(gate.refusal(over))
-        result = await map_one(
-            current,
-            plan,
-            instruction,
-            item,
-            log,
-            frame_every=request.frame_every,
-            max_frames=request.max_frames,
-            keep_invalid=request.keep_invalid,
-        )
+        if over is not None:
+            # D26 v2: handled, not skipped — chunk, transform, synthesize (disclosed)
+            result: str | Mapping[str, object] = await transform_oversized(
+                current, plan, instruction, item, over, keep_invalid=request.keep_invalid
+            )
+        else:
+            result = await map_one(
+                current,
+                plan,
+                instruction,
+                item,
+                log,
+                frame_every=request.frame_every,
+                max_frames=request.max_frames,
+                keep_invalid=request.keep_invalid,
+            )
         slot.tally(str(current.ref))
         return item, result
 

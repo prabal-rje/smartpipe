@@ -31,6 +31,7 @@ from smartpipe.verbs.common import (
     resolve_schema,
 )
 from smartpipe.verbs.map import MapContext, map_one, print_dry_run
+from smartpipe.verbs.oversize import transform_oversized
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -74,6 +75,7 @@ class ExtendRequest:
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
     bare: bool = False  # --bare: strip __ metadata from record output (item 18)
     full: bool = False  # --full: disable the TTY preview's truncation (item 19)
+    whole: bool = False  # --whole: refuse oversized items instead of auto-chunking (D26 v2)
 
 
 async def run_extend(
@@ -127,18 +129,25 @@ async def run_extend(
     async def worker(item: Item) -> tuple[Item, Mapping[str, object]]:
         current = slot.current  # captured per item: the failover swaps wholesale
         over = await gate.budget_for_oversized(item.text, item.media)
+        if over is not None and request.whole:
+            # --whole: the old D26 refusal — reproducibility beats handling
+            raise ItemError(gate.refusal(over))
         if over is not None:
-            raise ItemError(gate.refusal(over))  # D26: no silent chunking
-        result = await map_one(
-            current,
-            plan,
-            instruction,
-            item,
-            log,
-            frame_every=request.frame_every,
-            max_frames=request.max_frames,
-            keep_invalid=request.keep_invalid,
-        )
+            # D26 v2: extract per chunk, then ONE merge call against the same schema
+            result = await transform_oversized(
+                current, plan, instruction, item, over, keep_invalid=request.keep_invalid
+            )
+        else:
+            result = await map_one(
+                current,
+                plan,
+                instruction,
+                item,
+                log,
+                frame_every=request.frame_every,
+                max_frames=request.max_frames,
+                keep_invalid=request.keep_invalid,
+            )
         assert isinstance(result, Mapping)  # structured mode: validated against the schema
         slot.tally(str(current.ref))
         return item, result

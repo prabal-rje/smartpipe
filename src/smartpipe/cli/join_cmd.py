@@ -122,6 +122,12 @@ __all__ = ["join_command"]
     is_flag=True,
     help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
 )
+@click.option(
+    "--whole",
+    "whole",
+    is_flag=True,
+    help="Never chunk-judge oversized sides: judge whole or skip with an error.",
+)
 @input_options
 def join_command(
     predicate: str | None,
@@ -141,6 +147,7 @@ def join_command(
     concurrency_flag: int | None,
     max_calls: int | None,
     allow_captions: bool,
+    whole: bool,
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
@@ -179,6 +186,7 @@ def join_command(
         on=on_keys,
         bare=bare,
         full=full,
+        whole=whole,
         embed_model_flag=embed_model_flag,
         concurrency_flag=concurrency_flag,
         output=OutputFormat(output),

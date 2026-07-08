@@ -43,6 +43,7 @@ from smartpipe.verbs.common import (
     prepend,
 )
 from smartpipe.verbs.convert import Converter, make_converter
+from smartpipe.verbs.oversize import judge_any
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -68,6 +69,7 @@ class FilterRequest:
     input: InputSpec = STDIN
     allow_captions: bool = False  # cloud conversions opt-in (D33)
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
+    whole: bool = False  # --whole: refuse oversized items instead of chunk-judging (D26 v2)
 
 
 class FilterContext(Protocol):
@@ -132,13 +134,21 @@ async def run_filter(
         over = await gate.budget_for_oversized(item.text, item.media)
         if over is None:
             matched = await _judge(current, tokens, item, log, converter)
+        elif request.whole:
+            # --whole: the old D26 refusal — reproducibility beats handling
+            raise ItemError(gate.refusal(over))
         else:
-            # D26: judge the chunks — any match keeps the whole item (--not inverts after)
-            matched = False
-            for chunk in split_text(item.text, over.budget):
-                if await _judge(current, tokens, replace(item, text=chunk), log, converter):
-                    matched = True
-                    break
+            # D26 v2: judge the chunks, ANY match keeps the whole item (--not
+            # inverts after), early exit on the first true chunk — disclosed
+            async def judge_chunk(chunk: str) -> bool:
+                return await _judge(current, tokens, replace(item, text=chunk), log, converter)
+
+            matched = await judge_any(
+                split_text(item.text, over.budget),
+                judge_chunk,
+                where=describe_source(item.source),
+                estimate=over.estimate,
+            )
         slot.tally(str(current.ref))
         return item, matched
 

@@ -43,6 +43,12 @@ __all__ = ["filter_command"]
     is_flag=True,
     help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
 )
+@click.option(
+    "--whole",
+    "whole",
+    is_flag=True,
+    help="Never chunk-judge oversized items: judge whole or skip with an error.",
+)
 @input_options
 def filter_command(
     condition: str | None,
@@ -53,6 +59,7 @@ def filter_command(
     concurrency_flag: int | None,
     max_calls: int | None,
     allow_captions: bool,
+    whole: bool,
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
@@ -78,6 +85,7 @@ def filter_command(
         model_flag=model_flag,
         fallback_flag=fallback_flag,
         concurrency_flag=concurrency_flag,
+        whole=whole,
         input=input_spec(
             positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
         ),

@@ -173,10 +173,16 @@ def _carrying_separators(text: str, pattern: str) -> list[str]:
 
 
 def _hard_cut(piece: str, budget: int) -> tuple[str, ...]:
-    """A single piece that alone exceeds the budget is cut at character bounds."""
-    limit = max(budget * _CHARS_PER_TOKEN, 1)
-    if len(piece) <= limit:
+    """A single piece that alone exceeds the budget is cut at character bounds.
+
+    The cut width comes from the piece's own token density (D26 v2): CJK text
+    runs ~1 token per character, so a flat chars-per-token width would leave
+    ideographic pieces 4x over budget."""
+    tokens = estimate_tokens(piece)
+    if tokens <= budget:
         return (piece,)
+    parts = math.ceil(tokens / budget)
+    limit = max(len(piece) // parts, 1)
     return tuple(piece[i : i + limit] for i in range(0, len(piece), limit))
 
 

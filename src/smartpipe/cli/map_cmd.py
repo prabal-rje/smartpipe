@@ -114,6 +114,12 @@ __all__ = ["map_command"]
     is_flag=True,
     help='Failed extractions become {"__invalid": true, "__error": …, "__raw": …} rows, not skips.',
 )
+@click.option(
+    "--whole",
+    "whole",
+    is_flag=True,
+    help="Never auto-chunk oversized items: process whole or skip with an error.",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @fields_option
@@ -134,6 +140,7 @@ def map_command(
     output: str,
     dry_run: bool,
     keep_invalid: bool,
+    whole: bool,
     concurrency_flag: int | None,
     max_calls: int | None,
     fields: tuple[str, ...] | None,
@@ -175,6 +182,7 @@ def map_command(
         output=OutputFormat(output),
         dry_run=dry_run,
         keep_invalid=keep_invalid,
+        whole=whole,
         concurrency_flag=concurrency_flag,
         input=input_spec(
             positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
