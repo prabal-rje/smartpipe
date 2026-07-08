@@ -48,7 +48,7 @@ export const ColdOpen: React.FC = () => {
           gap: 54,
         }}
       >
-        <Wordmark drawStart={T.drawStart} drawEnd={T.drawEnd} fontSize={52} />
+        <Wordmark drawStart={T.drawStart} drawEnd={T.drawEnd} fontSize={36} />
         <div
           style={{
             fontFamily: MONO,
