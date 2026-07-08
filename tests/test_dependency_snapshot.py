@@ -28,6 +28,7 @@ def test_core_dependency_tree_is_frozen() -> None:
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
+        env={**os.environ, "NO_COLOR": "1"},  # newer uv colorizes; ANSI is not a dependency
     ).stdout
     names = sorted(
         {
