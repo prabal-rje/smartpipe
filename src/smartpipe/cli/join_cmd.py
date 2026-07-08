@@ -69,6 +69,12 @@ __all__ = ["join_command"]
     help="Write left items with zero matches to FILE, verbatim (inner only).",
 )
 @click.option(
+    "--full",
+    "full",
+    is_flag=True,
+    help="Terminal preview: show whole values (no truncation).",
+)
+@click.option(
     "--bare",
     "bare",
     is_flag=True,
@@ -120,6 +126,7 @@ def join_command(
     model_flag: str | None,
     fallback_flag: str | None,
     bare: bool,
+    full: bool,
     embed_model_flag: str | None,
     output: str,
     concurrency_flag: int | None,
@@ -156,6 +163,7 @@ def join_command(
         model_flag=model_flag,
         fallback_flag=fallback_flag,
         bare=bare,
+        full=full,
         embed_model_flag=embed_model_flag,
         concurrency_flag=concurrency_flag,
         output=OutputFormat(output),

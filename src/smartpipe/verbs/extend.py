@@ -73,6 +73,7 @@ class ExtendRequest:
     dry_run: bool = False  # --dry-run: print the composed first request, spend nothing
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
     bare: bool = False  # --bare: strip __ metadata from record output (item 18)
+    full: bool = False  # --full: disable the TTY preview's truncation (item 19)
 
 
 async def run_extend(
@@ -103,6 +104,7 @@ async def run_extend(
         stdout=spinner.guard(stdout),
         fields=request.fields,
         bare=request.bare,
+        full=request.full,
     )
     concurrency = context.concurrency(request.concurrency_flag)
 

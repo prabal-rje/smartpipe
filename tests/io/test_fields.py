@@ -90,7 +90,7 @@ def test_missing_key_is_empty_cell_in_csv() -> None:
 def test_missing_key_is_empty_value_in_human() -> None:
     stream, writer = _writer(RenderMode.HUMAN, ("b", "missing"))
     writer.write_record(RECORD)
-    assert stream.getvalue() == "b: 2\nmissing: \n\n"
+    assert stream.getvalue() == "b: 2\nmissing:\n\n"  # a null renders as a bare key
 
 
 # --- unknown requested field: warned once, still emitted ------------------------

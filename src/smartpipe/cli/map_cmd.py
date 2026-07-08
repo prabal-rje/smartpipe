@@ -85,6 +85,12 @@ __all__ = ["map_command"]
     help="Video frame budget (default 24; the smaller of the two flags wins).",
 )
 @click.option(
+    "--full",
+    "full",
+    is_flag=True,
+    help="Terminal preview: show whole values (no truncation).",
+)
+@click.option(
     "--bare",
     "bare",
     is_flag=True,
@@ -124,6 +130,7 @@ def map_command(
     model_flag: str | None,
     fallback_flag: str | None,
     bare: bool,
+    full: bool,
     output: str,
     dry_run: bool,
     keep_invalid: bool,
@@ -163,6 +170,7 @@ def map_command(
         model_flag=model_flag,
         fallback_flag=fallback_flag,
         bare=bare,
+        full=full,
         output=OutputFormat(output),
         dry_run=dry_run,
         keep_invalid=keep_invalid,

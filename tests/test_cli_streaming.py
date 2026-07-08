@@ -105,6 +105,7 @@ async def test_map_emits_before_eof_in_process() -> None:
             stdout: TextSink,
             fields: tuple[str, ...] | None = None,
             bare: bool = False,
+            full: bool = False,
         ) -> ResultWriter:
             config = WriterConfig(mode=RenderMode.TEXT, color=False, width=80, fields=fields)
             return make_writer(config, stdout)

@@ -108,29 +108,57 @@ def test_human_writer_renders_key_value_lines_with_blank_separator() -> None:
     assert stream.getvalue() == "vendor: Acme\ntotal: 1250.0\n\n"
 
 
-def test_human_writer_renders_non_string_values_as_compact_json() -> None:
+def test_human_writer_renders_yaml_ish_blocks() -> None:
     stream, writer = _writer(RenderMode.HUMAN)
-    writer.write_record({"ok": True, "tags": ["a", "b"]})
-    assert stream.getvalue() == 'ok: true\ntags: ["a","b"]\n\n'
+    writer.write_record({"ok": True, "tags": ["a", "b"], "who": {"name": "Ada"}})
+    assert stream.getvalue() == ("ok: true\ntags:\n  - a\n  - b\nwho:\n  name: Ada\n\n")
 
 
-def test_human_writer_truncates_long_values_to_width() -> None:
-    stream, writer = _writer(RenderMode.HUMAN, width=20)
-    writer.write_record({"summary": "x" * 30})
+def test_human_writer_truncates_long_strings_with_a_count() -> None:
+    stream, writer = _writer(RenderMode.HUMAN)
+    writer.write_record({"summary": "x" * 450})
     line = stream.getvalue().splitlines()[0]
-    assert len(line) == 20
-    assert line == "summary: " + "x" * 10 + "…"
+    assert line == "summary: " + "x" * 400 + "… (+50 chars)"
 
 
-def test_human_writer_truncates_wide_chars_by_cells_never_overshooting() -> None:
-    # DEFER-2: a Wide (CJK) value at the boundary must not overshoot the terminal
-    from smartpipe.io.text import display_width
+def test_human_writer_full_disables_truncation() -> None:
+    stream = io.StringIO()
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.HUMAN, color=False, width=80, full=True), stream
+    )
+    writer.write_record({"summary": "x" * 450, "items": list(range(20))})
+    text = stream.getvalue()
+    assert "x" * 450 in text
+    assert "(+" not in text  # nothing hidden under --full
 
-    stream, writer = _writer(RenderMode.HUMAN, width=20)
-    writer.write_record({"summary": "名" * 30})
-    line = stream.getvalue().splitlines()[0]
-    assert display_width(line) <= 20
-    assert line.endswith("…")
+
+def test_human_writer_caps_long_lists_with_a_count() -> None:
+    stream, writer = _writer(RenderMode.HUMAN)
+    writer.write_record({"items": list(range(14))})
+    text = stream.getvalue()
+    assert "  - 9" in text and "  - 10" not in text
+    assert "… (+4 items)" in text
+
+
+def test_human_writer_spine_renders_at_the_bottom_and_media_never_dumps_base64() -> None:
+    stream, writer = _writer(RenderMode.HUMAN)
+    writer.write_record(
+        {
+            "__media": {"kind": "image", "mime": "image/png", "data_b64": "A" * 65536},
+            "result": "a chart",
+            "__source": {"path": "deck.pptx", "as": "file"},
+        }
+    )
+    lines = stream.getvalue().splitlines()
+    assert lines[0] == "result: a chart"  # payload first, spine at the bottom
+    assert any(line.startswith("__media: image/png (48 KB)") for line in lines)
+    assert "A" * 100 not in stream.getvalue()  # never the base64
+
+
+def test_human_writer_multiline_strings_render_as_block_scalars() -> None:
+    stream, writer = _writer(RenderMode.HUMAN)
+    writer.write_record({"body": "first\nsecond"})
+    assert stream.getvalue() == "body: |\n  first\n  second\n\n"
 
 
 def test_human_writer_dims_keys_when_color_on() -> None:

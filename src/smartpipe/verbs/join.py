@@ -84,6 +84,7 @@ class JoinRequest:
     kind: str = "inner"  # inner | leftouter | anti (D38/11)
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
     bare: bool = False  # --bare: strip __ metadata from record output (item 18)
+    full: bool = False  # --full: disable the TTY preview's truncation (item 19)
 
 
 class JoinContext(Protocol):
@@ -104,6 +105,7 @@ class JoinContext(Protocol):
         stdout: TextSink,
         fields: tuple[str, ...] | None = None,
         bare: bool = False,
+        full: bool = False,
     ) -> ResultWriter: ...
 
 
@@ -174,6 +176,7 @@ async def run_join(
         stdout=spinner.guard(stdout),
         fields=request.fields,
         bare=request.bare,
+        full=request.full,
     )
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     preview_cost(total, request.k, len(index))

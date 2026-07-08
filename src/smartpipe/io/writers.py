@@ -76,6 +76,7 @@ class WriterConfig:
     width: int
     fields: tuple[str, ...] | None = None  # honored from stage 9
     bare: bool = False  # --bare: strip __ metadata from record output (item 18)
+    full: bool = False  # --full: disable the TTY preview's truncation (item 19)
 
 
 class ResultWriter(Protocol):
@@ -145,7 +146,12 @@ def make_writer(config: WriterConfig, stdout: TextSink) -> ResultWriter:
             return _NdjsonWriter(stream=stdout, fields=config.fields, bare=config.bare)
         case RenderMode.HUMAN:
             return _HumanWriter(
-                stream=stdout, color=config.color, width=config.width, fields=config.fields
+                stream=stdout,
+                color=config.color,
+                width=config.width,
+                fields=config.fields,
+                bare=config.bare,
+                full=config.full,
             )
         case RenderMode.CSV:
             return _TableWriter(stream=stdout, delimiter=",", fields=config.fields)
@@ -331,16 +337,19 @@ def _scalar(value: object) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _HumanWriter:
-    """Structured results as aligned key/value blocks — TTY reading, never parsing.
-
-    Truncation to the terminal width happens here and only here: piped output
-    (the other writers) is never truncated (spec §5.1).
+    """Structured results as YAML-ish blocks (item 19) — TTY reading, never
+    parsing: nested maps indent, lists render as ``- ``, multi-line strings as
+    block scalars, the ``__`` spine dimmed at the bottom. Truncation (strings
+    past ~400 chars, lists past ~10 items) happens here and only here — piped
+    output (the other writers) is never truncated; ``--full`` disables it.
     """
 
     stream: TextSink
     color: bool
     width: int
     fields: tuple[str, ...] | None = None
+    bare: bool = False
+    full: bool = False
     warned: set[str] = field(default_factory=set[str])
 
     def write_text(self, line: str) -> None:
@@ -351,20 +360,12 @@ class _HumanWriter:
         if _is_invalid_row(record):
             self._write_invalid(record)
             return
+        record = _strip_meta(record, bare=self.bare)
         if self.fields is not None:
             record = _project(record, self.fields, self.warned)
-        for key, value in record.items():
-            # null shows as nothing — for humans an absent value reads best as blank
-            rendered = (
-                "" if value is None else value if isinstance(value, str) else _compact_json(value)
-            )
-            # budget in terminal cells, not code points (DEFER-2) — a Wide char is 2
-            available = self.width - display_width(key) - 2
-            if available >= 2 and display_width(rendered) > available:
-                rendered = clip_to_width(rendered, available - 1) + _ELLIPSIS
-            label = f"{_DIM}{key}:{_RESET}" if self.color else f"{key}:"
-            self.stream.write(f"{label} {rendered}\n")
-        self.stream.write("\n")
+        from smartpipe.io.render import render_block
+
+        self.stream.write(render_block(record, color=self.color, full=self.full) + "\n\n")
         self.stream.flush()
 
     def _write_invalid(self, record: Mapping[str, object]) -> None:

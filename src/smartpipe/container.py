@@ -203,6 +203,7 @@ class AppContainer:
         stdout: TextSink,
         fields: tuple[str, ...] | None = None,
         bare: bool = False,
+        full: bool = False,
     ) -> ResultWriter:
         mode = resolve_format(
             output_flag,
@@ -217,6 +218,7 @@ class AppContainer:
             width=tty.terminal_width(),
             fields=fields,
             bare=bare,
+            full=full,
         )
         return make_writer(config, stdout)
 
