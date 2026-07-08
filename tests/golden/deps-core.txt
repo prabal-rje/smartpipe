@@ -11,8 +11,10 @@ click
 cobble
 colorama
 coloredlogs
+contourpy
 cryptography
 ctranslate2
+cycler
 defusedxml
 distro
 docstring-parser
@@ -21,6 +23,7 @@ fastembed
 faster-whisper
 filelock
 flatbuffers
+fonttools
 fsspec
 h11
 hf-xet
@@ -33,12 +36,14 @@ imageio-ffmpeg
 jiter
 jsonschema
 jsonschema-specifications
+kiwisolver
 loguru
 lxml
 magika
 mammoth
 markdownify
 markitdown
+matplotlib
 mmh3
 mpmath
 numpy
@@ -49,11 +54,13 @@ pandas
 pdfminer-six
 pdfplumber
 pillow
+plotext
 protobuf
 py-rust-stemmers
 pycparser
 pydantic
 pydantic-core
+pyparsing
 pypdf
 pypdfium2
 pyreadline3
@@ -68,7 +75,6 @@ setuptools
 six
 sniffio
 soupsieve
-svgwrite
 sympy
 tokenizers
 tomli-w

@@ -21,6 +21,7 @@ __all__ = [
     "stderr_is_tty",
     "stderr_supports_color",
     "stdout_is_tty",
+    "stdout_supports_color",
     "supports_color",
     "terminal_width",
 ]

@@ -27,13 +27,13 @@ __all__ = ["doctor_command"]
 
 _KEY_VARS = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "MISTRAL_API_KEY")
 # D46: nothing is optional — these ship in core; a missing one = broken install
-_BUNDLED = (
-    ("documents", "markitdown"),
-    ("whisper", "faster_whisper"),
-    ("embeddings", "fastembed"),
-    ("anthropic", "anthropic"),
-    ("charts", "svgwrite"),
-    ("ffmpeg", "imageio_ffmpeg"),
+_BUNDLED: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("documents", ("markitdown",)),
+    ("whisper", ("faster_whisper",)),
+    ("embeddings", ("fastembed",)),
+    ("anthropic", ("anthropic",)),
+    ("charts", ("plotext", "matplotlib")),  # terminal + --save renderers
+    ("ffmpeg", ("imageio_ffmpeg",)),
 )
 
 # absent-by-necessity on 3.14 until onnxruntime/av publish wheels (D46)
@@ -178,7 +178,9 @@ def _check_extras() -> CheckResult:
     import sys
     from importlib.util import find_spec
 
-    installed = {name: find_spec(module) is not None for name, module in _BUNDLED}
+    installed = {
+        name: all(find_spec(module) is not None for module in modules) for name, modules in _BUNDLED
+    }
     if all(installed.values()):
         return CheckResult("extras", "ok", "everything ships in the box: " + " · ".join(installed))
     marks = " · ".join(f"{name} {'✓' if present else '✗'}" for name, present in installed.items())
