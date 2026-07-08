@@ -38,7 +38,9 @@ __all__ = [
     "IMAGE_ITEM_PREFIX",
     "JOIN_JUDGE_SYSTEM",
     "JUDGE_SCHEMA",
+    "MAP_COMBINE_SYSTEM",
     "MAP_JSON_SYSTEM",
+    "MAP_MERGE_SYSTEM",
     "MAP_PLAIN_SYSTEM",
     "REDUCE_FINAL_JSON_SYSTEM",
     "REDUCE_FINAL_SYSTEM",
@@ -51,9 +53,11 @@ __all__ = [
     "brace_fields",
     "brace_notes",
     "brace_props",
+    "build_combine_request",
     "build_filter_request",
     "build_judge_request",
     "build_map_request",
+    "build_merge_request",
     "build_reduce_final",
     "build_reduce_intermediate",
     "build_repair_request",
@@ -108,6 +112,21 @@ REDUCE_INTERMEDIATE_SYSTEM = (
     "or a final answer — only notes that a later step will combine with others."
 )
 _REDUCE_MAX_TOKENS = 8192
+
+# D26 v2: the auto-chunk synthesis prompts. A chunked item's partial answers
+# are combined (plain) or merged (structured) so the result reads as if the
+# whole item had been processed at once.
+MAP_COMBINE_SYSTEM = (
+    "You are combining partial answers produced from consecutive chunks of ONE "
+    "larger item. Apply the user's instruction across them so the result reads "
+    "as if it came from the whole item at once. Reply with ONLY the combined "
+    "result — no preamble, no commentary."
+)
+MAP_MERGE_SYSTEM = (
+    "You merge partial JSON extractions produced from consecutive chunks of ONE "
+    "larger item. Merge these partial extractions into one record matching the "
+    "schema. Reply with ONLY the JSON object — no preamble, no code fences."
+)
 
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _SIDED_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?\Z")
@@ -489,6 +508,33 @@ def build_reduce_intermediate(goal: str, texts: Sequence[str]) -> CompletionRequ
         user=f"Goal: {goal}\n\nItems:\n{_numbered(texts)}",
         json_schema=None,
         max_tokens=_REDUCE_MAX_TOKENS,
+    )
+
+
+def build_combine_request(instruction: str, partials: Sequence[str]) -> CompletionRequest:
+    """The plain-mode synthesis call (D26 v2): same instruction, reduce-style
+    numbered partials, one combined answer."""
+    return CompletionRequest(
+        system=MAP_COMBINE_SYSTEM,
+        user=f"{instruction}\n\nPartial answers, in order:\n{_numbered(partials)}",
+        json_schema=None,
+        max_tokens=_PLAIN_MAX_TOKENS,
+    )
+
+
+def build_merge_request(
+    instruction: str,
+    partials: Sequence[Mapping[str, object]],
+    schema: Mapping[str, object],
+) -> CompletionRequest:
+    """The structured-mode merge call (D26 v2): one record out of the per-chunk
+    extractions, against the SAME schema."""
+    rendered = [json.dumps(dict(partial), ensure_ascii=False) for partial in partials]
+    return CompletionRequest(
+        system=MAP_MERGE_SYSTEM,
+        user=f"{instruction}\n\nPartial extractions, in order:\n{_numbered(rendered)}",
+        json_schema=schema,
+        max_tokens=_STRUCTURED_MAX_TOKENS,
     )
 
 

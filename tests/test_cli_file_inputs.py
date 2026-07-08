@@ -106,8 +106,18 @@ def test_map_describes_an_image_via_vision(
     run_cli: RunCli, respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
     import base64
+    import struct
 
-    (tmp_path / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\nPIXELS")
+    # a REAL 64x64 header: the media-aware gate (D26 v2) reads dimensions, and
+    # an unparseable header is assumed large (which would trip the gate here)
+    photo_bytes = (
+        b"\x89PNG\r\n\x1a\n"
+        + struct.pack(">I", 13)
+        + b"IHDR"
+        + struct.pack(">II", 64, 64)
+        + b"\x08\x06\x00\x00\x00PIXELS"
+    )
+    (tmp_path / "photo.png").write_bytes(photo_bytes)
     route = respx_mock.post(CHAT).mock(
         return_value=httpx.Response(200, json={"message": {"content": "a red bicycle"}})
     )
@@ -125,7 +135,7 @@ def test_map_describes_an_image_via_vision(
     images = as_items(user.get("images")) if user is not None else None
     first = as_str(images[0]) if images else None
     assert first is not None
-    assert base64.b64decode(first) == b"\x89PNG\r\n\x1a\nPIXELS"
+    assert base64.b64decode(first) == photo_bytes
     system_message = as_record(messages[0])
     system = as_str(system_message.get("content")) if system_message is not None else None
     assert system is not None and system.startswith("The item is an image. ")  # pinned prefix

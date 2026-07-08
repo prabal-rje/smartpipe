@@ -67,6 +67,7 @@ tail -f app.log \
 | `--not` | Keep items that do NOT match (like `grep -v`) |
 | `--model TEXT` | Model for this run |
 | `--concurrency N` | Max parallel model calls (default 4) |
+| `--whole` | Never chunk-judge oversized items: judge whole or skip with an error |
 
 ## Gotchas
 
@@ -91,4 +92,14 @@ tail -f app.log \
 
 An oversized item is judged in chunks: if **any** chunk matches, the whole item
 is kept (byte-verbatim, as always); `--not` inverts at the end. You pay one
-judge call per chunk until the first match.
+judge call per chunk until the first match, the plan is disclosed before the
+first call, and a follow-up note names the chunk that matched:
+
+```
+note: report.pdf ~48,200 tokens over budget - 7 chunks, any-true judge
+note: report.pdf: matched in chunk 3/7
+```
+
+`--whole` opts out: the item is judged whole or skipped with an error naming
+the split recipe. The per-verb matrix lives in
+[when it doesn't fit](../concepts/feeding-smartpipe.md#when-it-doesnt-fit).

@@ -60,3 +60,40 @@ Every item carries its provenance in the `__source` spine field (path, cut
 kind, position); media travel under `__media`. Both round-trip through any
 number of pipe stages, which is what lets `write` reassemble chunks in order
 at the far end.
+
+## When it doesn't fit
+
+No item is silently truncated, and none is refused just for being big -
+an item past the model's window is HANDLED, loudly, per verb:
+
+| Verb | An item past the model's window |
+|---|---|
+| `map` / `extend` | auto-chunks: the same prompt runs per chunk, then ONE synthesis call combines the partial answers (with braces or `--schema`, one merge call folds the partial extractions into one record) |
+| `filter` | judged chunk by chunk - ANY matching chunk keeps the whole item, byte-verbatim; stops at the first match |
+| `join` | an oversized side is chunk-embedded for blocking; the judge reads its chunks best-first with the same any-match rule |
+| `reduce` | never blows: the recursive tree chunks, condenses, and recurses by design |
+| the embedding verbs (`embed`, `top-k`, `distinct`, `cluster`, `outliers`, `sort`, `diff`) | chunk-embedded and mean-pooled into one vector - never blows |
+
+Disclosure comes BEFORE spend - one note per oversized row names the plan:
+
+```
+note: report.pdf ~48,200 tokens over budget - 7 chunks + 1 combine call
+```
+
+and every chunk call is metered in the receipt and counted by `--max-calls`.
+
+Two refinements keep the arithmetic honest:
+
+- **The estimate is media-aware.** Images (priced from their real header
+  dimensions), audio and video (priced per second) spend context too, and
+  CJK text counts roughly one token per character instead of one per four.
+- **The wire gets the last word.** If a provider still rejects a
+  machine-cut chunk with a context-length error, that chunk re-splits in
+  half and retries (bounded depth, disclosed:
+  `chunk re-split: provider rejected the estimate`). Items YOU cut
+  (`as: file|lines|jsonl`) are never re-cut - a rejection there stays a
+  per-item error.
+
+Reproducibility purists can opt out: `--whole` on `map`/`extend`/`filter`/
+`join` restores the refusal - process whole or skip with an error naming the
+`split` recipe.

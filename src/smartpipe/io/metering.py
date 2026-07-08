@@ -22,6 +22,7 @@ __all__ = [
     "add_conversion",
     "add_request_media",
     "add_tokens",
+    "clip_seconds",
     "count",
     "duration",
     "megabytes",
@@ -92,6 +93,48 @@ def _wav_seconds(data: bytes, mime: str) -> float | None:
             return clip.getnframes() / rate if rate else None
     except (wave.Error, EOFError, OSError, ValueError, RuntimeError):
         return None  # malformed RIFF — bytes-only is honest enough
+
+
+def clip_seconds(data: bytes, mime: str) -> float | None:
+    """Duration of one audio/video clip — the probe behind media-aware token
+    estimation (D26 v2). WAV headers parse pure; every other container asks
+    ffmpeg when it's around; ``None`` means unknowable (callers fall back to a
+    conservative per-MB rate)."""
+    seconds = _wav_seconds(data, mime)
+    if seconds is not None:
+        return seconds
+    exe = _ffmpeg_exe()
+    if exe is None:
+        return None
+    return _banner_seconds(exe, data)
+
+
+def _ffmpeg_exe() -> str | None:
+    from smartpipe.core.errors import ItemError
+    from smartpipe.parsing.extract import ffmpeg_exe
+
+    try:
+        return ffmpeg_exe()
+    except ItemError:
+        return None  # no ffmpeg anywhere — the per-MB fallback stands in
+
+
+def _banner_seconds(exe: str, data: bytes) -> float | None:
+    import os
+    import tempfile
+
+    from smartpipe.core.errors import ItemError
+    from smartpipe.parsing.extract import ffprobe_duration
+
+    handle, path = tempfile.mkstemp(prefix="smartpipe-clip-")
+    try:
+        with os.fdopen(handle, "wb") as sink:
+            sink.write(data)
+        return ffprobe_duration(exe, path)
+    except (ItemError, OSError):
+        return None  # ffmpeg couldn't read it — honest unknowable
+    finally:
+        os.unlink(path)
 
 
 @dataclass(frozen=True, slots=True)

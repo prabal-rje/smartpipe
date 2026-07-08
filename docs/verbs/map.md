@@ -72,6 +72,7 @@ tail -f app.log \
 | `--output FORMAT` | `auto` (default) · `text` · `json`. `auto` = human-readable at a terminal, JSONL when piped |
 | `--concurrency N` | Max parallel model calls (default 4) |
 | `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md)) |
+| `--whole` | Never auto-chunk oversized items: process whole or skip with an error |
 | `--verbose` / `--debug` | More detail on stderr / full tracebacks |
 
 ## Lists into rows: `--explode`
@@ -91,16 +92,33 @@ Composes with `--tally` (counted per exploded row) and `--fields`.
 
 ## Items bigger than the window
 
-`map` refuses an item the model can't hold, before spending anything:
+`map` handles an item the model can't hold - loudly, never silently. The
+plan is disclosed before the first call:
+
+```
+note: report.pdf ~48,200 tokens over budget - 7 chunks + 1 combine call
+```
+
+The same prompt runs on each chunk, then one synthesis call combines the
+partial answers into the single result you asked for; with braces or
+`--schema`, the partial extractions merge into one record against the same
+schema (`+ 1 merge call`). Every chunk call shows in the receipt and counts
+against `--max-calls`. The estimate is media-aware (images priced from their
+header dimensions, audio/video per second), and a chunk the provider still
+rejects re-splits in half and retries, disclosed
+(`chunk re-split: provider rejected the estimate`).
+
+Prefer call-for-call reproducibility over handling? `--whole` restores the
+refusal - the item is processed whole or skipped with the split recipe:
 
 ```
 ⚠ skipped: report.pdf (~87,886 tokens is past gpt-5.4-mini's ~76,300-token budget -
   split it first: smartpipe split FILE | smartpipe map "..." | smartpipe reduce "...")
 ```
 
-Silently chunking would change what you asked, so the recipe is explicit:
-[split](split.md) makes the chunks visible, `map` transforms each, `reduce`
-recombines.
+With `--whole`, [split](split.md) makes the chunks visible, `map` transforms
+each, `reduce` recombines. The per-verb matrix lives in
+[when it doesn't fit](../concepts/feeding-smartpipe.md#when-it-doesnt-fit).
 
 ## Audio and images
 

@@ -20,6 +20,7 @@ from smartpipe.engine.chunking import (
     fits_in_one,
     halve,
     is_context_overflow,
+    split_text,
 )
 from smartpipe.engine.prompts import (
     build_reduce_final,
@@ -44,6 +45,7 @@ from smartpipe.verbs.common import (
     resolve_schema,
 )
 from smartpipe.verbs.convert import make_converter
+from smartpipe.verbs.oversize import MAX_BISECT_DEPTH
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -337,6 +339,7 @@ class Reducer:
         current = list(texts)
         semaphore = asyncio.Semaphore(self.concurrency)
         await self._widen_if_possible(current)
+        single_collapses = 0  # bounded: a lone text may re-split only so often
         while True:
             while not fits_in_one([estimate_tokens(t) for t in current], self.budget):
                 chunks = chunk_indices([estimate_tokens(t) for t in current], self.budget)
@@ -351,12 +354,18 @@ class Reducer:
                         diagnostics.note(_trace_line(trace))
                 return await self._final(instruction, schema, current)
             except ItemError as exc:
-                if not (is_context_overflow(str(exc)) and len(current) > 1):
+                if not is_context_overflow(str(exc)):
                     raise
+                if len(current) == 1:
+                    single_collapses += 1
+                    if single_collapses > MAX_BISECT_DEPTH:
+                        raise  # the lone text keeps overflowing — stop paying
                 # the synthesis call itself overflowed: collapse one more level
+                # (a lone text goes through the level's single-chunk path, which
+                # bisects its TEXT — item 3 — instead of giving up)
                 self._note_bisection()
-                first, second = halve(tuple(range(len(current))))
-                current = await self._reduce_level(instruction, current, (first, second), semaphore)
+                groups = halve(tuple(range(len(current)))) if len(current) > 1 else ((0,),)
+                current = await self._reduce_level(instruction, current, groups, semaphore)
                 if not current:
                     raise ItemError("every chunk failed to reduce") from exc
 
@@ -367,6 +376,25 @@ class Reducer:
         chunks: tuple[tuple[int, ...], ...],
         semaphore: asyncio.Semaphore,
     ) -> list[str]:
+        async def reduce_split(text: str, depth: int) -> list[str]:
+            """Item 3: ONE item's text still overflowed the wire — bisect the
+            TEXT and note each half, bounded depth (the halves' notes fold into
+            the tree like any others)."""
+            halves = split_text(text, max(estimate_tokens(text) // 2, 1))
+            if len(halves) < 2:
+                raise ItemError("a chunk kept overflowing and could not shrink further")
+            notes: list[str] = []
+            for half in halves:
+                request = build_reduce_intermediate(goal, [half])
+                try:
+                    async with semaphore:
+                        notes.append(await self.model.complete(request))
+                except ItemError as exc:
+                    if depth <= 1 or not is_context_overflow(str(exc)):
+                        raise
+                    notes.extend(await reduce_split(half, depth - 1))
+            return notes
+
         async def reduce_chunk(chunk: tuple[int, ...]) -> list[str]:
             request = build_reduce_intermediate(goal, [texts[i] for i in chunk])
             try:
@@ -379,6 +407,12 @@ class Reducer:
                     self._note_bisection()
                     first, second = halve(chunk)
                     return [*await reduce_chunk(first), *await reduce_chunk(second)]
+                if is_context_overflow(str(exc)) and len(chunk) == 1:
+                    self._note_bisection()
+                    try:
+                        return await reduce_split(texts[chunk[0]], MAX_BISECT_DEPTH)
+                    except ItemError as still:
+                        exc = still  # fall through to the ordinary skip
                 assert chunk, "chunk_indices never yields an empty chunk"
                 diagnostics.warn(
                     f"skipped: chunk over items {chunk[0] + 1}-{chunk[-1] + 1} ({exc})"

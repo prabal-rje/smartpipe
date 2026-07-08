@@ -106,6 +106,12 @@ __all__ = ["extend_command"]
     is_flag=True,
     help='Failed extractions become {"__invalid": true, "__error": …, "__raw": …} rows, not skips.',
 )
+@click.option(
+    "--whole",
+    "whole",
+    is_flag=True,
+    help="Never auto-chunk oversized items: process whole or skip with an error.",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
 @fields_option
@@ -126,6 +132,7 @@ def extend_command(
     output: str,
     dry_run: bool,
     keep_invalid: bool,
+    whole: bool,
     concurrency_flag: int | None,
     max_calls: int | None,
     fields: tuple[str, ...] | None,
@@ -163,6 +170,7 @@ def extend_command(
         output=OutputFormat(output),
         dry_run=dry_run,
         keep_invalid=keep_invalid,
+        whole=whole,
         concurrency_flag=concurrency_flag,
         fields=fields,
         input=input_spec(

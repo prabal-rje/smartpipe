@@ -332,12 +332,30 @@ async def test_bisection_recovers_when_the_estimate_lies(
     assert err.count("splitting further and retrying") == 1  # the pinned once-note
 
 
-async def test_single_item_overflow_surfaces_the_wire_error() -> None:
-    # one item that alone exceeds the true window can't be bisected at item
-    # boundaries — the wire's own message surfaces loudly (D26: split is the fix)
+async def test_single_item_overflow_bisects_its_text(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # item 3: ONE item the wire rejects no longer skips — its TEXT halves until
+    # the calls fit, and the halves' notes fold like any others
     from smartpipe.verbs.reduce import Reducer
 
-    model = OverflowingChat(window_chars=100)
+    model = OverflowingChat(window_chars=900)
     reducer = Reducer(model=model, budget=10_000, concurrency=1, verbose=False)
-    with pytest.raises(ItemError, match="maximum context length"):
+    result = await reducer.reduce("summarize", None, ["x" * 3_000])
+    assert result == "note"
+    assert reducer.skipped == 0  # nothing lost — text bisection, not skipping
+    assert max(model.calls[-2:]) <= 900  # the closing calls fit the true window
+    err = capsys.readouterr().err
+    assert err.count("splitting further and retrying") == 1  # the pinned once-note
+
+
+async def test_single_item_that_can_never_fit_fails_loudly_after_bounded_retries() -> None:
+    # a wire that rejects EVERYTHING: bounded bisection, then the honest death —
+    # never an unbounded spend
+    from smartpipe.verbs.reduce import Reducer
+
+    model = OverflowingChat(window_chars=10)
+    reducer = Reducer(model=model, budget=10_000, concurrency=1, verbose=False)
+    with pytest.raises(ItemError, match="every chunk failed to reduce"):
         await reducer.reduce("summarize", None, ["y" * 5_000])
+    assert len(model.calls) <= 20  # depth-bounded, not exponential runaway

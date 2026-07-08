@@ -14,6 +14,7 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.engine.chunking import is_context_overflow
 from smartpipe.engine.prompts import parse_prompt, plan_map, to_instruction
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import load_schema
@@ -31,6 +32,7 @@ from smartpipe.verbs.common import (
     resolve_schema,
 )
 from smartpipe.verbs.map import MapContext, map_one, print_dry_run
+from smartpipe.verbs.oversize import machine_cut, transform_oversized, transform_resplit
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -74,6 +76,7 @@ class ExtendRequest:
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
     bare: bool = False  # --bare: strip __ metadata from record output (item 18)
     full: bool = False  # --full: disable the TTY preview's truncation (item 19)
+    whole: bool = False  # --whole: refuse oversized items instead of auto-chunking (D26 v2)
 
 
 async def run_extend(
@@ -126,19 +129,43 @@ async def run_extend(
 
     async def worker(item: Item) -> tuple[Item, Mapping[str, object]]:
         current = slot.current  # captured per item: the failover swaps wholesale
-        budget = await gate.budget_for_oversized(item.text)
-        if budget is not None:
-            raise ItemError(gate.refusal(item.text, budget))  # D26: no silent chunking
-        result = await map_one(
-            current,
-            plan,
-            instruction,
-            item,
-            log,
-            frame_every=request.frame_every,
-            max_frames=request.max_frames,
-            keep_invalid=request.keep_invalid,
-        )
+        over = await gate.budget_for_oversized(item.text, item.media)
+        if over is not None and request.whole:
+            # --whole: the old D26 refusal — reproducibility beats handling
+            raise ItemError(gate.refusal(over))
+        if over is not None:
+            # D26 v2: extract per chunk, then ONE merge call against the same schema
+            result = await transform_oversized(
+                current, plan, instruction, item, over, keep_invalid=request.keep_invalid
+            )
+        else:
+            try:
+                result = await map_one(
+                    current,
+                    plan,
+                    instruction,
+                    item,
+                    log,
+                    frame_every=request.frame_every,
+                    max_frames=request.max_frames,
+                    keep_invalid=request.keep_invalid,
+                )
+            except ItemError as exc:
+                if (
+                    request.whole
+                    or not is_context_overflow(str(exc))
+                    or not machine_cut(item.source)
+                ):
+                    raise
+                # item 3: the wire rejected the estimate on a MACHINE-cut item
+                result = await transform_resplit(
+                    current,
+                    plan,
+                    instruction,
+                    item,
+                    keep_invalid=request.keep_invalid,
+                    cause=exc,
+                )
         assert isinstance(result, Mapping)  # structured mode: validated against the schema
         slot.tally(str(current.ref))
         return item, result

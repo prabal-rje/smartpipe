@@ -25,13 +25,14 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from smartpipe.io.items import Item
-    from smartpipe.models.base import ChatModel, EmbeddingModel
+    from smartpipe.models.base import ChatModel, EmbeddingModel, MediaData
 
 __all__ = [
     "AUDIO_NEEDS_TEXT",
     "EMBED_BATCH_SIZE",
     "IMAGE_NEEDS_MAP",
     "ModelSlot",
+    "Oversize",
     "WindowGate",
     "batched",
     "breaker_policy",
@@ -288,13 +289,26 @@ def embed_budget(provider: str) -> int:
     return _GEMINI_EMBED_BUDGET_TOKENS if provider == "gemini" else EMBED_BUDGET_TOKENS
 
 
+@dataclass(frozen=True, slots=True)
+class Oversize:
+    """One item past the window: its combined text+media estimate, the
+    best-known per-call budget the auto-chunk strategies must fit, and the
+    media share of the estimate (media can't be text-chunked — it rides the
+    first chunk, and its cost shrinks the text budget)."""
+
+    estimate: int
+    budget: int
+    media_tokens: int = 0
+
+
 @dataclass
 class WindowGate:
     """Per-run, probe-aware oversize gate for chat calls (D26).
 
     Fast path: an item within the static table budget never triggers anything.
     The first item that exceeds it asks the provider for the real window once
-    (four wires publish it); the answer can only widen the budget.
+    (four wires publish it); the answer can only widen the budget. The estimate
+    counts text AND media (D26 v2) — images/audio/video spend context too.
     """
 
     provider: str
@@ -304,13 +318,22 @@ class WindowGate:
     _budget: int | None = None
     _probed: bool = False
 
-    async def budget_for_oversized(self, text: str) -> int | None:
-        """None when the text fits (no probe, no cost); else the best-known budget."""
-        from smartpipe.engine.chunking import budget_for, estimate_tokens
+    async def budget_for_oversized(
+        self, text: str, media: Sequence[MediaData] = ()
+    ) -> Oversize | None:
+        """None when the item fits (no probe, no cost); else the estimate and
+        the best-known budget."""
+        from smartpipe.engine.chunking import budget_for, estimate_tokens, media_tokens
 
         if self._budget is None:
             self._budget = budget_for(self.provider, prompt_overhead=self.overhead)
-        if estimate_tokens(text) <= self._budget:
+        media_estimate = 0
+        if media:
+            from smartpipe.io import metering
+
+            media_estimate = media_tokens(media, self.provider, seconds_of=metering.clip_seconds)
+        estimate = estimate_tokens(text) + media_estimate
+        if estimate <= self._budget:
             return None
         if not self._probed:
             self._probed = True
@@ -318,16 +341,14 @@ class WindowGate:
             if probed is not None:
                 widened = budget_for(self.provider, prompt_overhead=self.overhead, window=probed)
                 self._budget = max(self._budget, widened)
-        return None if estimate_tokens(text) <= self._budget else self._budget
+        if estimate <= self._budget:
+            return None
+        return Oversize(estimate, self._budget, media_estimate)
 
-    def refusal(self, text: str, budget: int) -> str:
-        from smartpipe.engine.chunking import estimate_tokens
+    def refusal(self, over: Oversize) -> str:
+        from smartpipe.verbs.oversize import refusal
 
-        return (
-            f"~{estimate_tokens(text):,} tokens is past {self.model_name}'s "
-            f"~{budget:,}-token budget — split it first: "
-            'smartpipe split FILE | smartpipe map "..." | smartpipe reduce "..."'
-        )
+        return refusal(over.estimate, self.model_name, over.budget)
 
 
 def resolve_schema(
