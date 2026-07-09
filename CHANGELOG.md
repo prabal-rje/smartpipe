@@ -97,6 +97,18 @@ The identity release.
   model calls. Verb tables mark the free rungs.
 
 ### The terminal behaves
+- **A real progress bar.** When the total is knowable (file lists), the
+  status line becomes `[██████░░░░░░░░░] 41% · 205/500 · 12/s · ~25s
+  left` - fill and percent truncate so 100% is earned, the ETA appears
+  once the first item completes, ASCII terminals get `[=====>....]`,
+  and multi-stage runs prefix the stage name. Streams keep the
+  count-and-rate line: a `tail -f` has no percent.
+- **Braces extract lists of objects.** `{events {name string, when
+  date, severity enum(low, high)}[]}` pulls every event out of an item
+  in one call, typed and validated - inner dates still canonicalize to
+  ISO, `--explode events` turns the list into one row each. One level
+  deep by design; deeper nesting faults free at parse time with the
+  two-pass hint.
 - Result writes pause/erase/redraw the status line under an arbiter - the
   spinner can never interleave with output again. Only the final pipe stage
   (stdout a TTY) animates; mid-pipe stages stay line-atomic.
