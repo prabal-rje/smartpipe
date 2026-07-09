@@ -241,6 +241,14 @@ The identity release.
   `SMARTPIPE_VERSION` pins a version; it ends with a loud
   `smartpipe --version` verify. brew/uv/pipx/pip remain as explicit
   alternatives.
+- **The installers survive the real world.** Rerunning the one-liner
+  upgrades in place instead of erroring (brew-, uv-, and
+  otherwise-managed installs each get the right move); the uv bootstrap
+  falls back to `wget` when `curl` is missing; Alpine/musl systems get
+  a wheels warning before anything installs; Rosetta-translated macOS
+  shells get an arch hint; GitHub Actions runners get `~/.local/bin`
+  appended to `GITHUB_PATH`. Footguns adopted from studying opencode's
+  installer. `install.sh` stays readable POSIX sh at 96 lines.
 - **`smartpipe update`.** Detects how smartpipe was installed (homebrew,
   uv tool, pipx, or pip - fingerprinted from the executable path), shows
   the exact upgrade command, asks consent (`--yes` skips), runs it, and
