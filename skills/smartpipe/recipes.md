@@ -18,6 +18,8 @@ smartpipe map "Translate to French" docs/*.txt --as lines \
 # video/audio library search: embed once (flat file); each later query costs one query embedding
 smartpipe embed 'sessions/**/*.mp4' > lib.embeddings
 smartpipe top_k 3 --near "user hits the checkout bug" < lib.embeddings
+# --threshold 0.8 keeps everything ABOVE a similarity bar instead of a fixed K (combine: "3 --threshold 0.8" = at most 3, all >= 0.8)
+# each row: {"text":"...","_score":0.8756,"__embedder":"...","__source":{...}} - rank by _score
 # each result row gains "_score" (0-1, higher = closer)
 
 # dataset cleaning ritual: free dedupe → judge → gate (belted + tallied)

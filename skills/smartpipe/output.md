@@ -29,6 +29,7 @@ Parent: [SKILL.md](../../SKILL.md) · Sibling: [ingestion](ingestion.md)
     ```
     {"vendor":"Acme Corp","total":1234.56,"__source":{"path":"inv.txt","as":"file"}}
     ```
+- `--fields a,b` selects and ORDERS the output columns of structured results (`map`/`extend`/`embed`/`top_k`/`reduce`; never `filter`). Unlisted fields - including `__source` - are dropped: `smartpipe extend "Add {label enum(spam, ok)}" --fields id,label --max-calls 20 < posts.jsonl` emits exactly `{"id":7,"label":"spam"}` per row.
 - `--output json|csv|tsv` (on `map`/`extend`/`join` only) forces a format. Verbs that emit input verbatim (`filter`, `where`, `distinct`, `sample`, `sort`) have no `--output` - their output IS the input rows, unchanged.
 - Multi-line plain text into a pipe is ambiguous (framing) - a warning says so; use `--output json` for one-line-per-item guarantees.
 

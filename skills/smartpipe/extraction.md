@@ -31,6 +31,15 @@ printf '{"id": 812, "body": "app crashes when saving"}\n' | smartpipe extend "Ad
 | bare field | `{vendor, total}` - model picks a sensible scalar type |
 
 - enum needs a real "unknown" VALUE, never null: `enum(paid, unpaid, unknown)`.
+- A list field can become one row per element with `--explode FIELD` (other fields repeat):
+
+```console
+printf '{"id": 7, "body": "slow login and broken search"}\n' | smartpipe extend "Add {tags string[]}" --explode tags --max-calls 3
+```
+```
+{"id":7,"body":"slow login and broken search","tags":"performance","__source":{"path":"-","as":"jsonl","line":1}}
+{"id":7,"body":"slow login and broken search","tags":"login","__source":{"path":"-","as":"jsonl","line":1}}
+```
 - `date` always returns `YYYY-MM-DD`; `datetime` always returns full ISO-8601 - no matter how the source text phrases it ("March 5, 2026" → `2026-03-05`). Downstream, `where`/`sort`/`summarize 'count() by bin(due, 1d)'` compare these temporally.
 - Constraints never go inside braces. Use the DSL (`--schema-from 'vendor string; total number >= 0'`) or a full JSON Schema (`--schema file.json`).
 
@@ -55,6 +64,7 @@ smartpipe sample 20 < posts.jsonl | smartpipe extend "Add {label enum(spam, prom
 ```
 
 - Agents: NEVER run bare `smartpipe schema` (no argument) - at a terminal it opens an interactive workshop and a non-interactive session gains nothing. Always pass the expression, with `--check`/`--example` as needed.
+- A long instruction lives in a file: write it to `prompt.md`, then `smartpipe map @prompt.md data.txt` (or `--prompt-file prompt.md`). Braces inside the file still work. Verify free first: `smartpipe map @prompt.md data.txt --dry-run`.
 - Braces/DSL compile deterministically (free). A plain-English description is the one paid rung: 1 draft call + at most 1 repair; a failed draft exits 3 with nothing on stdout.
 - `--check` gotcha: brace schemas reject unknown fields, and map/extend output carries `__source`.
   - WRONG: `smartpipe map "Extract {vendor string}" invoice.txt > out.jsonl` then `--check out.jsonl` → `⚠ row 1: Additional properties are not allowed ('__source' was unexpected)`
