@@ -172,6 +172,19 @@ async def test_second_failure_skips_the_item() -> None:
     assert len(model.calls) == 2  # original + one repair, then give up
 
 
+async def test_rung_zero_repairs_a_fenced_reply_with_zero_extra_calls() -> None:
+    # item 58: a fenced reply with a trailing comma used to cost one paid
+    # model-repair round trip; rung 0 fixes it deterministically for free
+    from smartpipe.engine.schema import deterministic_repairs, reset_deterministic_repairs
+
+    reset_deterministic_repairs()
+    code, out, model = await _run("Extract {v}", "x\n", ['```json\n{"v": "ok",}\n```'])
+    assert code == ExitCode.OK
+    assert out == '{"v":"ok"}\n'
+    assert len(model.calls) == 1  # ZERO extra model calls — the repair was free
+    assert deterministic_repairs() == 1  # and it is disclosed once per run
+
+
 # --- --keep-invalid -------------------------------------------------------------
 
 

@@ -11,8 +11,10 @@ from hypothesis import strategies as st
 from smartpipe.core.errors import ItemError, SetupFault
 from smartpipe.engine.schema import (
     BARE_PROPERTY,
+    deterministic_repairs,
     is_strict_compatible,
     load_schema,
+    reset_deterministic_repairs,
     shorthand_to_schema,
     validate_and_coerce,
 )
@@ -176,6 +178,55 @@ def test_uncoercible_boolean_falls_back_then_fails_validation() -> None:
 def test_never_raises_other_than_item_error(text: str) -> None:
     with contextlib.suppress(ItemError):
         validate_and_coerce(text, _SCHEMA)
+
+
+# --- rung 0: deterministic repair before the paid retry (item 58) --------------------
+
+
+def test_rung_zero_fixes_a_fenced_reply_with_a_trailing_comma() -> None:
+    reset_deterministic_repairs()
+    reply = '```json\n{"vendor": "Acme", "total": 5,}\n```'
+    assert validate_and_coerce(reply, _SCHEMA) == {"vendor": "Acme", "total": 5}
+    assert deterministic_repairs() == 1
+
+
+def test_rung_zero_fixes_a_python_repr_reply() -> None:
+    reset_deterministic_repairs()
+    assert validate_and_coerce("{'vendor': 'Acme', 'total': 5}", _SCHEMA) == {
+        "vendor": "Acme",
+        "total": 5,
+    }
+    assert deterministic_repairs() == 1
+
+
+def test_rung_zero_never_counts_when_the_reply_parses_cleanly() -> None:
+    reset_deterministic_repairs()
+    validate_and_coerce('{"vendor": "Acme", "total": 5}', _SCHEMA)
+    assert deterministic_repairs() == 0
+
+
+def test_rung_zero_never_counts_a_repair_that_fails_the_schema() -> None:
+    # parses after repair but violates the schema → the paid rung proceeds, uncounted
+    reset_deterministic_repairs()
+    with pytest.raises(ItemError, match="does not match"):
+        validate_and_coerce('{"vendor": "Acme", "total": "not a number",}', _SCHEMA)
+    assert deterministic_repairs() == 0
+
+
+def test_rung_zero_leaves_hopeless_replies_to_the_paid_rung() -> None:
+    reset_deterministic_repairs()
+    with pytest.raises(ItemError, match="valid JSON"):
+        validate_and_coerce("I cannot do that", _SCHEMA)
+    assert deterministic_repairs() == 0
+
+
+def test_repair_tally_accumulates_and_resets() -> None:
+    reset_deterministic_repairs()
+    validate_and_coerce('{"vendor": "a", "total": 1,}', _SCHEMA)
+    validate_and_coerce('{"vendor": "b", "total": 2,}', _SCHEMA)
+    assert deterministic_repairs() == 2
+    reset_deterministic_repairs()
+    assert deterministic_repairs() == 0
 
 
 # --- strict-mode compatibility (workstream 10 Task 1) -------------------------------

@@ -225,6 +225,28 @@ async def test_build_container_yields_and_closes_client() -> None:
     assert held.is_closed
 
 
+async def test_build_container_notes_rung_zero_repairs_once(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # item 58: N replies fixed by the free rung → ONE dim note at teardown
+    from smartpipe.engine.schema import shorthand_to_schema, validate_and_coerce
+
+    schema = shorthand_to_schema(("v",))
+    async with build_container({"OPENAI_API_KEY": "sk-x"}):
+        validate_and_coerce('```json\n{"v": "a",}\n```', schema)
+        validate_and_coerce('```json\n{"v": "b",}\n```', schema)
+    stderr = capsys.readouterr().err
+    assert "note: 2 replies repaired deterministically (fences/commas/quotes)" in stderr
+
+
+async def test_build_container_stays_silent_without_repairs(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async with build_container({"OPENAI_API_KEY": "sk-x"}):
+        pass
+    assert "repaired deterministically" not in capsys.readouterr().err
+
+
 async def test_build_container_surfaces_broken_config(tmp_path: Path) -> None:
     cfg_dir = tmp_path / "smartpipe"
     cfg_dir.mkdir()
