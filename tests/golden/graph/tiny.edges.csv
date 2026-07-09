@@ -1,0 +1,4 @@
+source,target,relation,weight
+Acme Corp,Maria Schneider,co-occurs,4
+Acme Corp,Zurich,co-occurs,2
+Maria Schneider,Zurich,co-occurs,1
