@@ -14,7 +14,7 @@ cat notes.txt \
 
 # Structured extraction - braces name the fields you want back (JSONL out):
 cat receipts.txt \
-| smartpipe map "Extract {vendor, date, total}"
+| smartpipe map "Extract {vendor, date, total number}"
 # → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 
 # Use a cloud model just for this run:
@@ -23,7 +23,7 @@ cat data.txt \
 
 # Compose with the tools you already have:
 cat receipts.txt \
-| smartpipe map "Extract {vendor, total}" \
+| smartpipe map "Extract {vendor, total number}" \
 | jq -r '.total' \
 | paste -sd+ \
 | bc
@@ -31,7 +31,9 @@ cat receipts.txt \
 
 ## How it decides plain vs. structured
 
-One rule: **braces mean you want structured output.**
+One rule: **braces mean you want structured output.** Everything outside the
+braces is the instruction the model follows; the braces declare the fields to
+return.
 
 - No braces → **plain text**, one line out per input TEXT line. When the
   input is records (JSONL), the answer stays a record:
@@ -59,7 +61,7 @@ sources work with no flag:
 
 ```bash
 tail -f app.log \
-| smartpipe map "Classify: {severity, category}" \
+| smartpipe map "Classify this log line. Add {severity enum(critical, warning, info), category}" \
 | tee incidents.jsonl
 ```
 
@@ -72,6 +74,7 @@ tail -f app.log \
 | `--output FORMAT` | `auto` (default) · `text` · `json`. `auto` = human-readable at a terminal, JSONL when piped |
 | `--concurrency N` | Max parallel model calls (default 4) |
 | `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md)) |
+| `@file` / `--prompt-file FILE` | Read the prompt from a file - for instructions that outgrow the command line |
 | `--whole` | Never auto-chunk oversized items: process whole or skip with an error |
 | `--verbose` / `--debug` | More detail on stderr / full tracebacks |
 
@@ -82,7 +85,7 @@ sibling fields copied - `jq -c '.risks[]'`, but provenance-aware and schema-chec
 
 ```bash
 cat filings.txt \
-| smartpipe map "Extract {vendor, risks}" --explode risks
+| smartpipe map "Extract {vendor, risks string[]}" --explode risks
 # → {"vendor":"Acme","risks":"late delivery"}
 # → {"vendor":"Acme","risks":"currency exposure"}
 ```

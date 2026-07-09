@@ -79,15 +79,18 @@ printf "good morning\nthank you\n" \
 
 One line in, one line out, in the same order. (Why lines? Everything in a
 pipe is an item - [the item](../concepts/the-item.md) explains the five laws.)
+Text always arrives one item per line; pass `--as file` to treat a whole file
+as a single item ([feeding smartpipe](../concepts/feeding-smartpipe.md)).
 
 ## 4. Your first extraction
 
 Put field names in `{braces}` and smartpipe asks the model for structured data back,
-as JSON:
+as JSON. Everything outside the braces is the instruction the model follows;
+the braces declare the fields to return:
 
 ```bash
-echo "Invoice from Acme Corp, dated 2026-01-15, total $1250" \
-| smartpipe map "Extract {vendor, date, total}"
+echo 'Invoice from Acme Corp, dated 2026-01-15, total $1250' \
+| smartpipe map "Extract {vendor, date, total number}"
 # → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 ```
 
@@ -95,8 +98,8 @@ Because that's JSON, it composes with `jq` (never met `jq`? one-line intro in
 [the Unix toolbox](../concepts/pipes-and-items.md#the-unix-toolbox-in-five-lines)):
 
 ```bash
-echo "Invoice from Acme Corp, total $1250" \
-| smartpipe map "Extract {vendor, total}" \
+echo 'Invoice from Acme Corp, total $1250' \
+| smartpipe map "Extract {vendor, total number}" \
 | jq -r .total                 # jq pulls one field out of the JSON
 # → 1250
 ```

@@ -12,9 +12,11 @@ cat tickets.jsonl \
 # → {"id": 812, "customer": "acme", "body": "app crashes when saving", "sentiment": "neg", "product": "app"}
 ```
 
-Same prompt language as [`map`](map.md): typed braces, `--schema`,
-`--schema-from`, plus `--tally`, `--explode`, `--fields`, `--max-calls`, and
-the [video frame controls](map.md#video-frame-control)
+Same prompt language as [`map`](map.md) - everything outside the braces is
+the instruction, the braces declare the fields to add: typed braces,
+`--schema`, `--schema-from`, `@file`/`--prompt-file` for long prompts, plus
+`--tally`, `--explode`, `--fields`, `--max-calls`, and the
+[video frame controls](map.md#video-frame-control)
 (`--frame-every`, `--max-frames`).
 
 ## Semantics worth knowing

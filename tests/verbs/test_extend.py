@@ -105,7 +105,15 @@ async def test_merge_preserves_every_input_field() -> None:
         "Add {sentiment}", '{"id": 812, "customer": "acme", "body": "crashes"}\n'
     )
     assert code is ExitCode.OK
-    assert rows == [{"id": 812, "customer": "acme", "body": "crashes", "sentiment": "neg"}]
+    assert rows == [
+        {
+            "id": 812,
+            "customer": "acme",
+            "body": "crashes",
+            "sentiment": "neg",
+            "__source": {"path": "-", "as": "jsonl", "line": 1},
+        }
+    ]
 
 
 async def test_collision_overwrites_and_notes_once() -> None:
@@ -117,7 +125,13 @@ async def test_collision_overwrites_and_notes_once() -> None:
 
 async def test_plain_lines_promote_to_text_records() -> None:
     _code, rows, _err = await _run("Add {sentiment}", "the app keeps crashing\n")
-    assert rows == [{"text": "the app keeps crashing", "sentiment": "neg"}]
+    assert rows == [
+        {
+            "text": "the app keeps crashing",
+            "sentiment": "neg",
+            "__source": {"path": "-", "as": "lines", "line": 1},
+        }
+    ]
 
 
 async def test_plain_prompt_is_a_usage_fault_before_any_call() -> None:
@@ -149,9 +163,10 @@ async def test_explode_copies_original_fields_onto_every_row() -> None:
         )
     assert code is ExitCode.OK
     rows = [json.loads(line) for line in out.getvalue().splitlines()]
+    spine = {"path": "-", "as": "jsonl", "line": 1}
     assert rows == [
-        {"id": 7, "site": "plant-a", "risks": "fire"},
-        {"id": 7, "site": "plant-a", "risks": "flood"},
+        {"id": 7, "site": "plant-a", "risks": "fire", "__source": spine},
+        {"id": 7, "site": "plant-a", "risks": "flood", "__source": spine},
     ]
 
 

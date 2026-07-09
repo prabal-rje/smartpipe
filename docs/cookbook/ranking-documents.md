@@ -46,7 +46,7 @@ Feed the top files straight into `map` to pull structured data from just the win
 ```bash
 smartpipe top_k 20 --near "indemnification clause" 'legal/*.pdf' \
 | cut -f1 \
-| smartpipe map "Extract {clause_text, liability_cap}" --from-files --output csv
+| smartpipe map "Extract {clause_text, liability_cap number}" --from-files --output csv
 ```
 
 `cut -f1` drops the score column, leaving filenames; `--from-files` feeds them to

@@ -18,6 +18,21 @@ with the Unix tools you already use (or don't yet - the
 | [Ranking documents](ranking-documents.md) | Find the most relevant files for a query |
 | [Live monitoring](live-monitoring.md) | `tail -f` through semantic verbs, windows, and a live leaderboard |
 
+## Try the recipes on real files
+
+Every recipe assumes a folder of your own data, but none requires one:
+[smartpipe-playground](https://github.com/prabal-rje/smartpipe-playground)
+ships 26 MB of CC0 / public-domain invoices, reports, photos, recordings,
+screen sessions, and JSONL data:
+
+```bash
+curl -L https://github.com/prabal-rje/smartpipe-playground/archive/refs/tags/v1.tar.gz | tar xz
+cd smartpipe-playground-1
+
+smartpipe map "Extract {vendor, invoice_number, total number}" 'invoices/*.pdf'
+smartpipe embed 'sessions/*.mp4' > sessions.embeddings
+```
+
 ## The shape of every recipe
 
 smartpipe verbs are filters - they read `stdin` (or files), write `stdout`, and compose:

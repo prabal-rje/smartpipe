@@ -44,6 +44,24 @@ Optional but recommended: `uv run pre-commit install` wires ruff into your commi
 
 Release ritual: [RELEASING.md](RELEASING.md) · upkeep: [MAINTENANCE.md](MAINTENANCE.md).
 
+## Docs search (Algolia DocSearch)
+
+The site is pre-wired for [DocSearch](https://docsearch.algolia.com/) but ships
+with it OFF: `extra.algolia` in `mkdocs.yml` holds three empty strings, and
+while any of them is empty `overrides/main.html` renders nothing extra -
+mkdocs-material's built-in search keeps working. To activate once the
+DocSearch application is approved:
+
+1. Put the credentials Algolia sends into `mkdocs.yml` → `extra.algolia`
+   (`app_id`, `index_name`, and the **search-only** public `api_key` - that
+   key is safe to commit; never the admin key).
+2. `make docs-check` - the strict build must stay green.
+3. Open the built site and confirm the DocSearch button replaced the
+   built-in search box (the override hides `.md-search` and mounts
+   docsearch.js v3 in the header).
+
+Reverting to built-in search is emptying the three values again.
+
 ## New dependencies
 
 Core install weight is a feature: the runtime dependency list is `click`, `httpx`,

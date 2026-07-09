@@ -25,7 +25,7 @@ prompt = "describes an urgent, customer-impacting problem"
 ```toml
 #!/usr/bin/env -S smartpipe run
 verb = "map"
-prompt = "Extract {customer, product, severity}"
+prompt = "Extract {customer, product, severity enum(low, medium, high)}"
 output = "csv"
 fields = ["severity", "customer", "product"]
 ```

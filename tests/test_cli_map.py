@@ -44,7 +44,7 @@ def test_structured_map_emits_ndjson(run_cli: RunCli, respx_mock: respx.MockRout
     respx_mock.post(CHAT).mock(return_value=_reply('{"vendor": "Acme", "total": 5}'))
     code, out, _err = run_cli(["map", "Extract {vendor, total}"], stdin="Acme $5\n")
     assert code == 0
-    assert out == '{"vendor":"Acme","total":5}\n'
+    assert out == '{"vendor":"Acme","total":5,"__source":{"path":"-","as":"lines","line":1}}\n'
 
 
 def test_partial_failure_exits_1(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
@@ -58,7 +58,10 @@ def test_partial_failure_exits_1(run_cli: RunCli, respx_mock: respx.MockRouter) 
     ]
     code, out, err = run_cli(["map", "Extract {v}", "--concurrency", "1"], stdin="a\nb\nc\n")
     assert code == 1
-    assert out == '{"v":"one"}\n{"v":"three"}\n'
+    assert out == (
+        '{"v":"one","__source":{"path":"-","as":"lines","line":1}}\n'
+        '{"v":"three","__source":{"path":"-","as":"lines","line":3}}\n'
+    )
     assert "skipped: line 2" in err
 
 
@@ -174,7 +177,7 @@ def test_optional_field_schema_completes_on_the_openai_wire(
     )
     code, out, _err = run_cli(["map", "Extract data", "--schema", str(schema_path)], stdin="x\n")
     assert code == 0
-    assert out == '{"a":1}\n'
+    assert out == '{"a":1,"__source":{"path":"-","as":"lines","line":1}}\n'
     body = json.loads(route.calls.last.request.content)
     assert body["response_format"]["json_schema"]["strict"] is False
 
@@ -238,7 +241,7 @@ def test_schema_from_builds_and_enforces_the_schema(
         stdin="invoice text\n",
     )
     assert code == 0
-    assert out == '{"vendor":"Acme","total":12.5}\n'
+    assert out == '{"vendor":"Acme","total":12.5,"__source":{"path":"-","as":"lines","line":1}}\n'
     body = json.loads(route.calls.last.request.content)
     sent = body["format"]  # the ollama wire carries the synthesized schema
     assert sent["properties"]["total"] == {"type": "number", "minimum": 0}
@@ -296,10 +299,11 @@ def test_explode_emits_one_row_per_list_element(
         ["map", "Extract {vendor, risks}", "--explode", "risks"], stdin="doc\n"
     )
     assert code == 0
+    spine = '"__source":{"path":"-","as":"lines","line":1}'
     assert out.splitlines() == [
-        '{"vendor":"Acme","risks":"late"}',
-        '{"vendor":"Acme","risks":"fx"}',
-        '{"vendor":"Acme","risks":"supply"}',
+        '{"vendor":"Acme","risks":"late",' + spine + "}",
+        '{"vendor":"Acme","risks":"fx",' + spine + "}",
+        '{"vendor":"Acme","risks":"supply",' + spine + "}",
     ]
 
 

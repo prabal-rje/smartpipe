@@ -7,11 +7,19 @@ their input: `map`, `filter`, `top_k`, `reduce`, and more. Use Ollama for local
 models, or choose a cloud provider explicitly. Either way it stays ordinary
 `stdin`/`stdout` composition.
 
+<video controls playsinline preload="metadata" poster="assets/demo-thumb.jpg" width="100%">
+  <source src="demo/smartpipe-demo.mp4" type="video/mp4">
+  Your browser can't play the video here - <a href="demo/">watch the 70-second demo</a>.
+</video>
+
 ```bash
 cat reviews.txt \
 | smartpipe filter "the reviewer is sarcastic" \
-| smartpipe map "Extract {product, complaint}"
+| smartpipe map "Extract {product, complaint, anger number: 0 to 1}"
 ```
+
+Each line of `reviews.txt` is one item; `--as file` treats a whole file as one
+item ([feeding smartpipe](concepts/feeding-smartpipe.md) has the full table).
 
 ## Pick your door
 
@@ -24,6 +32,20 @@ cat reviews.txt \
   item, ingestion, models, structured output.
 - **Need the exact flag?** The [CLI reference](reference/cli.md) - the whole
   surface, one page, contract-stable.
+
+## Try it on real files
+
+No corpus handy? [smartpipe-playground](https://github.com/prabal-rje/smartpipe-playground)
+ships 26 MB of CC0 / public-domain practice files - invoices, reports, photos,
+recordings, screen sessions, and JSONL data:
+
+```bash
+curl -L https://github.com/prabal-rje/smartpipe-playground/archive/refs/tags/v1.tar.gz | tar xz
+cd smartpipe-playground-1
+
+smartpipe map "Extract {vendor, invoice_number, total number}" 'invoices/*.pdf'
+smartpipe filter "the customer sounds frustrated" 'recordings/*.mp3'
+```
 
 ## Verbs
 

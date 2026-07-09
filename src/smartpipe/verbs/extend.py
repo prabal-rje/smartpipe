@@ -20,7 +20,7 @@ from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import load_schema
 from smartpipe.io import diagnostics, readers
 from smartpipe.io.inputs import STDIN
-from smartpipe.io.items import describe_source
+from smartpipe.io.items import describe_source, source_record
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.verbs.common import (
     ModelSlot,
@@ -203,6 +203,10 @@ async def run_extend(
                         overwritten.add(collision)
                         diagnostics.note(f"overwriting '{collision}' on incoming records")
                 merged: dict[str, object] = {**base, **extracted}
+                if "__source" not in merged:
+                    # the __ spine rides every record (item 13): plain text lines
+                    # promote to records here, so provenance attaches here too
+                    merged["__source"] = source_record(item.source)
                 for row in _rows(merged, request.explode_field):
                     writer.write_record(row)
                     if tally is not None:

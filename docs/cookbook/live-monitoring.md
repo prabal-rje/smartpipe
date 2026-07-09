@@ -24,7 +24,7 @@ Classify a live stream into structured records the same way:
 
 ```bash
 tail -f app.log \
-| smartpipe map "Classify: {severity, category}" \
+| smartpipe map "Classify this log line. Add {severity enum(critical, warning, info), category}" \
 | tee incidents.jsonl
 ```
 
