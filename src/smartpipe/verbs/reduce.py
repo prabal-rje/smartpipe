@@ -30,6 +30,7 @@ from smartpipe.engine.prompts import (
     interpolate_fields,
     parse_prompt,
     reject_comma_groups,
+    render_input,
     to_instruction,
 )
 from smartpipe.engine.schema import load_schema, validate_and_coerce
@@ -127,7 +128,7 @@ async def run_reduce(
     ocr = readers.OcrIngest(parser, log) if parser is not None else None
     items_iter, _total = readers.resolve_items(request.input, stdin, ocr=ocr)
     collected = [item async for item in items_iter]  # whole-set verbs need everything
-    items: list[Item] = []
+    rows: list[tuple[Item, str]] = []  # each item with its <input> payload (item 57)
     media_skipped = 0
     model = await context.chat_model(request.model_flag)
     converter = make_converter(
@@ -139,17 +140,21 @@ async def run_reduce(
     )
     for candidate in collected:
         try:
-            items.append(await ensure_text(candidate, log=log, converter=converter))
+            converted = await ensure_text(candidate, log=log, converter=converter)
         except ItemError as exc:
             diagnostics.warn(f"skipped: {describe_source(candidate.source)} ({exc})")
             media_skipped += 1
+            continue
+        # a converted media item's transcript lives only in .text, not .data
+        payload = render_input(converted.text) if candidate.media else render_input(converted)
+        rows.append((converted, payload))
     concurrency = context.concurrency(request.concurrency_flag)
     structured = schema is not None
     writer = context.writer(
         OutputFormat.AUTO, structured=structured, stdout=stdout, fields=request.fields
     )
 
-    if not items:
+    if not rows:
         return ExitCode.OK
 
     reducer = Reducer(
@@ -161,9 +166,9 @@ async def run_reduce(
     )
     try:
         if request.group_by is not None:
-            await _run_grouped(reducer, request, tokens, schema, items, writer)
+            await _run_grouped(reducer, request, tokens, schema, rows, writer)
         else:
-            await _run_single(reducer, tokens, schema, items, writer)
+            await _run_single(reducer, tokens, schema, [payload for _item, payload in rows], writer)
     finally:
         writer.flush()
         log.finish()
@@ -176,12 +181,12 @@ async def _run_single(
     reducer: Reducer,
     tokens: tuple[Token, ...],
     schema: Mapping[str, object] | None,
-    items: list[Item],
+    payloads: list[str],
     writer: ResultWriter,
 ) -> None:
     instruction = to_instruction(tokens)
     try:
-        result = await reducer.reduce(instruction, schema, [item.text for item in items])
+        result = await reducer.reduce(instruction, schema, payloads)
     except ItemError as exc:
         diagnostics.warn(f"reduce failed: {exc}")
         return
@@ -258,14 +263,17 @@ async def _run_windowed(
     items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     try:
         async for item in items_iter:
-            if item.media:
+            had_media = bool(item.media)
+            if had_media:
                 try:
                     item = await ensure_text(item, log=log, converter=converter)
                 except ItemError as exc:
                     diagnostics.warn(f"skipped: {describe_source(item.source)} ({exc})")
                     failed += 1
                     continue
-            window = buffer.push(item.text)
+            # item 57: windows hold rendered <input> payloads (a converted
+            # media item's transcript lives only in .text)
+            window = buffer.push(render_input(item.text) if had_media else render_input(item))
             if window is not None:
                 await emit(window)
         tail = buffer.flush()
@@ -285,14 +293,14 @@ async def _run_grouped(
     request: ReduceRequest,
     tokens: tuple[Token, ...],
     schema: Mapping[str, object] | None,
-    items: list[Item],
+    rows: list[tuple[Item, str]],
     writer: ResultWriter,
 ) -> None:
     assert request.group_by is not None
-    for value, group_items in _group(items, request.group_by, reducer):
+    for value, group_payloads in _group(rows, request.group_by, reducer):
         instruction = interpolate_fields(tokens, {request.group_by: value})
         try:
-            result = await reducer.reduce(instruction, schema, [item.text for item in group_items])
+            result = await reducer.reduce(instruction, schema, group_payloads)
         except ItemError as exc:
             diagnostics.warn(f"reduce failed for group {value!r}: {exc}")
             reducer.skipped += 1
@@ -301,10 +309,12 @@ async def _run_grouped(
         reducer.produced += 1
 
 
-def _group(items: list[Item], field_name: str, reducer: Reducer) -> list[tuple[object, list[Item]]]:
+def _group(
+    rows: list[tuple[Item, str]], field_name: str, reducer: Reducer
+) -> list[tuple[object, list[str]]]:
     order: list[str] = []
-    groups: dict[str, tuple[object, list[Item]]] = {}
-    for item in items:
+    groups: dict[str, tuple[object, list[str]]] = {}
+    for item, payload in rows:
         if item.data is None or field_name not in item.data:
             diagnostics.warn(f"skipped: {describe_source(item.source)} (no field '{field_name}')")
             reducer.skipped += 1
@@ -314,7 +324,7 @@ def _group(items: list[Item], field_name: str, reducer: Reducer) -> list[tuple[o
         if key not in groups:
             groups[key] = (value, [])
             order.append(key)
-        groups[key][1].append(item)
+        groups[key][1].append(payload)
     return [groups[key] for key in order]
 
 

@@ -294,3 +294,16 @@ async def test_whole_file_match_still_returns_the_path(tmp_path: Path) -> None:
     code = await run_filter(request, FakeContext(model), stdin=io.StringIO(""), stdout=out)
     assert code == ExitCode.OK
     assert out.getvalue() == f"{doc}\n"
+
+
+# --- the <input> framing (item 57) ---------------------------------------------
+
+
+async def test_judge_prompt_frames_a_record_as_an_input_block() -> None:
+    _code, _out, model = await _run("is urgent", '{"id": 1, "body": "crash"}\n', _match_if("crash"))
+    assert model.calls[0].user == "Condition: is urgent\n\n<input>\nid: 1\nbody: crash\n</input>"
+
+
+async def test_judge_prompt_frames_plain_text_as_an_input_block() -> None:
+    _code, _out, model = await _run("is urgent", "system down\n", _match_if("down"))
+    assert model.calls[0].user == "Condition: is urgent\n\n<input>\nsystem down\n</input>"

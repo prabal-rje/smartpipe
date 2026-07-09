@@ -71,11 +71,11 @@ def test_braces_on_non_json_item_is_item_error() -> None:
 
 
 def test_build_filter_request_shape() -> None:
-    request = build_filter_request("reviewer is sarcastic", "This is FINE.")
+    # the payload arrives pre-rendered as an <input> block (item 57)
+    request = build_filter_request("reviewer is sarcastic", "<input>\nThis is FINE.\n</input>")
     assert request.system == FILTER_JUDGE_SYSTEM
     assert request.json_schema == JUDGE_SCHEMA
-    assert "reviewer is sarcastic" in request.user
-    assert "This is FINE." in request.user
+    assert request.user == "Condition: reviewer is sarcastic\n\n<input>\nThis is FINE.\n</input>"
 
 
 def test_judge_schema_is_a_boolean_match() -> None:

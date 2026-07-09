@@ -44,8 +44,9 @@ smartpipe notes.txt --as lines | head -3
 ```
 
 `--dry-run` on `map`/`extend` goes one step further: it prints the fully
-composed first request (system prompt, schema, the first item's text) and
-exits without any model call.
+composed first request (system prompt, schema, and the first item's payload
+in its `<input>` block - records render as `key: value` lines, plain text
+rides unchanged) and exits without any model call.
 
 ## Below the file: split
 

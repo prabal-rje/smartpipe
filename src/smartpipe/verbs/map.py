@@ -22,6 +22,7 @@ from smartpipe.engine.prompts import (
     build_repair_request,
     parse_prompt,
     plan_map,
+    render_input,
     to_instruction,
 )
 from smartpipe.engine.runner import Done, run_ordered
@@ -288,7 +289,7 @@ async def map_one(
         )
     try:
         return await _attempt(
-            model, plan, instruction, item.text, item.media, keep_invalid=keep_invalid
+            model, plan, instruction, render_input(item), item.media, keep_invalid=keep_invalid
         )
     except ItemError as native_failure:
         audio = next((part for part in item.media if isinstance(part, AudioData)), None)
@@ -301,7 +302,7 @@ async def map_one(
         spoken = f"{item.text}\n\n{transcript}".strip() if item.text else transcript
         remaining = tuple(part for part in item.media if not isinstance(part, AudioData))
         return await _attempt(
-            model, plan, instruction, spoken, remaining, keep_invalid=keep_invalid
+            model, plan, instruction, render_input(spoken), remaining, keep_invalid=keep_invalid
         )
 
 
@@ -321,7 +322,7 @@ async def _map_video(
     native accepts video; every other adapter refuses pre-send at zero cost),
     then frames + heard track, then frames + transcript."""
     try:
-        return await _attempt(model, plan, instruction, item.text, (video,))
+        return await _attempt(model, plan, instruction, render_input(item), (video,))
     except ItemError:
         pass  # this wire can't watch — convert (the refusal cost nothing)
     from functools import partial as _partial
@@ -340,7 +341,9 @@ async def _map_video(
     log.note(describe_source(item.source), "video → frames+audio", detail)
     media: tuple[MediaData, ...] = (*parts.frames, track) if track is not None else parts.frames
     try:
-        return await _attempt(model, plan, instruction, item.text, media, keep_invalid=keep_invalid)
+        return await _attempt(
+            model, plan, instruction, render_input(item), media, keep_invalid=keep_invalid
+        )
     except ItemError as native_failure:
         if track is None:
             raise
@@ -349,7 +352,7 @@ async def _map_video(
         log.note(describe_source(item.source), "video audio → text", _whisper_note())
         spoken = f"{item.text}\n\n[audio track transcript]\n{transcript}".strip()
         return await _attempt(
-            model, plan, instruction, spoken, parts.frames, keep_invalid=keep_invalid
+            model, plan, instruction, render_input(spoken), parts.frames, keep_invalid=keep_invalid
         )
 
 
@@ -409,7 +412,7 @@ async def print_dry_run(
     first = await anext(items_iter, None)
     if first is None:
         diagnostics.note("dry run: no input items — composing with an empty item")
-    text = first.text if first is not None else ""
+    text = render_input(first) if first is not None else ""
     media = first.media if first is not None else ()
     composed = build_map_request(plan, instruction, text, media=media)
     sections = [f"--- system ---\n{composed.system}"]

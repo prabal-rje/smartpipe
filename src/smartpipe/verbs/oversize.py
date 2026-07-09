@@ -37,6 +37,7 @@ from smartpipe.engine.prompts import (
     build_map_request,
     build_merge_request,
     build_repair_request,
+    render_input,
 )
 from smartpipe.engine.schema import validate_and_coerce
 from smartpipe.io import diagnostics
@@ -276,7 +277,8 @@ async def _plain_chunk(
     chunk: str,
     media: tuple[MediaData, ...],
 ) -> str:
-    reply = await model.complete(build_map_request(plan, instruction, chunk, media=media))
+    request = build_map_request(plan, instruction, render_input(chunk), media=media)
+    reply = await model.complete(request)
     return reply.rstrip()
 
 
@@ -293,7 +295,7 @@ async def _extract_chunk(
     assert plan.schema is not None
     from smartpipe.verbs.common import note_ambiguous_temporal
 
-    request = build_map_request(plan, instruction, chunk, media=media)
+    request = build_map_request(plan, instruction, render_input(chunk), media=media)
     reply = await model.complete(request)
     try:
         return validate_and_coerce(reply, plan.schema, note=note_ambiguous_temporal)

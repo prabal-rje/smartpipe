@@ -24,6 +24,7 @@ from smartpipe.engine.prompts import (
     interpolate_fields,
     parse_prompt,
     reject_comma_groups,
+    render_input,
 )
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import validate_and_coerce
@@ -142,7 +143,9 @@ async def run_filter(
         current = slot.current  # captured per item: the failover swaps wholesale
 
         async def judge_chunk(chunk: str) -> bool:
-            return await _judge(current, tokens, replace(item, text=chunk), log, converter)
+            return await _judge(
+                current, tokens, replace(item, text=chunk), log, converter, whole=False
+            )
 
         over = await gate.budget_for_oversized(item.text, item.media)
         if over is None:
@@ -242,10 +245,16 @@ async def _judge(
     item: Item,
     log: diagnostics.DegradationLog,
     converter: Converter,
+    *,
+    whole: bool = True,
 ) -> bool:
+    had_media = bool(item.media)  # conversions land in .text, not in .data
     item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
     condition = interpolate_fields(tokens, item.data)  # ItemError → skip-and-warn
-    request = build_filter_request(condition, item.text)
+    # item 57: a whole record judges as its rendered fields; a chunk (or a
+    # converted media item, whose transcript lives only in .text) as its text
+    payload = render_input(item) if whole and not had_media else render_input(item.text)
+    request = build_filter_request(condition, payload)
     reply = await model.complete(request)
     try:
         verdict = validate_and_coerce(reply, JUDGE_SCHEMA)
