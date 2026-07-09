@@ -185,7 +185,10 @@ async def test_structured_map_extracts_per_chunk_then_merges_once(
         stdout=out,
     )
     assert code is ExitCode.OK
-    assert json.loads(out.getvalue()) == {"v": "merged"}
+    assert json.loads(out.getvalue()) == {
+        "v": "merged",
+        "__source": {"path": "-", "as": "lines", "line": 1},
+    }
     assert len(model.calls) == 3  # 2 chunk extractions + 1 merge
     merge = model.calls[2]
     assert merge.system == MAP_MERGE_SYSTEM
@@ -411,7 +414,10 @@ async def test_chunk_extraction_gets_the_standard_single_repair() -> None:
         stdout=out,
     )
     assert code is ExitCode.OK
-    assert json.loads(out.getvalue()) == {"v": "merged"}
+    assert json.loads(out.getvalue()) == {
+        "v": "merged",
+        "__source": {"path": "-", "as": "lines", "line": 1},
+    }
     assert len(model.calls) == 4  # chunk 1 + its repair, chunk 2, merge
     assert "That was invalid" in model.calls[1].user  # the repair prompt
 

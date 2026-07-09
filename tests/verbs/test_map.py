@@ -140,7 +140,7 @@ async def test_shorthand_extraction_emits_ndjson() -> None:
         "Extract {vendor, total}", "Acme $5\n", ['{"vendor": "Acme", "total": 5}']
     )
     assert code == ExitCode.OK
-    assert out == '{"vendor":"Acme","total":5}\n'
+    assert out == '{"vendor":"Acme","total":5,"__source":{"path":"-","as":"lines","line":1}}\n'
 
 
 async def test_structured_request_carries_schema() -> None:
@@ -160,7 +160,7 @@ async def test_repair_retry_recovers_bad_json() -> None:
     # first reply invalid, second valid → one repair, success
     code, out, model = await _run("Extract {v}", "x\n", ["not json at all", '{"v": "recovered"}'])
     assert code == ExitCode.OK
-    assert out == '{"v":"recovered"}\n'
+    assert out == '{"v":"recovered","__source":{"path":"-","as":"lines","line":1}}\n'
     assert len(model.calls) == 2
     assert "That was invalid" in model.calls[1].user  # repair prompt
 
@@ -200,7 +200,7 @@ async def test_keep_invalid_leaves_valid_rows_untouched() -> None:
         _request("Extract {v}", keep_invalid=True), context, stdin=io.StringIO("x\n"), stdout=out
     )
     assert code == ExitCode.OK
-    assert out.getvalue() == '{"v":"ok"}\n'
+    assert out.getvalue() == '{"v":"ok","__source":{"path":"-","as":"lines","line":1}}\n'
 
 
 async def test_keep_invalid_requires_structured_output() -> None:
@@ -576,3 +576,24 @@ async def test_plain_prompt_on_text_lines_keeps_text_output() -> None:
     code, out, _model = await _run("summarize", "just a line\n", ["short"])
     assert code == ExitCode.OK
     assert out == "short\n"  # law 5: simple records leave as plain text
+
+
+# --- the __source spine rides every record (item 13) -------------------------------
+
+
+async def test_structured_map_over_a_text_line_carries_the_source_spine() -> None:
+    import json
+
+    code, out, _model = await _run("Extract {v}", "x\n", ['{"v": "y"}'])
+    assert code == ExitCode.OK
+    assert json.loads(out) == {"v": "y", "__source": {"path": "-", "as": "lines", "line": 1}}
+
+
+async def test_structured_map_over_a_record_keeps_the_incoming_spine() -> None:
+    import json
+
+    spined = json.dumps({"body": "crash", "__source": {"path": "f.txt", "as": "lines", "line": 3}})
+    code, out, _model = await _run("Extract {v}", spined + "\n", ['{"v": "y"}'])
+    assert code == ExitCode.OK
+    row = json.loads(out)
+    assert row == {"v": "y", "__source": {"path": "f.txt", "as": "lines", "line": 3}}

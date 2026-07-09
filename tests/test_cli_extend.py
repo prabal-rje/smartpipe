@@ -33,7 +33,11 @@ def test_extend_merges_end_to_end(run_cli: RunCli, respx_mock: respx.MockRouter)
     respx_mock.post(CHAT).mock(return_value=_reply('{"sentiment": "neg"}'))
     code, out, _err = run_cli(["extend", "Add {sentiment}"], stdin='{"id": 1}\n')
     assert code == 0
-    assert json.loads(out) == {"id": 1, "sentiment": "neg"}
+    assert json.loads(out) == {
+        "id": 1,
+        "sentiment": "neg",
+        "__source": {"path": "-", "as": "jsonl", "line": 1},
+    }
 
 
 def test_dry_run_flag_reaches_the_verb(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:

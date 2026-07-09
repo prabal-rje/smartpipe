@@ -237,6 +237,11 @@ async def run_map(
                     # records in, records out (item 14, law 4): a plain-prompt
                     # answer on a RECORD input is itself a record, spine attached
                     value = {"result": value, "__source": source_record(item.source)}
+                if isinstance(value, Mapping) and "__source" not in value:
+                    # the __ spine rides every record (item 13): extraction drops
+                    # the input's fields, so provenance is re-attached here — before
+                    # --explode, so every exploded row carries it too
+                    value = {**value, "__source": source_record(item.source)}
                 for row in _rows(value, request.explode_field):
                     _write(writer, value=row)
                     if tally is not None and isinstance(row, Mapping):

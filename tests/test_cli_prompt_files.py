@@ -50,7 +50,7 @@ def test_braces_inside_the_file_are_live_grammar(
     route = respx_mock.post(CHAT).mock(return_value=_reply('{"vendor": "A", "total": 1}'))
     code, out, _err = run_cli(["map", f"@{prompt}"], stdin="invoice\n")
     assert code == 0
-    assert out == '{"vendor":"A","total":1}\n'
+    assert out == '{"vendor":"A","total":1,"__source":{"path":"-","as":"lines","line":1}}\n'
     import json
 
     body = json.loads(route.calls.last.request.content)

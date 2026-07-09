@@ -36,14 +36,20 @@ def test_map_output_csv(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
         stdin="card one\ncard two\n",
     )
     assert code == 0
-    assert out == "name,role\r\nAda,eng\r\nBob,design\r\n"
+    assert out == (
+        "name,role,__source\r\n"
+        'Ada,eng,"{""path"":""-"",""as"":""lines"",""line"":1}"\r\n'
+        'Bob,design,"{""path"":""-"",""as"":""lines"",""line"":2}"\r\n'
+    )
 
 
 def test_map_output_tsv(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
     respx_mock.post(CHAT).mock(return_value=_extract(name="Ada", role="eng"))
     code, out, _err = run_cli(["map", "Extract {name, role}", "--output", "tsv"], stdin="card\n")
     assert code == 0
-    assert out == "name\trole\r\nAda\teng\r\n"
+    assert out == (
+        'name\trole\t__source\r\nAda\teng\t"{""path"":""-"",""as"":""lines"",""line"":1}"\r\n'
+    )
 
 
 def test_csv_on_plain_text_is_usage_error(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
