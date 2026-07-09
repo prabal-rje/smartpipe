@@ -7,6 +7,10 @@ repair, validated against the JSON-Schema meta-schema before stdout sees a
 byte: an invalid draft is exit 3 with the attempt on stderr and **stdout
 empty** — a broken schema silently piped into the next run is the disaster
 case this command exists to prevent.
+
+Bare ``smartpipe schema`` at a TTY opens the interactive workshop
+(``cli/schema_workshop``); bare with piped stdin keeps the line-per-expression
+quasi-REPL below.
 """
 
 from __future__ import annotations
@@ -45,13 +49,6 @@ _FAILED_SCREEN = (
     "error: the model couldn't produce a valid JSON Schema (after one repair)\n"
     "  Its last attempt is above on stderr. Try rephrasing, or write the file by hand:\n"
     "  docs/concepts/structured-output.md"
-)
-
-_NEEDS_EXPRESSION = (
-    "smartpipe schema needs an expression\n"
-    "  Pass braces or the field DSL, or pipe lines of them in.\n"
-    "  Examples: smartpipe schema '{vendor string, total number}'\n"
-    "            echo 'vendor string; total number >= 0' | smartpipe schema"
 )
 
 _DETERMINISTIC_ONLY = (
@@ -106,6 +103,7 @@ def schema_command(
       smartpipe schema 'vendor string; total number >= 0' --check data.jsonl
       smartpipe schema '{status enum(todo, done)}' --example
       echo '{vendor, total}' | smartpipe schema            # lines in, schemas out
+      smartpipe schema                                     # at a terminal: the workshop
 
     Braces and the --schema-from DSL compile deterministically — free, instant,
     no model call. A plain-English description drafts with a model instead
@@ -119,7 +117,9 @@ def schema_command(
         if check_path is not None or example:
             raise UsageFault(_DETERMINISTIC_ONLY)
         if sys.stdin.isatty():
-            raise UsageFault(_NEEDS_EXPRESSION)
+            from smartpipe.cli.schema_workshop import workshop_entry
+
+            raise SystemExit(int(workshop_entry()))
         raise SystemExit(int(_repl(sys.stdin)))
     if _is_expression(description):
         code = _run_free(_compile_expression(description), check_path, example=example)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 from typing import TYPE_CHECKING
 
@@ -177,18 +178,71 @@ def test_stdin_repl_reports_bad_lines_and_keeps_going(
     assert json.loads(out)["required"] == ["vendor"]  # the good line still compiled
 
 
-def test_no_expression_at_a_tty_is_a_usage_screen(
+class _TtyStdin(io.StringIO):
+    """A scriptable stdin that claims to be a terminal — bare ``schema`` at a
+    TTY must open the workshop (plain mode here: stdout is captured)."""
+
+    def isatty(self) -> bool:
+        return True
+
+
+def test_bare_schema_at_a_tty_opens_the_workshop(
+    run_cli: RunCli, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.stdin", _TtyStdin("/add vendor string: legal name\n/save\n/quit\n"))
+    code, out, err = run_cli(["schema"])
+    assert code == 0
+    assert "schema workshop" in out
+    assert "✓ wrote schema.json" in out
+    assert out.count("paste-ready:") == 2  # after /save, and again on exit
+    assert "--schema schema.json" in out
+    schema = json.loads((tmp_path / "schema.json").read_text(encoding="utf-8"))
+    assert schema["properties"]["vendor"] == {"type": "string", "description": "legal name"}
+    assert err == ""
+
+
+def test_bare_schema_at_a_tty_immediate_eof_exits_clean(
     run_cli: RunCli, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class _Tty:
-        def isatty(self) -> bool:
-            return True
-
-    monkeypatch.setattr("sys.stdin", _Tty())
+    monkeypatch.setattr("sys.stdin", _TtyStdin(""))
     code, out, err = run_cli(["schema"])
-    assert code == 64
-    assert out == ""
-    assert "needs an expression" in err
+    assert code == 0
+    assert "schema workshop" in out  # the header was shown once
+    assert err == ""
+
+
+class _InterruptingStdin(_TtyStdin):
+    """A ``^C`` line arrives as a real KeyboardInterrupt, like a terminal."""
+
+    def readline(self, size: int = -1, /) -> str:
+        line = super().readline(size)
+        if line.strip() == "^C":
+            raise KeyboardInterrupt
+        return line
+
+
+def test_workshop_interrupt_asks_to_discard_and_no_keeps_the_draft(
+    run_cli: RunCli, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.stdin", _InterruptingStdin("/add vendor string\n^C\nn\n/quit\n"))
+    code, out, _err = run_cli(["schema"])
+    assert code == 0
+    assert "discard draft? [y/N]" in out
+    assert "paste-ready:" in out  # kept the draft, so the exit lines print
+    assert "'{vendor string}'" in out
+
+
+def test_workshop_second_interrupt_discards_without_the_exit_lines(
+    run_cli: RunCli, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    # the confirm prompt hits EOF — the second interrupt in a row means leave
+    monkeypatch.setattr("sys.stdin", _InterruptingStdin("/add vendor string\n^C\n"))
+    code, out, _err = run_cli(["schema"])
+    assert code == 0
+    assert "paste-ready:" not in out  # discarded drafts leave nothing behind
 
 
 def test_check_demands_a_deterministic_expression(run_cli: RunCli, tmp_path: Path) -> None:
