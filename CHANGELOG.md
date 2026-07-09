@@ -10,6 +10,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 The identity release.
 
 ### The item — one law for everything in a pipe
+- **Dates are a type, and they come back ISO.** `{due date}` and
+  `{ts datetime}` join the brace grammar. However the model phrases it
+  ("Jan 15, 2026", "15/01/2026"), the field canonicalizes to
+  `YYYY-MM-DD` / full ISO-8601 - offsets preserved, never invented;
+  genuinely ambiguous slash-dates read month-first and say so on
+  stderr. Downstream just works: `where 'due >= "2026-01-01"'`
+  compares temporally, `sort --by due` orders by instant, and
+  `summarize 'count() by bin(due, 1d)'` buckets date-only values.
+- **The model sees your data framed, not dumped.** Every item payload
+  now arrives inside an `<input>` fence - records rendered as clean
+  YAML-ish (the `__` plumbing excluded), text as itself. The
+  instruction can no longer blur into the data, and the fence is the
+  foundation the planned request-batching builds on.
 - **CSV is a first-class row format.** `--as csv` (and `.csv`/`.tsv`
   extension defaults - tab dialect for `.tsv`) reads the header row as
   field names and streams every data row as a record, with per-cell
