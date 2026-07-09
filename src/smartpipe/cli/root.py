@@ -31,6 +31,7 @@ from smartpipe.cli.embed_cmd import embed_command
 from smartpipe.cli.extend_cmd import extend_command
 from smartpipe.cli.filter_cmd import filter_command
 from smartpipe.cli.getschema_cmd import getschema_command
+from smartpipe.cli.graph_cmd import graph_command
 from smartpipe.cli.join_cmd import join_command
 from smartpipe.cli.map_cmd import map_command
 from smartpipe.cli.outliers_cmd import outliers_command
@@ -217,6 +218,7 @@ cli.add_command(top_k_command)
 cli.add_command(reduce_command)
 cli.add_command(join_command)
 cli.add_command(cluster_command)
+cli.add_command(graph_command)
 cli.add_command(diff_command)
 cli.add_command(distinct_command)
 cli.add_command(outliers_command)

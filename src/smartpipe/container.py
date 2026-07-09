@@ -57,10 +57,11 @@ from smartpipe.models.resolve import resolve_chat_ref, resolve_embed_ref
 from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Mapping
+    from collections.abc import AsyncGenerator, Mapping, Sequence
 
     import httpx
 
+    from smartpipe.engine.graphkg import EntityFinder
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, EmbeddingModel
     from smartpipe.models.ocr import DocumentParser
@@ -239,6 +240,20 @@ class AppContainer:
         from smartpipe.models.stt import RemoteTranscriber
 
         return RemoteTranscriber(ref=ref, client=self.http_client, api_key=key, retry=self.retry)
+
+    def entity_finder(self, labels: Sequence[str]) -> EntityFinder:
+        """``graph --fast``'s NER (wave G1): ALWAYS the local GLiNER wire —
+        the free mode never routes entities through a paid model."""
+        from smartpipe.models.local_ner import GlinerEntityFinder
+
+        return GlinerEntityFinder(labels=tuple(labels))
+
+    def fold_embedder(self) -> EmbeddingModel:
+        """``graph --fast``'s canonicalization embedder: ALWAYS local, whatever
+        ``embed-model`` says — free by definition means no cloud vectors."""
+        from smartpipe.models.local_embed import LocalEmbeddingModel
+
+        return LocalEmbeddingModel(ref=parse_model_ref("local/nomic-embed-text-v1.5"))
 
     def concurrency(self, flag: int | None = None) -> int:
         """Max parallel model calls: flag > SMARTPIPE_CONCURRENCY > config > default 4."""
