@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, assert_never
 
 from smartpipe.core.errors import UsageFault
+from smartpipe.engine.temporal import temporal_key
 
 if TYPE_CHECKING:
     from smartpipe.io.items import Item
@@ -299,6 +300,21 @@ def _numeric(value: object) -> float | None:
     return None
 
 
+def _comparable(value: object, expected: str | float) -> tuple[float, float] | None:
+    """Both sides on one axis: numbers numerically, ISO dates/datetimes
+    temporally (item 56 — dates promote to midnight); otherwise None and the
+    string/equality rules keep the wheel."""
+    ours = _numeric(value)
+    theirs = _numeric(expected)
+    if ours is not None and theirs is not None:
+        return ours, theirs
+    ours = temporal_key(value)
+    theirs = temporal_key(expected)
+    if ours is not None and theirs is not None:
+        return ours, theirs
+    return None
+
+
 def _compare(
     field_name: str,
     value: object,
@@ -306,9 +322,9 @@ def _compare(
     expected: str | float,
     tally: FieldTally,
 ) -> bool:
-    ours = _numeric(value)
-    theirs = _numeric(expected)
-    if ours is not None and theirs is not None:
+    pair = _comparable(value, expected)
+    if pair is not None:
+        ours, theirs = pair
         match op:
             case "==":
                 return ours == theirs

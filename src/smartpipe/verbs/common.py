@@ -44,6 +44,7 @@ __all__ = [
     "make_failover",
     "media_embedder",
     "native_route",
+    "note_ambiguous_temporal",
     "note_native_once",
     "outcome_exit_code",
     "prepend",
@@ -159,6 +160,20 @@ async def prepend(first: Item, rest: AsyncIterator[Item]) -> AsyncIterator[Item]
 
 
 IMAGE_NEEDS_MAP = "image items need map — this verb reads text"  # stage-7 wording, pinned
+
+_AMBIGUITY_CAP = 5  # ambiguous-date notes per process: first rows verbatim, then quiet
+_ambiguous_dates_seen = 0
+
+
+def note_ambiguous_temporal(message: str) -> None:
+    """The coercion's ambiguous-date disclosure (item 56): month-first guesses
+    surface on stderr, capped so a systematically ambiguous corpus can't flood."""
+    global _ambiguous_dates_seen
+    _ambiguous_dates_seen += 1
+    if _ambiguous_dates_seen <= _AMBIGUITY_CAP:
+        diagnostics.note(message)
+    elif _ambiguous_dates_seen == _AMBIGUITY_CAP + 1:
+        diagnostics.note("more ambiguous dates follow (suppressed)")
 
 
 def transcribe(audio: AudioData) -> str:

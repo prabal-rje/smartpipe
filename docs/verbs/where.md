@@ -20,13 +20,16 @@ filter-early habit is [Learn chapter 4](../learn/4-free-verbs.md).
 | `FIELD has "word"` | word-bounded match, case-insensitive |
 | `FIELD contains "text"` | substring, case-insensitive |
 | `FIELD matches /re/` | Python regex search, case-sensitive |
-| `FIELD == VALUE` / `!=` | numeric when both sides are numbers, else exact string |
-| `FIELD > >= < <=` | numeric only - non-numbers never match (and are disclosed) |
+| `FIELD == VALUE` / `!=` | numeric when both sides are numbers, temporal when both are ISO dates/datetimes, else exact string |
+| `FIELD > >= < <=` | numeric, or temporal when both sides are ISO dates/datetimes - anything else never matches (and is disclosed) |
 | `and` · `or` · `not` · `( )` | `not` binds tightest, then `and`, then `or` |
 
 `FIELD` is a record field name, or `text` for the whole line (on plain-text
 input, `text` is the only field there is). Booleans compare by their JSON
-spelling: `pass == true`.
+spelling: `pass == true`. Temporal comparison (`due >= "2026-01-01"`) kicks
+in when both sides read as ISO dates/datetimes - a bare date counts as its
+midnight, so a `{due date}` field extracted upstream compares as time, not
+text.
 
 ## Missing fields
 

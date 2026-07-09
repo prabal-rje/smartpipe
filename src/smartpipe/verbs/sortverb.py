@@ -1,7 +1,10 @@
 """The ``sort`` verb: order JSONL by a field (D38/10, KQL ``sort by``).
 
 Free, whole-set (inherently), stable, passthrough-verbatim. Missing-field
-rows always land last — in both directions — and are disclosed.
+rows always land last — in both directions — and are disclosed. A column
+whose every value is an ISO date/datetime orders temporally (item 56 —
+mixed date/datetime columns, offsets honored); any other column keeps the
+number/string bands.
 """
 
 from __future__ import annotations
@@ -10,6 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode
+from smartpipe.engine.temporal import temporal_key
 from smartpipe.io import diagnostics
 from smartpipe.io.items import item_from_line
 
@@ -26,7 +30,7 @@ class SortRequest:
 
 
 def run_sort(request: SortRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCode:
-    keyed: list[tuple[tuple[int, float, str], str]] = []
+    entries: list[tuple[object, str]] = []
     missing: list[str] = []
     for index, line in enumerate(stdin):
         if not line.strip():
@@ -36,7 +40,8 @@ def run_sort(request: SortRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCode
         if value is None:
             missing.append(item.raw)
             continue
-        keyed.append((_key(value, descending=request.descending), item.raw))
+        entries.append((value, item.raw))
+    keyed = _keyed(entries, descending=request.descending)
     keyed.sort(key=lambda pair: pair[0])  # stable: ties keep input order
     for _sort_key, raw in keyed:
         stdout.write(raw + "\n")
@@ -45,6 +50,20 @@ def run_sort(request: SortRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCode
     if missing:
         diagnostics.note(f"sort: {len(missing):,} rows missing '{request.by}' placed last")
     return ExitCode.OK
+
+
+def _keyed(
+    entries: list[tuple[object, str]], *, descending: bool
+) -> list[tuple[tuple[int, float, str], str]]:
+    """Sort keys for the whole column: all-temporal columns order by epoch
+    (item 56); anything mixed falls back to the per-value type bands."""
+    epochs = [key for value, _raw in entries if (key := temporal_key(value)) is not None]
+    if entries and len(epochs) == len(entries):
+        return [
+            ((0, -epoch if descending else epoch, ""), raw)
+            for epoch, (_value, raw) in zip(epochs, entries, strict=True)
+        ]
+    return [(_key(value, descending=descending), raw) for value, raw in entries]
 
 
 def _key(value: object, *, descending: bool) -> tuple[int, float, str]:

@@ -37,6 +37,7 @@ from smartpipe.verbs.common import (
     breaker_policy,
     interrupted_exit_code,
     make_failover,
+    note_ambiguous_temporal,
     outcome_exit_code,
     resolve_schema,
 )
@@ -374,12 +375,13 @@ async def _attempt(
     if plan.schema is None:
         return reply.rstrip()  # plain mode: keep the reply, only trim trailing whitespace
     try:
-        return validate_and_coerce(reply, plan.schema)
+        return validate_and_coerce(reply, plan.schema, note=note_ambiguous_temporal)
     except ItemError as first_error:
         repair = build_repair_request(request, bad_reply=reply, error=str(first_error))
         repaired = await model.complete(repair)
         try:
-            return validate_and_coerce(repaired, plan.schema)  # a second failure → Skipped
+            # a second failure → Skipped
+            return validate_and_coerce(repaired, plan.schema, note=note_ambiguous_temporal)
         except ItemError as second_error:
             if not keep_invalid:
                 raise

@@ -461,15 +461,19 @@ class Reducer:
     async def _final(
         self, instruction: str, schema: Mapping[str, object] | None, texts: list[str]
     ) -> str | Mapping[str, object]:
+        from smartpipe.verbs.common import note_ambiguous_temporal
+
         request = build_reduce_final(instruction, texts, schema)
         reply = await self.model.complete(request)
         if schema is None:
             return reply.strip()
         try:
-            return validate_and_coerce(reply, schema)
+            return validate_and_coerce(reply, schema, note=note_ambiguous_temporal)
         except ItemError as first_error:
             repair = build_repair_request(request, bad_reply=reply, error=str(first_error))
-            return validate_and_coerce(await self.model.complete(repair), schema)
+            return validate_and_coerce(
+                await self.model.complete(repair), schema, note=note_ambiguous_temporal
+            )
 
 
 def _trace_line(trace: list[int]) -> str:

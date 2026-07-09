@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ItemError, SetupFault
 from smartpipe.core.jsontools import as_items, as_record, as_str
+from smartpipe.engine.temporal import CoercedTemporal, coerce_date, coerce_datetime
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
 __all__ = [
@@ -202,18 +203,24 @@ def parse_schema_draft(reply: str) -> dict[str, object]:
     return candidate
 
 
-def validate_and_coerce(reply: str, schema: Mapping[str, object]) -> dict[str, object]:
+def validate_and_coerce(
+    reply: str,
+    schema: Mapping[str, object],
+    *,
+    note: Callable[[str], None] | None = None,
+) -> dict[str, object]:
     import jsonschema  # function-local: --help must not pay for the validator stack
 
     record = as_record(_extract_json(reply))
     if record is None:
         raise ItemError("model returned JSON but not an object")
-    coerced = _coerce(record, schema)
+    coerced = _coerce(record, schema, note)
     trimmed = _drop_extra(coerced, schema)
     try:
         jsonschema.validate(trimmed, dict(schema))
     except jsonschema.ValidationError as exc:
         raise ItemError(f"output does not match the schema: {exc.message}") from exc
+    _check_temporal(trimmed, schema)  # format: date/date-time — a miss reads like a type miss
     return trimmed
 
 
@@ -237,17 +244,33 @@ def _json_candidates(text: str) -> tuple[str, ...]:
     return (text,)
 
 
-def _coerce(record: Mapping[str, object], schema: Mapping[str, object]) -> dict[str, object]:
+def _coerce(
+    record: Mapping[str, object],
+    schema: Mapping[str, object],
+    note: Callable[[str], None] | None = None,
+) -> dict[str, object]:
     properties = as_record(schema.get("properties")) or {}
     return {
-        key: _coerce_scalar(value, as_record(properties.get(key))) for key, value in record.items()
+        key: _coerce_scalar(value, as_record(properties.get(key)), key=key, note=note)
+        for key, value in record.items()
     }
 
 
-def _coerce_scalar(value: object, prop_schema: Mapping[str, object] | None) -> object:
+def _coerce_scalar(
+    value: object,
+    prop_schema: Mapping[str, object] | None,
+    *,
+    key: str = "",
+    note: Callable[[str], None] | None = None,
+) -> object:
     if prop_schema is None or not isinstance(value, str):
         return value
     text = value.strip()
+    coerced = _coerce_temporal(text, prop_schema)  # item 56: canonicalize to ISO
+    if coerced is not None:
+        if coerced.ambiguous and note is not None:
+            note(f"field {key!r}: ambiguous date {text!r} read month-first as {coerced.canonical}")
+        return coerced.canonical
     match as_str(prop_schema.get("type")):
         case "integer":
             return int(text) if _is_int(text) else value
@@ -259,6 +282,38 @@ def _coerce_scalar(value: object, prop_schema: Mapping[str, object] | None) -> o
             return None if text == "null" else value
         case _:
             return value
+
+
+def _coerce_temporal(text: str, prop_schema: Mapping[str, object]) -> CoercedTemporal | None:
+    """The property's canonical temporal reading, or None (not temporal, or
+    unreadable — ``_check_temporal`` turns unreadable into the repair message)."""
+    match as_str(prop_schema.get("format")):
+        case "date":
+            return coerce_date(text)
+        case "date-time":
+            return coerce_datetime(text)
+        case _:
+            return None
+
+
+def _check_temporal(record: Mapping[str, object], schema: Mapping[str, object]) -> None:
+    """A date/datetime field the coercion could not read is a normal type miss:
+    the ItemError feeds the single repair rung, then the item skips."""
+    properties = as_record(schema.get("properties")) or {}
+    for key, value in record.items():
+        prop = as_record(properties.get(key))
+        if prop is None or not isinstance(value, str):
+            continue
+        match as_str(prop.get("format")):
+            case "date" if coerce_date(value) is None:
+                raise ItemError(f"field {key!r} is not a date: {value!r} (write it as YYYY-MM-DD)")
+            case "date-time" if coerce_datetime(value) is None:
+                raise ItemError(
+                    f"field {key!r} is not a datetime: {value!r} "
+                    "(write it as ISO-8601, e.g. 2026-01-15T14:30:00)"
+                )
+            case _:
+                pass
 
 
 def _drop_extra(record: dict[str, object], schema: Mapping[str, object]) -> dict[str, object]:

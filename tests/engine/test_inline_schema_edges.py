@@ -200,3 +200,24 @@ def test_literal_braces_coexist_with_typed_groups() -> None:
 
 def test_typed_enum_group_is_strict() -> None:
     assert is_strict_compatible(_schema("Extract {status enum(paid, unpaid), n number}")) is True
+
+
+# --- date/datetime braces (ledger item 56) ---------------------------------------
+
+
+def test_date_brace_compiles_to_string_format_date() -> None:
+    assert _properties("Extract {due date}") == {"due": {"type": "string", "format": "date"}}
+
+
+def test_datetime_brace_compiles_to_string_format_date_time() -> None:
+    assert _properties("Extract {ts datetime}") == {"ts": {"type": "string", "format": "date-time"}}
+
+
+def test_date_brace_with_guidance_keeps_both() -> None:
+    assert _properties("Extract {due date: the invoice due date}") == {
+        "due": {"type": "string", "format": "date", "description": "the invoice due date"}
+    }
+
+
+def test_temporal_braces_stay_strict_compatible() -> None:
+    assert is_strict_compatible(_schema("Extract {due date, ts datetime}")) is True

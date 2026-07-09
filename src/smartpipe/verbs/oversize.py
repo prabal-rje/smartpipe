@@ -291,13 +291,17 @@ async def _extract_chunk(
     is a per-item error (chunk partials never become --keep-invalid rows —
     only the merged record can)."""
     assert plan.schema is not None
+    from smartpipe.verbs.common import note_ambiguous_temporal
+
     request = build_map_request(plan, instruction, chunk, media=media)
     reply = await model.complete(request)
     try:
-        return validate_and_coerce(reply, plan.schema)
+        return validate_and_coerce(reply, plan.schema, note=note_ambiguous_temporal)
     except ItemError as first_error:
         repair = build_repair_request(request, bad_reply=reply, error=str(first_error))
-        return validate_and_coerce(await model.complete(repair), plan.schema)
+        return validate_and_coerce(
+            await model.complete(repair), plan.schema, note=note_ambiguous_temporal
+        )
 
 
 async def _merge(
@@ -310,15 +314,17 @@ async def _merge(
 ) -> Mapping[str, object]:
     """ONE final merge call against the same schema."""
     assert plan.schema is not None
+    from smartpipe.verbs.common import note_ambiguous_temporal
+
     request = build_merge_request(instruction, records, plan.schema)
     reply = await model.complete(request)
     try:
-        return validate_and_coerce(reply, plan.schema)
+        return validate_and_coerce(reply, plan.schema, note=note_ambiguous_temporal)
     except ItemError as first_error:
         repair = build_repair_request(request, bad_reply=reply, error=str(first_error))
         repaired = await model.complete(repair)
         try:
-            return validate_and_coerce(repaired, plan.schema)
+            return validate_and_coerce(repaired, plan.schema, note=note_ambiguous_temporal)
         except ItemError as second_error:
             if not keep_invalid:
                 raise

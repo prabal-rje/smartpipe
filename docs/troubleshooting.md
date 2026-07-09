@@ -138,9 +138,9 @@ is `--prompt-file FILE`.
 
 The [schema DSL](concepts/structured-output.md) parses before any model call,
 so typos cost nothing. The message lists the whole grammar - types
-(`string`, `number`, `integer`, `boolean`, `enum(a, b)`, `string[]`,
-`number[]`) and constraints (`>= N`, `<= N`, `minLength=N`, `maxLength=N`,
-`optional`).
+(`string`, `number`, `integer`, `boolean`, `date`, `datetime`,
+`enum(a, b)`, `string[]`, `number[]`) and constraints (`>= N`, `<= N`,
+`minLength=N`, `maxLength=N`, `optional`).
 
 ## "⚠ skipped: line N (…)" - but the run continued
 

@@ -17,11 +17,15 @@ answer may honestly be absent, and a plain-English description when the model
 needs a hint:
 
 ```bash
-smartpipe map "Extract {vendor string: the legal name, total number, po_number string?}"
+smartpipe map "Extract {vendor string: the legal name, due date: the invoice due date, total number}"
 ```
 
-Types: `string` · `number` · `integer` · `boolean` · `enum(a, b, …)` ·
-`string[]` · `number[]` - and `enum` is the workhorse for labels:
+Types: `string` · `number` · `integer` · `boolean` · `date` · `datetime` ·
+`enum(a, b, …)` · `string[]` · `number[]`. A `date` field always comes back
+as `YYYY-MM-DD` (a `datetime` as full ISO-8601) no matter how the model
+phrases it, so `where 'due >= "2026-01-01"'`, `sort --by due`, and
+`summarize 'count() by bin(due, 1d)'` all work downstream. And `enum` is
+the workhorse for labels:
 
 ```bash
 cat tickets.jsonl \

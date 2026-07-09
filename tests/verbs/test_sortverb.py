@@ -45,3 +45,53 @@ def test_desc_strings_reverse() -> None:
 def test_stable_on_ties_and_byte_faithful() -> None:
     out, _ = _run("s", '{"s": 1,   "id": "first"}\n{"s": 1, "id": "second"}\n')
     assert out.splitlines()[0] == '{"s": 1,   "id": "first"}'  # tie keeps order, bytes kept
+
+
+# --- temporal columns (ledger item 56) --------------------------------------------
+
+
+def test_mixed_date_and_datetime_columns_order_temporally() -> None:
+    # a date reads as its midnight: it lands between the previous evening and
+    # the first second of its own day
+    out, _ = _run(
+        "ts",
+        '{"ts": "2026-01-15T00:00:01"}\n{"ts": "2026-01-15"}\n{"ts": "2026-01-14T23:00:00"}\n',
+    )
+    assert out.splitlines() == [
+        '{"ts": "2026-01-14T23:00:00"}',
+        '{"ts": "2026-01-15"}',
+        '{"ts": "2026-01-15T00:00:01"}',
+    ]
+
+
+def test_offsets_order_by_instant_not_by_text() -> None:
+    # 09:00+05:30 is 03:30Z — lexicographic text order would invert these
+    out, _ = _run("ts", '{"ts": "2026-01-15T04:00:00Z"}\n{"ts": "2026-01-15T09:00:00+05:30"}\n')
+    assert out.splitlines() == [
+        '{"ts": "2026-01-15T09:00:00+05:30"}',
+        '{"ts": "2026-01-15T04:00:00Z"}',
+    ]
+
+
+def test_temporal_descending_flips_and_missing_stays_last() -> None:
+    out, err = _run(
+        "due",
+        '{"due": "2026-01-01"}\n{"x": 1}\n{"due": "2026-03-01"}\n',
+        descending=True,
+    )
+    assert out.splitlines() == ['{"due": "2026-03-01"}', '{"due": "2026-01-01"}', '{"x": 1}']
+    assert "1 rows missing 'due' placed last" in err
+
+
+def test_temporal_ties_stay_stable() -> None:
+    out, _ = _run("due", '{"due": "2026-01-15", "id": 1}\n{"due": "2026-01-15T00:00", "id": 2}\n')
+    assert out.splitlines() == [
+        '{"due": "2026-01-15", "id": 1}',
+        '{"due": "2026-01-15T00:00", "id": 2}',
+    ]
+
+
+def test_mixed_temporal_and_plain_columns_keep_the_existing_bands() -> None:
+    # one non-ISO value → the whole column falls back to number/string bands
+    out, _ = _run("v", '{"v": "2026-01-15"}\n{"v": "soonish"}\n{"v": 7}\n')
+    assert out.splitlines() == ['{"v": 7}', '{"v": "2026-01-15"}', '{"v": "soonish"}']

@@ -41,7 +41,8 @@ def parse_bucket(text: str) -> int:
 
 def parse_timestamp(value: object) -> float | None:
     """Epoch seconds from ISO-8601 or epoch numbers; None means unparseable
-    (the caller tallies and discloses — silence must never lie)."""
+    (the caller tallies and discloses — silence must never lie). A date-only
+    value (item 56: ``{due date}`` output) reads as its UTC midnight."""
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):

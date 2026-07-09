@@ -124,3 +124,43 @@ def test_bad_regex_quotes_the_re_error() -> None:
 def test_trailing_tokens_are_rejected() -> None:
     with pytest.raises(UsageFault):
         parse_predicate('text has "x" total')
+
+
+# --- temporal comparisons (ledger item 56) ----------------------------------------
+
+
+def test_iso_dates_compare_temporally() -> None:
+    assert _matches('due >= "2026-01-01"', '{"due": "2026-01-15"}')
+    assert not _matches('due >= "2026-01-01"', '{"due": "2025-12-31"}')
+    assert _matches('due < "2026-02-01"', '{"due": "2026-01-15"}')
+
+
+def test_date_vs_datetime_promotes_date_to_midnight() -> None:
+    assert _matches('ts >= "2026-01-15"', '{"ts": "2026-01-15T00:00:01"}')
+    assert not _matches('ts < "2026-01-15"', '{"ts": "2026-01-15T00:00:00"}')
+    assert _matches('ts == "2026-01-15"', '{"ts": "2026-01-15T00:00:00"}')
+
+
+def test_temporal_equality_sees_through_spellings() -> None:
+    # the same instant, two ISO spellings — string equality would miss it
+    assert _matches('ts == "2026-01-15T02:00:00+02:00"', '{"ts": "2026-01-15T00:00:00Z"}')
+    assert _matches('ts != "2026-01-15T00:00:01Z"', '{"ts": "2026-01-15T00:00:00Z"}')
+
+
+def test_offsets_are_honored_in_ordering() -> None:
+    # 09:00+05:30 is 03:30Z — before 04:00Z
+    assert _matches('ts < "2026-01-15T04:00:00Z"', '{"ts": "2026-01-15T09:00:00+05:30"}')
+
+
+def test_temporal_against_non_temporal_falls_back_to_existing_rules() -> None:
+    # ordered compare on a non-ISO string: no match, tallied non-numeric
+    tally = FieldTally()
+    node = parse_predicate('due >= "2026-01-01"')
+    assert evaluate(node, item_from_line('{"due": "soonish"}', 0), tally) is False
+    assert tally.non_numeric["due"] == 1
+    # equality falls back to plain string equality
+    assert _matches('due == "soonish"', '{"due": "soonish"}')
+
+
+def test_numbers_keep_numeric_rules_not_temporal() -> None:
+    assert _matches("n >= 20260101", '{"n": 20260115}')  # plain numbers, untouched
