@@ -305,3 +305,39 @@ def test_paste_lines_with_and_without_a_save() -> None:
         "  --schema schema.json",
     )
     assert paste_lines((), saved=None) == ()
+
+
+# --- object lists (item 16) and temporal tokens survive the round trip -------------
+
+
+@pytest.mark.parametrize("token", ["date", "datetime", "date?"])
+def test_type_text_of_round_trips_temporal_tokens(token: str) -> None:
+    from smartpipe.engine.schema_dsl import type_token
+
+    prop = type_token(token)
+    assert prop is not None
+    assert type_text_of(prop) == token
+
+
+def test_type_text_of_renders_an_object_list_in_braces_words() -> None:
+    from smartpipe.engine.prompts import brace_props, parse_prompt
+
+    tokens = parse_prompt(
+        "{triples {subject, relation string: the verb, object}[]}", allow_descriptions=True
+    )
+    prop = brace_props(tokens)["triples"]
+    assert type_text_of(prop) == "{subject, relation string: the verb, object}[]"
+
+
+def test_pasting_an_object_list_round_trips_through_the_workshop() -> None:
+    text = "Extract {summary string, triples {subject, relation, object}[]: all triples}"
+    draft = draft_from_braces(text)
+    assert [field.name for field in draft] == ["summary", "triples"]
+    assert draft[1].type_text == "{subject, relation, object}[]"
+    assert draft[1].guidance == "all triples"
+    rendered = render_braces(draft)
+    from smartpipe.engine.prompts import parse_prompt, plan_map
+
+    replayed = plan_map(parse_prompt(rendered, allow_descriptions=True), schema=None)
+    original = plan_map(parse_prompt(text, allow_descriptions=True), schema=None)
+    assert replayed.schema == original.schema

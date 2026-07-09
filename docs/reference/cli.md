@@ -165,7 +165,7 @@ schema workshop — free, no model calls
 
 | Command | Effect |
 |---|---|
-| `/add NAME TYPE [: guidance]` | Add a field. Types are the braces vocabulary: `string`, `number`, `integer`, `boolean`, `enum(a, b)`, `string[]`, `number[]`, a trailing `?` for nullable. |
+| `/add NAME TYPE [: guidance]` | Add a field. Types are the braces vocabulary: `string`, `number`, `integer`, `boolean`, `enum(a, b)`, `string[]`, `number[]`, `{a, b}[]` (an object list), a trailing `?` for nullable. |
 | `/drop NAME` | Remove a field. |
 | `/test FILE` | Validate the file's JSONL rows: a pass/fail tally, then a coverage bar per field (presence %, type misses). |
 | `/example` | One deterministic instance that validates - the same machinery as `--example`. |

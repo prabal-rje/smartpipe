@@ -161,11 +161,38 @@ def type_text_of(prop: Mapping[str, object]) -> str:
 
 
 def _base_text(kind: str, prop: Mapping[str, object]) -> str:
+    if kind == "string":
+        match prop.get("format"):  # item 56: the temporal types are strings on the wire
+            case "date":
+                return "date"
+            case "date-time":
+                return "datetime"
+            case _:
+                return "string"
     if kind != "array":
         return kind
     items = as_record(prop.get("items"))
+    if items is not None and as_record(items.get("properties")) is not None:
+        return _object_list_text(items)  # item 16: back into the braces' own words
     inner = items.get("type") if items is not None else None
     return f"{inner}[]" if isinstance(inner, str) else "array"
+
+
+def _object_list_text(items: Mapping[str, object]) -> str:
+    """An array-of-objects items schema → ``{name type: guidance, …}[]`` — the
+    exact text a paste round-trips through the real compiler."""
+    from smartpipe.engine.schema import BARE_PROPERTY
+
+    properties = as_record(items.get("properties")) or {}
+    pieces: list[str] = []
+    for name, raw_prop in properties.items():
+        prop = as_record(raw_prop) or {}
+        shape = {key: value for key, value in prop.items() if key != "description"}
+        typed = "" if shape == BARE_PROPERTY else f" {type_text_of(prop)}"
+        note = prop.get("description")
+        guidance = f": {note}" if isinstance(note, str) else ""
+        pieces.append(f"{name}{typed}{guidance}")
+    return "{" + ", ".join(pieces) + "}[]"
 
 
 # --- commands ---------------------------------------------------------------------------

@@ -8,7 +8,9 @@ and the verb-neutral helpers; per-verb prompt assembly lives alongside.
 
 Grammar:
     prompt      ::= (text | brace_group | "{{" | "}}")*
-    brace_group ::= "{" ws ident (ws "," ws ident)* ws "}"
+    brace_group ::= "{" ws field (ws "," ws field)* ws "}"
+    field       ::= ident [type | object_list] [":" description]     (map only)
+    object_list ::= "{" ws field (ws "," ws field)* ws "}" "[]"      (item 16; one level)
     ident       ::= [A-Za-z_][A-Za-z0-9_]*
 """
 
@@ -65,6 +67,7 @@ __all__ = [
     "has_brace",
     "interpolate_fields",
     "interpolate_join",
+    "object_list_type",
     "parse_join_predicate",
     "parse_prompt",
     "plan_map",
@@ -621,31 +624,51 @@ def _render_value(value: object) -> str:
 
 
 def _find_close(text: str, start: int) -> int:
-    close = text.find("}", start + 1)
-    if close == -1:
-        raise UsageFault("unclosed '{' in prompt — did you mean '{{' for a literal brace?")
-    return close
+    """The matching ``}`` for the ``{`` at ``start`` — depth-aware, so an inner
+    object-list group (item 16) never ends the outer group early."""
+    depth = 0
+    for index in range(start, len(text)):
+        match text[index]:
+            case "{":
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth == 0:
+                    return index
+            case _:
+                pass
+    raise UsageFault("unclosed '{' in prompt — did you mean '{{' for a literal brace?")
 
 
 def _split_top_level(inner: str, raw: str) -> list[str]:
-    """Split on commas OUTSIDE parentheses — enum(a, b) survives whole (D37).
+    """Split on commas OUTSIDE parentheses and braces — enum(a, b) and inner
+    object groups survive whole (D37, item 16).
 
     Unbalanced parens are a loud error: a stray "(" would otherwise swallow
-    every following comma (and the fields behind them) into one description."""
+    every following comma (and the fields behind them) into one description.
+    Braces arrive balanced — ``_find_close`` matched them already."""
     parts: list[str] = []
     depth = 0
+    braces = 0
     current = ""
     for char in inner:
-        if char == "(":
-            depth += 1
-        elif char == ")":
-            depth -= 1
-            if depth < 0:
-                raise UsageFault(
-                    f"unbalanced parentheses in field group: {raw}\n"
-                    "  Every '(' needs a ')' — enum(a, b) is the only paren form."
-                )
-        if char == "," and depth == 0:
+        match char:
+            case "(":
+                depth += 1
+            case ")":
+                depth -= 1
+                if depth < 0:
+                    raise UsageFault(
+                        f"unbalanced parentheses in field group: {raw}\n"
+                        "  Every '(' needs a ')' — enum(a, b) is the only paren form."
+                    )
+            case "{":
+                braces += 1
+            case "}":
+                braces -= 1
+            case _:
+                pass
+        if char == "," and depth == 0 and braces == 0:
             parts.append(current)
             current = ""
         else:
@@ -659,17 +682,43 @@ def _split_top_level(inner: str, raw: str) -> list[str]:
     return parts
 
 
+_OBJECT_LIST_CEILING = (
+    "object lists nest one level deep - flatten the inner structure or extract in two passes"
+)
+
+
 def _parse_group(
     text: str, start: int, ident: re.Pattern[str], *, allow_descriptions: bool = False
 ) -> tuple[BraceToken, int]:
     close = _find_close(text, start)
     raw = text[start : close + 1]
     inner = text[start + 1 : close]
+    names, notes, props = _parse_fields(
+        inner, raw, ident, allow_descriptions=allow_descriptions, nested=False
+    )
+    described = tuple(notes) if any(note is not None for note in notes) else ()
+    typed = tuple(props) if any(prop is not None for prop in props) else ()
+    return BraceToken(tuple(names), raw, described, typed), close + 1
+
+
+def _parse_fields(
+    inner: str, raw: str, ident: re.Pattern[str], *, allow_descriptions: bool, nested: bool
+) -> tuple[list[str], list[str | None], list[Mapping[str, object] | None]]:
+    """The comma-separated fields of one brace group. ``nested`` marks an
+    object list's inner group, where another object list is the ceiling."""
     parts = tuple(part.strip() for part in _split_top_level(inner, raw))
     names: list[str] = []
     notes: list[str | None] = []
     props: list[Mapping[str, object] | None] = []
     for part in parts:
+        if allow_descriptions and "{" in part:
+            if nested:
+                raise UsageFault(f"{_OBJECT_LIST_CEILING}\n  in: {raw}")
+            list_name, list_note, list_prop = _parse_object_list_field(part, raw, ident)
+            names.append(list_name)
+            notes.append(list_note)
+            props.append(list_prop)
+            continue
         head, colon, description = part.partition(":")
         head = head.strip()
         if not allow_descriptions:
@@ -714,6 +763,67 @@ def _parse_group(
             f"invalid field group: {raw}\n"
             "  field names must be identifiers (letters, digits, underscores), comma-separated"
         )
-    described = tuple(notes) if any(note is not None for note in notes) else ()
-    typed = tuple(props) if any(prop is not None for prop in props) else ()
-    return BraceToken(tuple(names), raw, described, typed), close + 1
+    return names, notes, props
+
+
+def _parse_object_list_field(
+    part: str, raw: str, ident: re.Pattern[str]
+) -> tuple[str, str | None, Mapping[str, object]]:
+    """One ``name {inner, fields}[] [: description]`` field (item 16)."""
+    name, _brace, rest = part.partition("{")
+    group = "{" + rest
+    prop, end = _object_list_prop(group, raw, ident)
+    remainder = group[end:].strip()
+    note: str | None = None
+    if remainder.startswith(":"):
+        note = remainder[1:].strip()
+        if not note:
+            raise UsageFault(
+                f"{{{part}}} names field {name.strip()!r} with an empty description\n"
+                "  Write a description after the colon, or drop the colon."
+            )
+        remainder = ""
+    if remainder:
+        raise UsageFault(
+            f"{{{part}}} — unexpected {remainder!r} after the object list\n"
+            "  Only a ': description' may follow {…}[]."
+        )
+    return name.strip(), note, prop
+
+
+def _object_list_prop(
+    group: str, raw: str, ident: re.Pattern[str]
+) -> tuple[dict[str, object], int]:
+    """``{inner, fields}[]`` at the head of ``group`` → the array-of-objects
+    property and the index just past the ``[]``. Inner fields speak the full
+    braces grammar — types, enums, ``: guidance`` — but never another object
+    list (the one-level ceiling)."""
+    close = _find_close(group, 0)
+    names, notes, props = _parse_fields(
+        group[1:close], raw, ident, allow_descriptions=True, nested=True
+    )
+    if len(set(names)) != len(names):
+        raise UsageFault(
+            f"a field is named twice inside the object list: {raw}\n  Name each inner field once."
+        )
+    if not group[close + 1 :].startswith("[]"):
+        raise UsageFault(
+            f"an inner brace group must be a list — write {{…}}[]: {raw}\n"
+            "  Example: {events {name string, when date}[]} — a list of objects"
+        )
+    items = shorthand_to_schema(
+        names,
+        descriptions={
+            name: note for name, note in zip(names, notes, strict=True) if note is not None
+        },
+        types={name: prop for name, prop in zip(names, props, strict=True) if prop is not None},
+    )
+    return {"type": "array", "items": items}, close + 3
+
+
+def object_list_type(text: str) -> tuple[dict[str, object], str]:
+    """The ``--schema-from`` home of the object-list type (one grammar, two
+    homes): ``{inner, fields}[] remainder`` → the compiled property and the
+    unconsumed remainder (DSL constraints)."""
+    prop, end = _object_list_prop(text, text, _IDENT)
+    return prop, text[end:].strip()

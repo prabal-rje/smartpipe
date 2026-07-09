@@ -298,9 +298,38 @@ def _coerce(
 ) -> dict[str, object]:
     properties = as_record(schema.get("properties")) or {}
     return {
-        key: _coerce_scalar(value, as_record(properties.get(key)), key=key, note=note)
+        key: _coerce_value(value, as_record(properties.get(key)), key=key, note=note)
         for key, value in record.items()
     }
+
+
+def _coerce_value(
+    value: object,
+    prop_schema: Mapping[str, object] | None,
+    *,
+    key: str,
+    note: Callable[[str], None] | None,
+) -> object:
+    """Scalars coerce in place; an object list (item 16) coerces each inner
+    record against the items schema — dates canonicalize per element."""
+    if prop_schema is None:
+        return value
+    items = _object_items(prop_schema)
+    elements = as_items(value) if items is not None else None
+    if items is not None and elements is not None:
+        return [
+            _coerce(inner, items, note) if (inner := as_record(element)) is not None else element
+            for element in elements
+        ]
+    return _coerce_scalar(value, prop_schema, key=key, note=note)
+
+
+def _object_items(prop_schema: Mapping[str, object]) -> Mapping[str, object] | None:
+    """The items schema when the property is an array of objects, else None."""
+    items = as_record(prop_schema.get("items"))
+    if items is not None and _looks_like_object(items):
+        return items
+    return None
 
 
 def _coerce_scalar(
@@ -345,11 +374,22 @@ def _coerce_temporal(text: str, prop_schema: Mapping[str, object]) -> CoercedTem
 
 def _check_temporal(record: Mapping[str, object], schema: Mapping[str, object]) -> None:
     """A date/datetime field the coercion could not read is a normal type miss:
-    the ItemError feeds the single repair rung, then the item skips."""
+    the ItemError feeds the single repair rung, then the item skips. Object
+    lists (item 16) check each inner record against the items schema."""
     properties = as_record(schema.get("properties")) or {}
     for key, value in record.items():
         prop = as_record(properties.get(key))
-        if prop is None or not isinstance(value, str):
+        if prop is None:
+            continue
+        items = _object_items(prop)
+        elements = as_items(value) if items is not None else None
+        if items is not None and elements is not None:
+            for element in elements:
+                inner = as_record(element)
+                if inner is not None:
+                    _check_temporal(inner, items)
+            continue
+        if not isinstance(value, str):
             continue
         match as_str(prop.get("format")):
             case "date" if coerce_date(value) is None:
@@ -364,10 +404,28 @@ def _check_temporal(record: Mapping[str, object], schema: Mapping[str, object]) 
 
 
 def _drop_extra(record: dict[str, object], schema: Mapping[str, object]) -> dict[str, object]:
-    if schema.get("additionalProperties") is not False:
-        return record
-    allowed = as_record(schema.get("properties")) or {}
-    return {key: value for key, value in record.items() if key in allowed}
+    properties = as_record(schema.get("properties")) or {}
+    strict = schema.get("additionalProperties") is False
+    return {
+        key: _drop_extra_value(value, as_record(properties.get(key)))
+        for key, value in record.items()
+        if not strict or key in properties
+    }
+
+
+def _drop_extra_value(value: object, prop_schema: Mapping[str, object] | None) -> object:
+    """Object lists (item 16) trim each inner record by the items schema —
+    the same drop-extra courtesy the top level gets."""
+    if prop_schema is None:
+        return value
+    items = _object_items(prop_schema)
+    elements = as_items(value) if items is not None else None
+    if items is None or elements is None:
+        return value
+    return [
+        _drop_extra(dict(inner), items) if (inner := as_record(element)) is not None else element
+        for element in elements
+    ]
 
 
 def _is_int(text: str) -> bool:

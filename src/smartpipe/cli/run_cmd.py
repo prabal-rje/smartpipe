@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 import click
 
 from smartpipe.cli.sem_file import parse_pipeline, parse_sem
+from smartpipe.io import progress
 
 if TYPE_CHECKING:
     from smartpipe.cli.sem_file import Stage
@@ -126,9 +127,11 @@ def _run_pipeline(stages: tuple[Stage, ...]) -> None:
         sys.stdin = stage_in  # type: ignore[assignment]
         sys.stdout = stage_out  # type: ignore[assignment]
         sys.stderr = _PrefixedStderr(f"[{stage.name}] ", real_stderr)  # type: ignore[assignment]
+        progress.set_stage_label(stage.name)  # status lines wear the receipt prefix
         try:
             _invoke(list(stage.argv))
         finally:
+            progress.set_stage_label(None)
             sys.stdin, sys.stdout, sys.stderr = real_stdin, real_stdout, real_stderr
         if not last:
             assert isinstance(stage_out, io.StringIO)

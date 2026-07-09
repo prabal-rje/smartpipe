@@ -7,34 +7,39 @@ import pytest
 from smartpipe.io import tty
 from smartpipe.io.progress import (
     Spinner,
-    format_eta,
     make_stderr_spinner,
-    render_known,
     render_unknown,
+    set_stage_label,
+    stage_label,
 )
 
 # --- pure formatting ----------------------------------------------------------
 
 
-def test_format_eta() -> None:
-    assert format_eta(45) == "45s"
-    assert format_eta(132) == "2m12s"
-    assert format_eta(3723) == "1h2m"
-    assert format_eta(0) == "0s"
-
-
-def test_render_known_matches_the_spec_line() -> None:
-    line = render_known("⠋", done=243, total=500, eta_seconds=132)
-    assert line == "⠋ Processing 500 items [243/500] 48%  ~2m12s remaining"
-
-
-def test_render_known_without_eta_before_warmup() -> None:
-    line = render_known("⠋", done=2, total=500, eta_seconds=None)
-    assert line == "⠋ Processing 500 items [2/500] 0%"
-
-
 def test_render_unknown_shows_rate() -> None:
     assert render_unknown("⠋", done=243, rate=3.1) == "⠋ Processing [243] 3.1/s"
+
+
+def test_render_unknown_carries_matched_and_extra_segments() -> None:
+    line = render_unknown("⠋", done=9, rate=3.0, matched=4, extra="bug 3 · praise 1")
+    assert line == "⠋ Processing [9] 3.0/s · 4 matched · bug 3 · praise 1"
+
+
+def test_draw_appends_the_live_metering_segment(monkeypatch: pytest.MonkeyPatch) -> None:
+    from smartpipe.io import metering
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    metering.add_tokens(tokens_in=100, tokens_out=20)
+    try:
+        stream = io.StringIO()
+        clock = _Clock()
+        spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock)
+        spinner.start(total=4)
+        clock.t = 2.0
+        spinner.advance()
+        assert stream.getvalue().count("   ↑100 ↓20 tok") == 1
+    finally:
+        metering.reset()
 
 
 # --- Spinner behaviour --------------------------------------------------------
@@ -58,7 +63,7 @@ def test_disabled_spinner_writes_nothing() -> None:
     assert stream.getvalue() == ""
 
 
-def test_enabled_spinner_draws_and_clears() -> None:
+def test_enabled_spinner_draws_the_bar_and_clears() -> None:
     stream = io.StringIO()
     clock = _Clock()
     spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock)
@@ -67,10 +72,32 @@ def test_enabled_spinner_draws_and_clears() -> None:
     spinner.advance()
     output = stream.getvalue()
     assert "\r" in output
-    assert "Processing 3 items" in output
-    assert "[1/3]" in output
+    assert "33% · 1/3" in output  # the determinate bar, not the old count line
+    assert "Processing" not in output
     spinner.finish()
     assert stream.getvalue().endswith("\x1b[K")  # line cleared on finish
+
+
+def test_known_total_draw_is_the_pinned_bar_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    stream = io.StringIO()
+    clock = _Clock()
+    spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock)
+    spinner.start(total=4)
+    clock.t = 2.0
+    spinner.advance()  # done=1, rate 0.5/s → eta (3 / 0.5) = 6s
+    assert stream.getvalue() == "\r[==>............] 25% · 1/4 · 0.5/s · ~6s left\x1b[K"
+
+
+def test_unknown_total_draw_is_byte_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    stream = io.StringIO()
+    clock = _Clock()
+    spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock)
+    spinner.start(total=None)
+    clock.t = 2.0
+    spinner.advance()
+    assert stream.getvalue() == "\r- Processing [1] 0.5/s\x1b[K"
 
 
 def test_spinner_throttles_redraws() -> None:
@@ -95,7 +122,29 @@ def test_spinner_always_draws_final_item() -> None:
     spinner.advance()  # throttled maybe
     clock.t += 0.001
     spinner.advance()  # last item — must draw regardless of throttle
-    assert "[2/2]" in stream.getvalue()
+    assert "100% · 2/2" in stream.getvalue()
+
+
+def test_stage_label_prefixes_the_bar(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    stream = io.StringIO()
+    clock = _Clock()
+    spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock, label="extract")
+    spinner.start(total=4)
+    clock.t = 2.0
+    spinner.advance()
+    assert stream.getvalue().startswith("\r[extract] [==>............] 25% · 1/4")
+
+
+def test_stage_label_prefixes_the_unknown_total_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    stream = io.StringIO()
+    clock = _Clock()
+    spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock, label="extract")
+    spinner.start(total=None)
+    clock.t = 2.0
+    spinner.advance()
+    assert stream.getvalue() == "\r[extract] - Processing [1] 0.5/s\x1b[K"
 
 
 def test_unknown_total_spinner_shows_running_count_and_rate() -> None:
@@ -200,6 +249,20 @@ def test_spinner_enabled_only_at_the_final_stage(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
     monkeypatch.setattr(tty, "stdout_is_tty", lambda: True)
     assert make_stderr_spinner().enabled is True
+
+
+def test_make_stderr_spinner_wears_the_current_stage_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
+    monkeypatch.setattr(tty, "stdout_is_tty", lambda: True)
+    set_stage_label("extract")
+    try:
+        assert make_stderr_spinner().label == "extract"
+        assert stage_label() == "extract"
+    finally:
+        set_stage_label(None)
+    assert make_stderr_spinner().label is None
 
 
 def test_guarded_flush_reaches_the_target() -> None:

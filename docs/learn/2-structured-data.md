@@ -29,9 +29,9 @@ When the instruction outgrows one line, keep it in a file and pass
 still live grammar.
 
 Types: `string` · `number` · `integer` · `boolean` · `date` · `datetime` ·
-`enum(a, b, …)` · `string[]` · `number[]`. A `date` field always comes back
-as `YYYY-MM-DD` (a `datetime` as full ISO-8601) no matter how the model
-phrases it, so `where 'due >= "2026-01-01"'`, `sort --by due`, and
+`enum(a, b, …)` · `string[]` · `number[]` · `{a, b}[]`. A `date` field always
+comes back as `YYYY-MM-DD` (a `datetime` as full ISO-8601) no matter how the
+model phrases it, so `where 'due >= "2026-01-01"'`, `sort --by due`, and
 `summarize 'count() by bin(due, 1d)'` all work downstream. And `enum` is
 the workhorse for labels:
 
@@ -42,6 +42,23 @@ cat tickets.jsonl \
 
 `--tally label` keeps a live count on the status line and prints the final
 distribution - the fastest sanity check that your labels make sense.
+
+## Lists of objects
+
+When one item holds several records - events, entities, line items - an inner
+brace group followed by `[]` extracts them all at once, typed:
+
+```bash
+echo 'Kickoff Jan 15 2026 went fine; the Mar 3 2026 launch was rough' \
+| smartpipe map "List {events {name string, when date, severity enum(low, high)}[]}"
+# → {"events": [{"name": "kickoff", "when": "2026-01-15", "severity": "low"}, {"name": "launch", "when": "2026-03-03", "severity": "high"}]}
+```
+
+Inner fields take the same types and `: guidance` as outer ones, and inner
+`date` fields still canonicalize. Add `--explode events` to get one row per
+event, ready for `where` and `summarize`. One rule: object lists nest one
+level deep - if the inner objects need structure of their own, flatten it or
+extract in two passes.
 
 ## Records in, records out
 

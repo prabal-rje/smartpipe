@@ -269,3 +269,28 @@ def test_workshop_session_matches_golden(tmp_path: Path, monkeypatch: pytest.Mon
     assert rendered == path.read_text(encoding="utf-8"), (
         "the workshop transcript drifted from its golden; if intended, run: make golden"
     )
+
+
+def test_pasting_an_object_list_is_accepted_and_renders_back(tmp_path: Path) -> None:
+    """Item 16: the workshop compiles pastes through the real braces compiler,
+    so an object list lands as one field, renders in the braces' own words,
+    and saves a nested schema."""
+    target = tmp_path / "triples.json"
+    result, transcript = _drive(
+        ["Extract {triples {subject, relation, object}[]: all triples}", f"/save {target}", "/quit"]
+    )
+    assert [field.name for field in result.draft] == ["triples"]
+    assert result.draft[0].type_text == "{subject, relation, object}[]"
+    assert result.draft[0].guidance == "all triples"
+    assert "✓ draft replaced · 1 field" in transcript
+    braces = "{triples {subject, relation, object}[]: all triples}"
+    assert any(braces in line for line in transcript)
+    saved = json.loads(target.read_text(encoding="utf-8"))
+    items = saved["properties"]["triples"]["items"]
+    assert items["required"] == ["subject", "relation", "object"]
+
+
+def test_the_ceiling_fault_reaches_the_workshop_transcript() -> None:
+    result, transcript = _drive(["{a {b {c}[]}[]}", "/quit"])
+    assert result.draft == ()
+    assert any("object lists nest one level deep" in line for line in transcript)

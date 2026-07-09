@@ -51,6 +51,26 @@ naive. That makes the fields safe for `where`, `sort --by`, `summarize`'s
 `bin()`, and `chart --by-time` downstream. These are deliberately the only
 two: no time-alone, no durations, no epoch numbers.
 
+### Object lists - one level of nesting
+
+An inner brace group followed by `[]` asks for a **list of objects** with
+those (typed) fields:
+
+```bash
+echo 'Acme acquired Globex in 1996; Globex was founded in 1989' \
+| smartpipe map "Extract {triples {subject, relation, object}[]}"
+# → {"triples": [{"subject": "Acme", "relation": "acquired", "object": "Globex"}, {"subject": "Globex", "relation": "founded", "object": "1989"}]}
+```
+
+Inner fields speak the full type vocabulary and take `: guidance` exactly
+like outer fields - `{events {name string, when date, severity enum(low,
+high)}[]: every notable event}` - and an inner `date` canonicalizes per
+record. Add [`--explode events`](../verbs/map.md) for one row per inner
+object. The same type works in the DSL: `--schema-from "events {name string,
+when date}[]"`. Nesting stops at one level, deliberately: an object list
+inside an object list is refused (`object lists nest one level deep -
+flatten the inner structure or extract in two passes`).
+
 ## Already have Pydantic or Zod models? Export them
 
 JSON Schema is the interchange format, and both libraries emit it in one line.
@@ -80,7 +100,7 @@ covers it.)
 `field type constraints; field type …` - semicolon-separated:
 
 - Types: `string` · `number` · `integer` · `boolean` · `date` · `datetime` ·
-  `enum(a, b, …)` · `string[]` · `number[]`
+  `enum(a, b, …)` · `string[]` · `number[]` · `{a, b}[]` (an object list)
 - Constraints: `>= N` · `<= N` (numbers) · `minLength=N` · `maxLength=N`
   (strings) · `optional`
 
