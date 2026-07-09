@@ -31,9 +31,10 @@ __all__ = ["read_command"]
 @click.option(
     "--as",
     "as_mode",
-    type=click.Choice(["file", "lines", "jsonl"]),
+    type=click.Choice(["file", "lines", "jsonl", "csv"]),
     default=None,
-    help="Cut granularity: file = one item per file; lines = text rows; jsonl = strict records.",
+    help="Cut granularity: file = one item per file; lines = text rows; "
+    "jsonl = strict records; csv = header-named rows.",
 )
 def read_command(paths: tuple[str, ...], as_mode: str | None, bare: bool) -> None:
     """Emit the named files' items as JSONL records (reader mode).
@@ -43,6 +44,7 @@ def read_command(paths: tuple[str, ...], as_mode: str | None, bare: bool) -> Non
       smartpipe report.pdf                     # one record: the whole document
       smartpipe notes.txt --as lines           # one record per line
       smartpipe 'logs/*.jsonl'                 # strict records, per row
+      smartpipe export.csv                     # header-named records, per row
     """
     code = asyncio.run(_run(InputSpec(patterns=paths, from_files=False, as_mode=as_mode), bare))
     if code is not ExitCode.OK:

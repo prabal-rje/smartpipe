@@ -15,7 +15,10 @@ cat nps-w28.jsonl \
 One pipe replaces an afternoon of manual coding: `where` cuts to detractors
 for free, and `cluster --top 8` emits exactly the slide content -
 `{cluster, size, share, examples}` - with a cost preview before anything is
-spent. Labels run at temperature 0, so the re-run names the same themes next
+spent. If the survey tool hands you `nps-w28.csv` instead, start the pipe with
+reader mode: `smartpipe nps-w28.csv | smartpipe where 'score <= 6' | …` - the
+header row names the fields and each row arrives as a record
+([csv rows](../concepts/feeding-smartpipe.md#csv-rows)). Labels run at temperature 0, so the re-run names the same themes next
 Monday. If copy-paste review spam inflates the counts, put a
 [`distinct`](../verbs/distinct.md) stage before `cluster`.
 

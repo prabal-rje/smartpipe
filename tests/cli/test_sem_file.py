@@ -114,6 +114,25 @@ def test_from_files_true_emits_the_flag(tmp_path: Path) -> None:
     assert parse_sem(path) == ["embed", "--from-files"]
 
 
+# --- the `as` key (items 15 + 54) --------------------------------------------------
+
+
+def test_as_key_emits_the_dial(tmp_path: Path) -> None:
+    path = _write(tmp_path, 'verb = "map"\nprompt = "x"\nas = "csv"\n')
+    assert parse_sem(path) == ["map", "x", "--as", "csv"]
+
+
+def test_as_key_on_split(tmp_path: Path) -> None:
+    path = _write(tmp_path, 'verb = "split"\nas = "lines"\n')
+    assert parse_sem(path) == ["split", "--as", "lines"]
+
+
+def test_as_key_rejects_an_unknown_mode(tmp_path: Path) -> None:
+    path = _write(tmp_path, 'verb = "map"\nprompt = "x"\nas = "rows"\n')
+    with pytest.raises(UsageFault, match=r"'as' should be one of"):
+        parse_sem(path)
+
+
 # --- the error table ---------------------------------------------------------------------
 
 
