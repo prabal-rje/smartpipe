@@ -31,7 +31,9 @@ cat receipts.txt \
 
 ## How it decides plain vs. structured
 
-One rule: **braces mean you want structured output.**
+One rule: **braces mean you want structured output.** Everything outside the
+braces is the instruction the model follows; the braces declare the fields to
+return.
 
 - No braces → **plain text**, one line out per input TEXT line. When the
   input is records (JSONL), the answer stays a record:
@@ -72,6 +74,7 @@ tail -f app.log \
 | `--output FORMAT` | `auto` (default) · `text` · `json`. `auto` = human-readable at a terminal, JSONL when piped |
 | `--concurrency N` | Max parallel model calls (default 4) |
 | `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md)) |
+| `@file` / `--prompt-file FILE` | Read the prompt from a file - for instructions that outgrow the command line |
 | `--whole` | Never auto-chunk oversized items: process whole or skip with an error |
 | `--verbose` / `--debug` | More detail on stderr / full tracebacks |
 

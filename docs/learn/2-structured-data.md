@@ -12,6 +12,10 @@ echo 'Invoice from Acme Corp, dated 2026-01-15, total $1250' \
 # → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 ```
 
+The prompt is still ordinary prose: everything outside the braces is the
+instruction the model follows ("Extract", here); the braces declare the
+fields to return.
+
 A bare field means "any scalar". Add a type when it matters, a `?` when the
 answer may honestly be absent, and a plain-English description when the model
 needs a hint:
@@ -20,12 +24,16 @@ needs a hint:
 smartpipe map "Extract {vendor string: the legal name, total number, po_number string?}"
 ```
 
+When the instruction outgrows one line, keep it in a file and pass
+`@extract.md` (or `--prompt-file extract.md`) - braces inside the file are
+still live grammar.
+
 Types: `string` · `number` · `integer` · `boolean` · `enum(a, b, …)` ·
 `string[]` · `number[]` - and `enum` is the workhorse for labels:
 
 ```bash
 cat tickets.jsonl \
-| smartpipe map "Classify {label enum(bug, praise, request)}" --tally label
+| smartpipe map "Classify this ticket. Add {label enum(bug, praise, request)}" --tally label
 ```
 
 `--tally label` keeps a live count on the status line and prints the final

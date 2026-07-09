@@ -17,9 +17,12 @@ echo 'Invoice from Acme Corp, dated 2026-01-15, total $1250' \
 # → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 ```
 
-A single field works too: `map "Extract {total}"`. Types are inferred by the model
-- suitable for exploration. To put a literal brace in a prompt, double it:
-`{{` and `}}`.
+Everything outside the braces is the instruction the model follows; the
+braces declare the fields to return. A single field works too:
+`map "Extract {total}"`. Types are inferred by the model - suitable for
+exploration. To put a literal brace in a prompt, double it: `{{` and `}}`.
+Long instruction? Keep it in a file and pass `@prompt.md` (or
+`--prompt-file prompt.md`); braces inside the file are still live grammar.
 
 ## The ladder, top to bottom
 

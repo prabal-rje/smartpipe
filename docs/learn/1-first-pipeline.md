@@ -85,7 +85,8 @@ as a single item ([feeding smartpipe](../concepts/feeding-smartpipe.md)).
 ## 4. Your first extraction
 
 Put field names in `{braces}` and smartpipe asks the model for structured data back,
-as JSON:
+as JSON. Everything outside the braces is the instruction the model follows;
+the braces declare the fields to return:
 
 ```bash
 echo 'Invoice from Acme Corp, dated 2026-01-15, total $1250' \
