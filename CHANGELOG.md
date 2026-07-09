@@ -10,6 +10,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 The identity release.
 
 ### The item — one law for everything in a pipe
+- **CSV is a first-class row format.** `--as csv` (and `.csv`/`.tsv`
+  extension defaults - tab dialect for `.tsv`) reads the header row as
+  field names and streams every data row as a record, with per-cell
+  int → float → string coercion and multi-line quoted cells handled. A
+  ragged row is a loud error naming the file and physical line; rows
+  carry `__source {"as": "csv", "line": N}`. Works on stdin too, and
+  `.sem` files gain the `as` key.
+- **Malformed model replies repair for free before they cost money.**
+  A structured reply that fails to parse now passes through a
+  deterministic fixer first - code fences, JSON-island extraction,
+  Python-repr literals, trailing commas, quote fixes, all validated by
+  an actual parse - and only escalates to the paid model-repair round
+  trip when that fails. Disclosed once per run:
+  `note: N replies repaired deterministically (fences/commas/quotes)`.
 - **The `__` metadata spine.** Tool metadata lives in a reserved
   double-underscore namespace that rides every record: `__source` (path plus
   HOW the item was cut - file, lines, jsonl, pages, minutes, segment index),
