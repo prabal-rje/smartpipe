@@ -7,6 +7,11 @@ their input: `map`, `filter`, `top_k`, `reduce`, and more. Use Ollama for local
 models, or choose a cloud provider explicitly. Either way it stays ordinary
 `stdin`/`stdout` composition.
 
+<video controls playsinline preload="metadata" poster="assets/demo-thumb.jpg" width="100%">
+  <source src="demo/smartpipe-demo.mp4" type="video/mp4">
+  Your browser can't play the video here - <a href="demo/">watch the 70-second demo</a>.
+</video>
+
 ```bash
 cat reviews.txt \
 | smartpipe filter "the reviewer is sarcastic" \
