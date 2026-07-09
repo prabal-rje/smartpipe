@@ -5,45 +5,36 @@ description: "Use when a shell task needs semantic operations over data or files
 
 # smartpipe: semantic pipes for your terminal
 
-## Overview
+## What it is (read this first)
 
-smartpipe verbs are Unix filters that call language models. One law governs
-everything: **every item in a pipe is a record** - JSONL when piped (parse
-stdout directly; NEVER parse stderr), pretty blocks only at a human TTY.
-Plain text lines are records in disguise; files become records at ingestion;
-tool metadata rides in reserved `__` fields you must never write yourself.
+- smartpipe is a shell command. Each verb is a Unix filter; the paid verbs call a language model.
+- Verbs compose with ordinary pipes: `cat rows.jsonl | smartpipe filter "a real bug" | smartpipe extend "Add {severity enum(low, high)}"`.
+- **Every item in a pipe is a record.** Piped stdout is one JSON object per line (JSONL); parse it directly. Text-only flows stay plain lines.
+- Records carry tool metadata in reserved `__` fields. `__source` says which file/line/page each record came from - use it to cite evidence. Never write `__` fields yourself. `--bare` strips them.
+- At a terminal (not piped) output becomes pretty numbered blocks for humans. Never parse that view.
 
-Costs are real: some verbs are free, some call models per item. Read
-[cost-and-reliability](skills/smartpipe/cost-and-reliability.md) before any
-run over more than ~100 items.
-
-## Quick reference — route by task
+## Route by task
 
 | Task | Do | Details |
 |---|---|---|
-| Read files/folders/stdin into the pipe | `smartpipe FILE…` or positional args on any verb; `--as file\|lines\|jsonl` | [ingestion](skills/smartpipe/ingestion.md) |
-| Extract typed fields | `map`/`extend` with `{braces}`; iterate free with `smartpipe schema` | [extraction](skills/smartpipe/extraction.md) |
+| Read files/folders/stdin/CSV into the pipe | `smartpipe FILE…` or positional files on any verb; `--as file\|lines\|jsonl\|csv` | [ingestion](skills/smartpipe/ingestion.md) |
+| Extract typed fields (incl. dates) | `map`/`extend` with `{braces}`; rehearse free with `smartpipe schema` | [extraction](skills/smartpipe/extraction.md) |
 | Filter / dedupe / cluster / join / rank by meaning | `filter`, `distinct`, `cluster`, `join`, `top_k` | [recipes](skills/smartpipe/recipes.md) |
 | Cut cheaply before paying | `where`, `sample`, `join --on`, `distinct --exact` (all free) | [cost-and-reliability](skills/smartpipe/cost-and-reliability.md) |
-| Get results out (files, humans, machines) | `write`, `readable`, JSONL stdout | [output](skills/smartpipe/output.md) |
+| Get results out (machines, files, humans) | JSONL stdout, `write`, `readable` | [output](skills/smartpipe/output.md) |
 | Multi-step jobs, ready-made pipelines | composable one-liners per job | [recipes](skills/smartpipe/recipes.md) |
 
-## Non-negotiables (violating these wastes money or corrupts data)
+## The 5 rules (breaking one wastes money or corrupts data)
 
-1. **Belt every exploratory run:** `--max-calls N`. Rehearse prompts on
-   `smartpipe sample 20` (seeded, same rows every run) before scaling.
-2. **Free verbs cut first:** `where 'text has "ERROR"' | filter "…"` - never
-   send a model what a predicate can drop.
-3. **Quote prompts** (braces and spaces are shell-hostile): double quotes
-   outside, single inside.
-4. **Parse stdout only.** stderr carries notes/receipts/skips for humans.
-5. Exit codes: 0 ok · 1 partial (skips happened) · 2 setup · 3 all failed ·
-   64 usage. On 2, run `smartpipe doctor`.
+1. **Cap spend.** Put `--max-calls N` on every paid verb until the pipeline is proven. Rehearse prompts on `smartpipe sample 20` (same rows every run) before scaling.
+2. **Free cuts first.** Drop rows with `where`/`sample`/`distinct --exact` BEFORE `filter`/`map`. Never pay a model for a row a predicate could drop: `smartpipe where 'text has "ERROR"' < app.log | smartpipe filter "a real outage"`.
+3. **Quote every prompt.** Double quotes around the whole prompt, single quotes inside: `smartpipe map "Extract {vendor string}"`. Braces and spaces break unquoted shells.
+4. **Parse stdout only.** stderr carries notes, receipts, and skips for humans. The terminal's numbered blocks (`#1`, `#2`, …) are human display, never output.
+5. **Read the exit code.** 0 = all good · 1 = partial, some items skipped (stderr says which) · 2 = setup broken, run `smartpipe doctor` · 3 = run stopped, most/all items failed · 64 = your command line is wrong (the message includes the fix).
 
-## Setup in one line
+## Setup
 
-`smartpipe config` (interactive) or `SMARTPIPE_MODEL=… ` env; API keys are
-env-only. `smartpipe doctor --probe` empirically tests what the configured
-models can see/hear/watch (4 tiny paid calls).
-
-Install: `pip install smartpipe-cli`. Docs: https://prabal-rje.github.io/smartpipe
+- `smartpipe doctor` - free readiness check (config, models, keys present). Exit 0 = ready.
+- Set models with `smartpipe config model NAME` or `SMARTPIPE_MODEL=…`; API keys are env-only, never flags.
+- `smartpipe doctor --probe` - 4 tiny PAID calls that test what the configured models can actually see/hear/watch.
+- Install: `pip install smartpipe-cli`. Docs: https://prabal-rje.github.io/smartpipe

@@ -1,31 +1,36 @@
-# Recipes — proven pipelines by job
+# Recipes - proven pipelines by job
 
-Load when: composing multi-step jobs; these are verified shapes, adapt names.
+Load when: composing multi-step jobs. These shapes are verified; the file
+names are examples - swap in yours.
 Parent: [SKILL.md](../../SKILL.md)
 
 ```console
 # scanned invoices → rows; anti-join finds what's missing from the ledger
-smartpipe map "Extract {vendor string, invoice_number string, total number}" invoices/*.pdf \
+smartpipe map "Extract {vendor string, invoice_number string, total number, date date}" invoices/*.pdf \
 | smartpipe join "the same payment" --right ledger.jsonl --kind anti > missing.jsonl
+# each map row: {"vendor":"Acme Corp","invoice_number":"INV-104","total":1234.56,"date":"2026-03-05","__source":{"path":"invoices/acme.pdf","as":"file"}}
+# --kind anti emits UNMATCHED left rows verbatim; --kind inner emits {"left": {...}, "right": {...}, "__score": ...}
 
 # folder-to-folder translation, per line, provenance-reassembled, no bash loop
 smartpipe map "Translate to French" docs/*.txt --as lines \
 | smartpipe write 'fr/{name}'
 
-# video/audio library search: index once (flat file), query free forever
+# video/audio library search: embed once (flat file); each later query costs one query embedding
 smartpipe embed 'sessions/**/*.mp4' > lib.embeddings
 smartpipe top_k 3 --near "user hits the checkout bug" < lib.embeddings
+# each result row gains "_score" (0-1, higher = closer)
 
 # dataset cleaning ritual: free dedupe → judge → gate (belted + tallied)
 smartpipe distinct --exact --as jsonl corpus.jsonl \
 | smartpipe extend "Add {quality number: 0 to 1, refusal boolean}" --tally refusal --max-calls 50000 \
 | smartpipe where 'quality >= 0.7 and refusal == false' > clean.jsonl
 
-# alert storm → named causes + the one weird thing (where reads stdin only)
+# alert storm → named causes + the one weird thing (where reads stdin ONLY - use <, not a file argument)
 smartpipe where 'status has "firing"' < alerts.jsonl | smartpipe cluster --top 5
 smartpipe where 'status has "firing"' < alerts.jsonl | smartpipe outliers 3
+# cluster rows: {"cluster": "...", "size": N, "share": ..., "examples": [...]} · outliers rows gain "_distance"
 
-# live tail triage (streaming; free cut keeps the judge affordable)
+# live tail triage (streaming; the free cut keeps the judge affordable)
 tail -f app.log \
 | smartpipe where 'text has "ERROR" or text has "timeout"' \
 | smartpipe filter "a real production failure, not a retry" \
@@ -35,9 +40,16 @@ tail -f app.log \
 smartpipe split --by pages:10 big.pdf \
 | smartpipe map "Summarize these pages {summary string, page_range string}" \
 | smartpipe reduce "Write the executive summary"
+# split chunks carry __source {"path":"big.pdf","as":"pages","segment":3,"label":"big.pdf §3/12"} - cite the label
 
 # week of meetings → one digest with source+timestamp citations
 smartpipe split --by minutes:10 recordings/*.mp3 \
 | smartpipe extend "Add {decisions string[], action_items string[]}" \
 | smartpipe reduce "Weekly digest: decisions and action items by owner, cite source recording and time"
 ```
+
+Reminders that keep these safe:
+
+- First run of any paid stage: add `--max-calls 25` and feed `smartpipe sample 20` rows; scale only after the output shape checks out.
+- Expect `__source` on every `map`/`extend`/`split` record; `--bare` strips it when a consumer wants clean rows.
+- All shapes above are the PIPED stdout contract; a terminal shows pretty numbered blocks instead - never parse those.
