@@ -162,6 +162,21 @@ Numbers 7 and 8 are full recipes -
 New to this? The [Learn track][quickstart] starts at zero and assumes nothing, including
 what a "model" is.
 
+## Try it on real files
+
+No corpus handy? [smartpipe-playground][playground] ships 26 MB of CC0 /
+public-domain practice files - invoices, reports, photos, recordings, screen
+sessions, and JSONL data:
+
+```bash
+curl -L https://github.com/prabal-rje/smartpipe-playground/archive/refs/tags/v1.tar.gz | tar xz
+cd smartpipe-playground-1
+
+smartpipe map "Extract {vendor, invoice_number, total number}" 'invoices/*.pdf'
+smartpipe filter "the customer sounds frustrated" 'recordings/*.mp3'
+smartpipe top_k 3 --near "supply chain risk" 'reports/*.pdf'
+```
+
 ## For AI agents
 
 Driving smartpipe from an agent? [SKILL.md](SKILL.md) is the operating
@@ -232,6 +247,7 @@ lives in [`qa/`](qa/README.md). The CLI surface is a SemVer contract.
 [models]: https://prabal-rje.github.io/smartpipe/concepts/models-and-providers/
 [privacy]: https://prabal-rje.github.io/smartpipe/privacy/
 [ollama]: https://ollama.com
+[playground]: https://github.com/prabal-rje/smartpipe-playground
 [map]: https://prabal-rje.github.io/smartpipe/verbs/map/
 [extend]: https://prabal-rje.github.io/smartpipe/verbs/extend/
 [filter]: https://prabal-rje.github.io/smartpipe/verbs/filter/

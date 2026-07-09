@@ -28,6 +28,20 @@ item ([feeding smartpipe](concepts/feeding-smartpipe.md) has the full table).
 - **Need the exact flag?** The [CLI reference](reference/cli.md) - the whole
   surface, one page, contract-stable.
 
+## Try it on real files
+
+No corpus handy? [smartpipe-playground](https://github.com/prabal-rje/smartpipe-playground)
+ships 26 MB of CC0 / public-domain practice files - invoices, reports, photos,
+recordings, screen sessions, and JSONL data:
+
+```bash
+curl -L https://github.com/prabal-rje/smartpipe-playground/archive/refs/tags/v1.tar.gz | tar xz
+cd smartpipe-playground-1
+
+smartpipe map "Extract {vendor, invoice_number, total number}" 'invoices/*.pdf'
+smartpipe filter "the customer sounds frustrated" 'recordings/*.mp3'
+```
+
 ## Verbs
 
 A **verb** is one operation on your data. Each reads `stdin` (or named FILES)
