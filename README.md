@@ -150,6 +150,10 @@ smartpipe embed 'sessions/**/*.mp4' > sessions.embeddings
 smartpipe top_k 3 --near "user gives up after the coupon fails" < sessions.embeddings
 ```
 
+A `.txt` on a pipe arrives one item per line; `--as file` treats the whole
+file as one item ([feeding smartpipe](docs/concepts/feeding-smartpipe.md) has
+the full ingestion table).
+
 Numbers 7 and 8 are full recipes -
 [invoice reconciliation](docs/cookbook/invoice-reconciliation.md) and
 [video RAG](docs/cookbook/video-qa.md) - two of a dozen in the

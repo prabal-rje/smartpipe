@@ -13,6 +13,9 @@ cat reviews.txt \
 | smartpipe map "Extract {product, complaint}"
 ```
 
+Each line of `reviews.txt` is one item; `--as file` treats a whole file as one
+item ([feeding smartpipe](concepts/feeding-smartpipe.md) has the full table).
+
 ## Pick your door
 
 - **New to smartpipe?** The [Learn track](learn/1-first-pipeline.md) - six

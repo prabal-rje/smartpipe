@@ -79,6 +79,8 @@ printf "good morning\nthank you\n" \
 
 One line in, one line out, in the same order. (Why lines? Everything in a
 pipe is an item - [the item](../concepts/the-item.md) explains the five laws.)
+Text always arrives one item per line; pass `--as file` to treat a whole file
+as a single item ([feeding smartpipe](../concepts/feeding-smartpipe.md)).
 
 ## 4. Your first extraction
 
