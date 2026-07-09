@@ -9,7 +9,8 @@ Grammar (pinned in ux.md):
     fields      ::= field (";" field)*
     field       ::= name type constraint*
     type        ::= string | number | integer | boolean | date | datetime
-                  | enum(a, b, …) | string[] | number[]
+                  | enum(a, b, …) | string[] | number[] | object_list
+    object_list ::= "{" braces-fields "}" "[]"     (item 16; one level, ever)
     constraint  ::= ">=" N | "<=" N | minLength=N | maxLength=N | optional
 """
 
@@ -24,7 +25,7 @@ __all__ = ["TYPE_MENU", "dsl_to_schema", "type_token"]
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _HELP = (
     "\n  Types: string · number · integer · boolean · date · datetime"
-    " · enum(a, b, …) · string[] · number[]"
+    " · enum(a, b, …) · string[] · number[] · {a, b}[] (an object list)"
     "\n  Constraints: >= N · <= N · minLength=N · maxLength=N · optional"
 )
 
@@ -50,7 +51,8 @@ _LENGTH = re.compile(r"(minLength|maxLength)=(\d+)")
 
 TYPE_MENU = (
     "string · number · integer · boolean · date · datetime · enum(a, b, …)"
-    " · string[] · number[] · any of them with ? for nullable (string?)"
+    " · string[] · number[] · {a, b}[] (an object list)"
+    " · any of them with ? for nullable (string?)"
 )
 
 
@@ -118,6 +120,15 @@ def _parse_field(field: str) -> tuple[str, dict[str, object], bool]:
 
 
 def _parse_type(name: str, rest: str) -> tuple[dict[str, object], str]:
+    if rest.startswith("{"):
+        # item 16: the object-list type, parsed by the braces grammar itself
+        # (one grammar, two homes) — imported lazily to keep the modules acyclic
+        from smartpipe.engine.prompts import object_list_type
+
+        try:
+            return object_list_type(rest)
+        except UsageFault as fault:
+            raise UsageFault(f"--schema-from: field {name!r}: {fault}") from fault
     if rest.startswith("enum("):
         close = rest.find(")")
         if close == -1:

@@ -259,3 +259,26 @@ def test_check_and_example_together_refuse(run_cli: RunCli, tmp_path: Path) -> N
     code, _out, err = run_cli(["schema", "{v}", "--check", str(data), "--example"])
     assert code == 64
     assert "--check and --example" in err
+
+
+def test_object_list_expression_compiles_free(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    """Item 16: the schema command compiles an object list deterministically,
+    and the emitted file round-trips through --schema."""
+    route = respx_mock.post(CHAT).mock(return_value=_reply(GOOD))
+    code, out, err = run_cli(["schema", "{triples {subject, relation, object}[]}"])
+    assert code == 0
+    assert route.call_count == 0  # deterministic — never a model call
+    assert err == ""
+    schema = json.loads(out)
+    items = schema["properties"]["triples"]["items"]
+    assert schema["required"] == ["triples"]
+    assert items["required"] == ["subject", "relation", "object"]
+    assert items["additionalProperties"] is False
+
+
+def test_object_list_example_is_deterministic(run_cli: RunCli) -> None:
+    code, out, _err = run_cli(["schema", "{events {name string, n number}[]}", "--example"])
+    assert code == 0
+    assert json.loads(out) == {"events": [{"name": "text", "n": 0}]}

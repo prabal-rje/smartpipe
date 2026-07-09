@@ -333,3 +333,48 @@ def test_bare_strips_the_spine_from_record_results(
     code, out, _err = run_cli(["map", "summarize", "--bare"], stdin='{"id": 7}\n')
     assert code == 0
     assert json.loads(out) == {"result": "short"}  # no __source under --bare
+
+
+def test_object_list_explodes_one_row_per_inner_record(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    """Item 16 end to end: an object-list field extracts, coerces per inner
+    record (the date canonicalizes), and --explode yields one row per object."""
+    reply = (
+        '{"triples": ['
+        '{"subject": "acme", "relation": "acquired", "object": "globex"},'
+        '{"subject": "globex", "relation": "founded", "object": "1989"}]}'
+    )
+    respx_mock.post(CHAT).mock(return_value=_reply(reply))
+    code, out, _err = run_cli(
+        ["map", "Extract {triples {subject, relation, object}[]}", "--explode", "triples"],
+        stdin="doc\n",
+    )
+    assert code == 0
+    spine = '"__source":{"path":"-","as":"lines","line":1}'
+    assert out.splitlines() == [
+        '{"triples":{"subject":"acme","relation":"acquired","object":"globex"},' + spine + "}",
+        '{"triples":{"subject":"globex","relation":"founded","object":"1989"},' + spine + "}",
+    ]
+
+
+def test_object_list_inner_dates_canonicalize_end_to_end(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    reply = '{"events": [{"name": "kickoff", "when": "Jan 15, 2026"}]}'
+    respx_mock.post(CHAT).mock(return_value=_reply(reply))
+    code, out, _err = run_cli(["map", "List {events {name string, when date}[]}"], stdin="doc\n")
+    assert code == 0
+    row = json.loads(out)
+    assert row["events"] == [{"name": "kickoff", "when": "2026-01-15"}]
+
+
+def test_object_list_ceiling_is_a_usage_error_before_any_call(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post(CHAT).mock(return_value=_reply("{}"))
+    code, _out, err = run_cli(["map", "Extract {a {b {c}[]}[]}"], stdin="doc\n")
+    assert code == 64
+    assert "object lists nest one level deep" in err
+    assert "flatten the inner structure or extract in two passes" in err
+    assert route.call_count == 0  # refused free, before a single model call

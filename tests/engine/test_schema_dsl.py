@@ -129,3 +129,49 @@ def test_nullable_type_tokens() -> None:
 def test_nullable_enum_is_guided_to_a_value() -> None:
     with pytest.raises(UsageFault, match="explicit value"):
         type_token("enum(a, b)?")
+
+
+# --- object lists (ledger item 16): one grammar, two homes -------------------------
+
+
+def test_object_list_type_in_the_dsl() -> None:
+    assert dsl_to_schema("vendor string; events {name string, when date}[]") == {
+        "type": "object",
+        "properties": {
+            "vendor": {"type": "string"},
+            "events": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "when": {"type": "string", "format": "date"},
+                    },
+                    "required": ["name", "when"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["vendor", "events"],
+        "additionalProperties": False,
+    }
+
+
+def test_object_list_takes_the_optional_constraint() -> None:
+    schema = dsl_to_schema("events {name}[] optional")
+    assert schema["required"] == []
+
+
+def test_object_list_rejects_bounds() -> None:
+    with pytest.raises(UsageFault, match="only applies to number/integer"):
+        dsl_to_schema("events {name}[] >= 3")
+
+
+def test_the_ceiling_holds_in_the_dsl_too() -> None:
+    with pytest.raises(UsageFault, match="nest one level deep"):
+        dsl_to_schema("a {b {c}[]}[]")
+
+
+def test_dsl_object_list_faults_name_the_field() -> None:
+    with pytest.raises(UsageFault, match="--schema-from: field 'events'"):
+        dsl_to_schema("events {name}")  # missing []
