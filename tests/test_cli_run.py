@@ -190,3 +190,36 @@ verb = "cluster"
     assert code == 0
     assert "stage hot" in out and "[free]" in out
     assert "stage themes" in out and "[model calls]" in out
+
+
+def test_pipeline_stages_set_and_clear_the_status_line_stage_label(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Each stage runs under its own name so a status line (were one drawn)
+    wears the same ``[name]`` prefix its receipts do — and the name never
+    leaks past the stage."""
+    from smartpipe.cli.run_cmd import execute_script
+    from smartpipe.io import progress
+
+    seen: list[str | None] = []
+
+    def probe(argv: list[str]) -> None:
+        seen.append(progress.stage_label())
+
+    monkeypatch.setattr("smartpipe.cli.run_cmd._invoke", probe)
+    script = tmp_path / "triage.sem"
+    script.write_text(
+        """\
+[stage.hot]
+verb = "where"
+predicate = 'text has "ERROR"'
+
+[stage.themes]
+verb = "summarize"
+expression = "count()"
+""",
+        encoding="utf-8",
+    )
+    execute_script(script)
+    assert seen == ["hot", "themes"]
+    assert progress.stage_label() is None

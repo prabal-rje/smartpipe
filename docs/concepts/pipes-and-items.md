@@ -63,8 +63,9 @@ is processed as it arrives, and results flow out as they complete. That means
 an end-of-file that isn't coming. Two practical notes:
 
 - Piped stdin has no known total, so the progress line shows a count and rate
-  (`⠋ Processing [847] 3.1/s`) instead of a percentage/ETA. Named-file lists keep
-  the full ETA (their total is known).
+  (`⠋ Processing [847] 3.1/s`) instead of a bar. Named-file lists know their
+  total, so they get the full progress bar with percentage and time left
+  (`[██████░░░░░░░░░] 41% · 205/500 · 12/s · ~25s left`).
 - `reduce` and `top_k` need the whole set by nature - over a live stream, use
   [`reduce --window`](../verbs/reduce.md) or [`top_k --stream`](../verbs/top-k.md),
   which redefine "the whole set" as a window or a running board. See the

@@ -1,12 +1,13 @@
 """Progress feedback — always stderr, always TTY-gated, gone on completion.
 
-Spec §6.1: a single spinner line overwritten in place, with count, percent, and
-an ETA that appears only after a few completions. The animation renders only in
-a pipeline's FINAL stage — stderr and stdout both terminals. A piped stdout
-(mid-pipe stage) or a piped stderr (cron) suppresses it entirely — stdout stays
-sacred, the log stays clean, and two smartpipes in one pipe never fight over
-the terminal row. The render functions are pure; ``Spinner`` adds the clock,
-throttling, and the stderr writes.
+Spec §6.1 + ledger item 67: one status line overwritten in place — a
+determinate bar (``engine/progressbar``) when the total is known, the running
+count + rate when it isn't. The animation renders only in a pipeline's FINAL
+stage — stderr and stdout both terminals. A piped stdout (mid-pipe stage) or a
+piped stderr (cron) suppresses it entirely — stdout stays sacred, the log
+stays clean, and two smartpipes in one pipe never fight over the terminal row.
+The render functions are pure; ``Spinner`` adds the clock, throttling, and the
+stderr writes.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from smartpipe.engine.progressbar import render_bar
 from smartpipe.io import tty
 
 if TYPE_CHECKING:
@@ -25,32 +27,33 @@ if TYPE_CHECKING:
 
     from smartpipe.io.writers import TextSink
 
-__all__ = ["Spinner", "format_eta", "make_stderr_spinner", "render_known", "render_unknown"]
+__all__ = [
+    "Spinner",
+    "make_stderr_spinner",
+    "render_unknown",
+    "set_stage_label",
+    "stage_label",
+]
 
 _BRAILLE = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _ASCII = "-\\|/"
-_ETA_WARMUP = 5  # completions before an ETA is trustworthy enough to show
 _MIN_REDRAW_S = 0.1  # ≤ 10 fps
 _CLEAR_LINE = "\x1b[K"
 
-
-def format_eta(seconds: float) -> str:
-    total = int(seconds)
-    hours, remainder = divmod(total, 3600)
-    minutes, secs = divmod(remainder, 60)
-    if hours:
-        return f"{hours}h{minutes}m"
-    if minutes:
-        return f"{minutes}m{secs}s"
-    return f"{secs}s"
+# The current pipeline stage's name — set by ``cli/run_cmd`` around each stage
+# so a stage's status line wears the same ``[name]`` prefix its receipts do.
+# A metering-style documented exception to no-globals (one stage at a time).
+_stage_label: str | None = None
 
 
-def render_known(frame: str, *, done: int, total: int, eta_seconds: float | None) -> str:
-    percent = int(done / total * 100) if total else 100
-    line = f"{frame} Processing {total} items [{done}/{total}] {percent}%"
-    if eta_seconds is not None:
-        line += f"  ~{format_eta(eta_seconds)} remaining"
-    return line
+def set_stage_label(name: str | None) -> None:
+    """Name the pipeline stage whose status lines are being drawn (None clears)."""
+    global _stage_label
+    _stage_label = name
+
+
+def stage_label() -> str | None:
+    return _stage_label
 
 
 def render_unknown(
@@ -73,6 +76,7 @@ class Spinner:
     total: int | None = None
     matched: int | None = None  # filter's status-line segment
     extra: str | None = None  # map's live --tally segment
+    label: str | None = None  # pipeline stage name — prefixes the line like receipts
     _done: int = 0
     _start: float = 0.0
     _last_draw: float = field(default=-1.0)
@@ -137,22 +141,28 @@ class Spinner:
         self._frame += 1
         elapsed = max(now - self._start, 1e-9)
         rate = self._done / elapsed
+        color = self._color()
         if self.total is None:
             line = render_unknown(
                 frame, done=self._done, rate=rate, matched=self.matched, extra=self.extra
             )
+            if color:
+                line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
+            if self.label is not None:
+                line = f"[{self.label}] {line}"
         else:
-            eta = (self.total - self._done) / rate if self._done >= _ETA_WARMUP and rate else None
-            line = render_known(frame, done=self._done, total=self.total, eta_seconds=eta)
+            line = render_bar(
+                self._done,
+                self.total,
+                rate=rate,
+                ascii_only=self.ascii_only,
+                label=self.label,
+            )
         from smartpipe.io import metering
 
         consumed = metering.status_segment()  # D40: live observed units
-        if self._color():
-            line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
-            if consumed:
-                line += f"   \x1b[2m{consumed}\x1b[0m"
-        elif consumed:
-            line += f"   {consumed}"
+        if consumed:
+            line += f"   \x1b[2m{consumed}\x1b[0m" if color else f"   {consumed}"
         self._line = line
         self.stream.write(f"\r{line}{_CLEAR_LINE}")
         self.stream.flush()
@@ -183,11 +193,13 @@ def make_stderr_spinner() -> Spinner:
     stage (stderr AND stdout both TTYs; a piped stdout means a downstream process
     owns the terminal, so mid-pipe stages keep line-atomic notes and the receipt
     but never a ``\\r`` animation), with a Braille or ASCII frame set depending
-    on the encoding."""
+    on the encoding. Inside a ``run`` pipeline the stage's name rides along so
+    any drawn line wears the same ``[name]`` prefix its receipts do."""
     encoding = (sys.stderr.encoding or "").lower()
     return Spinner(
         stream=sys.stderr,
         enabled=tty.stderr_is_tty() and tty.stdout_is_tty(),
         ascii_only="utf" not in encoding,
         clock=time.monotonic,
+        label=stage_label(),
     )

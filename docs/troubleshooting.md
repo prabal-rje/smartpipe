@@ -159,7 +159,7 @@ become `jsonl` (one JSON object per line). Force one with `--output json` (or `t
 
 Piped `stdin` is a stream - smartpipe processes lines as they arrive and can't know how
 many are coming, so the progress line shows a count and rate instead. Named-file
-mode knows its total and keeps the ETA.
+mode knows its total and shows the full progress bar with percentage and time left.
 
 ## My `tail -f` pipeline never ends
 
