@@ -86,7 +86,7 @@ Put field names in `{braces}` and smartpipe asks the model for structured data b
 as JSON:
 
 ```bash
-echo "Invoice from Acme Corp, dated 2026-01-15, total $1250" \
+echo 'Invoice from Acme Corp, dated 2026-01-15, total $1250' \
 | smartpipe map "Extract {vendor, date, total}"
 # → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 ```
@@ -95,7 +95,7 @@ Because that's JSON, it composes with `jq` (never met `jq`? one-line intro in
 [the Unix toolbox](../concepts/pipes-and-items.md#the-unix-toolbox-in-five-lines)):
 
 ```bash
-echo "Invoice from Acme Corp, total $1250" \
+echo 'Invoice from Acme Corp, total $1250' \
 | smartpipe map "Extract {vendor, total}" \
 | jq -r .total                 # jq pulls one field out of the JSON
 # → 1250

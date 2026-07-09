@@ -12,7 +12,7 @@ Put field names in `{braces}` and smartpipe asks the model for exactly those fie
 as a JSON object:
 
 ```bash
-echo "Invoice from Acme Corp, dated 2026-01-15, total $1250" \
+echo 'Invoice from Acme Corp, dated 2026-01-15, total $1250' \
 | smartpipe map "Extract {vendor, date, total}"
 # → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 ```
