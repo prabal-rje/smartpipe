@@ -1,0 +1,62 @@
+schema workshop — free, no model calls
+{}
+empty draft — /add a field, or paste a {braces} draft
+/add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+schema> /add vendor string: legal name
+✓ added vendor
+schema workshop — free, no model calls
+{vendor string: legal name}
+✓ compiles · 1 field
+/add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+schema> /add total number
+✓ added total
+schema workshop — free, no model calls
+{vendor string: legal name, total number}
+✓ compiles · 2 fields
+/add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+schema> /add status enum(todo, done)
+✓ added status
+schema workshop — free, no model calls
+{vendor string: legal name, total number, status enum(todo, done)}
+✓ compiles · 3 fields
+/add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+schema> /drop status
+✓ dropped status
+schema workshop — free, no model calls
+{vendor string: legal name, total number}
+✓ compiles · 2 fields
+/add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+schema> /frob
+unknown command /frob
+  Commands: /add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+schema workshop — free, no model calls
+{vendor string: legal name, total number}
+✓ compiles · 2 fields
+/add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+schema> /test rows.jsonl
+3 rows · 1 pass, 2 fail
+  vendor [███████░░░]  67% present, 0 type misses
+  total  [██████████] 100% present, 1 type miss
+schema workshop — free, no model calls
+{vendor string: legal name, total number}
+✓ compiles · 2 fields
+/add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+schema> /example
+{
+  "vendor": "text",
+  "total": 0
+}
+schema workshop — free, no model calls
+{vendor string: legal name, total number}
+✓ compiles · 2 fields
+/add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+schema> /save invoice.json
+✓ wrote invoice.json
+paste-ready:
+  '{vendor string: legal name, total number}'
+  --schema invoice.json
+schema workshop — free, no model calls
+{vendor string: legal name, total number}
+✓ compiles · 2 fields
+/add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+schema> /quit

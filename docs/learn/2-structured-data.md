@@ -68,6 +68,10 @@ smartpipe schema '{vendor string, total number}' > invoice.json
 smartpipe map "Extract the details" --schema invoice.json 'invoices/*.pdf'
 ```
 
+Rather build it interactively? Bare `smartpipe schema` at a terminal opens a
+small workshop - `/add` fields, `/test` a data file, `/save` the schema, all
+free ([reference](../reference/cli.md#schema-workshop)).
+
 When a reply fails validation even after the repair, the row is skipped and
 counted - or kept as a machine-readable failure marker with `--keep-invalid`
 (chapter 5).
