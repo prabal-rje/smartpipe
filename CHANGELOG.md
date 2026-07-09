@@ -9,6 +9,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 The identity release.
 
+### Knowledge graphs (the highlight)
+- **`smartpipe graph --fast` turns a corpus into a knowledge graph for
+  exactly $0.** A local zero-shot NER model (GLiNER-small over ONNX -
+  no new dependencies, no torch, a one-time ~190 MB download like the
+  local embedder) finds YOUR entity types (`--entities "person, vessel,
+  account"`), entities co-occurring in a window become weighted edges,
+  near-duplicate names fold into one node (disclosed), and every edge
+  carries its `sources` - the files, pages, and minutes where it was
+  seen. Zero model calls, pinned by test. Free transcripts (local
+  whisper) mean audio and video speech join the graph; scans and
+  images wait for the paid mode, counted out loud.
+- **Six ways out, all deterministic**: `.graphml` (Gephi), `.dot`
+  (Graphviz), `.mmd` (Mermaid), `nodes.csv`+`edges.csv` (Neo4j/Kuzu),
+  a self-contained interactive `.html` (search, weight slider, hover
+  cards with clickable `file://` evidence links), or a trailing `/`
+  for an Obsidian vault of wikilinked entity notes.
+
 ### The item — one law for everything in a pipe
 - **Dates are a type, and they come back ISO.** `{due date}` and
   `{ts datetime}` join the brace grammar. However the model phrases it
