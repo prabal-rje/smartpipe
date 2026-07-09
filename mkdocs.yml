@@ -6,6 +6,7 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
+  custom_dir: overrides
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -27,6 +28,19 @@ validation:
   links:
     not_found: warn
     anchors: warn  # anchor rot fails --strict (release matrix row 4)
+
+# --- Algolia DocSearch (pre-wired, INERT until credentials exist) -------------
+# The DocSearch application is pending. When the credentials arrive, fill in
+# the three values below - overrides/main.html then loads docsearch.js v3 and
+# swaps it in for the built-in search box. While ANY value is empty the
+# override renders nothing and mkdocs-material's built-in search plugin keeps
+# working untouched. The api_key is the SEARCH-ONLY public key (safe to
+# commit; never the admin key). Activation notes: CONTRIBUTING.md.
+extra:
+  algolia:
+    app_id: ""      # DocSearch application ID
+    api_key: ""     # search-only public API key
+    index_name: ""  # e.g. smartpipe
 
 nav:
   - Home: index.md

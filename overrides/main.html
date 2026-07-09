@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{#-
+  Algolia DocSearch v3 wiring - INERT until `extra.algolia` in mkdocs.yml is
+  filled in. While any of app_id / api_key / index_name is empty, both blocks
+  below render nothing beyond the theme defaults and mkdocs-material's
+  built-in search stays in charge. When the DocSearch credentials arrive,
+  fill in the three values and this template:
+
+    1. loads the docsearch.js v3 CSS + JS from jsDelivr,
+    2. mounts the DocSearch button in the header and hides the built-in
+       search box (a CSS swap, so no theme partial is copied and material
+       upgrades stay painless).
+
+  Activation checklist: CONTRIBUTING.md, "Docs search (Algolia DocSearch)".
+-#}
+
+{% set algolia = config.extra.algolia | default({}) %}
+{% set docsearch_on = algolia.app_id and algolia.api_key and algolia.index_name %}
+
+{% block styles %}
+  {{ super() }}
+  {% if docsearch_on %}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@docsearch/css@3">
+    <style>
+      .md-search { display: none; }          /* DocSearch replaces the built-in box */
+      #docsearch { margin-left: auto; }
+    </style>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  {% if docsearch_on %}
+    <script src="https://cdn.jsdelivr.net/npm/@docsearch/js@3"></script>
+    <script>
+      (function () {
+        var mount = document.createElement("div");
+        mount.id = "docsearch";
+        var header = document.querySelector(".md-header__inner");
+        if (!header) { return; }
+        header.appendChild(mount);
+        docsearch({
+          container: "#docsearch",
+          appId: "{{ algolia.app_id }}",
+          apiKey: "{{ algolia.api_key }}",
+          indexName: "{{ algolia.index_name }}",
+        });
+      })();
+    </script>
+  {% endif %}
+{% endblock %}
