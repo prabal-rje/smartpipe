@@ -50,6 +50,7 @@ class TextSink(Protocol):
 
 
 _DIM = "\x1b[2m"
+_CYAN = "\x1b[36m"
 _RESET = "\x1b[0m"
 _ELLIPSIS = "…"
 
@@ -362,6 +363,9 @@ class _HumanWriter:
     full: bool = False
     media_lines: MediaLines | None = None  # injected by the composition root (TTY only)
     warned: set[str] = field(default_factory=set[str])
+    # the human handle ("look at #5") — color-gated, never piped; a list cell
+    # because the writer dataclass is frozen (mutate the cell, not the field)
+    ordinal: list[int] = field(default_factory=lambda: [0])
 
     def write_text(self, line: str) -> None:
         self.stream.write(f"{line}\n")
@@ -377,8 +381,16 @@ class _HumanWriter:
         from smartpipe.io.render import render_block
 
         block = render_block(record, color=self.color, full=self.full, media_lines=self.media_lines)
-        self.stream.write(block + "\n\n")
+        self.stream.write(self._numbered() + block + "\n\n")
         self.stream.flush()
+
+    def _numbered(self) -> str:
+        """One cyan `#N` line above each block — an ordinal is the only handle
+        every output is GUARANTEED to have (provenance can repeat or be absent)."""
+        if not self.color:
+            return ""
+        self.ordinal[0] += 1
+        return f"{_CYAN}#{self.ordinal[0]}{_RESET}\n"
 
     def _write_invalid(self, record: Mapping[str, object]) -> None:
         """A --keep-invalid row at the terminal: one dim compact line — marker,

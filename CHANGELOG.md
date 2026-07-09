@@ -138,6 +138,12 @@ The identity release.
     auto-chunking).
 
 ### The terminal shows your media
+- **Every block at the terminal gets a number.** The human view opens
+  each record block with a cyan `#N` - so "look at object 5" is a thing
+  you can say. The ordinal is the one handle every output is guaranteed
+  to have (provenance can repeat across rows - fifty pages of one PDF
+  share a path - or be absent on plain text). Display only: piped
+  output is byte-identical.
 - **Media previews at the human view.** At a terminal (and through
   `readable`), the first media part of an item now renders under its
   summary line: images as color thumbnails, video as a three-frame strip

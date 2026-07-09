@@ -165,7 +165,7 @@ def test_human_writer_multiline_strings_render_as_block_scalars() -> None:
 def test_human_writer_dims_keys_when_color_on() -> None:
     stream, writer = _writer(RenderMode.HUMAN, color=True)
     writer.write_record({"a": "b"})
-    assert stream.getvalue() == "\x1b[2ma:\x1b[0m b\n\n"
+    assert stream.getvalue() == "\x1b[36m#1\x1b[0m\n\x1b[2ma:\x1b[0m b\n\n"
 
 
 def test_human_writer_plain_text_is_unstyled() -> None:
@@ -309,3 +309,23 @@ def test_text_writer_warns_once_about_multiline_results(
     writer.write_text("more\nlines")
     err = capsys.readouterr().err
     assert err.count("--output json") == 1  # once, naming the fix
+
+
+def test_human_blocks_gain_a_cyan_ordinal_at_the_tty() -> None:
+    """'Look at object 5' needs a handle: each block gets #N when color is
+    on (the human view); piped/NO_COLOR output stays byte-identical."""
+    out = io.StringIO()
+    writer = make_writer(WriterConfig(mode=RenderMode.HUMAN, color=True, width=80), out)
+    writer.write_record({"a": 1})
+    writer.write_record({"a": 2})
+    writer.flush()
+    assert "\x1b[36m#1\x1b[0m\n" in out.getvalue()
+    assert "\x1b[36m#2\x1b[0m\n" in out.getvalue()
+
+
+def test_human_blocks_carry_no_ordinal_without_color() -> None:
+    out = io.StringIO()
+    writer = make_writer(WriterConfig(mode=RenderMode.HUMAN, color=False, width=80), out)
+    writer.write_record({"a": 1})
+    writer.flush()
+    assert "#1" not in out.getvalue()

@@ -202,7 +202,8 @@ def test_writer_previews_honor_the_kill_switch(
 ) -> None:
     out = _human_writer_output(client, monkeypatch, Config(media_previews=False))
     assert "█" not in out
-    assert len([line for line in out.splitlines() if line]) == 2  # result + summary, nothing else
+    # ordinal + result + summary, nothing else (no thumbnail lines)
+    assert len([line for line in out.splitlines() if line]) == 3
 
 
 def test_writer_previews_never_reach_a_pipe(client: httpx.AsyncClient) -> None:
