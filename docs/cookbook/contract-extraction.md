@@ -5,7 +5,7 @@
 ## The pipeline
 
 ```bash
-smartpipe map "Extract {party_a, party_b, effective_date, total_value, governing_law}" 'contracts/*.pdf' --output csv > contracts.csv
+smartpipe map "Extract {party_a, party_b, effective_date, total_value number, governing_law}" 'contracts/*.pdf' --output csv > contracts.csv
 ```
 
 Each PDF becomes one item; smartpipe parses it to text
@@ -53,7 +53,7 @@ Chain a semantic `filter` to process only the relevant documents:
 
 ```bash
 smartpipe filter "is a signed vendor agreement" 'docs/**/*.pdf' \
-| smartpipe map "Extract {vendor, renewal_date, annual_cost}" --from-files --output csv
+| smartpipe map "Extract {vendor, renewal_date, annual_cost number}" --from-files --output csv
 ```
 
 The `filter` emits the *paths* of matching files; `--from-files` feeds those paths to
@@ -67,7 +67,7 @@ team runs the same stage:
 ```toml
 #!/usr/bin/env -S smartpipe run
 verb = "map"
-prompt = "Extract {vendor, renewal_date, annual_cost}"
+prompt = "Extract {vendor, renewal_date, annual_cost number}"
 schema-file = "contract.json"
 output = "csv"
 ```

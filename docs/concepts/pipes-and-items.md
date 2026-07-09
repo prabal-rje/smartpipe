@@ -51,7 +51,7 @@ it produces structured output, so its results flow straight into `jq`:
 
 ```bash
 cat receipts.txt \
-| smartpipe map "Extract {vendor, total}" \
+| smartpipe map "Extract {vendor, total number}" \
 | jq 'select(.total > 1000)'
 ```
 

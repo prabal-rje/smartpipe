@@ -90,7 +90,7 @@ the braces declare the fields to return:
 
 ```bash
 echo 'Invoice from Acme Corp, dated 2026-01-15, total $1250' \
-| smartpipe map "Extract {vendor, date, total}"
+| smartpipe map "Extract {vendor, date, total number}"
 # → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 ```
 
@@ -99,7 +99,7 @@ Because that's JSON, it composes with `jq` (never met `jq`? one-line intro in
 
 ```bash
 echo 'Invoice from Acme Corp, total $1250' \
-| smartpipe map "Extract {vendor, total}" \
+| smartpipe map "Extract {vendor, total number}" \
 | jq -r .total                 # jq pulls one field out of the JSON
 # → 1250
 ```

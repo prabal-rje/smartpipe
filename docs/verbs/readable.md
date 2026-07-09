@@ -6,7 +6,7 @@ readable turns JSONL records into the same tidy blocks you see at the terminal, 
 cat results.jsonl \
 | smartpipe readable | less -R
 
-… | smartpipe map "Extract {vendor, total}" \
+… | smartpipe map "Extract {vendor, total number}" \
 | smartpipe readable > report.txt
 ```
 

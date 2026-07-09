@@ -22,7 +22,7 @@ cat articles.jsonl \
 cat legal/*.txt \
 | smartpipe embed \
 | smartpipe top_k 20 --near "indemnification" \
-| smartpipe map "Extract {clause_text, liability_cap}"
+| smartpipe map "Extract {clause_text, liability_cap number}"
 ```
 
 ## How it works

@@ -27,7 +27,7 @@ Turn raw lines into structured records you can count and group:
 
 ```bash
 cat errors.log \
-| smartpipe map "Extract {service, severity, root_cause_category}" --output json \
+| smartpipe map "Extract {service, severity enum(critical, error, warning), root_cause_category}" --output json \
 | jq -r .root_cause_category \
 | sort \
 | uniq -c \

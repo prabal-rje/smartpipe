@@ -14,7 +14,7 @@ cat notes.txt \
 
 # Structured extraction - braces name the fields you want back (JSONL out):
 cat receipts.txt \
-| smartpipe map "Extract {vendor, date, total}"
+| smartpipe map "Extract {vendor, date, total number}"
 # → {"vendor": "Acme Corp", "date": "2026-01-15", "total": 1250}
 
 # Use a cloud model just for this run:
@@ -23,7 +23,7 @@ cat data.txt \
 
 # Compose with the tools you already have:
 cat receipts.txt \
-| smartpipe map "Extract {vendor, total}" \
+| smartpipe map "Extract {vendor, total number}" \
 | jq -r '.total' \
 | paste -sd+ \
 | bc
@@ -61,7 +61,7 @@ sources work with no flag:
 
 ```bash
 tail -f app.log \
-| smartpipe map "Classify: {severity, category}" \
+| smartpipe map "Classify this log line. Add {severity enum(critical, warning, info), category}" \
 | tee incidents.jsonl
 ```
 
@@ -85,7 +85,7 @@ sibling fields copied - `jq -c '.risks[]'`, but provenance-aware and schema-chec
 
 ```bash
 cat filings.txt \
-| smartpipe map "Extract {vendor, risks}" --explode risks
+| smartpipe map "Extract {vendor, risks string[]}" --explode risks
 # → {"vendor":"Acme","risks":"late delivery"}
 # → {"vendor":"Acme","risks":"currency exposure"}
 ```

@@ -10,7 +10,7 @@ models, or choose a cloud provider explicitly. Either way it stays ordinary
 ```bash
 cat reviews.txt \
 | smartpipe filter "the reviewer is sarcastic" \
-| smartpipe map "Extract {product, complaint}"
+| smartpipe map "Extract {product, complaint, anger number: 0 to 1}"
 ```
 
 Each line of `reviews.txt` is one item; `--as file` treats a whole file as one
