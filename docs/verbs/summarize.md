@@ -28,7 +28,8 @@ hold each group's values in memory - everything else streams.
 `by bin(ts, 1h)` groups by UTC time bucket (buckets: `1m` `5m` `15m` `1h` `6h` `1d`).
 Limitation: timestamps parse as **ISO-8601 or epoch seconds/milliseconds
 only** - anything else groups under `null` and any other format is a
-preprocessing job for `jq`/`date`. `chart --by-time ts:1h` draws the same
+preprocessing job for `jq`/`date`. Date-only values (a `{due date}` field)
+bin as their UTC midnight, so `count() by bin(due, 1d)` just works. `chart --by-time ts:1h` draws the same
 buckets chronologically, zero-filled (empty buckets are shown, not dropped).
 
 The natural pairs: `map "…{label}" | summarize 'count() by label'` for the

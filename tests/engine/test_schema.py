@@ -381,3 +381,87 @@ def test_example_instance_handles_bare_and_edge_schemas() -> None:
     assert example_instance({"type": ["null"]}) is None
     assert example_instance({"type": "string", "maxLength": 2}) == "te"
     assert example_instance({}) is None  # unknown vocabulary: honest null
+
+
+# --- date/datetime canonicalization (ledger item 56) --------------------------------
+
+_DATED = {
+    "type": "object",
+    "properties": {
+        "due": {"type": "string", "format": "date"},
+        "ts": {"type": "string", "format": "date-time"},
+    },
+    "required": ["due", "ts"],
+    "additionalProperties": False,
+}
+
+
+def test_temporal_fields_canonicalize_to_iso() -> None:
+    reply = '{"due": "Jan 5, 2026", "ts": "2026/01/05 9:00"}'
+    assert validate_and_coerce(reply, _DATED) == {
+        "due": "2026-01-05",
+        "ts": "2026-01-05T09:00:00",
+    }
+
+
+def test_temporal_iso_values_pass_through_canonical() -> None:
+    reply = '{"due": "2026-01-05T10:00:00Z", "ts": "2026-01-05T10:00:00+05:30"}'
+    assert validate_and_coerce(reply, _DATED) == {
+        "due": "2026-01-05",  # a datetime answering a date ask keeps its day
+        "ts": "2026-01-05T10:00:00+05:30",  # explicit offset preserved, never invented
+    }
+
+
+def test_naive_datetime_stays_naive() -> None:
+    reply = '{"due": "2026-01-05", "ts": "2026-01-05T10:00:00"}'
+    assert validate_and_coerce(reply, _DATED)["ts"] == "2026-01-05T10:00:00"
+
+
+def test_unparseable_date_is_an_item_error_naming_the_field() -> None:
+    with pytest.raises(ItemError, match=r"'due'.*YYYY-MM-DD"):
+        validate_and_coerce('{"due": "next Tuesday", "ts": "2026-01-05T10:00:00"}', _DATED)
+
+
+def test_unparseable_datetime_is_an_item_error_naming_the_field() -> None:
+    with pytest.raises(ItemError, match=r"'ts'.*ISO-8601"):
+        validate_and_coerce('{"due": "2026-01-05", "ts": "mid-afternoon"}', _DATED)
+
+
+def test_non_string_date_fails_type_validation() -> None:
+    with pytest.raises(ItemError, match="does not match"):
+        validate_and_coerce('{"due": 20260105, "ts": "2026-01-05T10:00:00"}', _DATED)
+
+
+def test_nullable_date_admits_null() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"due": {"type": ["string", "null"], "format": "date"}},
+        "required": ["due"],
+        "additionalProperties": False,
+    }
+    assert validate_and_coerce('{"due": null}', schema) == {"due": None}
+    assert validate_and_coerce('{"due": "Jan 5, 2026"}', schema) == {"due": "2026-01-05"}
+
+
+def test_ambiguous_date_notes_the_month_first_reading() -> None:
+    messages: list[str] = []
+    result = validate_and_coerce(
+        '{"due": "01/02/2026", "ts": "2026-01-05T10:00:00"}', _DATED, note=messages.append
+    )
+    assert result["due"] == "2026-01-02"
+    assert messages == ["field 'due': ambiguous date '01/02/2026' read month-first as 2026-01-02"]
+
+
+def test_unambiguous_dates_note_nothing() -> None:
+    messages: list[str] = []
+    validate_and_coerce(
+        '{"due": "15/01/2026", "ts": "2026-01-05T10:00:00"}', _DATED, note=messages.append
+    )
+    assert messages == []
+
+
+def test_ambiguity_without_a_note_callback_is_silent() -> None:
+    assert (
+        validate_and_coerce('{"due": "01/02/2026", "ts": "2026-01-05"}', _DATED)["due"]
+        == "2026-01-02"
+    )

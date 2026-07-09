@@ -128,7 +128,8 @@ async def test_plain_each_line_is_an_item() -> None:
 
 async def test_plain_request_shape() -> None:
     _code, _out, model = await _run("translate", "hello\n", ["x"])
-    assert model.calls[0].user == "translate\n\nhello"
+    # item 57: the payload rides in an <input> block, the instruction above it
+    assert model.calls[0].user == "translate\n\n<input>\nhello\n</input>"
     assert model.calls[0].json_schema is None
 
 
@@ -267,7 +268,8 @@ async def test_dry_run_plain_mode_omits_the_schema_section() -> None:
     assert code == ExitCode.OK
     text = out.getvalue()
     assert "--- schema ---" not in text
-    assert "translate to Spanish\n\nhello" in text  # the exact composed user message
+    # the exact composed user message (item 57: fenced payload)
+    assert "translate to Spanish\n\n<input>\nhello\n</input>" in text
 
 
 async def test_dry_run_with_empty_input_notes_and_shows_the_shape(
@@ -611,3 +613,22 @@ async def test_structured_map_over_a_record_keeps_the_incoming_spine() -> None:
     assert code == ExitCode.OK
     row = json.loads(out)
     assert row == {"v": "y", "__source": {"path": "f.txt", "as": "lines", "line": 3}}
+
+
+# --- the <input> framing (item 57) ---------------------------------------------
+
+
+async def test_record_payload_renders_as_a_yaml_ish_input_block() -> None:
+    line = '{"id": 812, "customer": "acme", "tags": ["ui", "urgent"], "__score": 0.5}\n'
+    _code, _out, model = await _run("summarize the ticket", line, ["ok"])
+    # the __ spine never reaches the model; keys keep the record's own order
+    assert model.calls[0].user == (
+        "summarize the ticket\n\n"
+        "<input>\n"
+        "id: 812\n"
+        "customer: acme\n"
+        "tags:\n"
+        "  - ui\n"
+        "  - urgent\n"
+        "</input>"
+    )

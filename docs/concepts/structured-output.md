@@ -41,6 +41,16 @@ Braces carry names, types, and descriptions (`ident [type] [: description]`).
 Constraints (`>=`, lengths, `optional`) stay in the DSL or the file; braces
 don't carry them.
 
+Two of the types are temporal: `date` (a calendar day) and `datetime` (a
+point in time). `{due date}` compiles to JSON Schema's `format: "date"`,
+`{ts datetime}` to `format: "date-time"`, and smartpipe canonicalizes
+whatever the model answers ("Jan 15, 2026", "15/01/2026", ISO with an
+offset) to ISO-8601 on the way out - `YYYY-MM-DD` for dates, full ISO for
+datetimes. An explicit UTC offset is preserved; a value without one stays
+naive. That makes the fields safe for `where`, `sort --by`, `summarize`'s
+`bin()`, and `chart --by-time` downstream. These are deliberately the only
+two: no time-alone, no durations, no epoch numbers.
+
 ## Already have Pydantic or Zod models? Export them
 
 JSON Schema is the interchange format, and both libraries emit it in one line.
@@ -69,8 +79,8 @@ covers it.)
 
 `field type constraints; field type …` - semicolon-separated:
 
-- Types: `string` · `number` · `integer` · `boolean` · `enum(a, b, …)` ·
-  `string[]` · `number[]`
+- Types: `string` · `number` · `integer` · `boolean` · `date` · `datetime` ·
+  `enum(a, b, …)` · `string[]` · `number[]`
 - Constraints: `>= N` · `<= N` (numbers) · `minLength=N` · `maxLength=N`
   (strings) · `optional`
 

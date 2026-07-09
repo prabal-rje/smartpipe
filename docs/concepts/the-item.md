@@ -96,6 +96,28 @@ fields warn once and carry through untouched; your own data may use at most
 one leading underscore. The terminal preview shows the spine dimmed at the
 bottom of each block; `--bare` (or `write` without `--keep-meta`) strips it.
 
+## What the model sees
+
+When an item reaches a model (`map`, `extend`, `filter`, `reduce`), its
+payload rides in an `<input>` block. A record renders as a minimal
+`key: value` block in its own field order - lists as `- ` rows, nesting
+indented - and plain text rides unchanged:
+
+```text
+Summarize the ticket
+
+<input>
+id: 812
+customer: acme
+body: crashes on save
+</input>
+```
+
+The `__` spine never appears there: provenance, scores, and the `__media`
+transport are tool plumbing, not content (media itself rides the API's
+native image/audio parts). `--dry-run` on `map`/`extend` prints exactly
+this composed request.
+
 ## See also
 
 - [Pipes & items](pipes-and-items.md) - the pipeline mental model

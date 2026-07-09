@@ -94,6 +94,31 @@ def test_blank_input_is_rejected() -> None:
         dsl_to_schema("  ;  ")
 
 
+def test_date_and_datetime_types_map_to_string_formats() -> None:
+    from smartpipe.core.jsontools import as_record
+
+    schema = dsl_to_schema("due date; ts datetime")
+    properties = as_record(schema["properties"])
+    assert properties is not None
+    assert properties["due"] == {"type": "string", "format": "date"}
+    assert properties["ts"] == {"type": "string", "format": "date-time"}
+    assert is_strict_compatible(schema) is True
+
+
+def test_nullable_date_keeps_the_format() -> None:
+    assert type_token("date?") == {"type": ["string", "null"], "format": "date"}
+    assert type_token("datetime?") == {"type": ["string", "null"], "format": "date-time"}
+
+
+def test_the_type_menu_names_the_temporal_types() -> None:
+    from smartpipe.engine.schema_dsl import TYPE_MENU
+
+    assert "date" in TYPE_MENU
+    assert "datetime" in TYPE_MENU
+    with pytest.raises(UsageFault, match="date · datetime"):
+        dsl_to_schema("due dtae")
+
+
 def test_nullable_type_tokens() -> None:
     assert type_token("string?") == {"type": ["string", "null"]}
     assert type_token("number?") == {"type": ["number", "null"]}

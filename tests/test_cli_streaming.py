@@ -76,7 +76,8 @@ async def test_map_emits_before_eof_in_process() -> None:
         ref = ModelRef("ollama", "fake")
 
         async def complete(self, request: CompletionRequest) -> str:
-            return request.user.rsplit("\n\n", 1)[-1].upper()
+            block = request.user.rsplit("\n\n", 1)[-1]  # the <input> payload (item 57)
+            return block.removeprefix("<input>\n").removesuffix("\n</input>").upper()
 
     class Ctx:
         async def chat_model(self, flag: str | None = None) -> EchoUpper:

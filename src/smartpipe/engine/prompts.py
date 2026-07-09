@@ -70,6 +70,7 @@ __all__ = [
     "plan_map",
     "reject_comma_groups",
     "render",
+    "render_input",
     "to_instruction",
 ]
 
@@ -383,9 +384,11 @@ def interpolate_fields(tokens: tuple[Token, ...], data: Mapping[str, object] | N
 
 
 def build_filter_request(condition: str, item_text: str) -> CompletionRequest:
+    """``item_text`` arrives as a ``render_input`` block (item 57) — the
+    ``<input>`` fences label the payload, so no extra "Item:" header."""
     return CompletionRequest(
         system=FILTER_JUDGE_SYSTEM,
-        user=f"Condition: {condition}\n\nItem:\n{item_text}",
+        user=f"Condition: {condition}\n\n{item_text}",
         json_schema=JUDGE_SCHEMA,
         max_tokens=_JUDGE_MAX_TOKENS,
     )
@@ -536,6 +539,75 @@ def build_merge_request(
         json_schema=schema,
         max_tokens=_STRUCTURED_MAX_TOKENS,
     )
+
+
+def render_input(item: Item | str) -> str:
+    """The model-facing payload block (item 57): what an item IS, fenced.
+
+    Records render as a minimal YAML-ish block — ``key: value`` in the
+    record's own key order, two-space nesting, lists as ``- `` rows,
+    multi-line strings as indented blocks. The ``__`` spine (provenance,
+    scores, the ``__media`` transport) is EXCLUDED: the model never sees our
+    plumbing — media rides the actual API image/audio parts. Plain text (and
+    a raw ``str`` payload — a chunk, a transcript) rides unchanged. A pure
+    ``{"text": …}`` record projects to its text, the projection rule every
+    verb shares. Both shapes wear ``<input>`` fences (the batching
+    prerequisite: a later feature numbers them ``<input_1>``); an empty
+    payload renders as nothing at all.
+    """
+    match item:
+        case str(text):
+            body = text
+        case _ if item.data is None:
+            body = item.text
+        case _:
+            content = {key: value for key, value in item.data.items() if not key.startswith("__")}
+            carried = content.get("text")
+            if set(content) == {"text"} and isinstance(carried, str):
+                body = carried
+            else:
+                body = "\n".join(_record_lines(content, indent=0))
+    if not body:
+        return ""
+    return f"<input>\n{body}\n</input>"
+
+
+def _record_lines(record: Mapping[str, object], *, indent: int) -> list[str]:
+    """YAML-ish, pure and boring: no color, no truncation, deterministic.
+    Shape-narrowing follows the untrusted-JSON pattern (core/jsontools)."""
+    from smartpipe.core.jsontools import as_items, as_record
+
+    pad = " " * indent
+    lines: list[str] = []
+    for key, value in record.items():
+        nested = as_record(value)
+        items = as_items(value)
+        if isinstance(value, str) and "\n" in value:
+            lines.append(f"{pad}{key}:")
+            lines.extend(f"{pad}  {line}" for line in value.split("\n"))
+        elif nested is not None:
+            if nested:
+                lines.append(f"{pad}{key}:")
+                lines.extend(_record_lines(nested, indent=indent + 2))
+            else:
+                lines.append(f"{pad}{key}: {{}}")
+        elif items is not None:
+            if items:
+                lines.append(f"{pad}{key}:")
+                lines.extend(f"{pad}  - {_scalar_text(element)}" for element in items)
+            else:
+                lines.append(f"{pad}{key}: []")
+        else:
+            lines.append(f"{pad}{key}: {_scalar_text(value)}")
+    return lines
+
+
+def _scalar_text(value: object) -> str:
+    """One row's rendering: strings verbatim, everything else JSON spelling
+    (deep structures inside lists stay compact JSON — boring beats clever)."""
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def _numbered(texts: Sequence[str]) -> str:

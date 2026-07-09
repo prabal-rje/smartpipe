@@ -76,7 +76,8 @@ class DeafChat:
         self.calls.append(request)
         if request.media:
             raise ItemError("this model can't hear audio — …")
-        return f"summary of: {request.user.splitlines()[-1]}"
+        # the payload's last content line, inside the <input> fence (item 57)
+        return f"summary of: {request.user.splitlines()[-2]}"
 
 
 class HearingChat:

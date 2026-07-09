@@ -13,9 +13,12 @@ cat scored.ndjson \
 ```
 
 Semantics: numbers sort numerically and come before strings when a field
-mixes types; rows **missing the field always land last**, in both
-directions, with a note (`sort: 12 rows missing 'confidence' placed last`);
-ties keep input order (stable); rows pass through byte-for-byte.
+mixes types; a column whose every value is an ISO date/datetime (a
+`{due date}` field, say) sorts temporally - mixed date/datetime columns
+order correctly, offsets honored; rows **missing the field always land
+last**, in both directions, with a note
+(`sort: 12 rows missing 'confidence' placed last`); ties keep input order
+(stable); rows pass through byte-for-byte.
 
 There is deliberately no `take` verb - `head` already counts JSONL rows,
 and duplicating coreutils would be unnecessary bloat.

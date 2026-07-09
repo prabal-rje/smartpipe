@@ -8,8 +8,8 @@ belongs in a ``--schema`` file; the error screens say so.
 Grammar (pinned in ux.md):
     fields      ::= field (";" field)*
     field       ::= name type constraint*
-    type        ::= string | number | integer | boolean | enum(a, b, …)
-                  | string[] | number[]
+    type        ::= string | number | integer | boolean | date | datetime
+                  | enum(a, b, …) | string[] | number[]
     constraint  ::= ">=" N | "<=" N | minLength=N | maxLength=N | optional
 """
 
@@ -23,7 +23,8 @@ __all__ = ["TYPE_MENU", "dsl_to_schema", "type_token"]
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _HELP = (
-    "\n  Types: string · number · integer · boolean · enum(a, b, …) · string[] · number[]"
+    "\n  Types: string · number · integer · boolean · date · datetime"
+    " · enum(a, b, …) · string[] · number[]"
     "\n  Constraints: >= N · <= N · minLength=N · maxLength=N · optional"
 )
 
@@ -32,6 +33,10 @@ _SIMPLE_TYPES: dict[str, dict[str, object]] = {
     "number": {"type": "number"},
     "integer": {"type": "integer"},
     "boolean": {"type": "boolean"},
+    # item 56: the ONLY temporal types — calendar day and point in time.
+    # Both are strings on the wire; the coercion layer canonicalizes to ISO.
+    "date": {"type": "string", "format": "date"},
+    "datetime": {"type": "string", "format": "date-time"},
     "string[]": {"type": "array", "items": {"type": "string"}},
     "number[]": {"type": "array", "items": {"type": "number"}},
     # D48: integer[]/boolean[] round out the primitive arrays
@@ -44,8 +49,8 @@ _LENGTH = re.compile(r"(minLength|maxLength)=(\d+)")
 
 
 TYPE_MENU = (
-    "string · number · integer · boolean · enum(a, b, …) · string[] · number[]"
-    " · any of them with ? for nullable (string?)"
+    "string · number · integer · boolean · date · datetime · enum(a, b, …)"
+    " · string[] · number[] · any of them with ? for nullable (string?)"
 )
 
 

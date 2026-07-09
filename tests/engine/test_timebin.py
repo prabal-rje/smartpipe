@@ -36,3 +36,13 @@ def test_labels_by_granularity() -> None:
     assert bucket_label(noon_ish, 3600) == "12:00"
     assert bucket_label(noon_ish, 900) == "12:45"
     assert bucket_label(noon_ish, 86_400) == "2025-01-01"
+
+
+def test_date_only_values_bin_as_their_midnight() -> None:
+    # item 56: a calendar day is a valid timestamp — its UTC midnight
+    assert parse_timestamp("2025-01-01") == 1_735_689_600.0
+    assert parse_timestamp(" 2025-01-01 ") == 1_735_689_600.0
+    epoch = parse_timestamp("2025-01-01")
+    assert epoch is not None
+    assert bucket_label(epoch, 86_400) == "2025-01-01"
+    assert bucket_label(epoch, 3600) == "00:00"

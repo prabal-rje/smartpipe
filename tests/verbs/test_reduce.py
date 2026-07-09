@@ -362,3 +362,23 @@ async def test_single_item_that_can_never_fit_fails_loudly_after_bounded_retries
     with pytest.raises(ItemError, match="every chunk failed to reduce"):
         await reducer.reduce("summarize", None, ["y" * 5_000])
     assert len(model.calls) <= 20  # depth-bounded, not exponential runaway
+
+
+# --- the <input> framing (item 57) ---------------------------------------------
+
+
+async def test_reduce_items_ride_in_input_blocks() -> None:
+    _code, _out, model = await _run(_request("Summarize"), "line one\nline two\n", lambda _r: "s")
+    assert model.calls[0].user == (
+        "Summarize\n\nItems:\n"
+        "[1] <input>\nline one\n</input>"
+        "\n\n---\n\n"
+        "[2] <input>\nline two\n</input>"
+    )
+
+
+async def test_reduce_records_render_their_fields() -> None:
+    _code, _out, model = await _run(
+        _request("Summarize"), '{"id": 1, "note": "fine"}\n', lambda _r: "s"
+    )
+    assert model.calls[0].user == "Summarize\n\nItems:\n[1] <input>\nid: 1\nnote: fine\n</input>"
