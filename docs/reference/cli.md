@@ -44,7 +44,7 @@ to `stderr`.
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing (`--probe` adds the paid modality matrix) | exit 0 = ready |
-| `schema` | braces/DSL compile FREE (`--check FILE`, `--example`, stdin REPL); plain English drafts with a model (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
+| `schema` | braces/DSL compile FREE (`--check FILE`, `--example`, stdin REPL); bare at a terminal opens the [workshop](#schema-workshop); plain English drafts with a model (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
 
 ## Common options
 
@@ -148,6 +148,35 @@ A `.sem` file pins one verb invocation in TOML; with a
 `#!/usr/bin/env -S smartpipe run` shebang it runs directly (`./extract.sem`).
 Unknown keys in the file are errors (scripts run unattended). Full format:
 [.sem stage files](sem-files.md).
+
+## `schema` workshop
+
+Bare `smartpipe schema` at a terminal opens a small interactive workshop for
+building a schema. Every command is free - zero model calls. The header shows
+the live draft and repaints after each command (pinned at the top on a capable
+terminal, reprinted in the plain fallback):
+
+```
+schema workshop — free, no model calls
+{vendor string: legal name, total number}
+✓ compiles · 2 fields
+/add NAME TYPE [: guidance] · /drop NAME · /test FILE · /example · /save [PATH] · /quit
+```
+
+| Command | Effect |
+|---|---|
+| `/add NAME TYPE [: guidance]` | Add a field. Types are the braces vocabulary: `string`, `number`, `integer`, `boolean`, `enum(a, b)`, `string[]`, `number[]`, a trailing `?` for nullable. |
+| `/drop NAME` | Remove a field. |
+| `/test FILE` | Validate the file's JSONL rows: a pass/fail tally, then a coverage bar per field (presence %, type misses). |
+| `/example` | One deterministic instance that validates - the same machinery as `--example`. |
+| `/save [PATH]` | Write the compiled JSON Schema (default `schema.json`), then print the two paste-ready lines: the braces string for inline use, and `--schema PATH`. |
+| `/quit` (or Ctrl-D) | Leave; the paste-ready lines print on the way out. |
+
+Pasting a whole braces string (for example `{vendor string, total number}`)
+replaces the draft. Every edit runs through the real braces compiler, so a bad
+type shows the compiler's own error and leaves the draft unchanged. Bare
+`schema` with **piped** stdin keeps its old behavior: one expression per line,
+one compiled schema per line.
 
 ## Output formats
 
