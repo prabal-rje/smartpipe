@@ -1,24 +1,32 @@
 # Installing smartpipe
 
-## The one-liner
+## macOS - Homebrew
 
-macOS / Linux:
+```bash
+brew install prabal-rje/tap/smartpipe
+```
+
+Upgrades ride `brew upgrade` (the tap tracks PyPI daily), and
+`smartpipe update` knows it was brew-installed.
+
+## Linux - the one-liner
 
 ```bash
 curl -LsSf https://prabal-rje.github.io/smartpipe/install.sh | sh
 ```
 
-Windows (PowerShell):
+Works on macOS too. The script uses Homebrew when you already have it;
+otherwise it sets up [uv](https://docs.astral.sh/uv) and runs
+`uv tool install smartpipe-cli`. Either way it ends by checking
+`smartpipe --version`, and it tells you exactly which commands it runs.
+To pin a version, set `SMARTPIPE_VERSION` first (uv installs only):
+`SMARTPIPE_VERSION=1.4.0`.
+
+## Windows - PowerShell
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "irm https://prabal-rje.github.io/smartpipe/install.ps1 | iex"
 ```
-
-The installer uses Homebrew when you already have it; otherwise it sets up
-[uv](https://docs.astral.sh/uv) and runs `uv tool install smartpipe-cli`.
-Either way it ends by checking `smartpipe --version`, and it tells you
-exactly which commands it runs. To pin a version, set `SMARTPIPE_VERSION`
-first (uv installs only): `SMARTPIPE_VERSION=1.4.0`.
 
 Prefer to read before you pipe to a shell? The scripts are short:
 [install.sh](https://prabal-rje.github.io/smartpipe/install.sh) ·
@@ -30,7 +38,6 @@ smartpipe is a Python package; it needs **Python 3.11 or newer** (not sure?
 run `python3 --version`). Pick whichever tool you already use:
 
 ```bash
-brew install prabal-rje/tap/smartpipe   # Homebrew (macOS / Linux)
 uv tool install smartpipe-cli           # uv
 pipx install smartpipe-cli              # pipx - isolated, available everywhere
 pip install smartpipe-cli               # plain pip

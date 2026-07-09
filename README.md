@@ -17,21 +17,28 @@ their input.
 
 ## Install
 
+**macOS** - Homebrew is the happy path:
+
 ```bash
-# macOS / Linux
+brew install prabal-rje/tap/smartpipe
+```
+
+**Linux** - one line (uses Homebrew if you have it, bootstraps uv otherwise;
+works on macOS too):
+
+```bash
 curl -LsSf https://prabal-rje.github.io/smartpipe/install.sh | sh
 ```
 
+**Windows**:
+
 ```powershell
-# Windows
 powershell -ExecutionPolicy Bypass -c "irm https://prabal-rje.github.io/smartpipe/install.ps1 | iex"
 ```
 
-The installer uses Homebrew when you have it, uv otherwise. Prefer your own
-package manager? Any of these works:
+Prefer your own Python tooling? Any of these works on every platform:
 
 ```bash
-brew install prabal-rje/tap/smartpipe   # Homebrew
 uv tool install smartpipe-cli           # uv
 pipx install smartpipe-cli              # pipx
 pip install smartpipe-cli               # pip
