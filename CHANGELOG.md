@@ -183,6 +183,15 @@ The identity release.
   media-embedding capability.
 
 ### Setup that reads the room
+- **The schema workshop.** `smartpipe schema` with no arguments at a
+  terminal opens a small interactive draft loop - your schema pinned up
+  top as colored braces, commands scrolling below: `/add name type`,
+  `/drop`, `/test data.jsonl` (per-field coverage bars against your real
+  rows), `/example` (a synthetic instance), `/save` (writes schema.json
+  and prints the paste-ready braces and `--schema` lines). Zero model
+  calls by construction - iterate freely, commit when the bars are
+  green. Paste any `{braces}` string to replace the draft. Piped and
+  argument invocations are unchanged.
 - **`smartpipe config` is now a provider-first picker.** Detect what's
   already connected (API keys in the environment, a ChatGPT login, local
   Ollama), pick a provider, pick from its LIVE model catalog - arrow keys
