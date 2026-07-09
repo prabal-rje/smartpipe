@@ -491,9 +491,11 @@ async def build_container(
     limit = _resolve_max_calls(environ, max_calls)
     config = load_config(config_path(environ), environ)
     client = make_client()
+    from smartpipe.engine.schema import reset_deterministic_repairs
     from smartpipe.io import metering
 
     metering.reset()  # a fresh run's meter (D40)
+    reset_deterministic_repairs()  # rung 0's tally is run-scoped, like the meter (item 58)
     container = AppContainer(
         env=dict(environ),
         config=config,
@@ -508,10 +510,21 @@ async def build_container(
         totals = metering.receipt()
         if totals is not None:
             diagnostics.note(totals)  # D40: the number that goes in the report
+        _repair_receipt()  # rung 0's once-per-run disclosure (item 58)
         from smartpipe.io import usage
 
         usage.record_run(metering.snapshot(), container.env)  # D41: the ledger
         _cache_receipt(container)
+
+
+def _repair_receipt() -> None:
+    """One dim note per run when rung 0 saved replies — never per item."""
+    from smartpipe.engine.schema import deterministic_repairs
+
+    count = deterministic_repairs()
+    if count:
+        noun = "reply" if count == 1 else "replies"
+        diagnostics.note(f"{count} {noun} repaired deterministically (fences/commas/quotes)")
 
 
 def _cache_receipt(container: AppContainer) -> None:

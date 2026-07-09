@@ -4,6 +4,9 @@ JSON-Schema loading, and validate-with-light-coercion of a model reply.
 ``validate_and_coerce`` raises ``ItemError`` on any failure, with a message that
 names the problem — the ``map`` verb feeds that message back to the model as the
 single repair retry, so the message is repair context, not just a log line.
+Before that paid retry, a reply that doesn't even parse gets rung 0 (item 58):
+``engine/repair.repair_json``, free and deterministic; a success is tallied so
+the container can disclose it once per run.
 """
 
 from __future__ import annotations
@@ -21,10 +24,12 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BARE_PROPERTY",
+    "deterministic_repairs",
     "example_instance",
     "is_strict_compatible",
     "load_schema",
     "parse_schema_draft",
+    "reset_deterministic_repairs",
     "shorthand_to_schema",
     "validate_and_coerce",
 ]
@@ -202,10 +207,47 @@ def parse_schema_draft(reply: str) -> dict[str, object]:
     return candidate
 
 
+_repairs = 0  # run-scoped rung-0 tally — a metering-style documented exception to no-globals
+
+
+def deterministic_repairs() -> int:
+    """How many replies rung 0 saved this run — the container turns a non-zero
+    count into the one dim per-run note next to the metering receipt."""
+    return _repairs
+
+
+def reset_deterministic_repairs() -> None:
+    """A fresh run's tally — called where ``metering.reset()`` is called."""
+    global _repairs
+    _repairs = 0
+
+
+def _count_repair() -> None:
+    global _repairs
+    _repairs += 1
+
+
 def validate_and_coerce(reply: str, schema: Mapping[str, object]) -> dict[str, object]:
+    try:
+        parsed = _extract_json(reply)
+    except ItemError:
+        # rung 0 (item 58): a free deterministic repair before the paid retry —
+        # counted only when the repaired reply also passes the schema below
+        from smartpipe.engine.repair import repair_json
+
+        repaired = repair_json(reply)
+        if repaired is None:
+            raise
+        result = _validated(json.loads(repaired), schema)
+        _count_repair()
+        return result
+    return _validated(parsed, schema)
+
+
+def _validated(parsed: object, schema: Mapping[str, object]) -> dict[str, object]:
     import jsonschema  # function-local: --help must not pay for the validator stack
 
-    record = as_record(_extract_json(reply))
+    record = as_record(parsed)
     if record is None:
         raise ItemError("model returned JSON but not an object")
     coerced = _coerce(record, schema)

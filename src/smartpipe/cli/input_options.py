@@ -57,10 +57,11 @@ def input_options(command: _Command) -> _Command:
     command = click.option(
         "--as",
         "as_mode",
-        type=click.Choice(["file", "lines", "jsonl"]),
+        type=click.Choice(["file", "lines", "jsonl", "csv"]),
         default=None,
         help="Cut granularity: file = one item per file/whole stdin; "
-        "lines = every line is text; jsonl = strict one-record-per-line.",
+        "lines = every line is text; jsonl = strict one-record-per-line; "
+        "csv = header row names the fields, one record per row.",
     )(command)
     return command
 

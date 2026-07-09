@@ -47,6 +47,22 @@ def test_completion_source_emits_a_script(shell: str, marker: str) -> None:
     assert marker in proc.stdout
 
 
+# --- the --as dial's completion menu (item 54) --------------------------------------
+
+
+def test_as_dial_offers_csv_on_the_shared_input_options() -> None:
+    # click.Choice IS the shell-completion source for --as — the menu is the contract
+    import click
+
+    from smartpipe.cli.map_cmd import map_command
+    from smartpipe.cli.read_cmd import read_command
+
+    for command in (map_command, read_command):
+        param = next(entry for entry in command.params if entry.name == "as_mode")
+        assert isinstance(param.type, click.Choice)
+        assert list(param.type.choices) == ["file", "lines", "jsonl", "csv"]
+
+
 # --- model-name suggestions -------------------------------------------------------
 
 

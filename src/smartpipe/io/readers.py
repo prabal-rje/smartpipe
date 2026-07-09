@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ItemError, SetupFault, UsageFault
 from smartpipe.io import diagnostics
+from smartpipe.io.csvrows import CsvCutter, csv_file_items
 from smartpipe.io.items import Item, ItemSource, item_from_file, item_from_line
 from smartpipe.models.base import AudioData, ImageData, VideoData
 from smartpipe.parsing.detect import FileKind, detect_kind, route
@@ -58,9 +59,9 @@ class OcrIngest:
 
 def ocr_route(kind: FileKind, as_mode: str | None) -> Literal["image", "pdf"] | None:
     """Whether a configured ``ocr-model`` parses this file: whole-crate PDFs
-    and images only — the lines/jsonl dials read text rows, and every other
-    kind keeps today's extraction ladder. Pure: the routing decision itself."""
-    if as_mode in ("lines", "jsonl"):
+    and images only — the lines/jsonl/csv dials read text rows, and every
+    other kind keeps today's extraction ladder. Pure: the routing decision."""
+    if as_mode in ("lines", "jsonl", "csv"):
         return None
     if kind is FileKind.PDF:
         return "pdf"
@@ -81,11 +82,12 @@ def resolve_items(
     Returns ``(items, total)`` — total is known only for ``--in`` file lists;
     stdin is a stream (``tail -f`` works), so its total is ``None`` and the
     spinner shows count+rate instead of an ETA. Only the stdin paths guard
-    against a bare terminal. ``spec.as_mode`` is the granularity dial (item
-    15): file = whole crates, lines = text rows, jsonl = strict records;
-    None = auto (extension defaults for paths, the per-line sniff on stdin).
-    ``ocr`` (item 40): a configured ocr-model parses PDF/image crates — page
-    counts are unknown before parsing, so those runs report ``total=None``.
+    against a bare terminal. ``spec.as_mode`` is the granularity dial (items
+    15/54): file = whole crates, lines = text rows, jsonl = strict records,
+    csv = header-named rows; None = auto (extension defaults for paths, the
+    per-line sniff on stdin). ``ocr`` (item 40): a configured ocr-model parses
+    PDF/image crates — page counts are unknown before parsing, so those runs
+    report ``total=None``; csv runs stream row-at-a-time and do the same.
     Unset, every path below is byte-identical to before the role existed."""
     from smartpipe.io.inputs import expand_globs
 
@@ -96,11 +98,15 @@ def resolve_items(
         )
     if spec.patterns:
         paths = expand_globs(spec.patterns)  # UsageFault if no match
-        if spec.as_mode in ("lines", "jsonl"):
+        if spec.as_mode in ("lines", "jsonl", "csv"):
             _refuse_uncuttable(paths, spec.as_mode)  # every matched file must honor it
         if ocr is not None and _any_ocr_eligible(paths, spec.as_mode):
             chained = None if stdin.isatty() else stdin
             return _ocr_path_items(paths, spec.as_mode, ocr, chained, stop), None
+        if _any_csv(paths, spec.as_mode):
+            # item 54: a csv in the mix streams row-at-a-time — no slurp, no total
+            chained = None if stdin.isatty() else stdin
+            return _stream_path_items(paths, spec, chained, stop, ocr), None
         loaded = _path_items(paths, spec.as_mode)
         if stdin.isatty():  # files only — no pipe to chain
             return _iter_list(loaded), len(loaded)
@@ -114,6 +120,53 @@ def resolve_items(
     return stdin_items(
         stdin, stop=stop, as_mode=spec.as_mode, strict_rows=spec.strict_rows, ocr=ocr
     ), None
+
+
+def _any_csv(paths: Sequence[Path], as_mode: str | None) -> bool:
+    """Whether this run cuts csv rows: an explicit ``--as csv``, or (in auto
+    mode) any matched ``.csv``/``.tsv`` path — those default to the csv cut."""
+    if as_mode == "csv":
+        return True
+    return as_mode is None and any(path.suffix.lower() in _CSV_SUFFIXES for path in paths)
+
+
+async def _stream_path_items(
+    paths: Sequence[Path],
+    spec: InputSpec,
+    stdin: TextIO | None,
+    stop: asyncio.Event | None,
+    ocr: OcrIngest | None,
+) -> AsyncIterator[Item]:
+    """Path ingestion with a csv in the mix (item 54): csv files stream
+    row-at-a-time (a 10 GB export must not materialize); every other file
+    loads exactly as ``_path_items`` would."""
+    warned_extras: set[str] = set()
+    ordinal = 0
+    for path in paths:
+        if stop is not None and stop.is_set():
+            return
+        mode = spec.as_mode or _default_mode(path)
+        if mode == "csv":
+            for item in csv_file_items(path):
+                yield item
+        elif mode != "file":
+            for row in _text_rows(path, mode):
+                yield row
+        else:
+            item = _load_file(path, ordinal, warned_extras)
+            if item is not None:
+                yield item
+                ordinal += 1
+    if stdin is not None:
+        async for item in stdin_items(
+            stdin,
+            stop=stop,
+            as_mode=spec.as_mode,
+            strict_rows=spec.strict_rows,
+            ocr=ocr,
+            csv_empty_ok=True,  # files already flowed — an idle chained pipe is ordinary
+        ):
+            yield item
 
 
 def _any_ocr_eligible(paths: Sequence[Path], as_mode: str | None) -> bool:
@@ -194,9 +247,11 @@ async def _ocr_path_items(
     for path in paths:
         if stop is not None and stop.is_set():
             return
-        mode = as_mode
-        if mode is None:
-            mode = "jsonl" if path.suffix.lower() in _JSONL_SUFFIXES else "file"
+        mode = as_mode or _default_mode(path)
+        if mode == "csv":
+            for row in csv_file_items(path):
+                yield row
+            continue
         if mode != "file":
             for row in _text_rows(path, mode):
                 yield row
@@ -425,6 +480,7 @@ async def stdin_items(
     as_mode: str | None = None,
     strict_rows: bool = False,
     ocr: OcrIngest | None = None,
+    csv_empty_ok: bool = False,
 ) -> AsyncIterator[Item]:
     """Each stdin line is one Item, yielded as it arrives (never waits for EOF).
 
@@ -433,20 +489,28 @@ async def stdin_items(
     a trailing newline is still an item; empty input yields nothing; CRLF and the
     line-0 BOM are handled per-item by ``item_from_line``. ``as_mode`` (item 15):
     ``lines`` reads every line as TEXT (no JSON sniff); ``jsonl`` demands one
-    record per line, loudly; both refuse a binary stdin — a document or clip has
-    no lines to cut. ``ocr`` (item 40): a redirected PDF or image parses
-    through the configured ocr-model, falling back to today's ladder on failure.
+    record per line, loudly; ``csv`` (item 54) reads the first line as the header
+    and every later line as one record; all three refuse a binary stdin — a
+    document or clip has no rows to cut. ``ocr`` (item 40): a redirected PDF or
+    image parses through the configured ocr-model, falling back on failure.
     """
 
     index = 0
     records = 0
     plain = 0
+    cutter = (
+        CsvCutter(origin=None, delimiter=",", empty_ok=csv_empty_ok) if as_mode == "csv" else None
+    )
     async for message in _messages(stdin, stop):
         tag, payload = message
         if as_mode is not None and tag in ("document", "image", "audio", "video"):
             raise UsageFault(_uncuttable_stdin(tag, as_mode))
         if tag == "line":
             assert isinstance(payload, str)
+            if cutter is not None:
+                for item in cutter.push(payload):
+                    yield item
+                continue  # the census is a sniffing concern; csv is declared
             item = _row_item(payload, index, as_mode, origin=None)
             if item.data is None:
                 plain += 1
@@ -483,6 +547,9 @@ async def stdin_items(
         else:  # "fatal"
             assert isinstance(payload, str)
             raise SetupFault(payload)
+    if cutter is not None:
+        for item in cutter.finish():  # EOF flush; a header-less stream refuses here
+            yield item
     _report_census(records, plain, strict=strict_rows)
 
 
@@ -590,6 +657,11 @@ def _row_item(line: str, index: int, as_mode: str | None, *, origin: str | None)
     return item
 
 
+def _cut_unit(as_mode: str) -> str:
+    """What the dial cuts into — csv cuts rows, lines/jsonl cut lines."""
+    return "rows" if as_mode == "csv" else "lines"
+
+
 def _uncuttable_stdin(tag: str, as_mode: str) -> str:
     match tag:
         case "image":
@@ -598,15 +670,13 @@ def _uncuttable_stdin(tag: str, as_mode: str) -> str:
             reason = "finer granularity is split --by minutes/seconds"
         case _:  # document
             reason = "pages are the honest unit: smartpipe split --by pages (or --by tokens)"
-    return (
-        f"--as {as_mode}: stdin is a {'document' if tag == 'document' else tag}, not lines\n"
-        f"  {reason}"
-    )
+    kind = "document" if tag == "document" else tag
+    return f"--as {as_mode}: stdin is a {kind}, not {_cut_unit(as_mode)}\n  {reason}"
 
 
 def _refuse_uncuttable(paths: Sequence[Path], as_mode: str) -> None:
-    """An EXPLICIT --as lines/jsonl must be satisfiable by EVERY matched file —
-    loud refusal with offender counts, never silent partial application."""
+    """An EXPLICIT --as lines/jsonl/csv must be satisfiable by EVERY matched
+    file — loud refusal with offender counts, never silent partial application."""
     images: list[str] = []
     clips: list[str] = []
     documents: list[str] = []
@@ -629,7 +699,9 @@ def _refuse_uncuttable(paths: Sequence[Path], as_mode: str) -> None:
     if offenders == 0:
         return
     plural = "s" if offenders != 1 else ""
-    lines = [f"--as {as_mode}: {offenders} matched file{plural} can't be cut into lines"]
+    lines = [
+        f"--as {as_mode}: {offenders} matched file{plural} can't be cut into {_cut_unit(as_mode)}"
+    ]
     if images:
         lines.append(f"  images ({_examples(images)}) have no finer granularity")
     if clips:
@@ -650,19 +722,29 @@ def _examples(names: Sequence[str]) -> str:
 
 
 _JSONL_SUFFIXES = (".jsonl", ".ndjson")
+_CSV_SUFFIXES = (".csv", ".tsv")
+
+
+def _default_mode(path: Path) -> str:
+    """AUTO's per-file extension default: .jsonl/.ndjson cut into records,
+    .csv/.tsv cut into csv rows (item 54), everything else is one crate."""
+    suffix = path.suffix.lower()
+    if suffix in _JSONL_SUFFIXES:
+        return "jsonl"
+    if suffix in _CSV_SUFFIXES:
+        return "csv"
+    return "file"
 
 
 def _path_items(paths: Sequence[Path], as_mode: str | None) -> list[Item]:
     """Named paths under the dial: explicit --as applies to every file; AUTO
-    gives each file its extension default — .jsonl/.ndjson cut into records,
-    everything else is one whole-file crate."""
+    gives each file its extension default. csv never lands here — the caller
+    routes any csv-bearing run through the streaming path instead."""
     items: list[Item] = []
     warned_extras: set[str] = set()
     ordinal = 0
     for path in paths:
-        mode = as_mode
-        if mode is None:
-            mode = "jsonl" if path.suffix.lower() in _JSONL_SUFFIXES else "file"
+        mode = as_mode or _default_mode(path)
         if mode == "file":
             item = _load_file(path, ordinal, warned_extras)
             if item is not None:
@@ -727,11 +809,14 @@ async def from_files_items(
         if not name:
             continue
         path = Path(name)
-        if as_mode in ("lines", "jsonl"):
+        if as_mode in ("lines", "jsonl", "csv"):
             _refuse_uncuttable([path], as_mode)
-        mode = as_mode
-        if mode is None:
-            mode = "jsonl" if path.suffix.lower() in _JSONL_SUFFIXES else "file"
+        mode = as_mode or _default_mode(path)
+        if mode == "csv":
+            for row in csv_file_items(path):
+                yield row
+                index += 1
+            continue
         if mode == "file":
             if ocr is not None:
                 parsed = await _ocr_file(path, index, ocr)

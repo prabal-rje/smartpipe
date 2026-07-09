@@ -49,7 +49,7 @@ class ItemSource:
     kind: Literal["stdin", "file"]
     name: str  # "-" for stdin, else the path (or an adopted human label)
     index: int  # 0-based line number (stdin) or file/segment ordinal
-    cut: str = "lines"  # how the item was cut: lines|jsonl|file|tokens|pages|minutes|seconds
+    cut: str = "lines"  # how the item was cut: lines|jsonl|csv|file|tokens|pages|minutes|seconds
     path: str | None = None  # the origin path when `name` carries a human label
     label: str | None = None  # adopted human wording ("report.pdf §3/12")
 
@@ -59,7 +59,9 @@ def source_record(source: ItemSource) -> dict[str, object]:
     with it — ``{path, as, line|page|segment}`` plus an optional human label."""
     record: dict[str, object] = {"path": source.path or source.name, "as": source.cut}
     match source.cut:
-        case "lines" | "jsonl":
+        case "lines" | "jsonl" | "csv":
+            # csv indexes are PHYSICAL lines (header = 1) so grep/sed agree,
+            # even when a quoted cell spans lines (then: the row's first line)
             record["line"] = source.index + 1
         case "pages":
             record["page"] = source.index + 1

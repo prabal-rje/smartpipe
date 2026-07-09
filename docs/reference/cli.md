@@ -57,7 +57,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `--embed-model TEXT` | Embedding model (`embed`, `top_k`). |
 | `--concurrency N` | Max parallel model calls (default 4). |
 | `FILES…` (positional) | Read each named file/glob as items (quote globs). `--in GLOB` is a hidden compatibility alias. |
-| `--as {file,lines,jsonl}` | Cut granularity: whole crates, text rows, or strict records ([the item](../concepts/the-item.md)). Auto: `.jsonl` paths cut into records; other paths are one item; stdin sniffs per line. |
+| `--as {file,lines,jsonl,csv}` | Cut granularity: whole crates, text rows, strict records, or header-named csv rows ([the item](../concepts/the-item.md), [csv rows](../concepts/feeding-smartpipe.md#csv-rows)). Auto: `.jsonl` paths cut into records, `.csv`/`.tsv` into csv rows (`.tsv` on tabs); other paths are one item; stdin sniffs per line. |
 | `--from-files` | Treat each `stdin` line as a filename. |
 | `--strict-rows` | A mixed record/text stream (or a field-less row in `where`/`summarize`) is an error, not a note. `SMARTPIPE_STRICT_ROWS` is the env form. |
 | `--bare` | Strip `__` metadata from record output (`map`, `extend`, `join`, reader mode). |

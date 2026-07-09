@@ -19,7 +19,7 @@ __all__ = ["STDIN", "InputSpec", "expand_globs"]
 class InputSpec:
     patterns: tuple[str, ...]  # --in globs (may be empty)
     from_files: bool  # --from-files: each stdin line names a file
-    as_mode: str | None = None  # --as file|lines|jsonl; None = auto (item 15)
+    as_mode: str | None = None  # --as file|lines|jsonl|csv; None = auto (items 15/54)
     strict_rows: bool = False  # --strict-rows: a mixed record/text stream is an error (item 20)
 
 

@@ -22,6 +22,8 @@ Files go after the prompt (quote globs). Each path's default:
 
 - `.jsonl` / `.ndjson` → strict records, one per line; a bad row is a loud
   error naming file and line.
+- `.csv` / `.tsv` → header-named records, one per row (`.tsv` cuts on tabs);
+  see [csv rows](#csv-rows) below.
 - everything else → one whole-file item: documents extract their text (and
   carry embedded figures to vision models), media carry their bytes.
 
@@ -30,18 +32,49 @@ Files go after the prompt (quote globs). Each path's default:
 
 ## The `--as` dial
 
-`--as file|lines|jsonl` overrides every default, stdin included:
+`--as file|lines|jsonl|csv` overrides every default, stdin included:
 
 ```bash
 cat poem.txt | smartpipe map "translate, keep the shape" --as file
 smartpipe map "translate" 'notes/*.txt' --as lines
 smartpipe map "classify {label}" export.txt --as jsonl
+cat export.txt | smartpipe map "classify {label}" --as csv
 ```
 
-An explicit `--as lines`/`jsonl` must hold for EVERY matched file: images
-refuse (no finer granularity), audio/video point at `split --by
+An explicit `--as lines`/`jsonl`/`csv` must hold for EVERY matched file:
+images refuse (no finer granularity), audio/video point at `split --by
 minutes/seconds`, documents point at `split --by pages` - with offender
 counts, never silent partial application.
+
+## csv rows
+
+`--as csv` (the default for `.csv`/`.tsv` paths) reads the header row as the
+field names and every later row as one record - `name,age` + `alice,31`
+becomes `{"name": "alice", "age": 31}`. On stdin the header is simply the
+first line. Rows stream one at a time, exactly like jsonl - a 10 GB export
+never materializes in memory.
+
+The details, all deliberate:
+
+- **Cell coercion is int → float → string.** A cell that is a whole number
+  becomes an int (`31`), a decimal or scientific number becomes a float
+  (`2.5`, `1e3`), and anything else - empty cells included - stays the string
+  it was (`007x` keeps its leading zeros). `NaN`/`Infinity` spellings stay
+  strings; they have no JSON form.
+- **`__source` carries the PHYSICAL line number.** The header is line 1, the
+  first data row line 2 - so `grep -n`/`sed -n` line references match the
+  file exactly. A quoted cell may span lines; such a row carries its FIRST
+  physical line.
+- **Dialect by extension.** `.tsv` cuts on tabs, with or without an explicit
+  `--as csv`; everything else - stdin included - cuts on commas. There is no
+  delimiter sniffing beyond that: extensions are predictable, sniffers guess.
+- **Errors are loud, jsonl-style.** A ragged row names the file, the physical
+  line, and both column counts; an empty file (or blank header cell, or
+  duplicate column name) refuses with the fix. `--as csv` on media or
+  documents refuses with the same signposts as `lines`/`jsonl`.
+
+Egress is the mirror you already have: `--output csv` on the verbs that emit
+records, so `csv in → csv out` round-trips.
 
 ## Reader mode
 

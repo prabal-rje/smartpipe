@@ -64,6 +64,13 @@ def _is_str_list(value: object) -> bool:
     return entries is not None and all(isinstance(entry, str) for entry in entries)
 
 
+_AS_MODES = ("file", "lines", "jsonl", "csv")  # the --as dial (items 15/54)
+
+
+def _is_as_mode(value: object) -> bool:
+    return isinstance(value, str) and value in _AS_MODES
+
+
 def _str_entries(value: object) -> tuple[str, ...]:
     entries = as_items(value)
     assert entries is not None  # accepts() proved it before render runs
@@ -135,6 +142,11 @@ def _list_key(render: Callable[[object, Path], tuple[str, ...]]) -> _KeySpec:
     return _KeySpec("an array of strings", _is_str_list, render)
 
 
+def _as_key() -> _KeySpec:
+    spelled = ", ".join(f'"{mode}"' for mode in _AS_MODES)
+    return _KeySpec(f"one of {spelled}", _is_as_mode, _flag("--as"))
+
+
 # --- the per-verb key tables (emit order is the tuple order; a public contract) -------
 
 _COMMON_TAIL: tuple[tuple[str, _KeySpec], ...] = (
@@ -142,6 +154,7 @@ _COMMON_TAIL: tuple[tuple[str, _KeySpec], ...] = (
     ("max-calls", _int_key(_flag("--max-calls"))),
     ("in", _list_key(_globs)),
     ("from-files", _bool_key(_switch("--from-files"))),
+    ("as", _as_key()),
 )
 
 _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
@@ -185,6 +198,7 @@ _VERB_KEYS: Mapping[str, tuple[tuple[str, _KeySpec], ...]] = {
         ("max-tokens", _int_key(_flag("--max-tokens"))),
         ("in", _list_key(_globs)),
         ("from-files", _bool_key(_switch("--from-files"))),
+        ("as", _as_key()),
     ),
     "join": (
         ("prompt", _str_key(_positional)),
