@@ -96,6 +96,21 @@ The identity release.
   `chart cluster --top 8`, which draws real sizes.
 
 ### Every example, run for real
+- **`map` and `extend` records finally carry their provenance.** The
+  `__source` spine - the law said it rides every record - was being
+  dropped by braces extraction: a reader-stamped row went in with
+  `{"path", "as", "line"}` and came out with only the extracted fields.
+  Every record leaving `map`/`extend` now carries `__source` (incoming
+  spines adopted verbatim, fresh ones stamped from the item's
+  provenance), which also means the terminal preview now shows the dim
+  file-and-line origin under each block. `--bare` still strips it.
+- **Docs truth sweep** (owner-reported): four `echo "... $1250"`
+  examples silently shell-expanded to "250" - single-quoted; text files
+  are declared one-item-per-line at first use; "everything outside the
+  braces is the instruction" stated wherever braces are taught; typed
+  braces are the norm across the examples; the playground corpus is
+  linked from README, docs home, and the cookbook; the demo video plays
+  on the docs front page.
 - **Row cuts keep their rows through `filter` and `top_k`.** The grep-l
   contract (match whole files, get paths back) leaked onto `--as jsonl` /
   `--as lines` rows read from a positional file: every matching ROW came
