@@ -43,7 +43,7 @@ from smartpipe.engine.graphout import (
 )
 from smartpipe.io import diagnostics, readers
 from smartpipe.io.inputs import STDIN
-from smartpipe.io.items import content_text, describe_source
+from smartpipe.io.items import describe_source, project_content
 from smartpipe.io.progress import Spinner, make_stderr_spinner
 from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 from smartpipe.verbs.common import EMBED_BATCH_SIZE, batched, ensure_text, outcome_exit_code
@@ -145,13 +145,17 @@ async def run_graph(
         if stop is not None and stop.is_set():
             break
         try:
-            textual = await ensure_text(item, transcriber=transcriber, log=log, converter=None)
+            # projection first (a no-op for media records), THEN the free ladder:
+            # a transcript must never be re-projected away by the original record
+            textual = await ensure_text(
+                project_content(item), transcriber=transcriber, log=log, converter=None
+            )
         except ItemError:
             # the free ladder has no rung for this item (image/scan) — censused below
             no_free_text += 1
             entity_bar.advance()
             continue
-        text = content_text(textual)
+        text = textual.text
         try:
             spans = await asyncio.to_thread(finder.find, text)
         except ItemError as exc:

@@ -227,6 +227,13 @@ async def test_document_window_spans_the_whole_file(tmp_path: Path) -> None:
     assert edges[0]["sources"] == [{"path": str(corpus), "as": "file"}]
 
 
+async def test_jsonl_records_project_their_content_fields() -> None:
+    row = json.dumps({"text": "Ann met Bob", "__source": {"path": "notes.txt", "as": "lines"}})
+    _, out = await _run(GraphRequest(fast=True), _context(PEOPLE), f"{row}\n")
+    edges = [json.loads(line) for line in out.splitlines()]
+    assert [(e["source"], e["target"]) for e in edges] == [("Ann", "Bob")]
+
+
 async def test_empty_input_is_ok_and_silent() -> None:
     code, out = await _run(GraphRequest(fast=True), _context(PEOPLE), "")
     assert code is ExitCode.OK
@@ -301,6 +308,32 @@ async def test_image_only_items_get_one_census_note(
         "note: 2 files skipped — no free text (images/scans); the full mode or ocr-model reads them"
     ) in err
     assert len([json.loads(line) for line in out.splitlines()]) == 1
+
+
+async def test_audio_items_ride_the_local_whisper_rung() -> None:
+    import base64
+
+    clip = base64.b64encode(b"riff").decode()
+    record = json.dumps({"__media": {"kind": "audio", "mime": "audio/mpeg", "data_b64": clip}})
+    heard: list[bytes] = []
+
+    def fake_whisper(audio: object) -> str:
+        heard.append(getattr(audio, "data", b""))
+        return "Ann met Bob"
+
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True),
+        _context(PEOPLE),
+        stdin=io.StringIO(f"{record}\n"),
+        stdout=out,
+        transcriber=fake_whisper,
+        clock=lambda: 0.0,
+    )
+    assert code is ExitCode.OK
+    assert heard == [b"riff"]  # the clip reached the LOCAL transcriber, not a model
+    edges = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert [(e["source"], e["target"]) for e in edges] == [("Ann", "Bob")]
 
 
 async def test_finder_failures_skip_that_item_loudly(
