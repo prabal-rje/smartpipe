@@ -85,6 +85,7 @@ ingestion made visible, and the front half of the
 ```bash
 smartpipe report.pdf | head -1
 smartpipe notes.txt --as lines | smartpipe write 'copy/{name}'
+# {name} = the source file's name, carried by __source - notes.txt becomes copy/notes.txt
 ```
 
 ## What rides along

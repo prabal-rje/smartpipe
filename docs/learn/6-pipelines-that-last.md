@@ -27,15 +27,18 @@ Details: [.sem files](../reference/sem-files.md) ·
 smartpipe 'notes/*.txt' --as lines \
 | smartpipe map "translate to French" \
 | smartpipe write 'fr/{name}'
+# {name} = the source file's name, carried by __source - notes/a.txt becomes fr/a.txt
 
 # a human-readable report of a JSONL run
 smartpipe readable < results.jsonl > report.txt
 ```
 
-`write` routes items to files by template (`{name}`, `{stem}`, `{index}`,
-or any record field for fan-out like `by-lang/{lang}.jsonl`), reassembling
-line-cut items in order. `readable` renders the same blocks you see at the
-terminal, anywhere.
+`write` routes items to files by template. `{name}`, `{stem}`, `{ext}`,
+`{path}`, and `{index}` fill from the item's provenance (the `__source`
+spine that remembers which file each item was cut from - `{name}` is NOT a
+record field); any other `{field}` fills from the record's own data, for
+fan-out like `by-lang/{lang}.jsonl`. Line-cut items reassemble in order.
+`readable` renders the same blocks you see at the terminal, anywhere.
 
 ## Trust it: doctor and the receipts
 

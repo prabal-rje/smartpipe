@@ -74,6 +74,7 @@ in spine order, so concurrency upstream can never scramble them.
 smartpipe 'notes/*.txt' --as lines \
 | smartpipe map "translate to French" \
 | smartpipe write 'fr/{name}'
+# {name} = the source file's name, carried by __source - notes/a.txt becomes fr/a.txt
 ```
 
 Three doors out of a pipe: `write` routes items to files, `readable` renders
