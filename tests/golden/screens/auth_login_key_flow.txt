@@ -1,0 +1,3 @@
+  Create a key: https://console.mistral.ai/api-keys
+  ✓ the key works (mistral answered)
+  ✓ stored at ~/.local/share/smartpipe/auth.json (owner-only) - remove with: smartpipe auth logout mistral

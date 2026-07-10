@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 
     import respx
 
+    from smartpipe.config.authflow import AuthEntry
+    from smartpipe.models.keycheck import KeyVerdict
+
 FRESH_MS = int(time.time() * 1000) + 3_600_000
 
 
@@ -169,6 +172,249 @@ def test_login_browser_flow(
         return True
 
     monkeypatch.setattr("webbrowser.open", fake_open)
-    code, _out, err = run_cli(["auth", "login"])
+    code, _out, err = run_cli(["auth", "login", "openai"])  # openai = ChatGPT (back-compat)
     assert code == 0
     assert "logged in" in err
+
+
+# --- the key path: connect flow (injected I/O; the transcript never shows a key) -----
+
+
+class _Session:
+    """A scripted connect session: prompts to feed, everything said, recorded stores."""
+
+    def __init__(self, secrets: list[str], picks: list[int | None] | None = None) -> None:
+        self.secrets = secrets
+        self.picks = picks or []
+        self.said: list[str] = []
+        self.stored: list[str] = []
+
+    def secret(self, _question: str) -> str:
+        return self.secrets.pop(0)
+
+    def choose(self, _title: str, _labels: tuple[str, ...], _start: int) -> int | None:
+        return self.picks.pop(0)
+
+    def store(self, key: str) -> None:
+        self.stored.append(key)
+
+
+def _entry(entry_id: str) -> AuthEntry:
+    from smartpipe.config.authflow import auth_entry
+
+    entry = auth_entry(entry_id)
+    assert entry is not None
+    return entry
+
+
+async def _connect(session: _Session, entry_id: str, verdicts: list[KeyVerdict]) -> bool:
+    from smartpipe.config.authflow import connect_api_key
+
+    async def check(_key: str) -> KeyVerdict:
+        return verdicts.pop(0)
+
+    return await connect_api_key(
+        _entry(entry_id),
+        secret=session.secret,
+        choose=session.choose,
+        say=session.said.append,
+        check=check,
+        store=session.store,
+        store_display="~/.local/share/smartpipe/auth.json",
+    )
+
+
+async def test_connect_stores_a_valid_key_and_never_echoes_it() -> None:
+    from smartpipe.models.keycheck import KeyValid
+
+    session = _Session(secrets=["mk-secret-value-123"])
+    assert await _connect(session, "mistral", [KeyValid()]) is True
+    assert session.stored == ["mk-secret-value-123"]
+    transcript = "\n".join(session.said)
+    assert "mk-secret-value-123" not in transcript  # never print key material
+    assert "https://console.mistral.ai/api-keys" in transcript
+    assert "auth logout mistral" in transcript
+    assert "owner-only" in transcript
+
+
+async def test_connect_rejected_then_retry_succeeds() -> None:
+    from smartpipe.models.keycheck import KeyRejected, KeyValid
+
+    session = _Session(secrets=["bad-key-000000", "good-key-11111"], picks=[0])
+    assert await _connect(session, "mistral", [KeyRejected("HTTP 401"), KeyValid()]) is True
+    assert session.stored == ["good-key-11111"]
+    assert any("HTTP 401" in line for line in session.said)
+
+
+async def test_connect_rejected_store_anyway() -> None:
+    from smartpipe.models.keycheck import KeyRejected
+
+    session = _Session(secrets=["maybe-key-0000"], picks=[1])
+    assert await _connect(session, "mistral", [KeyRejected("couldn't reach api.mistral.ai")])
+    assert session.stored == ["maybe-key-0000"]  # the provider may be having a bad minute
+
+
+async def test_connect_rejected_skip_stores_nothing() -> None:
+    from smartpipe.models.keycheck import KeyRejected
+
+    session = _Session(secrets=["bad-key-000000"], picks=[2])
+    assert await _connect(session, "mistral", [KeyRejected("HTTP 401")]) is False
+    assert session.stored == []
+
+
+async def test_connect_empty_input_skips() -> None:
+    session = _Session(secrets=["   "])
+    assert await _connect(session, "anthropic", []) is False
+    assert session.stored == []
+
+
+async def test_connect_unchecked_provider_stores_with_a_note() -> None:
+    from smartpipe.models.keycheck import KeyUnchecked
+
+    session = _Session(secrets=["jina-key-000000"])
+    assert await _connect(session, "jina", [KeyUnchecked("jina has no free check endpoint")])
+    assert session.stored == ["jina-key-000000"]
+    assert any("unchecked" in line for line in session.said)
+
+
+# --- the login menu + dispatch ---------------------------------------------------------
+
+
+def test_login_menu_lists_openai_twice_with_badges() -> None:
+    from smartpipe.config.authflow import login_menu_labels
+
+    labels = login_menu_labels(
+        env={"OPENAI_API_KEY": "sk-x"}, stored={"mistral": "mk"}, logged_in=True
+    )
+    assert len(labels) == 7
+    assert labels[0].startswith("openai (API key)")
+    assert "✓ key (env)" in labels[0]
+    assert labels[1].startswith("openai (ChatGPT login)")
+    assert "✓ ChatGPT" in labels[1]
+    assert any(line.startswith("mistral") and "✓ key (stored)" in line for line in labels)
+    assert any(line.startswith("anthropic") and "needs key" in line for line in labels)
+    assert any(line.startswith("jina") and "embeddings only" in line for line in labels)
+
+
+async def test_login_dispatch_menu_routes_to_the_key_path(
+    respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    from smartpipe.cli.auth_cmd import login_dispatch
+    from smartpipe.config.credentials import keys_path, load_api_key
+
+    respx_mock.get("https://api.mistral.ai/v1/models").mock(
+        return_value=httpx.Response(200, json={"data": []})
+    )
+    picked: list[str] = []
+
+    def choose(title: str, labels: tuple[str, ...], _start: int) -> int:
+        picked.extend(labels)
+        return next(i for i, label in enumerate(labels) if label.startswith("mistral"))
+
+    await login_dispatch(None, headless=False, secret=lambda _q: "mk-live-key-000", choose=choose)
+    assert load_api_key(keys_path(os.environ), "mistral") == "mk-live-key-000"
+    assert any(label.startswith("openai (ChatGPT login)") for label in picked)
+
+
+async def test_login_dispatch_named_provider_skips_the_menu(
+    respx_mock: respx.MockRouter,
+) -> None:
+    import os
+
+    from smartpipe.cli.auth_cmd import login_dispatch
+    from smartpipe.config.credentials import keys_path, load_api_key
+
+    respx_mock.get("https://api.anthropic.com/v1/models", params={"limit": "1"}).mock(
+        return_value=httpx.Response(200, json={"data": []})
+    )
+    await login_dispatch(
+        "anthropic",
+        headless=False,
+        secret=lambda _q: "sk-ant-stored-0",
+        choose=lambda _t, _l, _s: pytest.fail("no menu expected"),
+    )
+    assert load_api_key(keys_path(os.environ), "anthropic") == "sk-ant-stored-0"
+
+
+def test_login_unknown_provider_is_a_usage_fault(run_cli: RunCli, home: Path) -> None:
+    code, _out, err = run_cli(["auth", "login", "acme"])
+    assert code == 64
+    assert "unknown provider" in err and "openai-api" in err
+
+
+# --- auth list --------------------------------------------------------------------------
+
+
+def test_auth_list_empty(run_cli: RunCli, home: Path) -> None:
+    code, out, _err = run_cli(["auth", "list"])
+    assert code == 0
+    assert out == "no credentials - connect one: smartpipe auth login\n"
+
+
+def test_auth_list_masks_and_names_the_live_source(
+    run_cli: RunCli, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    from smartpipe.config.credentials import keys_path, save_api_key
+
+    _login(home)  # the ChatGPT login row
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-envenvenv9f2")
+    save_api_key(keys_path(os.environ), "openai", "sk-storedstored111")
+    save_api_key(keys_path(os.environ), "mistral", "mk-storedstored3aa")
+    code, out, _err = run_cli(["auth", "list"])
+    assert code == 0
+    assert "sk-...9f2" in out  # masked env key
+    assert "env OPENAI_API_KEY (stored key shadowed)" in out  # env always wins
+    assert "account acct-1" in out
+    assert "mk-...3aa" in out and "stored" in out
+    assert "sk-envenvenv9f2" not in out and "mk-storedstored3aa" not in out  # never the key
+
+
+# --- auth logout ------------------------------------------------------------------------
+
+
+def test_auth_logout_named_key(run_cli: RunCli, home: Path) -> None:
+    import os
+
+    from smartpipe.config.credentials import keys_path, load_api_key, save_api_key
+
+    save_api_key(keys_path(os.environ), "mistral", "mk-1-000000")
+    code, _out, err = run_cli(["auth", "logout", "mistral"])
+    assert code == 0
+    assert "removed the stored mistral API key" in err
+    assert load_api_key(keys_path(os.environ), "mistral") is None
+
+
+def test_auth_logout_openai_still_means_the_login(run_cli: RunCli, home: Path) -> None:
+    import os
+
+    from smartpipe.config.credentials import keys_path, load_api_key, save_api_key
+
+    _login(home)
+    save_api_key(keys_path(os.environ), "openai", "sk-key-0000000")
+    code, _out, err = run_cli(["auth", "logout", "openai"])
+    assert code == 0
+    assert "ChatGPT tokens were removed" in err
+    assert load_api_key(keys_path(os.environ), "openai") == "sk-key-0000000"  # untouched
+    code, _out, err = run_cli(["auth", "logout", "openai-api"])
+    assert code == 0
+    assert "removed the stored openai API key" in err
+    assert load_api_key(keys_path(os.environ), "openai") is None
+
+
+def test_auth_logout_no_arg_single_candidate_removes_it(run_cli: RunCli, home: Path) -> None:
+    _login(home)
+    code, _out, err = run_cli(["auth", "logout"])
+    assert code == 0
+    assert "ChatGPT tokens were removed" in err  # the old bare-logout behavior survives
+
+
+def test_logout_candidates_cover_both_stores() -> None:
+    from smartpipe.config.authflow import logout_candidates
+
+    entries = logout_candidates(stored={"mistral": "mk", "openai": "sk"}, logged_in=True)
+    ids = tuple(entry.entry_id for entry in entries)
+    assert ids == ("openai-api", "openai", "mistral")

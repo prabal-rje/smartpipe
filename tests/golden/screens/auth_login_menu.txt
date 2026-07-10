@@ -1,0 +1,8 @@
+Log in to a provider:
+  1. openai (API key)        ✓ key (env)
+  2. openai (ChatGPT login)  needs login
+  3. anthropic               needs key
+  4. gemini                  needs key
+  5. mistral                 ✓ key (stored)
+  6. openrouter              needs key
+  7. jina                    needs key   (embeddings only)

@@ -8,17 +8,12 @@ answered by its default, and pins the full transcript. Refresh with
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
-import pytest
-
 from smartpipe.cli.config_cmd import run_provider_picker
 from smartpipe.config.picker import ProbeChip
 from smartpipe.config.store import Config
 from smartpipe.io.arrow_menu import numbered_choose
+from tests.helpers.golden import assert_golden
 
-GOLDEN = Path(__file__).parent.parent / "golden" / "screens"
 _NOW = 1_751_900_000.0
 
 
@@ -67,12 +62,12 @@ async def test_picker_walkthrough_screen_matches_golden() -> None:
         catalogs={},
         chips={"ollama/llava": ProbeChip(sees=True, hears=False, ts=_NOW - 2 * 86_400)},
     )
-    _assert_golden("config_picker_walkthrough", rendered)
+    assert_golden("config_picker_walkthrough", rendered)
 
 
 async def test_picker_no_providers_screen_matches_golden() -> None:
     rendered = await _transcript(env={}, tags=None, catalogs={})
-    _assert_golden("config_picker_no_providers", rendered)
+    assert_golden("config_picker_no_providers", rendered)
 
 
 async def test_picker_typed_fallback_screen_matches_golden() -> None:
@@ -81,23 +76,4 @@ async def test_picker_typed_fallback_screen_matches_golden() -> None:
         tags=None,
         catalogs={"openai": None},  # the catalog fetch failed — typed input takes over
     )
-    _assert_golden("config_picker_typed_fallback", rendered)
-
-
-def _assert_golden(name: str, rendered: str) -> None:
-    rendered = _strip_ansi(rendered)  # goldens pin PLAIN text; styling is never contract (D42)
-    path = GOLDEN / f"{name}.txt"
-    if os.environ.get("UPDATE_GOLDEN"):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(rendered, encoding="utf-8")
-    if not path.exists():
-        pytest.fail(f"golden '{name}' missing; create it with: make golden")
-    assert rendered == path.read_text(encoding="utf-8"), (
-        f"screen '{name}' drifted from its golden; if intended, run: make golden"
-    )
-
-
-def _strip_ansi(text: str) -> str:
-    import re
-
-    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+    assert_golden("config_picker_typed_fallback", rendered)
