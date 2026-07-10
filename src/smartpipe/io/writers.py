@@ -17,7 +17,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, assert_never
 
 from smartpipe.core.errors import UsageFault
-from smartpipe.core.jsontools import as_record
+from smartpipe.engine.fieldpath import MISSING, lookup
 from smartpipe.io import diagnostics, tty
 from smartpipe.io.text import clip_to_width, display_width
 
@@ -190,16 +190,11 @@ def _strip_meta(record: Mapping[str, object], *, bare: bool) -> Mapping[str, obj
 
 
 def _lookup(record: Mapping[str, object], name: str) -> object:
-    """Exact key first; else a dotted walk into nested objects (join's left.x/right.x)."""
-    if name in record:
-        return record[name]
-    current: object = record
-    for part in name.split("."):
-        narrowed = as_record(current)
-        if narrowed is None or part not in narrowed:
-            return _ABSENT
-        current = narrowed[part]
-    return current
+    """One field read (item 63): an exact flat key first (join's left.x/right.x
+    literal columns keep working), then the shared field-path traversal — which
+    also reaches join's nested ``left``/``right`` objects."""
+    found = lookup(record, name)
+    return _ABSENT if found is MISSING else found
 
 
 def _warn_missing(record: Mapping[str, object], fields: tuple[str, ...], warned: set[str]) -> None:

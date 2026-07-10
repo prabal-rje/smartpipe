@@ -204,7 +204,7 @@ items[0].total       a list index, then a key (negative indexes count from the e
 a.b['weird key']     a quoted key, for names that aren't identifiers
 ```
 
-One grammar, five surfaces:
+One grammar, every surface that reads a field:
 
 | Surface | Example |
 |---|---|
@@ -213,6 +213,11 @@ One grammar, five surfaces:
 | `sort --by` | `sort --by user.score --desc` |
 | `chart` | `chart user.plan` (also `--facet` and `--by-time meta.ts:1h`) |
 | `summarize` | `summarize 'count(), avg(metrics.score) by user.plan'` |
+| `--fields` projection | `map … --fields user.plan,items[0].sku` (join's `left.id`, `right.name` reach the nested sides) |
+| `write` templates | `write 'by-plan/{user.plan}.jsonl'` - reserved vars (`{path}` `{name}` `{stem}` `{ext}` `{index}`) always win over a same-named field |
+| `--explode` | `map … --explode user.tags` - each element lands as a **flat column named by the full path string** (`"user.tags"`), readable downstream by the flat-column-wins rule |
+| `--tally` | `map … --tally user.plan` |
+| `join --on` | `join --on 'left.order.sku == right.product.sku' --right …` (alone or as blocking for a predicate) |
 
 The rules, in order:
 

@@ -752,6 +752,81 @@ async def test_bad_on_expression_is_a_usage_screen(tmp_path: Path) -> None:
         )
 
 
+# --- join --on: the key is a field path (item 63) -----------------------------------
+
+
+async def test_on_key_takes_a_path_into_each_side(tmp_path: Path) -> None:
+    import json as _json
+
+    request = _on_request(tmp_path, ['{"product": {"sku": "A1"}, "name": "bolt"}'])
+    request = replace_dataclass(request, on=("left.order.sku == right.product.sku",))
+    out = io.StringIO()
+    code = await run_join(
+        request,
+        _NoModels(),  # type: ignore[arg-type]
+        stdin=io.StringIO('{"order": {"sku": "A1"}, "qty": 3}\n{"order": {"sku": "ZZ"}}\n'),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    rows = [_json.loads(line) for line in out.getvalue().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["left"]["qty"] == 3
+    assert rows[0]["right"]["name"] == "bolt"
+
+
+async def test_on_exact_flat_dotted_column_wins_over_traversal(tmp_path: Path) -> None:
+    # THE COMPAT RULE: a literal "order.sku" column beats traversal into "order"
+    import json as _json
+
+    request = _on_request(tmp_path, ['{"sku": "flat"}'])
+    request = replace_dataclass(request, on=("left.order.sku == right.sku",))
+    out = io.StringIO()
+    code = await run_join(
+        request,
+        _NoModels(),  # type: ignore[arg-type]
+        stdin=io.StringIO('{"order.sku": "flat", "order": {"sku": "nested"}}\n'),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    rows = [_json.loads(line) for line in out.getvalue().splitlines()]
+    assert len(rows) == 1  # matched via the literal flat column, not the nested value
+
+
+async def test_malformed_on_path_is_loud(tmp_path: Path) -> None:
+    request = _on_request(tmp_path, ['{"sku": "A1"}'])
+    request = replace_dataclass(request, on=("left.a.b[x] == right.sku",))
+    with pytest.raises(UsageFault, match=r"a\.b\[x\] - index must be a number"):
+        await run_join(
+            request,
+            _NoModels(),  # type: ignore[arg-type]
+            stdin=io.StringIO('{"sku": "A1"}\n'),
+            stdout=io.StringIO(),
+        )
+
+
+async def test_on_paths_block_the_semantic_join(tmp_path: Path) -> None:
+    # --on with a prompt: equality blocking honors paths — only the same-block
+    # pair is ever judged, even with k wide open
+    embed = FakeEmbed(TABLE)
+    judge = FakeJudge(
+        matches=[("printer smoking", "LaserJet 9"), ("printer smoking", "Espresso One")]
+    )
+    right = _right_file(
+        tmp_path,
+        (
+            '{"name": "LaserJet 9", "meta": {"cat": "printer"}}',
+            '{"name": "Espresso One", "meta": {"cat": "coffee"}}',
+        ),
+    )
+    request = _request(right, k=2, on=("left.meta.cat == right.meta.cat",))
+    code, records, judge = await _run(
+        request, '{"text": "printer smoking", "meta": {"cat": "printer"}}\n', embed, judge
+    )
+    assert code is ExitCode.OK
+    assert len(judge.calls) == 1  # the coffee pair was never considered
+    assert _right_names(records) == ["LaserJet 9"]
+
+
 def replace_dataclass(request: JoinRequest, **kw: object) -> JoinRequest:
     from dataclasses import replace as _replace
 

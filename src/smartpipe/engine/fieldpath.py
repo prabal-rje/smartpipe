@@ -44,6 +44,7 @@ __all__ = [
     "lookup",
     "parse_path",
     "resolve",
+    "validate_field",
 ]
 
 
@@ -154,6 +155,15 @@ def resolve(record: object, path: tuple[Accessor, ...]) -> object:
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)
     return current
+
+
+def validate_field(text: str) -> str:
+    """The flag-edge grammar gate (fail-before-spend): text with path syntax
+    must parse; flat names pass untouched — resolution stays ``lookup``'s job,
+    so the compat rule still applies to valid path text."""
+    if has_path_syntax(text):
+        parse_path(text)
+    return text
 
 
 def lookup(record: Mapping[str, object], text: str) -> object:

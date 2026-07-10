@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
 from smartpipe.engine.chunking import is_context_overflow
+from smartpipe.engine.fieldpath import validate_field
 from smartpipe.engine.prompts import (
     build_map_request,
     build_repair_request,
@@ -149,12 +150,15 @@ async def run_map(
             )
         from smartpipe.engine.tally import Tally
 
-        tally = Tally(request.tally_field)
-    if request.explode_field is not None and not structured:
-        raise UsageFault(
-            "--explode needs structured output — name fields in braces or pass --schema\n"
-            '  Example: smartpipe map "Extract {risks}" --explode risks'
-        )
+        # item 63: --tally takes a field path; grammar errors are loud pre-spend
+        tally = Tally(validate_field(request.tally_field))
+    if request.explode_field is not None:
+        if not structured:
+            raise UsageFault(
+                "--explode needs structured output — name fields in braces or pass --schema\n"
+                '  Example: smartpipe map "Extract {risks}" --explode risks'
+            )
+        validate_field(request.explode_field)  # item 63: paths, validated pre-spend
     if request.keep_invalid and not structured:
         raise UsageFault(
             "--keep-invalid needs structured output — name fields in braces or pass --schema\n"

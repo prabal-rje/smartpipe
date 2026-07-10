@@ -170,6 +170,50 @@ async def test_explode_copies_original_fields_onto_every_row() -> None:
     ]
 
 
+async def test_explode_takes_a_path_and_lands_the_full_path_string() -> None:
+    # item 63: the exploded element is a FLAT column named by the full path
+    # string (the compat rule makes it readable downstream); the nested
+    # structure is never written back
+    _code, rows, _err = await _run(
+        "Add {sentiment}", '{"user": {"tags": ["a", "b"]}}\n', explode_field="user.tags"
+    )
+    spine = {"path": "-", "as": "jsonl", "line": 1}
+    assert rows == [
+        {"user": {"tags": ["a", "b"]}, "sentiment": "neg", "user.tags": "a", "__source": spine},
+        {"user": {"tags": ["a", "b"]}, "sentiment": "neg", "user.tags": "b", "__source": spine},
+    ]
+
+
+async def test_tally_takes_a_path() -> None:
+    stdin_text = '{"user": {"plan": "pro"}}\n{"user": {"plan": "pro"}}\n'
+    _code, _rows, err = await _run("Add {sentiment}", stdin_text, tally_field="user.plan")
+    assert "tally: pro 2" in err
+
+
+async def test_malformed_explode_path_faults_before_any_call() -> None:
+    context = FakeContext(SentimentModel())
+    with pytest.raises(UsageFault, match=r"user\.tags\[ - unclosed '\['"):
+        await run_extend(
+            _request("Add {sentiment}", explode_field="user.tags["),
+            context,
+            stdin=io.StringIO("x\n"),
+            stdout=io.StringIO(),
+        )
+    assert context.model.calls == 0
+
+
+async def test_malformed_tally_path_faults_before_any_call() -> None:
+    context = FakeContext(SentimentModel())
+    with pytest.raises(UsageFault, match=r"a\.b\[x\] - index must be a number"):
+        await run_extend(
+            _request("Add {sentiment}", tally_field="a.b[x]"),
+            context,
+            stdin=io.StringIO("x\n"),
+            stdout=io.StringIO(),
+        )
+    assert context.model.calls == 0
+
+
 async def test_keep_invalid_merges_markers_onto_the_base_record() -> None:
     """extend --keep-invalid: the original fields survive; the failure markers
     land beside them; no extracted fields appear."""

@@ -21,6 +21,7 @@ from smartpipe.engine.fieldpath import (
     lookup,
     parse_path,
     resolve,
+    validate_field,
 )
 
 if TYPE_CHECKING:
@@ -155,6 +156,24 @@ def test_lookup_bracket_paths() -> None:
     record: Mapping[str, object] = {"items": [{"total": 12}], "a": {"weird key": True}}
     assert lookup(record, "items[0].total") == 12
     assert lookup(record, "a['weird key']") is True
+
+
+# --- validate_field: the flag-edge grammar gate (fail-before-spend) -----------------
+
+
+def test_validate_field_passes_flat_text_unparsed() -> None:
+    # flat names never parse — weird flat columns stay addressable
+    assert validate_field("Total Amount") == "Total Amount"
+
+
+def test_validate_field_passes_valid_path_text() -> None:
+    assert validate_field("items[0].sku") == "items[0].sku"
+
+
+def test_validate_field_rejects_malformed_path_text() -> None:
+    with pytest.raises(UsageFault) as excinfo:
+        validate_field("a.b[x]")
+    assert str(excinfo.value) == "a.b[x] - index must be a number"
 
 
 # --- has_path_syntax: the flat/path discrimination ----------------------------------

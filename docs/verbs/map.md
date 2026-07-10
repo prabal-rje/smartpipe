@@ -73,7 +73,7 @@ tail -f app.log \
 | `--model TEXT` | Model for this run (e.g. `ollama/qwen3:8b`, `gpt-5.4-mini`, `claude-opus-4-8`) |
 | `--output FORMAT` | `auto` (default) · `text` · `json`. `auto` = human-readable at a terminal, JSONL when piped |
 | `--concurrency N` | Max parallel model calls (default 4) |
-| `--fields A,B` | Select + order output columns ([details](../concepts/output-formats.md)) |
+| `--fields A,B` | Select + order output columns - [field paths](../concepts/structured-output.md#field-paths-reading-nested-data) reach nested data (`--fields user.plan,items[0].sku`) ([details](../concepts/output-formats.md)) |
 | `@file` / `--prompt-file FILE` | Read the prompt from a file - for instructions that outgrow the command line |
 | `--whole` | Never auto-chunk oversized items: process whole or skip with an error |
 | `--verbose` / `--debug` | More detail on stderr / full tracebacks |
@@ -92,6 +92,11 @@ cat filings.txt \
 
 An empty list is zero rows; a non-list value passes through unchanged.
 Composes with `--tally` (counted per exploded row) and `--fields`.
+
+`FIELD` may be a [field path](../concepts/structured-output.md#field-paths-reading-nested-data)
+into nested data (`--explode user.tags`, `--tally user.plan`). An exploded
+element lands as a flat column named by the full path string (`"user.tags"`),
+which downstream reads resolve first - the nested structure is left as-is.
 
 ## Items bigger than the window
 

@@ -28,6 +28,10 @@ the instruction, the braces declare the fields to add: typed braces,
   `stderr`: `note: overwriting 'sentiment' on incoming records`.
 - **`--explode FIELD`** emits one row per list element with the *merged*
   record's other fields copied onto every row - provenance rides along.
+  `FIELD` (and `--tally`'s) may be a
+  [field path](../concepts/structured-output.md#field-paths-reading-nested-data)
+  into the incoming record (`--explode user.tags`); the element lands as a
+  flat column named by the full path string.
 - **Media records** (from `split`): the base64 transport fields are dropped
   from the output (the model consumed them); `source` and other metadata
   survive.

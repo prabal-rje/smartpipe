@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Protocol
 from smartpipe.core.errors import ExitCode, ItemError, TooManyFailures, UsageFault
 from smartpipe.engine.blocking import RightIndex, build_index, candidates
 from smartpipe.engine.chunking import estimate_tokens, mean_pool, split_text
+from smartpipe.engine.fieldpath import MISSING, lookup, parse_path
 from smartpipe.engine.prompts import (
     JUDGE_SCHEMA,
     build_judge_request,
@@ -429,13 +430,14 @@ async def _judge_pair(
 
 
 def _parse_on(expressions: tuple[str, ...]) -> tuple[tuple[str, str], ...] | None:
-    """--on 'left.FIELD == right.FIELD' (item 21): repeatable, AND-ed."""
+    """--on 'left.FIELD == right.FIELD' (item 21): repeatable, AND-ed. FIELD
+    is a field path (item 63) — parsed loudly here, before anything costs."""
     if not expressions:
         return None
     import re
 
     pairs: list[tuple[str, str]] = []
-    pattern = re.compile(r"^left\.([A-Za-z_][A-Za-z0-9_]*)\s*==\s*right\.([A-Za-z_][A-Za-z0-9_]*)$")
+    pattern = re.compile(r"^left\.(.+?)\s*==\s*right\.(.+)$")
     for expression in expressions:
         matched = pattern.match(expression.strip())
         if matched is None:
@@ -443,17 +445,21 @@ def _parse_on(expressions: tuple[str, ...]) -> tuple[tuple[str, str], ...] | Non
                 f"--on wants left.FIELD == right.FIELD, got {expression!r}\n"
                 "  Example: --on 'left.sku == right.sku'   (repeat --on to AND more keys)"
             )
+        for key in matched.groups():
+            parse_path(key)  # flat names parse as one hop; garbage is loud
         pairs.append((matched.group(1), matched.group(2)))
     return tuple(pairs)
 
 
 def _key_of(item: Item, fields: tuple[str, ...]) -> tuple[str, ...] | None:
     """The item's equality key: canonicalized field values; None when any key
-    field is missing — a missing key never equals anything."""
+    field is missing — a missing key (a path miss included) never equals
+    anything. An exact flat column wins before traversal (item 63)."""
     record = item.data if item.data is not None else {"text": item.text}
     values: list[str] = []
     for name in fields:
-        value = record.get(name)
+        found = lookup(record, name)
+        value = None if found is MISSING else found
         if value is None:
             return None
         values.append(
