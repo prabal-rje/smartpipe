@@ -50,6 +50,17 @@ smartpipe contacts.csv
 - stdin items show `"path": "-"`.
 - Never fabricate or edit `__` fields; they also drive [output](output.md) routing. Want them gone? `--bare`.
 
+## Nested fields - field paths
+
+- Wherever a verb READS a field, use a path: `user.plan`, `items[0].total`, `a['weird key']` - in filter/reduce `{braces}`, `where`, `sort --by`, `chart`, `summarize`. A literal flat column named `user.plan` wins first; a path miss = an ordinary missing field. Extraction output names stay flat (`map "Extract {user.name}"` is refused).
+
+```console
+printf '{"user":{"plan":"pro"},"items":[{"total":240}]}\n{"user":{"plan":"free"},"items":[{"total":30}]}\n' | smartpipe where 'user.plan == "pro" and items[0].total >= 100'
+```
+```
+{"user":{"plan":"pro"},"items":[{"total":240}]}
+```
+
 ## Media: ingested natively, one item per file
 
 | Type | The item carries | When the model can't take it |

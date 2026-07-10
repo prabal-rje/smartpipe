@@ -172,6 +172,42 @@ covers it:
 Comma-separated groups (`{a, b}`) are a `map`-only shorthand; in `filter`/`reduce`
 each `{field}` is a single input reference.
 
+## Field paths - reading nested data
+
+Anywhere a verb **reads** a field, the field can be a **path** into nested
+records:
+
+```
+user.plan            a key inside an object
+items[0].total       a list index, then a key (negative indexes count from the end)
+a.b['weird key']     a quoted key, for names that aren't identifiers
+```
+
+One grammar, five surfaces:
+
+| Surface | Example |
+|---|---|
+| `filter` / `reduce` `{braces}` | `filter "is {user.plan} priced fairly given {items[0].total}?"` |
+| `where` left-hand sides | `where 'user.plan has "pro" and items[0].total >= 100'` |
+| `sort --by` | `sort --by user.score --desc` |
+| `chart` | `chart user.plan` (also `--facet` and `--by-time meta.ts:1h`) |
+| `summarize` | `summarize 'count(), avg(metrics.score) by user.plan'` |
+
+The rules, in order:
+
+- **A literal flat column wins.** If a record really has a column named
+  `user.name` (CSV headers produce these), that column is read - the path is
+  tried second. Plain names behave exactly as before.
+- **A miss at any hop is an ordinary missing field.** Same skip, census note,
+  `(missing)` bar, missing-last placement, or `null` group as a flat miss -
+  and a key hop into a list (or an index hop into an object) is a miss too,
+  not an error.
+- **A malformed path is a loud, deterministic error** - `a.b[x] - index must
+  be a number`, `a.b. - trailing dot` - never a silent no-match.
+- **Extraction stays flat.** Paths *read*; they never name extraction output:
+  `map "Extract {user.name}"` is refused with
+  `can't extract into 'user.name' - extraction field names are flat`.
+
 ## See also
 
 - [`map`](../verbs/map.md) - the verb these features belong to
