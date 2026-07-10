@@ -1,3 +1,4 @@
 error: model 'gemini-2.5-flash' needs a Gemini API key
-  smartpipe found no GEMINI_API_KEY in the environment. Keys are never stored in config.
+  smartpipe found no GEMINI_API_KEY in the environment and no stored key.
   Fix: export GEMINI_API_KEY=...        (create one at aistudio.google.com)
+   or: smartpipe auth login gemini        (checks the key, stores it for every run)

@@ -83,13 +83,13 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `filter` | `--not` (invert, like `grep -v`) |
 | `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT`, `--stream` (live leaderboard) |
 | `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
-| `join` | `--right FILE` (required), `--on 'left.F == right.F'` (repeatable; alone = free key join, with a prompt = blocking; `F` is a field path - `left.order.sku`), `--k N` (default 5), `--threshold FLOAT`, `--kind inner|leftouter|anti`, `--unmatched FILE`, `--embed-model` |
+| `join` | `--right FILE` (required), `--on 'left.F == right.F'` (repeatable; alone = free key join, with a prompt = blocking; `F` is a field path - `left.order.sku`), `--k N` (default 5), `--threshold FLOAT`, `--kind inner|leftouter|anti`, `--unmatched FILE`, `--embed-model`, `--ocr-model` (both sides, `--right` included) |
 | `extend` | map's flags (braces/--schema/--schema-from/--tally/--explode/--fields/--keep-invalid/--dry-run) |
 | `map`/`extend` video | `--frame-every SECONDS` (density guarantee), `--max-frames N` (budget; smaller wins) |
-| `distinct` | `--show-groups`, `--threshold F` (cosine, default 0.90), `--exact` (hash rung only - free), `--embed-model` |
-| `outliers` | `N` (default 5), `--embed-model` |
-| `cluster` | `--k N`, `--top N`, `--explode members`, `--model` (labels), `--embed-model` |
-| `diff` | `--right FILE` (required), `--top N`, `--all`, `--model`, `--embed-model` |
+| `distinct` | `--show-groups`, `--threshold F` (cosine, default 0.90), `--exact` (hash rung only - free), `--embed-model`, `--ocr-model` |
+| `outliers` | `N` (default 5), `--embed-model`, `--ocr-model` |
+| `cluster` | `--k N`, `--top N`, `--explode members`, `--model` (labels), `--embed-model`, `--ocr-model` |
+| `diff` | `--right FILE` (required), `--top N`, `--all`, `--model`, `--embed-model`, `--ocr-model` (both sides, `--right` included) |
 | `graph` | `--fast` (free), `--entities "a, b"`, `--relations "pays, owns"`, `--name-top N` (hybrid), `--window {sentence,chunk,document}`, `--min-weight N`, `--save PATH` (`.graphml`/`.dot`/`.mmd`/`.csv`/`.html` or `directory/` = Obsidian vault), `--top N` (display cap), `--ocr-model` |
 | `where` | `'PREDICATE'` (has, contains, matches /re/, == != > >= < <=, and/or/not) |
 | `summarize` | `'AGG[, AGG…] [by FIELD,…]'` (count/sum/avg/min/max/p50-p99/dcount) |
@@ -99,7 +99,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `usage` | model usage over hour/day/week/month/lifetime; `usage reset` remembers when |
 | `cache` | `stats` · `clear` (auto-swept: 30-day TTL + 500 MB LRU cap - `cache-days`, `cache-max-mb`) |
 | `sort` | `--by FIELD` (required), `--desc` |
-| `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
+| `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`), `--ocr-model`, `--max-calls N` (caps OCR parsing - the one way split ever calls a model) |
 | `chart` | `FIELD` (or whole lines), `--facet f1,f2,…`, `--by-time FIELD:BUCKET`, `--top N`, `--save FILE.svg` / `FILE.png`, `--title` |
 
 ## `use`
@@ -147,6 +147,11 @@ smartpipe using                  # the effective setup, each value with its orig
 
 One line per setting: the effective value tagged with where it came from
 (env, config file, or default), ending with the config file's path.
+Every key the runtime reads appears - the models (`model`, `fallback-model`,
+`embed-model`), the roles (`stt-model`, `ocr-model`, `media-embed-model`),
+and the postures (`concurrency`, `output`, `cache`, `update-check`,
+`media-previews`). Unset roles show their honest default wording (e.g.
+`ocr-model  (built-in local extraction)  (default)`) rather than vanishing.
 `smartpipe config show` remains as an alias.
 
 ## `config`

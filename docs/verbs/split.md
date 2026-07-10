@@ -66,6 +66,8 @@ smartpipe split --media 'decks/*.pptx' \
 | `--by UNIT[:N]` | the split unit (table above) |
 | `--media` | extract embedded images as items instead (doesn't combine with `--by`) |
 | `--max-tokens N` | shorthand for `--by tokens:N` |
+| `--ocr-model TEXT` | Parse ingested PDFs/images with a document parsing model ([the role](../concepts/models-and-providers.md#the-ocr-model-role)) |
+| `--max-calls N` | cap OCR parsing calls - the one way split ever calls a model |
 | `FILES…`, `--from-files` | the usual [file inputs](../inputs/files.md) |
 
 ## When you need it
@@ -75,3 +77,11 @@ and combine (with a disclosed plan; `--whole` restores the refusal), `filter`
 and `join` judge chunk-by-chunk, `embed` and `top_k` mean-pool vectors - reach
 for `split` when you want the chunking *visible* and the chunk results
 *addressable*, e.g. to reduce them afterward.
+
+## Scanned documents
+
+split is free - zero model calls - UNLESS an [`ocr-model`](../concepts/models-and-providers.md#the-ocr-model-role) is
+configured: then PDFs and images parse through it before cutting, disclosed
+per row, and `--max-calls` caps that spend. `--by pages` keeps its exact page
+grouping and provenance with the parsed pages. `--media` never consults the
+role - it extracts embedded images, and there is no text to parse.

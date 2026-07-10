@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
     from smartpipe.models.base import EmbeddingModel, ModelRef
+    from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import RemoteTranscriber
 
 __all__ = ["ClusterRequest", "label_cluster", "run_cluster"]
@@ -63,10 +64,12 @@ class ClusterRequest:
     concurrency_flag: int | None = None
     allow_captions: bool = False
     input: InputSpec = STDIN
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 48)
 
 
 class ClusterContext(Protocol):
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
     def concurrency(self, flag: int | None = None) -> int: ...
@@ -85,7 +88,10 @@ async def run_cluster(
     if request.k is not None and request.k < 1:
         raise UsageFault("--k needs a positive cluster count")
     model = await context.embedding_model(request.embed_flag)
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     items = [item async for item in items_iter]
     if not items:
         return ExitCode.OK
@@ -93,13 +99,13 @@ async def run_cluster(
         f"cluster: ~{len(items):,} embeddings + one label call per cluster (typically < 20)"
     )
 
-    log = diagnostics.DegradationLog()
     converter_chat = await optional_chat(context)
     converter = make_converter(
         converter_chat,
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
+        ocr=parser,
     )
     clustered_items: list[Item] = []
     vectors: list[tuple[float, ...]] = []

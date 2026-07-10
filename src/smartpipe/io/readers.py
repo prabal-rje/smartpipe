@@ -40,6 +40,8 @@ __all__ = [
     "file_items",
     "from_files_items",
     "ocr_eligible_count",
+    "ocr_finite_paths",
+    "ocr_parse_file",
     "ocr_route",
     "resolve_items",
     "stdin_items",
@@ -47,6 +49,7 @@ __all__ = [
 
 _HEAD_BYTES = 8192
 _QUEUE_MAX = 1024  # lines buffered ahead of consumption — memory stays bounded
+_PREFLIGHT_FILES = 20  # above this many parseable files, say so before parsing (item 48)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +105,7 @@ def resolve_items(
         if spec.as_mode in ("lines", "jsonl", "csv"):
             _refuse_uncuttable(paths, spec.as_mode)  # every matched file must honor it
         if ocr is not None and _any_ocr_eligible(paths, spec.as_mode):
+            _ocr_preflight(paths, spec.as_mode, ocr)  # the >20-files heads-up (item 48)
             chained = None if stdin.isatty() else stdin
             return _ocr_path_items(paths, spec.as_mode, ocr, chained, stop), None
         if _any_csv(paths, spec.as_mode):
@@ -193,7 +197,32 @@ def _is_ocr_eligible(path: Path, as_mode: str | None) -> bool:
     return ocr_route(detect_kind(path, head), as_mode) is not None
 
 
-async def _ocr_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item] | None:
+def _ocr_preflight(paths: Sequence[Path], as_mode: str | None, ocr: OcrIngest) -> None:
+    """Item 48: a folder of scans through a paid parser deserves a heads-up
+    BEFORE the first call — with the belt named. Shared by every verb whose
+    path ingestion routes through the role (reader mode included)."""
+    count = ocr_eligible_count(paths, as_mode)
+    if count > _PREFLIGHT_FILES:
+        diagnostics.note(
+            f"~{count} pages will parse through {ocr.parser.ref} - --max-calls caps it"
+        )
+
+
+def ocr_finite_paths(spec: InputSpec, stdin: TextIO) -> bool:
+    """Whether an OCR-routed run is still a FINITE corpus (item 49b): named
+    paths only, no chained pipe, no streamed names, and no csv in the mix
+    (item 54's never-materialize law). ``resolve_items`` reports ``total=None``
+    for OCR runs because page counts are unknown pre-parse — this predicate
+    lets ``embed`` collect the parsed items anyway and keep its 64-batching."""
+    if not spec.patterns or spec.from_files or not stdin.isatty():
+        return False
+    from smartpipe.io.inputs import expand_globs
+
+    paths = expand_globs(spec.patterns)
+    return _any_ocr_eligible(paths, spec.as_mode) and not _any_csv(paths, spec.as_mode)
+
+
+async def ocr_parse_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item] | None:
     """The named file through the configured parser — ``None`` means "not
     OCR's case, or the parse failed (disclosed)": the caller falls back to
     today's extraction ladder, never a hard stop."""
@@ -266,7 +295,7 @@ async def _ocr_path_items(
             for row in _text_rows(path, mode):
                 yield row
             continue
-        parsed = await _ocr_file(path, ordinal, ocr)
+        parsed = await ocr_parse_file(path, ordinal, ocr)
         if parsed is None:
             item = _load_file(path, ordinal, warned_extras)
             if item is not None:
@@ -851,7 +880,7 @@ async def from_files_items(
             continue
         if mode == "file":
             if ocr is not None:
-                parsed = await _ocr_file(path, index, ocr)
+                parsed = await ocr_parse_file(path, index, ocr)
                 if parsed is not None:
                     for item in parsed:
                         yield item

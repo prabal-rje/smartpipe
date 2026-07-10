@@ -159,10 +159,24 @@ def test_config_click_prompt_eof_exits_130_without_bug_screen(tmp_path: Path) ->
     assert "this is a bug" not in transcript
 
 
+def _seed_registry(tmp_path: Path) -> None:
+    """Pin today's capability-registry cache so the subprocess never fetches
+    models.dev — the OCR stage's vision rows (item 73c) stay deterministic."""
+    from datetime import UTC, datetime
+
+    from smartpipe.config.picker import RegistryCaps
+    from smartpipe.config.state_cache import registry_path, store_registry
+
+    day = datetime.now(UTC).strftime("%Y-%m-%d")
+    env = {"XDG_STATE_HOME": str(tmp_path / "state")}
+    store_registry(registry_path(env, day), {"openai/o3": RegistryCaps(image=True, audio=False)})
+
+
 def test_config_discard_exits_cleanly_without_a_later_prompt(tmp_path: Path) -> None:
     path = tmp_path / "config" / "smartpipe" / "config.toml"
     original = Config(model="ollama/qwen3:8b", ocr_model="ollama/llava")
     save_config(path, original)
+    _seed_registry(tmp_path)
     process, master = _spawn_config(tmp_path)
     output = bytearray()
     try:
@@ -177,7 +191,9 @@ def test_config_discard_exits_cleanly_without_a_later_prompt(tmp_path: Path) -> 
         os.write(master, b"\n")  # keep the default local embedder
         _read_until(process, master, output, _PROMPT, start=start)
         start = len(output)
-        os.write(master, b"5\n")  # draft: unset the current OCR model
+        # ocr rows: 1 keep · 2 mistral · 3 vision chat · 4 openai/o3 (the seeded
+        # registry's one vision entry, item 73c) · 5 typed · 6 unset · 7 back
+        os.write(master, b"6\n")  # draft: unset the current OCR model
         _read_until(process, master, output, _PROMPT, start=start)
         os.write(master, b"3\n")  # discard the draft
         code = _read_to_exit(process, master, output)
@@ -186,6 +202,7 @@ def test_config_discard_exits_cleanly_without_a_later_prompt(tmp_path: Path) -> 
 
     transcript = output.decode(errors="replace")
     assert code == 0
+    assert "openai/o3" in transcript  # the vision-capable catalog row was offered
     assert "Not saved." in transcript
     assert "Install zsh tab completion" not in transcript
     assert "internal error" not in transcript

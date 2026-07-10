@@ -1,6 +1,6 @@
-"""Pure decisions behind the provider-first picker (bare ``smartpipe config``).
+"""Pure decisions behind the provider-first picker (the ``smartpipe use`` flow).
 
-Everything here is a value-in/value-out function: provider detection, catalog
+Everything here is a value-in/value-out function: stage menus, catalog
 parsing and filtering, the owner-ratified embed-pairing table, capability
 chips, and cache-day math. The terminal, the network, and the clock live in
 ``cli/config_cmd``, ``models/catalogs``, and ``config/state_cache``.
@@ -25,18 +25,15 @@ __all__ = [
     "CapChips",
     "ChipSources",
     "ProbeChip",
-    "ProviderStatus",
     "RegistryCaps",
     "StageEntry",
     "cache_day",
     "capped_catalog",
     "chip_label",
     "chips_for",
-    "detect_providers",
     "embed_pair_allowed",
     "embed_stage_entries",
     "first_embed_tag",
-    "has_jina_key",
     "key_stage_entry",
     "model_labels",
     "ocr_stage_rows",
@@ -55,19 +52,10 @@ __all__ = [
     "preferred_index",
     "stage_labels",
     "text_stage_entries",
+    "vision_ocr_candidates",
 ]
 
 MENU_CAP = 30  # a menu taller than the terminal helps nobody — typed input covers the rest
-
-
-@dataclass(frozen=True, slots=True)
-class ProviderStatus:
-    """One provider's detection verdict, plus the fix when it's not connected."""
-
-    provider: str
-    detected: bool
-    detail: str  # what detection saw ("API key", "4 local models", …)
-    connect_hint: str  # printed dim when undetected — the screen contains its own fix
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,68 +65,6 @@ class ProbeChip:
     sees: bool
     hears: bool
     ts: float
-
-
-def detect_providers(
-    env: Mapping[str, str],
-    *,
-    ollama_tags: tuple[str, ...] | None,
-    openai_login: bool,
-) -> tuple[ProviderStatus, ...]:
-    """Every chat-capable provider, detected or not — jina is embeddings-only
-    and never appears here (``has_jina_key`` covers its mention)."""
-
-    def has(var: str) -> bool:
-        return bool(env.get(var, "").strip())
-
-    openai_bits = " + ".join(
-        label
-        for label, present in (("API key", has("OPENAI_API_KEY")), ("ChatGPT login", openai_login))
-        if present
-    )
-    gemini_var = next((v for v in ("GEMINI_API_KEY", "GOOGLE_API_KEY") if has(v)), None)
-    return (
-        ProviderStatus(
-            "ollama",
-            ollama_tags is not None,
-            f"{len(ollama_tags or ())} local models",
-            "install from https://ollama.com, then: ollama serve",
-        ),
-        ProviderStatus(
-            "openai",
-            bool(openai_bits),
-            openai_bits or "API key",
-            "export OPENAI_API_KEY=sk-...   (or: smartpipe auth login)",
-        ),
-        ProviderStatus(
-            "gemini",
-            gemini_var is not None,
-            f"{gemini_var or 'API key'}",
-            "export GEMINI_API_KEY=...   (aistudio.google.com)",
-        ),
-        ProviderStatus(
-            "anthropic",
-            has("ANTHROPIC_API_KEY"),
-            "API key",
-            "export ANTHROPIC_API_KEY=sk-ant-...",
-        ),
-        ProviderStatus(
-            "mistral",
-            has("MISTRAL_API_KEY"),
-            "API key",
-            "export MISTRAL_API_KEY=...   (console.mistral.ai)",
-        ),
-        ProviderStatus(
-            "openrouter",
-            has("OPENROUTER_API_KEY"),
-            "API key",
-            "export OPENROUTER_API_KEY=sk-or-...   (openrouter.ai/keys)",
-        ),
-    )
-
-
-def has_jina_key(env: Mapping[str, str]) -> bool:
-    return bool(env.get("JINA_API_KEY", "").strip())
 
 
 # --- the three-stage flow's provider menus (TEXT → EMBED → OCR) --------------------------
@@ -234,9 +160,24 @@ def stage_labels(entries: tuple[StageEntry, ...]) -> tuple[str, ...]:
     return tuple(f"{entry.label:<{width}}{entry.badge}" for entry in entries)
 
 
-def ocr_stage_rows(current: str | None, chat_model: str | None) -> tuple[tuple[str, str], ...]:
-    """The curated OCR menu as (action, label) rows - the first row is always
-    the one-keypress skip/keep, so Enter never changes anything."""
+def vision_ocr_candidates(chips: ChipSources) -> tuple[str, ...]:
+    """Every catalog ref a chip source says can SEE (item 73c) — the OCR
+    stage's menu fodder. Source order is the chip precedence: a paid probe
+    outranks the registry outranks a self-claim; refs dedupe on first sight."""
+    probed = (ref for ref, chip in chips.probed.items() if chip.sees)
+    declared = (ref for ref, claims in chips.declared.items() if "image" in claims)
+    registry = (ref for ref, caps in chips.registry.items() if caps.image)
+    return _deduped((*probed, *declared, *registry))
+
+
+def ocr_stage_rows(
+    current: str | None, chat_model: str | None, vision: tuple[str, ...] = ()
+) -> tuple[tuple[str, str], ...]:
+    """The OCR menu as (action, label) rows - the first row is always the
+    one-keypress skip/keep, so Enter never changes anything. ``vision`` (item
+    73c): the vision-capable catalog refs, offered as ("pick", ref) rows and
+    capped so the whole menu honors MENU_CAP — the typed row covers the rest,
+    naming the hidden count like every other stage."""
     rows: list[tuple[str, str]] = [
         ("keep", "skip - documents parse with the built-in local extraction")
         if current is None
@@ -245,7 +186,14 @@ def ocr_stage_rows(current: str | None, chat_model: str | None) -> tuple[tuple[s
     ]
     if chat_model is not None:
         rows.append(("vision", f"{chat_model} - vision chat, extract-the-text framing"))
-    rows.append(("typed", "type a model name instead…"))
+    fixed = len(rows) + 1 + (1 if current is not None else 0)  # + typed [+ unset]
+    exclude = {"mistral/mistral-ocr-latest", chat_model, current}
+    candidates = [ref for ref in vision if ref not in exclude]
+    room = max(0, MENU_CAP - fixed)
+    shown, hidden = candidates[:room], max(0, len(candidates) - room)
+    rows.extend(("pick", ref) for ref in shown)
+    type_it = "type a model name instead…"
+    rows.append(("typed", type_it if not hidden else f"{type_it} ({hidden} more not shown)"))
     if current is not None:
         rows.append(("unset", "unset - back to the built-in local extraction"))
     return tuple(rows)

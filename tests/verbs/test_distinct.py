@@ -49,6 +49,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
@@ -157,6 +160,9 @@ async def test_image_only_items_route_natively_no_captions() -> None:
         def concurrency(self, flag: int | None = None) -> int:
             return 2
 
+        def document_parser(self, flag: str | None = None) -> None:
+            return None
+
         def remote_transcriber(self, chat_ref: object | None = None) -> None:
             return None
 
@@ -197,6 +203,9 @@ class _NeverEmbed:
 
     async def chat_model(self, flag: str | None = None) -> object:
         raise AssertionError("--exact must not resolve a chat model")
+
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
 
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
@@ -258,3 +267,83 @@ async def test_exact_folds_identical_media_bytes() -> None:
         stdout=out,
     )
     assert len(out.getvalue().splitlines()) == 1  # identical files folded, free
+
+
+# --- the ocr-model role (item 48) + the converter's OCR rung (item 49d) ---------------
+
+
+async def test_ocr_role_parses_pattern_scans_at_ingestion(tmp_path: object) -> None:
+    import contextlib
+    import pathlib
+
+    from smartpipe.io.inputs import InputSpec
+    from tests.io.test_ocr_ingest import FakeParser
+
+    base = pathlib.Path(str(tmp_path))
+    parser = FakeParser(image_text="dark mode please")
+
+    class OcrContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> FakeParser:  # type: ignore[override]
+            return parser
+
+    class _Tty(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    (base / "scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    out = io.StringIO()
+    err = io.StringIO()
+    context = OcrContext()
+    with contextlib.redirect_stderr(err):
+        code = await run_distinct(
+            DistinctRequest(input=InputSpec(patterns=(str(base / "scan.png"),), from_files=False)),
+            context,
+            stdin=_Tty(),
+            stdout=out,
+        )
+    assert code is ExitCode.OK
+    assert len(parser.image_calls) == 1
+    assert out.getvalue() == "dark mode please\n"  # the parsed markdown IS the item
+    assert "parsed by mistral/mistral-ocr-latest" in err.getvalue()
+
+
+async def test_media_records_convert_through_the_converters_ocr_rung(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Item 49(d): a record carrying __media pixels (e.g. from split --media)
+    converts through the configured parser — no chat model needed."""
+    import base64
+    import contextlib
+
+    from tests.io.test_ocr_ingest import FakeParser
+
+    parser = FakeParser(image_text="dark mode please")
+    monkeypatch.setitem(VECTORS, "[figure 1] dark mode please", (0.0, 1.0))
+
+    class OcrContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> FakeParser:  # type: ignore[override]
+            return parser
+
+    row = json.dumps(
+        {
+            "__media": {
+                "kind": "image",
+                "mime": "image/png",
+                "data_b64": base64.b64encode(b"pixels").decode(),
+            }
+        }
+    )
+    out = io.StringIO()
+    err = io.StringIO()
+    context = OcrContext()
+    with contextlib.redirect_stderr(err):
+        code = await run_distinct(
+            DistinctRequest(),
+            context,
+            stdin=io.StringIO(row + "\n"),
+            stdout=out,
+        )
+    assert code is ExitCode.OK
+    assert len(parser.image_calls) == 1  # the OCR rung converted; no chat exists here
+    assert context.embedder.seen == ["[figure 1] dark mode please"]
+    assert "image → text (parsed by mistral/mistral-ocr-latest)" in err.getvalue()

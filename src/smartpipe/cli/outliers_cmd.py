@@ -9,7 +9,12 @@ import sys
 import click
 
 from smartpipe.cli.completions import complete_embed_models
-from smartpipe.cli.input_options import input_options, input_spec, positional_paths
+from smartpipe.cli.input_options import (
+    input_options,
+    input_spec,
+    ocr_model_option,
+    positional_paths,
+)
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.outliers import OutliersRequest, run_outliers
@@ -34,6 +39,7 @@ __all__ = ["outliers_command"]
     is_flag=True,
     help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
 )
+@ocr_model_option
 @input_options
 def outliers_command(
     count: int,
@@ -41,6 +47,7 @@ def outliers_command(
     concurrency_flag: int | None,
     max_calls: int | None,
     allow_captions: bool,
+    ocr_model_flag: str | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
@@ -64,6 +71,7 @@ def outliers_command(
         model_flag=model_flag,
         concurrency_flag=concurrency_flag,
         allow_captions=allow_captions,
+        ocr_model_flag=ocr_model_flag,
         input=input_spec(
             positional_paths(paths, in_patterns),
             from_files=from_files,

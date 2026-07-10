@@ -801,6 +801,47 @@ async def test_flow_ocr_mistral_without_key_asks_to_connect_first() -> None:
     assert result.ocr_model == "mistral/mistral-ocr-latest"
 
 
+async def test_flow_ocr_lists_vision_capable_catalog_entries(  # item 73c
+) -> None:
+    result, _rec, menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        registry={
+            "openai/o4-mini": RegistryCaps(image=True, audio=False),
+            "anthropic/claude-opus-4-8": RegistryCaps(image=True, audio=False),
+        },
+        picks=[1, 0, 0, 3],  # ocr: keep(0) · mistral(1) · vision chat(2) · o4-mini(3)
+    )
+    ocr_labels = menu.shown[3][1]
+    assert ocr_labels[3] == "openai/o4-mini"
+    assert ocr_labels[4] == "anthropic/claude-opus-4-8"
+    assert ocr_labels[5].startswith("type a model name instead")
+    assert result.ocr_model == "openai/o4-mini"
+    # the picked chat model keeps its dedicated row - never doubled as a pick row
+    assert sum("gpt-5.4-mini" in label for label in ocr_labels) == 1
+
+
+async def test_flow_ocr_vision_entry_from_an_unconnected_provider_connects_first() -> None:
+    connected: list[str] = []
+
+    async def connect(entry: object) -> bool:
+        from smartpipe.config.picker import StageEntry
+
+        assert isinstance(entry, StageEntry)
+        connected.append(entry.provider)
+        return True
+
+    result, _rec, _menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        registry={"anthropic/claude-opus-4-8": RegistryCaps(image=True, audio=False)},
+        picks=[1, 0, 0, 3],  # the anthropic entry needs its key first
+        connect=connect,
+    )
+    assert connected == ["anthropic"]
+    assert result.ocr_model == "anthropic/claude-opus-4-8"
+
+
 # --- idempotence + the exit-probe hook -----------------------------------------------
 
 

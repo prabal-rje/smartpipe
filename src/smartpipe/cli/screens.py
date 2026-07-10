@@ -207,6 +207,11 @@ def ollama_model_missing(name: str, host: str, detail: str) -> str:
     )
 
 
+# provider display name → `smartpipe auth login` id; openai's KEY door is
+# openai-api (bare `auth login openai` means the ChatGPT OAuth flow)
+_AUTH_LOGIN_IDS = {"openai": "openai-api"}
+
+
 def missing_api_key(
     model: str,
     provider: str,
@@ -214,10 +219,12 @@ def missing_api_key(
     key_shape: str,
     note: str = "add it to your shell profile to persist",
 ) -> str:
+    login_id = _AUTH_LOGIN_IDS.get(provider.lower(), provider.lower())
     return (
         f"error: model '{model}' needs {_an(provider)} {provider} API key\n"
-        f"  smartpipe found no {env_var} in the environment. Keys are never stored in config.\n"
-        f"  Fix: export {env_var}={key_shape}        ({note})"
+        f"  smartpipe found no {env_var} in the environment and no stored key.\n"
+        f"  Fix: export {env_var}={key_shape}        ({note})\n"
+        f"   or: smartpipe auth login {login_id}        (checks the key, stores it for every run)"
     )
 
 

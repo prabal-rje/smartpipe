@@ -23,8 +23,6 @@ from smartpipe.io.items import item_record
 
 __all__ = ["read_command"]
 
-_PREFLIGHT_FILES = 20  # above this many parseable files, say so before parsing
-
 
 @click.command(name="read", hidden=True)
 @click.argument("paths", nargs=-1, required=True)
@@ -93,8 +91,8 @@ async def _run(
         parser = container.document_parser(ocr_flag)  # None = today's free path, byte-identical
         log = diagnostics.DegradationLog()
         ocr = readers.OcrIngest(parser, log) if parser is not None else None
-        if parser is not None and spec.patterns:
-            _preflight(spec.patterns, spec.as_mode, ref=str(parser.ref))
+        # the >20-files preflight note fires inside resolve_items (item 48) —
+        # one machinery, every verb, reader mode included
         items, _total = readers.resolve_items(spec, sys.stdin, stop=stop, ocr=ocr)
         # records for machines, always — reader mode's whole output IS the record
         writer = make_writer(
@@ -110,15 +108,3 @@ async def _run(
             log.finish()
         code = ExitCode.OK if produced else ExitCode.PARTIAL
         return settle_budget(container.budget, code)
-
-
-def _preflight(patterns: tuple[str, ...], as_mode: str | None, *, ref: str) -> None:
-    """Item 48: a folder of scans through a paid parser deserves a heads-up
-    BEFORE the first call — with the belt named."""
-    from smartpipe.io import diagnostics
-    from smartpipe.io.inputs import expand_globs
-    from smartpipe.io.readers import ocr_eligible_count
-
-    count = ocr_eligible_count(expand_globs(patterns), as_mode)
-    if count > _PREFLIGHT_FILES:
-        diagnostics.note(f"~{count} pages will parse through {ref} - --max-calls caps it")

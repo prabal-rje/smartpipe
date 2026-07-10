@@ -1,3 +1,4 @@
 error: model 'openrouter/deepseek/deepseek-chat' needs an OpenRouter API key
-  smartpipe found no OPENROUTER_API_KEY in the environment. Keys are never stored in config.
+  smartpipe found no OPENROUTER_API_KEY in the environment and no stored key.
   Fix: export OPENROUTER_API_KEY=sk-or-...        (create one at openrouter.ai/keys)
+   or: smartpipe auth login openrouter        (checks the key, stores it for every run)

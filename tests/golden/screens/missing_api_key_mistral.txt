@@ -1,3 +1,4 @@
 error: model 'mistral-large-latest' needs a Mistral API key
-  smartpipe found no MISTRAL_API_KEY in the environment. Keys are never stored in config.
+  smartpipe found no MISTRAL_API_KEY in the environment and no stored key.
   Fix: export MISTRAL_API_KEY=...        (create one at console.mistral.ai)
+   or: smartpipe auth login mistral        (checks the key, stores it for every run)

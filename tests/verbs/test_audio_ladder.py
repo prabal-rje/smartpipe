@@ -113,10 +113,10 @@ class FakeContext:
     def batching(self) -> BatchSettings | None:
         return None  # batching off: these tests pin the solo path byte-for-byte
 
-    def remote_transcriber(self, chat_ref: object | None = None) -> None:
+    def document_parser(self, flag: str | None = None) -> None:
         return None
 
-    def document_parser(self, flag: str | None = None) -> None:
+    def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
     def writer(

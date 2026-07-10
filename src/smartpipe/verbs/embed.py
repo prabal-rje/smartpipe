@@ -116,7 +116,13 @@ async def run_embed(
 
     done = 0
     skipped = 0
-    if total is not None:
+    # item 49(b): an OCR run reports total=None (page counts are unknown
+    # pre-parse) but a files-only corpus is still FINITE — parse first
+    # (pass one), then batch the embeds (pass two) instead of per-item calls
+    finite = total is not None or (
+        ocr is not None and readers.ocr_finite_paths(request.input, stdin)
+    )
+    if finite:
         # finite --in corpus: chunked calls, run_ordered bypassed on purpose —
         # batching ≠ per-item workers (order from sequential chunks, isolation
         # from the per-item fallback inside embed_in_batches)

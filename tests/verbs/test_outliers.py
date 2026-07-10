@@ -47,6 +47,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
@@ -98,3 +101,46 @@ async def test_record_shape_mirrors_top_k_for_json_rows() -> None:
 async def test_tiny_corpus_is_a_usage_fault() -> None:
     with pytest.raises(UsageFault, match="at least 3 items"):
         await _run("a\nb\n")
+
+
+# --- the ocr-model role at ingestion (item 48) ---------------------------------------
+
+
+async def test_ocr_role_parses_pattern_scans_at_ingestion(tmp_path: object) -> None:
+    import contextlib
+    import pathlib
+
+    from smartpipe.io.inputs import InputSpec
+    from tests.io.test_ocr_ingest import FakeParser
+
+    base = pathlib.Path(str(tmp_path))
+    parser = FakeParser(image_text="kernel: watchdog: soft lockup")
+
+    class OcrContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> FakeParser:  # type: ignore[override]
+            return parser
+
+    (base / "a.txt").write_text("GET /health 200", encoding="utf-8")
+    (base / "b.txt").write_text("GET /users 200", encoding="utf-8")
+    (base / "scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    class _Tty(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    out = io.StringIO()
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        code = await run_outliers(
+            OutliersRequest(
+                count=1, input=InputSpec(patterns=(str(base / "*"),), from_files=False)
+            ),
+            OcrContext(),
+            stdin=_Tty(),
+            stdout=out,
+        )
+    assert code is ExitCode.OK
+    assert len(parser.image_calls) == 1
+    rows = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert rows[0]["text"] == "kernel: watchdog: soft lockup"  # the parsed scan IS the weirdo
+    assert "parsed by mistral/mistral-ocr-latest" in err.getvalue()
