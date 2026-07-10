@@ -23,7 +23,7 @@ If no model is configured and no usable Ollama model is found, smartpipe stops w
 a setup screen. It does not silently fall through to a cloud provider just because
 a key or login exists.
 
-Once you choose a cloud model, profile, or ChatGPT login path, the relevant item data
+Once you choose a cloud model or ChatGPT login path, the relevant item data
 for that run goes to that provider. That is an explicit provider choice, not a hidden
 fallback.
 
@@ -142,40 +142,39 @@ Example: the table floors Gemini at 128k, but the probe can discover that
 `SMARTPIPE_CONTEXT_TOKENS=32000` overrides everything. If an estimate is still wrong,
 `reduce` self-corrects: a rejected chunk is split in half and retried.
 
-## Profiles: named setups you can switch between (D30)
+## One command, one coherent setup: `smartpipe use`
 
-A profile bundles the existing config keys (model, embed-model, concurrency,
-output) under a name. Three ship built in:
-
-| Profile | Chat | Embeddings | For |
-|---|---|---|---|
-| `openai` | gpt-5.4-mini | text-embedding-3-small | cloud preset |
-| `gemini` | gemini-3.1-flash-lite | gemini/gemini-embedding-001 | cloud multimodal preset |
-| `local` | ollama/gemma-4-e2b | embeddinggemma | local preset when Ollama runs on your machine |
+`smartpipe use` stamps a COMPLETE bundle - a chat model plus the embedder
+that pairs with it - in one command:
 
 ```bash
-smartpipe config profile              # list (the active one marked)
-smartpipe config profile local        # switch
-SMARTPIPE_PROFILE=gemini smartpipe map …  # one-off, no file change (D24: env is the override)
+smartpipe use                    # interactive: text model, embeddings, OCR
+smartpipe use gemini             # gemini-3.1-flash-lite + gemini-embedding-001
+smartpipe use openai             # gpt-5.4-mini + text-embedding-3-small
+smartpipe use ollama             # the best installed local model + a local embedder
+smartpipe use gpt-5.4-mini       # any model ref: that model + its provider's pairing
 ```
 
-The cloud presets are **multimodal by default**: they set
-`allow-captions = true`, so images and audio convert to text through the
-profile's own model when a run needs it (fractions of a cent each, every
-conversion disclosed per row). Picking the profile is the consent; the wizard
-states this. Bare no-profile setups keep the conservative `--allow-captions`
-opt-in.
+A provider whose key is absent refuses with the `smartpipe auth login` fix
+and stamps nothing - never a partial setup. Re-running `use` refreshes the
+whole bundle, which is also the cure for a drifted config.
 
-Create your own as a `[profiles.NAME]` table in the config file (keys: model,
-embed-model, concurrency, output, allow-captions). Direct keys beat the active
-profile (a direct set is the most recent intent); flags and env vars beat
-both. Profiles never hold API keys.
+Cloud picks are **multimodal by default**: they stamp `allow-captions = true`,
+so images and audio convert to text through your own model when a run needs
+it (fractions of a cent each, every conversion disclosed per row). Picking
+the cloud setup is the consent; the command says so. Local setups keep the
+conservative `--allow-captions` opt-in.
+
+Every save also writes a receipt at the top of `config.toml` - `# stamped
+by: smartpipe use (…)` - so the file documents how it got that way. (Profiles
+from older versions are retired: their keys load with one warning, are
+ignored, and disappear on the next save.)
 
 ## Setting a default
 
 ```bash
-smartpipe config model gpt-5.4-mini        # save a default (any provider: ollama/qwen3:8b works the same)
-smartpipe config show                       # see the effective settings + where each comes from
+smartpipe use gpt-5.4-mini                  # save a default (any provider: smartpipe use ollama works the same)
+smartpipe using                             # see the effective settings + where each comes from
 ```
 
 Override the default for a single command with `--model`:
@@ -193,16 +192,13 @@ When the same setting is specified more than one way, the most specific wins:
 --model flag  >  SMARTPIPE_MODEL env var  >  config file  >  Ollama autodetect
 ```
 
-`smartpipe config show` prints each value with its origin, so you can see which value takes effect.
+`smartpipe using` prints each value with its origin, so you can see which value takes effect.
 
 ## Two models: chat and embedding
 
 Most verbs use a **chat** model. `embed` and `top_k` use a separate
-**embedding** model, configured independently:
-
-```bash
-smartpipe config embed-model nomic-embed-text
-```
+**embedding** model, configured independently - the embeddings stage of
+`smartpipe use` sets it (or edit `embed-model` in `config.toml` directly).
 
 ## See also
 
@@ -212,7 +208,8 @@ smartpipe config embed-model nomic-embed-text
 
 ## The stt-model role
 
-`smartpipe config stt-model openai/whisper-1` names a dedicated remote
+The `stt-model` config key (e.g. `stt-model = "openai/whisper-1"` in
+`config.toml`) names a dedicated remote
 transcriber. When set, it runs FIRST in the audio ladder (a configured
 transcriber signals wanting verbatim text - LLM hearing paraphrases),
 falling back to the LLM rung and local `whisper` on failure. It is a paid
@@ -233,7 +230,7 @@ account. Only the `openai` wire exists today; the key accepts
 
 ## The ocr-model role
 
-`smartpipe config ocr-model mistral-ocr-latest` names a dedicated document
+The `ocr-model` config key - the OCR stage of `smartpipe use` sets it - names a dedicated document
 parser. When set, ingested PDFs and images run through it instead of the
 local extraction ladder - page markdown becomes the item text, and a
 multi-page PDF becomes one item per page (the `__source` spine carries the
@@ -249,7 +246,7 @@ The role is provider-agnostic:
 - A **mistral** ref rides the dedicated `/v1/ocr` wire (needs
   `MISTRAL_API_KEY`; the endpoint charges per page).
 - **Any other ref** reads pages through the normal chat-vision wire with an
-  extract-the-text framing - `smartpipe config ocr-model ollama/llava` is a
+  extract-the-text framing - `ocr-model = "ollama/llava"` is a
   free local OCR. For PDFs on this rung, pages with a healthy text layer
   keep their locally extracted text (zero calls); only thin, image-bearing
   pages (scans) go through the model.
@@ -262,7 +259,8 @@ ladder with a note - never a hard stop. `--ocr-model` (per run) >
 
 ## The media-embed-model role
 
-`smartpipe config media-embed-model jina/jina-clip-v2` names a JOINT
+The `media-embed-model` config key (e.g. `media-embed-model =
+"jina/jina-clip-v2"` in `config.toml`) names a JOINT
 text+image embedder. When set, `embed` and `top_k` route media items to it
 as pixels while text items keep using `embed-model` - and a text query can
 rank an image corpus, because both live in the same space.

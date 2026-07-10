@@ -36,7 +36,7 @@ Have a ChatGPT Plus/Pro plan? Log in and use it directly - no API key:
 
 ```bash
 smartpipe auth login              # opens your browser
-smartpipe config model gpt-5.4
+smartpipe use gpt-5.4
 ```
 
 ### Path B - a cloud API key
@@ -45,7 +45,7 @@ If you have an API key (OpenAI, Anthropic, Mistral, Gemini, or OpenRouter), poin
 Cloud models are typically faster and stronger, and cost a small amount per use.
 
 ```bash
-smartpipe config model gpt-5.4-mini
+smartpipe use gpt-5.4-mini
 export OPENAI_API_KEY=sk-...           # the environment always wins; or store it with: smartpipe auth login
 ```
 
@@ -63,10 +63,10 @@ API key, and model requests stay on that machine.
 # 2. Download a small, capable model (~5 GB):
 ollama pull qwen3:8b
 # 3. Tell smartpipe to use it:
-smartpipe config model ollama/qwen3:8b
+smartpipe use ollama/qwen3:8b
 ```
 
-Whichever path you pick, `smartpipe config` (with no arguments) walks you
+Whichever path you pick, `smartpipe use` (with no arguments) walks you
 through it interactively: the text model, then embeddings, then an optional
 OCR model - connecting any provider you pick inline (masked key prompt, live
 validation), with a `back` row at every stage.

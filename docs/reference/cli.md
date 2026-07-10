@@ -42,7 +42,9 @@ to `stderr`.
 | [`sort`](../verbs/sort.md) | order records by a field | free - no model calls |
 | [`split`](../verbs/split.md) | break oversized items into chunk items | free - no model calls |
 | `chart` | bar-chart a field's values; `--save` writes SVG or PNG | free - no model calls |
-| [`config`](#config) | view and set defaults | interactive setup |
+| [`use`](#use) | set up models: interactive, or one-shot (`use gemini`) | the setup door |
+| [`using`](#using) | effective settings + where each comes from | free - no model calls |
+| [`config`](#config) | posture toggles; back-compat door to `use` | free - no model calls |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing (`--probe` adds the paid modality matrix) | exit 0 = ready |
 | `schema` | braces/DSL compile FREE (`--check FILE`, `--example`, stdin REPL); bare at a terminal opens the [workshop](#schema-workshop); plain English drafts with a model (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
@@ -65,7 +67,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `--full` | Terminal preview: no truncation (`map`, `extend`, `join`, `readable`). |
 | `--fallback-model TEXT` | Chat model to switch to if the primary looks down (circuit breaker; `map`, `extend`, `filter`, `join`). |
 | `--fields A,B` | Select + order columns of structured output (`map`, `embed`, `top_k`, `reduce` - never `filter`). |
-| `--allow-captions` | Let a CLOUD model convert images/audio/video to text for embedding/text verbs (paid; local models convert free; the `openai`/`gemini` profiles set this by default). |
+| `--allow-captions` | Let a CLOUD model convert images/audio/video to text for embedding/text verbs (paid; local models convert free; a cloud `smartpipe use` pick sets this by default). |
 | `@file` / `--prompt-file FILE` | Read the prompt from a file (`map`, `extend`, `filter`, `reduce`, `join`). Missing file = loud exit 64; `@@` escapes a literal leading `@`. |
 | `--max-calls N` | Hard ceiling on model calls (cost cap). Per-item verbs stop intake and drain; whole-set `top_k`/`reduce` treat exhaustion as fatal (nothing usable from a partial collection). A capped run never exits 0. |
 
@@ -96,36 +98,73 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`) |
 | `chart` | `FIELD` (or whole lines), `--facet f1,f2,…`, `--by-time FIELD:BUCKET`, `--top N`, `--save FILE.svg` / `FILE.png`, `--title` |
 
+## `use`
+
+```bash
+smartpipe use                    # interactive setup: text model, embeddings, OCR
+smartpipe use gemini             # one-shot: gemini chat + its paired embedder
+smartpipe use ollama             # one-shot: the best installed local model
+smartpipe use gpt-5.4-mini       # one-shot: that model + its provider's pairing
+```
+
+`smartpipe use` is the setup door. Bare, it runs three stages in order - the
+text model, the embedding model (the auto-pair suggestion preselected), then
+an optional OCR model (one keypress skips it). Every provider appears with a
+connected badge; picking an unconnected one drops into the `auth login`
+connect flow inline and continues. Every stage has a `back` row (typing
+`back` or `b` works too), re-runs preselect your current choices and restamp
+only changes, and Ctrl-C anywhere leaves the config untouched. At the end it
+offers to verify what the chosen models can actually do (~5 tiny requests,
+consent first; a failed text control reports a setup fault and concludes
+nothing). Menu rows carry capability chips (`text · image · audio`) sourced
+probed > registry (models.dev, day-cached) > declared; a
+`model-capabilities = ["image"]` config key declares chips for self-hosted
+models the registry can't know. Chips are display only - runtime stays
+attempt-based.
+
+With a TARGET, `use` stamps a COMPLETE bundle non-interactively: the
+provider's sensible chat model (or the model you named) plus its paired
+embedder. A provider whose key is absent refuses with the `auth login` fix
+and stamps nothing - never a partial setup. A cloud pick also stamps
+`allow-captions = true` (the pick is the consent; every conversion is still
+disclosed per row). Re-running `use` refreshes the whole bundle - the drift
+cure.
+
+Every save writes a provenance header at the top of `config.toml` - e.g.
+`# stamped by: smartpipe use (2026-07-10T21:04Z)` - so the file documents how
+it got that way. Unknown keys are preserved on rewrite; other comments are
+not.
+
+## `using`
+
+```bash
+smartpipe using                  # the effective setup, each value with its origin
+```
+
+One line per setting: the effective value tagged with where it came from
+(env, config file, or default), ending with the config file's path.
+`smartpipe config show` remains as an alias.
+
 ## `config`
 
 ```bash
-smartpipe config                     # interactive setup: text model, embeddings, OCR
-smartpipe config show                # effective settings + where each comes from
-smartpipe config model MODEL         # set the default chat model
-smartpipe config embed-model MODEL   # set the default embedding model
+smartpipe config                     # back-compat door: opens the same setup as `use`
+smartpipe config show                # alias of `smartpipe using`
+smartpipe config cache on|off        # result caching
+smartpipe config update-check on|off # the daily release check + notice
 smartpipe config media-previews off  # terminal media previews (thumbnails,
                                      # waveforms, play links) - default on
 ```
 
-Bare `smartpipe config` runs three stages in order - the text model, the
-embedding model (the auto-pair suggestion preselected), then an optional OCR
-model (one keypress skips it). Every provider appears with a connected badge;
-picking an unconnected one drops into the `auth login` connect flow inline
-and continues. Every stage has a `back` row (typing `back` or `b` works too),
-re-runs preselect your current choices and restamp only changes, and Ctrl-C
-anywhere leaves the config untouched. At the end it offers to
-verify what the chosen models can actually do (~5 tiny requests, consent
-first; a failed text control reports a setup fault and concludes nothing).
-Menu rows carry capability chips (`text · image · audio`) sourced probed >
-registry (models.dev, day-cached) > declared; a `model-capabilities =
-["image"]` config key declares chips for self-hosted models the registry
-can't know. Chips are display only - runtime stays attempt-based.
+The model setters (`config model` / `embed-model` / `stt-model` / `ocr-model`
+/ `media-embed-model`) and profiles are retired: `smartpipe use` and
+`smartpipe auth login` cover setup, and power users edit `config.toml`
+directly. A config file that still carries `profile` keys loads with one
+warning ("profiles were removed - run smartpipe use"); the keys are ignored
+and the next save removes them.
 
 API keys are read from the environment first, then from the `auth login`
 store - never from the config file.
-
-Edits via `smartpipe config` rewrite the file atomically; unknown keys are
-preserved, comments are not.
 
 ## `auth`
 
@@ -215,8 +254,8 @@ identically in every format.
 ## Shell completion
 
 Tab completion for bash, zsh, and fish - including live model-name suggestions on
-`--model`/`--embed-model` and `config model`. One-liners per shell in
-[Installing smartpipe → Tab completion](../install.md#tab-completion).
+`--model`/`--embed-model` and `use` (providers first, then models). One-liners
+per shell in [Installing smartpipe → Tab completion](../install.md#tab-completion).
 
 ## Environment variables
 
@@ -228,7 +267,6 @@ Tab completion for bash, zsh, and fish - including live model-name suggestions o
 | `SMARTPIPE_MAX_CALLS` | Default call ceiling (see `--max-calls`). |
 | `SMARTPIPE_OPENAI_BASE_URL` | Point the OpenAI-compatible adapter at any endpoint. |
 | `SMARTPIPE_MISTRAL_BASE_URL` / `SMARTPIPE_GEMINI_BASE_URL` / `SMARTPIPE_OPENROUTER_BASE_URL` | Point a provider's wire elsewhere (proxies, gateways). |
-| `SMARTPIPE_PROFILE` | One-off profile pick for this invocation ([profiles](../concepts/models-and-providers.md)). |
 | `SMARTPIPE_CONTEXT_TOKENS` | Assert your model's context window (beats the table and the probe; the fix for OpenAI/Anthropic deployments the table underestimates). |
 | `SMARTPIPE_WHISPER_MODEL` | Local transcription size: `tiny` (default), `base`, `small`, `medium`, `large-v3`. |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY` / `JINA_API_KEY` | Cloud credentials - the environment always wins over a key stored by `auth login`. |

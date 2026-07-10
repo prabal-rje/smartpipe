@@ -66,7 +66,7 @@ space through a ladder, per item, disclosed per row:
 - **audio** → a chat model that hears ("transcribe verbatim; if it isn't
   speech, describe the sound" - this covers non-speech audio) → the configured
   transcription ladder → skip. Local conversion is automatic; cloud conversion
-  requires `--allow-captions` or an equivalent cloud profile consent.
+  requires `--allow-captions` or the consent a cloud `smartpipe use` pick stamps.
 
 - **images** → a vision chat model describes them (including visible text) -
   same fence: local free and automatic, cloud behind `--allow-captions`; no
@@ -79,8 +79,8 @@ space through a ladder, per item, disclosed per row:
 
 Swapping embedding models changes none of this: the converter runs before
 embedding and belongs to the *chat* model's capabilities, so the embedder only
-ever sees words. The `local` profile anchors the space with `embeddinggemma`
-(multilingual, 2k context, ~20 ms/item).
+ever sees words. `smartpipe use ollama` anchors the space with a local
+embedder such as `embeddinggemma` (multilingual, 2k context, ~20 ms/item).
 
 Two exceptions skip the ladder entirely:
 
@@ -102,7 +102,8 @@ much lower than the others).
 - **Embeddings are transient by design.** smartpipe doesn't persist embeddings;
   they stream through the pipe. Redirect to a file to keep them.
 - **The embedding model is separate from the chat model.** Set it with
-  `smartpipe config embed-model …` or `--embed-model`. Whatever you embed a corpus
+  `smartpipe use` (the embeddings stage) or `--embed-model`; power users edit
+  `embed-model` in `config.toml` directly. Whatever you embed a corpus
   with, use the *same* model when you query it with `top_k`.
 
 ## See also
