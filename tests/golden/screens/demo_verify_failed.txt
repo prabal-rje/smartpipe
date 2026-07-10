@@ -1,0 +1,5 @@
+error: the downloaded playground didn't match its published checksum
+  expected sha256 1a84a050d7eb270bd6cc620e817c1757bd0349a6b12df8fbddf755df34f8ba5b
+  got      sha256 0000000000000000000000000000000000000000000000000000000000000000
+  Nothing was unpacked. A truncated download or a proxy can cause this - retry,
+  and if it persists, report it: https://github.com/prabal-rje/smartpipe/issues

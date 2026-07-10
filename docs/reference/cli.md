@@ -50,6 +50,7 @@ to `stderr`.
 | [`config`](#config) | posture toggles; back-compat door to `use` | free - no model calls |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing (`--probe` adds the paid modality matrix) | exit 0 = ready |
+| [`demo`](#demo) | fetch the 26 MB playground corpus into `./smartpipe-playground` | free - no model calls |
 | `schema` | braces/DSL compile FREE (`--check FILE` validates declared fields only - `--strict` forbids unknowns; `--example`; stdin REPL); bare at a terminal opens the [workshop](#schema-workshop); plain English drafts with a model (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
 
 ## Common options
@@ -204,6 +205,21 @@ smartpipe doctor        # config · Ollama · models · keys · login · extras 
 
 One line per check with its fix inline; exit 0 all-green, 1 if anything needs
 attention. Never makes a paid model call; key lines report presence, never values.
+
+## `demo`
+
+```bash
+smartpipe demo          # ~26 MB into ./smartpipe-playground, then next steps
+```
+
+Downloads the [smartpipe-playground](https://github.com/prabal-rje/smartpipe-playground)
+corpus - 26 MB of CC0 / public-domain practice files (scanned invoices, NASA
+reports, photos, speech recordings, screen sessions, JSONL data) - into
+`./smartpipe-playground`, verifies the release checksum, unpacks, and prints
+copy-pasteable commands to try. No model, no config needed. At a terminal it
+asks before downloading (Enter continues); piped and scripted runs proceed. A
+complete prior download is recognized (`already here`, exit 0), and anything
+else already at that path stops the command (exit 2) - it never overwrites.
 
 ## `run`
 

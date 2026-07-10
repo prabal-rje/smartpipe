@@ -5,8 +5,8 @@ cited entity graph - free first, and pay only to name the strongest links.
 
 Every command below runs verbatim on the
 [smartpipe-playground](https://github.com/prabal-rje/smartpipe-playground)
-corpus (the [cookbook overview](README.md#try-the-recipes-on-real-files) has
-the two-line download), and every output shown is from a real run.
+corpus (`smartpipe demo` fetches it - free, no model calls), and every
+output shown is from a real run.
 
 ## The free pass: $0, on-device, cited
 

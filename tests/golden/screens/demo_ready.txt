@@ -1,0 +1,9 @@
+playground ready: ./smartpipe-playground - invoices, reports, photos, recordings, sessions, JSONL
+
+Try these (free - no model calls):
+  cd smartpipe-playground
+  smartpipe 'reports/*.pdf'                  # reader mode: the PDFs become items
+  smartpipe summarize 'count(), avg(total) by region' < data/tickets.jsonl
+  smartpipe graph --fast 'reports/*.pdf' 'recordings/*.mp3' data/feedback.txt --save corpus.html
+
+Every cookbook recipe runs on this corpus: https://prabal-rje.github.io/smartpipe/cookbook/

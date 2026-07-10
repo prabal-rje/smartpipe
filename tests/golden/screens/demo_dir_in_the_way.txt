@@ -1,0 +1,3 @@
+error: ./smartpipe-playground already exists and doesn't look like the playground
+  smartpipe won't overwrite files it didn't put there.
+  Fix: move or remove it, or run smartpipe demo from another directory.
