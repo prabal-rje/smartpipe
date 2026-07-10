@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, assert_never
 
 from smartpipe.core.errors import UsageFault
+from smartpipe.engine.fieldpath import MISSING, lookup
 from smartpipe.engine.temporal import temporal_key
 
 if TYPE_CHECKING:
@@ -104,7 +105,10 @@ _TOKEN = re.compile(
       | (?P<sopen>")
       | (?P<regex>/(?P<rbody>(?:\\/|[^/])*)/)
       | (?P<number>-?\d+(?:\.\d+)?)
-      | (?P<word>[A-Za-z_][A-Za-z0-9_.]*)
+      # a word is a field name, dotted-path segments included, with optional
+      # bracket hops (['quoted key'] or [0]) — item 63; the path itself is
+      # validated at lookup time, where an exact flat column wins first
+      | (?P<word>[A-Za-z_][A-Za-z0-9_.]*(?:\[(?:'[^']*'|[^\]]*)\][A-Za-z0-9_.]*)*)
     )""",
     re.VERBOSE,
 )
@@ -277,9 +281,10 @@ def evaluate(predicate: Predicate, item: Item, tally: FieldTally) -> bool:
 def _resolve(field_name: str, item: Item, tally: FieldTally) -> object | None:
     if field_name == "text":
         return item.text
-    value = item.data.get(field_name) if item.data is not None else None
+    found = lookup(item.data, field_name) if item.data is not None else MISSING
+    value = None if found is MISSING else found
     if value is None:
-        tally.missing[field_name] += 1
+        tally.missing[field_name] += 1  # a path miss counts as a field-miss row
     return value
 
 

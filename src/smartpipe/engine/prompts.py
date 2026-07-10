@@ -23,6 +23,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
 from smartpipe.core.errors import ItemError, UsageFault
+from smartpipe.engine.fieldpath import MISSING, has_path_syntax, lookup, parse_path
 from smartpipe.engine.schema import shorthand_to_schema
 from smartpipe.models.base import (  # shared request value types, not behavior
     CompletionRequest,
@@ -159,7 +160,11 @@ Token = TextToken | BraceToken
 
 
 def parse_prompt(
-    text: str, *, ident: re.Pattern[str] = _IDENT, allow_descriptions: bool = False
+    text: str,
+    *,
+    ident: re.Pattern[str] = _IDENT,
+    allow_descriptions: bool = False,
+    allow_paths: bool = False,
 ) -> tuple[Token, ...]:
     tokens: list[Token] = []
     literal: list[str] = []
@@ -182,7 +187,13 @@ def parse_prompt(
             index += 2
         elif char == "{":
             flush()
-            token, index = _parse_group(text, index, ident, allow_descriptions=allow_descriptions)
+            token, index = _parse_group(
+                text,
+                index,
+                ident,
+                allow_descriptions=allow_descriptions,
+                allow_paths=allow_paths,
+            )
             tokens.append(token)
         elif char == "}":
             raise UsageFault("unexpected '}' in prompt — use '}}' for a literal brace")
@@ -369,8 +380,9 @@ def reject_comma_groups(tokens: tuple[Token, ...]) -> None:
 
 
 def interpolate_fields(tokens: tuple[Token, ...], data: Mapping[str, object] | None) -> str:
-    """Substitute each single-field ``{field}`` with the item's value. Raises
-    ``ItemError`` (→ skip-and-warn) when the item isn't JSON or lacks the field."""
+    """Substitute each single-field ``{field}`` with the item's value — an exact
+    flat key first, then a field path (item 63). Raises ``ItemError``
+    (→ skip-and-warn) when the item isn't JSON or lacks the field."""
     parts: list[str] = []
     for token in tokens:
         if isinstance(token, TextToken):
@@ -379,10 +391,11 @@ def interpolate_fields(tokens: tuple[Token, ...], data: Mapping[str, object] | N
         field = token.fields[0]  # comma-groups already rejected
         if data is None:
             raise ItemError(f"no field '{field}' (this item isn't JSON)")
-        if field not in data:
+        value = lookup(data, field)
+        if value is MISSING:
             available = ", ".join(data) if data else "no fields"
             raise ItemError(f"no field '{field}'; this item has: {available}")
-        parts.append(_render_value(data[field]))
+        parts.append(_render_value(value))
     return "".join(parts)
 
 
@@ -688,13 +701,23 @@ _OBJECT_LIST_CEILING = (
 
 
 def _parse_group(
-    text: str, start: int, ident: re.Pattern[str], *, allow_descriptions: bool = False
+    text: str,
+    start: int,
+    ident: re.Pattern[str],
+    *,
+    allow_descriptions: bool = False,
+    allow_paths: bool = False,
 ) -> tuple[BraceToken, int]:
     close = _find_close(text, start)
     raw = text[start : close + 1]
     inner = text[start + 1 : close]
     names, notes, props = _parse_fields(
-        inner, raw, ident, allow_descriptions=allow_descriptions, nested=False
+        inner,
+        raw,
+        ident,
+        allow_descriptions=allow_descriptions,
+        nested=False,
+        allow_paths=allow_paths,
     )
     described = tuple(notes) if any(note is not None for note in notes) else ()
     typed = tuple(props) if any(prop is not None for prop in props) else ()
@@ -702,7 +725,13 @@ def _parse_group(
 
 
 def _parse_fields(
-    inner: str, raw: str, ident: re.Pattern[str], *, allow_descriptions: bool, nested: bool
+    inner: str,
+    raw: str,
+    ident: re.Pattern[str],
+    *,
+    allow_descriptions: bool,
+    nested: bool,
+    allow_paths: bool = False,
 ) -> tuple[list[str], list[str | None], list[Mapping[str, object] | None]]:
     """The comma-separated fields of one brace group. ``nested`` marks an
     object list's inner group, where another object list is the ceiling."""
@@ -758,7 +787,21 @@ def _parse_fields(
             names.append(name)
             notes.append(None)
         props.append(prop)
-    if any(not ident.match(name) for name in names):
+    for name in names:
+        if ident.match(name):
+            continue
+        if allow_paths and not allow_descriptions and has_path_syntax(name):
+            # item 63: a lone-position field with dots/brackets is a field PATH —
+            # interpolation, validated here so grammar errors land before stdin
+            parse_path(name)
+            continue
+        if allow_descriptions and has_path_syntax(name):
+            raise UsageFault(
+                f"can't extract into {name!r} - extraction field names are flat\n"
+                f"  in: {raw}\n"
+                "  Braces here NAME new output fields. Field paths (a.b.c) READ nested\n"
+                "  input - in filter and reduce prompts, where, sort, chart, and summarize."
+            )
         raise UsageFault(
             f"invalid field group: {raw}\n"
             "  field names must be identifiers (letters, digits, underscores), comma-separated"

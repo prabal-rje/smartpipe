@@ -107,7 +107,7 @@ async def run_reduce(
     stdout: TextIO,
     stop: asyncio.Event | None = None,
 ) -> ExitCode:
-    tokens = parse_prompt(request.prompt)
+    tokens = parse_prompt(request.prompt, allow_paths=True)
     reject_comma_groups(tokens)
     if has_brace(tokens) and request.group_by is None:
         raise UsageFault(
@@ -312,14 +312,16 @@ async def _run_grouped(
 def _group(
     rows: list[tuple[Item, str]], field_name: str, reducer: Reducer
 ) -> list[tuple[object, list[str]]]:
+    from smartpipe.engine.fieldpath import MISSING, lookup
+
     order: list[str] = []
     groups: dict[str, tuple[object, list[str]]] = {}
     for item, payload in rows:
-        if item.data is None or field_name not in item.data:
+        value = lookup(item.data, field_name) if item.data is not None else MISSING
+        if value is MISSING:
             diagnostics.warn(f"skipped: {describe_source(item.source)} (no field '{field_name}')")
             reducer.skipped += 1
             continue
-        value = item.data[field_name]
         key = value if isinstance(value, str) else repr(value)
         if key not in groups:
             groups[key] = (value, [])

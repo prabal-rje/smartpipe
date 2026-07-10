@@ -164,3 +164,54 @@ def test_temporal_against_non_temporal_falls_back_to_existing_rules() -> None:
 
 def test_numbers_keep_numeric_rules_not_temporal() -> None:
     assert _matches("n >= 20260101", '{"n": 20260115}')  # plain numbers, untouched
+
+
+# --- field paths (ledger item 63) ---------------------------------------------------
+
+
+def test_dotted_path_reads_nested_fields() -> None:
+    assert _matches('user.plan has "pro"', '{"user": {"plan": "pro plus"}}')
+    assert not _matches('user.plan has "pro"', '{"user": {"plan": "free"}}')
+
+
+def test_index_path_reads_list_elements() -> None:
+    assert _matches("items[0].total >= 100", '{"items": [{"total": 240}, {"total": 1}]}')
+    assert not _matches("items[0].total >= 100", '{"items": [{"total": 40}]}')
+    assert _matches("items[-1].total == 1", '{"items": [{"total": 240}, {"total": 1}]}')
+
+
+def test_quoted_key_path() -> None:
+    assert _matches("a['weird key'] == 7", '{"a": {"weird key": 7}}')
+
+
+def test_dotted_literal_column_wins_over_the_path() -> None:
+    # THE COMPAT RULE: a record with a literal "user.plan" column reads that
+    # column, never the traversal
+    line = '{"user.plan": "column", "user": {"plan": "nested"}}'
+    assert _matches('user.plan == "column"', line)
+    assert not _matches('user.plan == "nested"', line)
+
+
+def test_path_miss_counts_as_a_field_miss_row() -> None:
+    tally = FieldTally()
+    item = item_from_line('{"user": {"name": "x"}}', 0)
+    assert evaluate(parse_predicate('user.plan == "pro"'), item, tally) is False
+    assert tally.missing["user.plan"] == 1
+
+
+def test_path_type_mismatch_is_a_miss_not_an_error() -> None:
+    tally = FieldTally()
+    # a Key hop into a list, an Index hop into a mapping: misses, tallied
+    item = item_from_line('{"items": [1, 2], "user": {"a": 1}}', 0)
+    assert evaluate(parse_predicate("items.total > 0"), item, tally) is False
+    assert evaluate(parse_predicate("user[0] > 0"), item, tally) is False
+    assert tally.missing["items.total"] == 1
+    assert tally.missing["user[0]"] == 1
+
+
+def test_malformed_path_is_loud_when_no_literal_column_claims_it() -> None:
+    tally = FieldTally()
+    item = item_from_line('{"a": {"b": [1]}}', 0)
+    node = parse_predicate("a.b[x] > 0")
+    with pytest.raises(UsageFault, match=r"a\.b\[x\] - index must be a number"):
+        evaluate(node, item, tally)

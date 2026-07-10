@@ -80,3 +80,43 @@ def test_bin_groups_by_utc_bucket_label() -> None:
     assert key == ("14:00",)
     assert plan.by_names == ("ts_bin",)
     assert group_key(plan, {"ts": "junk"}) == (None,)  # unparseable groups under null
+
+
+# --- field paths (ledger item 63) ---------------------------------------------------
+
+
+def test_aggregation_args_take_field_paths() -> None:
+    rows = _summarize(
+        "count(), avg(metrics.score) by user.plan",
+        [
+            {"user": {"plan": "pro"}, "metrics": {"score": 10}},
+            {"user": {"plan": "pro"}, "metrics": {"score": 20}},
+            {"user": {"plan": "free"}, "metrics": {"score": 1}},
+        ],
+    )
+    pro = next(row for row in rows if row["user.plan"] == "pro")
+    assert pro == {"user.plan": "pro", "count": 2, "avg_metrics.score": 15.0}
+
+
+def test_index_paths_in_aggregations() -> None:
+    rows = _summarize("sum(items[0].total)", [{"items": [{"total": 5}]}, {"items": []}])
+    assert rows[0]["sum_items[0].total"] == 5.0
+
+
+def test_by_path_dotted_literal_column_wins() -> None:
+    rows = _summarize(
+        "count() by user.plan",
+        [{"user.plan": "column", "user": {"plan": "nested"}}],
+    )
+    assert rows == [{"user.plan": "column", "count": 1}]
+
+
+def test_bin_takes_a_field_path() -> None:
+    plan = parse_summarize("count() by bin(meta.ts, 1h)")
+    assert group_key(plan, {"meta": {"ts": "2025-01-01T14:38:00Z"}}) == ("14:00",)
+    assert plan.by_names == ("meta.ts_bin",)
+
+
+def test_path_miss_in_by_groups_under_null() -> None:
+    rows = _summarize("count() by user.plan", [{"user": {"name": "x"}}])
+    assert rows == [{"user.plan": None, "count": 1}]

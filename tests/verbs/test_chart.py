@@ -57,6 +57,47 @@ def test_piped_output_is_plain_ascii_and_pinned() -> None:
     )
 
 
+def test_field_path_tallies_nested_values() -> None:
+    ndjson = (
+        '{"user": {"plan": "pro"}}\n{"user": {"plan": "pro"}}\n'
+        '{"user": {"plan": "free"}}\nplain text row\n'
+    )
+    out = io.StringIO()
+    code = run_chart(ChartRequest(field="user.plan"), stdin=io.StringIO(ndjson), stdout=out)
+    assert code is ExitCode.OK
+    lines = out.getvalue().splitlines()
+    assert lines[0].startswith("pro") and lines[0].rstrip().endswith("2")
+    assert any(line.startswith("(missing)") for line in lines)  # the plain row
+
+
+def test_field_path_dotted_literal_column_wins() -> None:
+    ndjson = '{"user.plan": "column", "user": {"plan": "nested"}}\n'
+    out = io.StringIO()
+    run_chart(ChartRequest(field="user.plan"), stdin=io.StringIO(ndjson), stdout=out)
+    assert out.getvalue().splitlines()[0].startswith("column")
+
+
+def test_facets_accept_field_paths() -> None:
+    ndjson = '{"user": {"plan": "pro"}, "level": "err"}\n{"user": {"plan": "pro"}}\n'
+    out = io.StringIO()
+    code = run_chart(
+        ChartRequest(facets=("user.plan", "level")), stdin=io.StringIO(ndjson), stdout=out
+    )
+    assert code is ExitCode.OK
+    text = _plain(out.getvalue())
+    assert "pro" in text and "2" in text
+    assert "(missing)" in text  # one row lacks `level`
+
+
+def test_by_time_accepts_a_field_path() -> None:
+    ndjson = '{"meta": {"ts": "2026-01-15T00:10:00Z"}}\n{"meta": {"ts": "2026-01-15T00:20:00Z"}}\n'
+    out = io.StringIO()
+    code = run_chart(ChartRequest(by_time="meta.ts:1h"), stdin=io.StringIO(ndjson), stdout=out)
+    assert code is ExitCode.OK
+    line = out.getvalue().splitlines()[0]
+    assert line.startswith("00:00") and line.rstrip().endswith("2")
+
+
 def test_plain_lines_tally_whole_lines() -> None:
     out = io.StringIO()
     code = run_chart(ChartRequest(), stdin=io.StringIO("a\nb\na\n"), stdout=out)

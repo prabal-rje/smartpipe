@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, assert_never
 
 from smartpipe.core.errors import UsageFault
+from smartpipe.engine.fieldpath import MISSING, lookup
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -138,12 +139,19 @@ class GroupState:
     skipped_non_numeric: dict[str, int] = field(default_factory=dict[str, int])
 
 
+def _read(record: Mapping[str, object], field_name: str) -> object | None:
+    """One field read (item 63): a flat column first, then a field path —
+    ``None`` for a miss, exactly like the old flat ``.get``."""
+    found = lookup(record, field_name)
+    return None if found is MISSING else found
+
+
 def fold(plan: SummarizePlan, state: GroupState, record: Mapping[str, object]) -> None:
     state.count += 1
     for aggregation in plan.aggregations:
         if aggregation.field is None:
             continue
-        value = record.get(aggregation.field)
+        value = _read(record, aggregation.field)
         if aggregation.fn == "dcount":
             if value is not None:
                 state.distinct.setdefault(aggregation.field, set()).add(str(value))
@@ -227,8 +235,8 @@ def group_key(plan: SummarizePlan, record: Mapping[str, object]) -> tuple[object
     parts: list[object] = []
     for key in plan.by:
         if isinstance(key, str):
-            parts.append(record.get(key))
+            parts.append(_read(record, key))
             continue
-        epoch = parse_timestamp(record.get(key.field))
+        epoch = parse_timestamp(_read(record, key.field))
         parts.append(None if epoch is None else bucket_label(epoch, key.bucket_seconds))
     return tuple(parts)
