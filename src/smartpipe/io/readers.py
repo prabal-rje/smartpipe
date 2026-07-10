@@ -39,6 +39,7 @@ __all__ = [
     "figure_note",
     "file_items",
     "from_files_items",
+    "ocr_eligible_count",
     "ocr_route",
     "resolve_items",
     "stdin_items",
@@ -172,15 +173,23 @@ async def _stream_path_items(
 def _any_ocr_eligible(paths: Sequence[Path], as_mode: str | None) -> bool:
     """Only an actually-parseable file flips ingestion onto the OCR path —
     text-only corpora keep their known total (and embed's batched calls)."""
-    for path in paths:
-        try:
-            with path.open("rb") as handle:
-                head = handle.read(_HEAD_BYTES)
-        except OSError:
-            continue
-        if ocr_route(detect_kind(path, head), as_mode) is not None:
-            return True
-    return False
+    return any(_is_ocr_eligible(path, as_mode) for path in paths)
+
+
+def ocr_eligible_count(paths: Sequence[Path], as_mode: str | None) -> int:
+    """How many named files a configured ocr-model would parse — the reader's
+    preflight arithmetic (item 48). Unreadable files count as not parseable;
+    they get their own skip warning at load time."""
+    return sum(1 for path in paths if _is_ocr_eligible(path, as_mode))
+
+
+def _is_ocr_eligible(path: Path, as_mode: str | None) -> bool:
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(_HEAD_BYTES)
+    except OSError:
+        return False
+    return ocr_route(detect_kind(path, head), as_mode) is not None
 
 
 async def _ocr_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item] | None:

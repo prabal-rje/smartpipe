@@ -90,6 +90,11 @@ smartpipe notes.txt --as lines | smartpipe write 'copy/{name}'
 # {name} = the source file's name, carried by __source - notes.txt becomes copy/notes.txt
 ```
 
+The reader is zero-calls by default. A configured `ocr-model` is the one
+exception: PDFs and images parse through it exactly as the ingesting verbs
+would (disclosed per row; `--max-calls` caps it, and a folder of 20+
+parseable files gets a preflight note before the first call).
+
 ## What rides along
 
 Every item carries its provenance in the `__source` spine field (path, cut

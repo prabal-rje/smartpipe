@@ -120,3 +120,105 @@ def test_the_reader_still_wins_for_existing_verb_named_files(run_cli: RunCli) ->
     code, _out, err = run_cli(["map"], stdin="")
     assert code == 64  # map without a prompt is a usage error, not a file read
     assert "no files matched" not in err
+
+
+# --- the ocr-model role in reader mode (item 48) ------------------------------------
+
+_PNG = (
+    b"\x89PNG\r\n\x1a\n" + b"\x00" * 64  # the magic is all detect_kind needs
+)
+_OCR_URL = "https://api.mistral.ai/v1/ocr"
+
+
+def _ocr_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SMARTPIPE_OCR_MODEL", "mistral/mistral-ocr-latest")
+    monkeypatch.setenv("MISTRAL_API_KEY", "mk-test")
+
+
+def _page(markdown: str) -> dict[str, object]:
+    return {"index": 0, "markdown": markdown, "images": [], "tables": []}
+
+
+def test_reader_without_ocr_model_makes_zero_calls(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unset role = today's behavior: free local extraction, not one request."""
+    import respx
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "scan.png").write_bytes(_PNG)
+    with respx.mock:  # no routes: ANY http call would fail the test
+        code, out, _err = run_cli(["scan.png"], stdin="")
+    assert code == 0
+    (row,) = [json.loads(line) for line in out.splitlines()]
+    assert row["text"] == ""  # an image has no local text layer
+    assert row["__media"]["kind"] == "image"
+
+
+def test_reader_routes_scans_through_the_configured_ocr_model(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import httpx
+    import respx
+
+    monkeypatch.chdir(tmp_path)
+    _ocr_env(monkeypatch)
+    (tmp_path / "scan.png").write_bytes(_PNG)
+    with respx.mock:
+        respx.post(_OCR_URL).mock(
+            return_value=httpx.Response(200, json={"pages": [_page("SCANNED TEXT")]})
+        )
+        code, out, err = run_cli(["scan.png"], stdin="")
+    assert code == 0
+    (row,) = [json.loads(line) for line in out.splitlines()]
+    assert row["text"] == "SCANNED TEXT"
+    assert "parsed by mistral/mistral-ocr-latest" in err  # the disclosure fires as in verbs
+
+
+def test_reader_max_calls_drains_intake_and_exits_partial(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import httpx
+    import respx
+
+    monkeypatch.chdir(tmp_path)
+    _ocr_env(monkeypatch)
+    (tmp_path / "a.png").write_bytes(_PNG)
+    (tmp_path / "b.png").write_bytes(_PNG)
+    with respx.mock:
+        respx.post(_OCR_URL).mock(return_value=httpx.Response(200, json={"pages": [_page("MD")]}))
+        code, out, err = run_cli(["*.png", "--max-calls", "1"], stdin="")
+    assert code == 1  # PARTIAL: the belt fired, completeness can't be trusted
+    assert len(out.splitlines()) == 1  # intake stopped after the limit call
+    assert "stopped by --max-calls (1 calls made)" in err
+
+
+def test_reader_preflight_note_above_twenty_parseable_files(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import httpx
+    import respx
+
+    monkeypatch.chdir(tmp_path)
+    _ocr_env(monkeypatch)
+    for index in range(21):
+        (tmp_path / f"s{index:02}.png").write_bytes(_PNG)
+    with respx.mock:
+        respx.post(_OCR_URL).mock(return_value=httpx.Response(200, json={"pages": [_page("MD")]}))
+        code, _out, err = run_cli(["*.png", "--max-calls", "1"], stdin="")
+    assert code == 1
+    assert (
+        "note: ~21 pages will parse through mistral/mistral-ocr-latest - --max-calls caps it" in err
+    )
+
+
+def test_reader_help_names_the_ocr_exception(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "x.txt").write_text("x\n", encoding="utf-8")
+    code, out, _err = run_cli(["x.txt", "--help"], stdin="")
+    assert code == 0
+    assert "ocr-model" in out
+    assert "--max-calls" in out
+    assert "zero model calls - UNLESS" in out

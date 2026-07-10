@@ -1,7 +1,10 @@
 # CLI reference
 
 The complete surface, in one page. `smartpipe PATH…` (no verb) is reader
-mode: it emits the files' items as JSONL records, cut per `--as`. As of 1.0 this is a contract governed by
+mode: it emits the files' items as JSONL records, cut per `--as` - zero model
+calls unless an `ocr-model` is configured (then PDFs/images parse through it,
+disclosed per row; `--ocr-model` overrides, `--max-calls` caps).
+As of 1.0 this is a contract governed by
 [SemVer](https://semver.org) - flags, formats, and exit codes won't change
 within a major version.
 
