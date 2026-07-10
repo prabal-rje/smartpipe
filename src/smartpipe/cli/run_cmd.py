@@ -10,17 +10,21 @@ D18 at pipeline scale.
 
 from __future__ import annotations
 
+import contextlib
 import io
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
 
-from smartpipe.cli.sem_file import parse_pipeline, parse_sem
+from smartpipe.cli.sem_file import parse_pipeline, parse_single
 from smartpipe.io import progress
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from smartpipe.cli.sem_file import Stage
 
 __all__ = ["execute_script", "run_command"]
@@ -87,11 +91,13 @@ def execute_script(script: Path, *, extra: tuple[str, ...] = (), dry_run: bool =
     and user-named custom verbs (D39/06)."""
     stages = parse_pipeline(script)
     if stages is None:
+        single = parse_single(script)
         if dry_run:
-            argv = parse_sem(script)
+            argv = single.argv
             click.echo(f"{script.name}: {' '.join(argv)}   [{_posture(argv[0])}]")
             return
-        _invoke(parse_sem(script) + list(extra))
+        with _strict_rows_default(opt_out=single.strict_rows is False):
+            _invoke(list(single.argv) + list(extra))
         return
     if extra:
         raise click.UsageError("extra flags apply to single-stage files only")
@@ -102,6 +108,23 @@ def execute_script(script: Path, *, extra: tuple[str, ...] = (), dry_run: bool =
             )
         return
     _run_pipeline(stages)
+
+
+@contextlib.contextmanager
+def _strict_rows_default(*, opt_out: bool) -> Generator[None]:
+    """Item 19: a .sem execution behaves as if --strict-rows were set — the
+    existing SMARTPIPE_STRICT_ROWS machinery, defaulted ON for the scope of one
+    stage. An explicit ``strict-rows = false`` opts the stage out; a user-set
+    env var (or a --strict-rows flag in the argv) still wins, so the default
+    only ever fills the gap."""
+    if opt_out or os.environ.get("SMARTPIPE_STRICT_ROWS", "").strip():
+        yield
+        return
+    os.environ["SMARTPIPE_STRICT_ROWS"] = "1"
+    try:
+        yield
+    finally:
+        os.environ.pop("SMARTPIPE_STRICT_ROWS", None)
 
 
 def _invoke(argv: list[str]) -> None:
@@ -129,7 +152,8 @@ def _run_pipeline(stages: tuple[Stage, ...]) -> None:
         sys.stderr = _PrefixedStderr(f"[{stage.name}] ", real_stderr)  # type: ignore[assignment]
         progress.set_stage_label(stage.name)  # status lines wear the receipt prefix
         try:
-            _invoke(list(stage.argv))
+            with _strict_rows_default(opt_out=stage.strict_rows is False):
+                _invoke(list(stage.argv))
         finally:
             progress.set_stage_label(None)
             sys.stdin, sys.stdout, sys.stderr = real_stdin, real_stdout, real_stderr

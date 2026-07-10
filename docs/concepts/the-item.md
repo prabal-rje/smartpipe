@@ -22,7 +22,8 @@ predictable.
 
 ## The granularity ladder
 
-How a crate becomes items is a dial, not a guess:
+How a crate becomes items is a dial, not a guess (the full ladder - mixing,
+the census, strict-rows - is [its own page](granularity.md)):
 
 - **Paths decide the default.** A named `.jsonl`/`.ndjson` file cuts into
   strict records (a bad row is a loud error naming file and line); every

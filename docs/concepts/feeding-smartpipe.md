@@ -13,8 +13,10 @@ live in [the item](the-item.md); this page is the ingestion mechanics.
 | ONE binary document (`< report.pdf`) | one whole-document item, spooled and extracted |
 | an image / audio / video stream | one media item, bytes carried to the model |
 
-Mixed streams are legal; `--strict-rows` (or `SMARTPIPE_STRICT_ROWS=1`) makes
-them an error when your pipeline demands one kind.
+Mixed streams are legal in an interactive pipe; `--strict-rows` (or
+`SMARTPIPE_STRICT_ROWS=1`) makes them an error naming the first mixed row,
+and `.sem` runs are strict by default (unattended = loud) - the full story is
+[the granularity ladder](granularity.md).
 
 ## Named files
 

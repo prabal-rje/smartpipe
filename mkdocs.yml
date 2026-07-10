@@ -80,6 +80,7 @@ nav:
   - Concepts:
       - The item: concepts/the-item.md
       - Feeding smartpipe: concepts/feeding-smartpipe.md
+      - The granularity ladder: concepts/granularity.md
       - Pipes & items: concepts/pipes-and-items.md
       - Models & providers: concepts/models-and-providers.md
       - Structured output: concepts/structured-output.md

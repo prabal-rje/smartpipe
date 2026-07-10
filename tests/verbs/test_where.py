@@ -77,3 +77,22 @@ def test_field_less_rows_note_and_strict_errors(capsys: pytest.CaptureFixture[st
             stdin=_io.StringIO(stdin_text),
             stdout=_io.StringIO(),
         )
+
+
+def test_text_only_predicates_never_count_plain_lines_as_field_misses(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plain log line judged by `text` alone is not a field-miss (item 19):
+    the flagship where-on-logs pipe must survive the .sem strict default."""
+    import io as _io
+
+    from smartpipe.verbs.where import WhereRequest, run_where
+
+    monkeypatch.setenv("SMARTPIPE_STRICT_ROWS", "1")
+    code = run_where(
+        WhereRequest('text has "ERROR"'),
+        stdin=_io.StringIO("ERROR one\nfine\n"),
+        stdout=_io.StringIO(),
+    )
+    assert code is ExitCode.OK
+    assert "had no fields" not in capsys.readouterr().err

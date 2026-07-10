@@ -164,3 +164,16 @@ def test_temporal_against_non_temporal_falls_back_to_existing_rules() -> None:
 
 def test_numbers_keep_numeric_rules_not_temporal() -> None:
     assert _matches("n >= 20260101", '{"n": 20260115}')  # plain numbers, untouched
+
+
+def test_referenced_fields_walks_the_whole_tree() -> None:
+    from smartpipe.engine.predicate import parse_predicate, referenced_fields
+
+    node = parse_predicate('text has "ERROR" and (level == "warn" or not msg matches /x/)')
+    assert referenced_fields(node) == frozenset({"text", "level", "msg"})
+
+
+def test_referenced_fields_text_only_predicate() -> None:
+    from smartpipe.engine.predicate import parse_predicate, referenced_fields
+
+    assert referenced_fields(parse_predicate('text contains "retry"')) == frozenset({"text"})

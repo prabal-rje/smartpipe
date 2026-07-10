@@ -83,6 +83,44 @@ The free verbs take their natural keys: `where` takes `predicate`;
 `field`, `facet`, `by-time`, `top`, `save`, `title`; `split` takes `by`,
 `media`, `max-tokens`.
 
+Every verb also accepts `strict-rows` (boolean) - see
+[strict rows by default](#strict-rows-by-default) below.
+
+## Strict rows by default
+
+A `.sem` file runs unattended, so it is **strict about its rows**: a mixed
+record/text stream, or a row missing a field the stage needs, is an *error*
+naming the offending row - not the stderr note an interactive pipe gets. The
+first mixed row stops the run before anything downstream could spend on it:
+
+```
+error: input: line 4 is a plain text line in a record stream
+  --strict-rows demands one kind - declare it: --as jsonl (records) or --as lines (text).
+```
+
+Pipelines that mix kinds *by design* opt out with the `strict-rows` key -
+per stage, or once at the top level of a pipeline file (a per-stage value
+overrides the top-level one):
+
+```toml
+strict-rows = false          # the whole pipeline tolerates mixing
+
+[stage.keep]
+verb = "sample"
+count = 100
+
+[stage.cut]
+verb = "split"
+strict-rows = false          # or opt out one stage at a time
+```
+
+An explicit `--strict-rows` flag after the script, or a set
+`SMARTPIPE_STRICT_ROWS` environment variable, still wins over the file's
+opt-out - explicit always beats default. Interactive pipes (typing the verb
+yourself) keep the permissive census note; the flip is `.sem`-scoped. The
+full story of cuts, mixing, and the census lives in
+[the granularity ladder](../concepts/granularity.md).
+
 ## Unknown keys are errors - on purpose
 
 `config.toml` ignores keys it doesn't know (a config must survive version
@@ -92,7 +130,7 @@ error names the key and lists the valid ones for that verb:
 
 ```bash
 smartpipe run extract.sem
-# → error: extract.sem: unknown key 'promt' - valid keys for map: concurrency, fields, from-files, in, max-calls, model, output, prompt, prompt-file, schema-file, schema-from
+# → error: extract.sem: unknown key 'promt' - valid keys for map: as, concurrency, fields, from-files, in, max-calls, model, output, prompt, prompt-file, schema-file, schema-from, strict-rows
 # →   A .sem script runs unattended - a typo silently ignored would be a disaster.
 # →   Fix the key, then: smartpipe run extract.sem
 ```

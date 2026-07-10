@@ -25,7 +25,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from pathlib import Path
 
-__all__ = ["Stage", "parse_pipeline", "parse_sem"]
+__all__ = ["SingleStage", "Stage", "parse_pipeline", "parse_sem", "parse_single"]
+
+_STRICT_KEY = "strict-rows"  # item 19: valid for every verb, consumed by `run`, never argv
 
 _VERB_NAMES = (
     "map, extend, filter, where, embed, top_k, reduce, join, split, "
@@ -304,19 +306,38 @@ _REQUIRED_KEY: Mapping[str, str] = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class SingleStage:
+    """A single-stage file: the verb argv plus the run-level ``strict-rows``
+    key (item 19) — None means unset, so ``run`` applies its strict default."""
+
+    argv: tuple[str, ...]
+    strict_rows: bool | None
+
+
 def parse_sem(path: Path) -> list[str]:
-    """The argv the ``.sem`` file stands for — or a ``UsageFault`` naming what's wrong."""
+    """The argv the ``.sem`` file stands for — or a ``UsageFault`` naming
+    what's wrong. (``strict-rows`` is run's concern; ``parse_single`` keeps it.)"""
+    return list(parse_single(path).argv)
+
+
+def parse_single(path: Path) -> SingleStage:
+    """The stage the ``.sem`` file stands for — or a ``UsageFault`` naming what's wrong."""
     try:
         document = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as exc:
         raise UsageFault(_syntax_screen(path, exc)) from exc
+    strict_rows = _strict_rows_value(path, document)
     verb = _checked_verb(path, document)
     table = _VERB_KEYS[verb]
     valid = tuple(key for key, _spec in table)
-    unknown = next((key for key in document if key != "verb" and key not in valid), None)
+    unknown = next(
+        (key for key in document if key not in ("verb", _STRICT_KEY) and key not in valid), None
+    )
     if unknown is not None:
+        listed = ", ".join(sorted((*valid, _STRICT_KEY)))
         raise UsageFault(
-            f"{path}: unknown key {unknown!r} — valid keys for {verb}: {', '.join(sorted(valid))}\n"
+            f"{path}: unknown key {unknown!r} — valid keys for {verb}: {listed}\n"
             "  A .sem script runs unattended — a typo silently ignored would be a disaster.\n"
             f"  Fix the key, then: smartpipe run {path}"
         )
@@ -333,7 +354,20 @@ def parse_sem(path: Path) -> list[str]:
         if not spec.accepts(value):
             raise UsageFault(_wrong_type_screen(path, key, spec.expected, value))
         argv.extend(spec.render(value, path.parent))
-    return argv
+    return SingleStage(argv=tuple(argv), strict_rows=strict_rows)
+
+
+def _strict_rows_value(
+    path: Path, document: Mapping[str, object], *, label: str = _STRICT_KEY
+) -> bool | None:
+    """The ``strict-rows`` key (item 19), validated like every key: a bool, or
+    the standard wrong-type screen — ``label`` names the key's place in it."""
+    value = document.get(_STRICT_KEY)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise UsageFault(_wrong_type_screen(path, label, "true or false", value))
+    return value
 
 
 def _checked_verb(path: Path, document: Mapping[str, object]) -> str:
@@ -388,6 +422,7 @@ class Stage:
     name: str
     argv: tuple[str, ...]
     input_name: str | None  # None: the previous stage (or real stdin for the first)
+    strict_rows: bool | None = None  # the stage's strict-rows key (item 19); None = unset
 
 
 def parse_pipeline(path: Path) -> tuple[Stage, ...] | None:
@@ -405,7 +440,9 @@ def parse_pipeline(path: Path) -> tuple[Stage, ...] | None:
     stages_table = as_record(raw_stages)
     if stages_table is None:
         raise UsageFault(f"{path}: [stage.NAME] tables expected under 'stage'")
-    others = [key for key in document if key != "stage"]
+    # item 19: top-level strict-rows is the pipeline-wide default; per-stage overrides
+    pipeline_strict = _strict_rows_value(path, document)
+    others = [key for key in document if key not in ("stage", _STRICT_KEY)]
     if others:
         raise UsageFault(
             f"{path}: a pipeline file holds only [stage.NAME] tables — "
@@ -432,9 +469,17 @@ def parse_pipeline(path: Path) -> tuple[Stage, ...] | None:
                     "which isn't an EARLIER stage\n"
                     "  Stages run in file order; input names one above."
                 )
-        stage_doc = {key: value for key, value in body.items() if key != "input"}
+        stage_strict = _strict_rows_value(path, body, label=f"stage.{name}.{_STRICT_KEY}")
+        stage_doc = {key: value for key, value in body.items() if key not in ("input", _STRICT_KEY)}
         argv = _stage_argv(path, name, stage_doc)
-        stages.append(Stage(name=name, argv=tuple(argv), input_name=upstream))
+        stages.append(
+            Stage(
+                name=name,
+                argv=tuple(argv),
+                input_name=upstream,
+                strict_rows=stage_strict if stage_strict is not None else pipeline_strict,
+            )
+        )
         seen.append(name)
     if not stages:
         raise UsageFault(f"{path}: a pipeline needs at least one [stage.NAME]")
@@ -447,9 +492,9 @@ def _stage_argv(path: Path, name: str, document: dict[str, object]) -> list[str]
     valid = tuple(key for key, _spec in table)
     unknown = next((key for key in document if key != "verb" and key not in valid), None)
     if unknown is not None:
+        listed = ", ".join(sorted((*valid, _STRICT_KEY)))
         raise UsageFault(
-            f"{path}: [stage.{name}] unknown key {unknown!r} — "
-            f"valid keys for {verb}: {', '.join(sorted(valid))}"
+            f"{path}: [stage.{name}] unknown key {unknown!r} — valid keys for {verb}: {listed}"
         )
     if verb in _REQUIRES_PROMPT and "prompt" not in document and "prompt-file" not in document:
         raise UsageFault(f"{path}: [stage.{name}] {verb} needs a prompt")
