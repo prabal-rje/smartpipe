@@ -378,3 +378,32 @@ def test_object_list_ceiling_is_a_usage_error_before_any_call(
     assert "object lists nest one level deep" in err
     assert "flatten the inner structure or extract in two passes" in err
     assert route.call_count == 0  # refused free, before a single model call
+
+
+# --- request batching (item 62), end to end through the real container --------------
+
+
+def test_batching_on_packs_items_and_discloses(
+    run_cli: RunCli, respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import re
+
+    monkeypatch.setenv("SMARTPIPE_BATCH", "on")  # the conftest pin holds everywhere else
+    monkeypatch.setenv("SMARTPIPE_BATCH_WINDOW_MS", "5")
+    block = re.compile(r'<input id="(r\d+)">\n(.*?)\n</input>', re.DOTALL)
+    calls: list[str] = []
+
+    def packed_reply(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        user = body["messages"][-1]["content"]
+        calls.append(user)
+        answers = {label: {"v": text.upper()} for label, text in block.findall(user)}
+        return _reply(json.dumps(answers))
+
+    respx_mock.post(CHAT).mock(side_effect=packed_reply)
+    code, out, err = run_cli(["map", "Extract {v}"], stdin="a\nb\nc\n")
+    assert code == 0
+    assert len(calls) == 1  # three items, ONE model call
+    rows = [json.loads(line) for line in out.splitlines()]
+    assert [row["v"] for row in rows] == ["A", "B", "C"]  # fan-out kept input order
+    assert "note: batched 3 items into 1 call" in err  # §9: the disclosure, once

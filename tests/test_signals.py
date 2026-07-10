@@ -83,6 +83,9 @@ def _spawn_filter(
         **os.environ,
         "OLLAMA_HOST": server.url,
         "SMARTPIPE_MODEL": "ollama/qwen3:8b",
+        # the drain matrix pins the SOLO wire, call by call; the batched drain
+        # is covered by tests/verbs/test_batching.py::test_interrupt_drains…
+        "SMARTPIPE_BATCH": "off",
         **(extra_env or {}),
     }
     proc = subprocess.Popen(

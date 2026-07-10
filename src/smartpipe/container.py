@@ -61,6 +61,7 @@ if TYPE_CHECKING:
 
     import httpx
 
+    from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.engine.graphkg import EntityFinder
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, EmbeddingModel
@@ -80,7 +81,9 @@ class AppContainer:
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     color_mode: ColorMode = ColorMode.AUTO
     budget: CallBudget | None = None  # --max-calls (D18); None = uncapped
+    stop: asyncio.Event | None = None  # the per-item verbs' drain event (ux.md §12)
     caches: list[object] = field(default_factory=list[object])  # CachingChatModel wrappers (D38/15)
+    coalescers: list[object] = field(default_factory=list[object])  # batching wrappers (item 62)
     window_cache: dict[str, int | None] = field(default_factory=dict[str, "int | None"])
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
@@ -89,8 +92,28 @@ class AppContainer:
             diagnostics.note(resolved.notice)
         return self._wrap_chat(self._build_chat(resolved.ref))
 
+    def batching(self) -> BatchSettings | None:
+        """The run's coalescing posture (item 62): SMARTPIPE_BATCH > config
+        ``batching`` > ON (the product pitch is seamless cost reduction).
+        None = off; verbs size their intake from the returned settings."""
+        if not _batching_enabled(self.env, self.config):
+            return None
+        from smartpipe.engine.coalesce import BatchSettings
+
+        return BatchSettings(
+            size=_batch_size(self.env), window_seconds=_batch_window_seconds(self.env)
+        )
+
     def _wrap_chat(self, model: ChatModel) -> ChatModel:
         wired = model if self.budget is None else budgeted_chat(model, self.budget)
+        settings = self.batching()
+        if settings is not None:
+            # coalescer INSIDE the cache, OUTSIDE the budget: hits never enqueue,
+            # and one packed flight is one charged call (item 62 §5/§9)
+            from smartpipe.models.coalesce import CoalescingChatModel
+
+            wired = CoalescingChatModel(wired, settings=settings, stop=self.stop)
+            self.coalescers.append(wired)
         if not _cache_enabled(self.env, self.config):
             return wired
         # cache OUTERMOST: a hit short-circuits before the budget counts it —
@@ -488,6 +511,43 @@ def _cache_enabled(env: Mapping[str, str], config: Config) -> bool:
     return bool(config.cache)
 
 
+def _batching_enabled(env: Mapping[str, str], config: Config) -> bool:
+    """SMARTPIPE_BATCH > config ``batching`` > ON — the same posture ladder as
+    the cache, but defaulting on: eligible items sharing a call IS the product."""
+    flag = env.get("SMARTPIPE_BATCH", "").strip().lower()
+    if flag in ("1", "true", "on", "yes"):
+        return True
+    if flag in ("0", "false", "off", "no"):
+        return False
+    return config.batching is not False  # unset = on
+
+
+def _batch_size(env: Mapping[str, str]) -> int:
+    """SMARTPIPE_BATCH_SIZE: items per packed call (K). Default 12; ≥ 2 —
+    a K of one would only add window latency to every item."""
+    from smartpipe.engine.coalesce import GROUP_CEILING
+
+    raw = env.get("SMARTPIPE_BATCH_SIZE", "").strip()
+    if not raw:
+        return GROUP_CEILING
+    if not (raw.isdigit() and int(raw) >= 2):
+        raise UsageFault(f"SMARTPIPE_BATCH_SIZE must be a whole number >= 2, got {raw!r}")
+    return int(raw)
+
+
+def _batch_window_seconds(env: Mapping[str, str]) -> float:
+    """SMARTPIPE_BATCH_WINDOW_MS: how long a partial group waits before flying.
+    Default 75 ms — streams must stay live."""
+    from smartpipe.engine.coalesce import WINDOW_SECONDS
+
+    raw = env.get("SMARTPIPE_BATCH_WINDOW_MS", "").strip()
+    if not raw:
+        return WINDOW_SECONDS
+    if not (raw.isdigit() and int(raw) >= 1):
+        raise UsageFault(f"SMARTPIPE_BATCH_WINDOW_MS must be a whole number >= 1, got {raw!r}")
+    return int(raw) / 1000.0
+
+
 def _cache_dir(env: Mapping[str, str]) -> Path:
     base = env.get("XDG_CACHE_HOME", "").strip()
     root = Path(base) if base else Path.home() / ".cache"
@@ -523,6 +583,7 @@ async def build_container(
         http_client=client,
         color_mode=color_mode,
         budget=None if limit is None else CallBudget(limit=limit, stop=stop),
+        stop=stop,
     )
     try:
         yield container
@@ -532,6 +593,7 @@ async def build_container(
         if totals is not None:
             diagnostics.note(totals)  # D40: the number that goes in the report
         _repair_receipt()  # rung 0's once-per-run disclosure (item 58)
+        _batch_receipt(container)  # item 62 §9: the once-per-run batching disclosure
         from smartpipe.io import usage
 
         usage.record_run(metering.snapshot(), container.env)  # D41: the ledger
@@ -546,6 +608,21 @@ def _repair_receipt() -> None:
     if count:
         noun = "reply" if count == 1 else "replies"
         diagnostics.note(f"{count} {noun} repaired deterministically (fences/commas/quotes)")
+
+
+def _batch_receipt(container: AppContainer) -> None:
+    """ONE stderr note per run, only when batching actually happened — the
+    accounting-honesty disclosure (item 62 §9). stdout never sees a byte."""
+    if not container.coalescers:
+        return
+    from smartpipe.models.coalesce import CoalescingChatModel
+
+    wrappers = [w for w in container.coalescers if isinstance(w, CoalescingChatModel)]
+    calls = sum(w.packed_calls for w in wrappers)
+    items = sum(w.batched_items for w in wrappers)
+    if calls:
+        noun = "call" if calls == 1 else "calls"
+        diagnostics.note(f"batched {items:,} items into {calls:,} {noun}")
 
 
 def _cache_receipt(container: AppContainer) -> None:

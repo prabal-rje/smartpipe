@@ -231,6 +231,20 @@ def config_set_cache(state: str) -> None:
     click.echo(f"cache {state} — stored replies live in ~/.cache/smartpipe (smartpipe cache clear)")
 
 
+_BATCHING_SAID = {
+    "on": "batching on — small map/extend/filter items share one model call (default)",
+    "off": "batching off — every item pays its own model call (undo: config batching on)",
+}
+
+
+@config_command.command(name="batching")
+@click.argument("state", type=click.Choice(["on", "off"]))
+def config_set_batching(state: str) -> None:
+    """Turn request batching on or off (small items share one model call)."""
+    _update(lambda c: replace(c, batching=state == "on"))
+    click.echo(_BATCHING_SAID[state])
+
+
 _UPDATE_CHECK_SAID = {
     "on": "update-check on — smartpipe asks PyPI for the latest release once a day",
     "off": "update-check off — no release checks, no notices (undo: config update-check on)",

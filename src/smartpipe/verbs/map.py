@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
 from smartpipe.engine.chunking import is_context_overflow
+from smartpipe.engine.coalesce import max_group
 from smartpipe.engine.prompts import (
     build_map_request,
     build_repair_request,
@@ -49,6 +50,7 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import TextIO
 
+    from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.engine.prompts import MapPlan
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
@@ -93,6 +95,7 @@ class MapContext(Protocol):
     async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
+    def batching(self) -> BatchSettings | None: ...
     def writer(
         self,
         output_flag: OutputFormat,
@@ -139,6 +142,15 @@ async def run_map(
         full=request.full,
     )
     concurrency = context.concurrency(request.concurrency_flag)
+    batching = context.batching()  # item 62: eligible items coalesce into shared calls
+    coalescing = batching is not None and max_group(plan.schema, batching.size) >= 2
+    # Batching multiplexes many items onto few calls, so intake widens to fill a
+    # group; `wire` keeps every SOLO path (media, oversized) at the documented
+    # max-parallel-calls contract regardless of that boost.
+    workers = (
+        max(concurrency, batching.size) if batching is not None and coalescing else concurrency
+    )
+    wire = asyncio.Semaphore(concurrency)
 
     tally = None
     if request.tally_field is not None:
@@ -177,22 +189,31 @@ async def run_map(
             # --whole: the old D26 refusal — reproducibility beats handling
             raise ItemError(gate.refusal(over))
         if over is not None:
-            # D26 v2: handled, not skipped — chunk, transform, synthesize (disclosed)
-            result: str | Mapping[str, object] = await transform_oversized(
-                current, plan, instruction, item, over, keep_invalid=request.keep_invalid
-            )
-        else:
-            try:
-                result = await map_one(
-                    current,
-                    plan,
-                    instruction,
-                    item,
-                    log,
-                    frame_every=request.frame_every,
-                    max_frames=request.max_frames,
-                    keep_invalid=request.keep_invalid,
+            # D26 v2: handled, not skipped — chunk, transform, synthesize (disclosed).
+            # Oversized items never batch (item 62 §7) — solo, wire-gated.
+            async with wire:
+                result: str | Mapping[str, object] = await transform_oversized(
+                    current, plan, instruction, item, over, keep_invalid=request.keep_invalid
                 )
+        else:
+            attempt = partial(
+                map_one,
+                current,
+                plan,
+                instruction,
+                item,
+                log,
+                frame_every=request.frame_every,
+                max_frames=request.max_frames,
+                keep_invalid=request.keep_invalid,
+            )
+            try:
+                if coalescing and not item.media:
+                    result = await attempt(batch=True)  # coalescible — no wire gate:
+                    # the shared flight is the call, and it is budgeted downstream
+                else:
+                    async with wire:  # media rides solo (item 62 §7), wire-gated
+                        result = await attempt()
             except ItemError as exc:
                 if (
                     request.whole
@@ -202,14 +223,15 @@ async def run_map(
                     raise
                 # item 3: the wire rejected the estimate on a MACHINE-cut item
                 # — halve and retry; user cuts stay per-item errors
-                result = await transform_resplit(
-                    current,
-                    plan,
-                    instruction,
-                    item,
-                    keep_invalid=request.keep_invalid,
-                    cause=exc,
-                )
+                async with wire:
+                    result = await transform_resplit(
+                        current,
+                        plan,
+                        instruction,
+                        item,
+                        keep_invalid=request.keep_invalid,
+                        cause=exc,
+                    )
         slot.tally(str(current.ref))
         return item, result
 
@@ -226,7 +248,7 @@ async def run_map(
     outcomes = run_ordered(
         items_iter,
         worker,
-        concurrency=concurrency,
+        concurrency=workers,
         failure_policy=policy,
         stop=stop,
         failover=failover,
@@ -278,6 +300,7 @@ async def map_one(
     frame_every: float | None = None,
     max_frames: int | None = None,
     keep_invalid: bool = False,
+    batch: bool = False,
 ) -> str | Mapping[str, object]:
     video = next((part for part in item.media if isinstance(part, VideoData)), None)
     if video is not None:
@@ -294,7 +317,13 @@ async def map_one(
         )
     try:
         return await _attempt(
-            model, plan, instruction, render_input(item), item.media, keep_invalid=keep_invalid
+            model,
+            plan,
+            instruction,
+            render_input(item),
+            item.media,
+            keep_invalid=keep_invalid,
+            batch=batch,
         )
     except ItemError as native_failure:
         audio = next((part for part in item.media if isinstance(part, AudioData)), None)
@@ -377,8 +406,9 @@ async def _attempt(
     media: tuple[MediaData, ...],
     *,
     keep_invalid: bool = False,
+    batch: bool = False,
 ) -> str | Mapping[str, object]:
-    request = build_map_request(plan, instruction, text, media=media)
+    request = build_map_request(plan, instruction, text, media=media, batch=batch)
     reply = await model.complete(request)
     if plan.schema is None:
         return reply.rstrip()  # plain mode: keep the reply, only trim trailing whitespace

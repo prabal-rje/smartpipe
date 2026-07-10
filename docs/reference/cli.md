@@ -154,6 +154,8 @@ One line per setting: the effective value tagged with where it came from
 smartpipe config                     # back-compat door: opens the same setup as `use`
 smartpipe config show                # alias of `smartpipe using`
 smartpipe config cache on|off        # result caching
+smartpipe config batching on|off     # request batching: small map/extend/filter
+                                     # items share one model call - default on
 smartpipe config update-check on|off # the daily release check + notice
 smartpipe config media-previews off  # terminal media previews (thumbnails,
                                      # waveforms, play links) - default on
@@ -268,6 +270,7 @@ per shell in [Installing smartpipe → Tab completion](../install.md#tab-complet
 | `SMARTPIPE_EMBED_MODEL` | Default embedding model. |
 | `SMARTPIPE_OUTPUT` | Default output format. |
 | `SMARTPIPE_MAX_CALLS` | Default call ceiling (see `--max-calls`). |
+| `SMARTPIPE_BATCH` | Request batching kill switch (`off` disables; default on). `SMARTPIPE_BATCH_SIZE` (default 12) and `SMARTPIPE_BATCH_WINDOW_MS` (default 75) tune the group size and the coalesce window. |
 | `SMARTPIPE_OPENAI_BASE_URL` | Point the OpenAI-compatible adapter at any endpoint. |
 | `SMARTPIPE_MISTRAL_BASE_URL` / `SMARTPIPE_GEMINI_BASE_URL` / `SMARTPIPE_OPENROUTER_BASE_URL` | Point a provider's wire elsewhere (proxies, gateways). |
 | `SMARTPIPE_CONTEXT_TOKENS` | Assert your model's context window (beats the table and the probe; the fix for OpenAI/Anthropic deployments the table underestimates). |

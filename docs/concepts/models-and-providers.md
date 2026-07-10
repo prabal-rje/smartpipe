@@ -276,6 +276,30 @@ media-capable, the caption pivot otherwise).
 key.
 
 
+## Request batching
+
+By default, small items in `map`, `extend`, and `filter` coalesce: eligible
+items wait about 75 ms (or until 12 gather) and fly as ONE request, each in
+its own labeled `<input id="r1">` block; the model answers with one JSON
+object keyed per item, and the answers fan back out in input order. Grouping
+follows (model, output schema) - prompts that interpolate fields still batch,
+each carrying its own instruction inside its block.
+
+Never batched: media items, oversized items, repair retries, and every other
+verb - they take the solo path unchanged. A missing or invalid per-item
+answer sends exactly that item back through the solo path (which owns the
+repair ladder); valid neighbors keep their answers.
+
+The accounting stays per real call: `--max-calls` counts a batch of 12 items
+as 1 call, the circuit breaker watches real wire failures, the meter counts
+real usage, and one stderr note per run discloses what happened:
+`note: batched 500 items into 42 calls`. The result cache stays per item -
+hits skip the batch entirely, and batched answers are cached individually.
+
+Kill switch: `smartpipe config batching off`, or `SMARTPIPE_BATCH=off` for
+one run. `SMARTPIPE_BATCH_SIZE` (default 12) and `SMARTPIPE_BATCH_WINDOW_MS`
+(default 75) tune it.
+
 ## The usage ledger
 
 `smartpipe usage` shows what the meter observed over the past hour, day, week,

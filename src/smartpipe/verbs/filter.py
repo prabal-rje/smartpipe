@@ -49,6 +49,7 @@ from smartpipe.verbs.oversize import judge_any, machine_cut, resplit_halves, res
 if TYPE_CHECKING:
     from typing import TextIO
 
+    from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.engine.prompts import Token
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
@@ -83,6 +84,7 @@ class FilterContext(Protocol):
     async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def concurrency(self, flag: int | None = None) -> int: ...
+    def batching(self) -> BatchSettings | None: ...
     def writer(
         self, output_flag: OutputFormat, *, structured: bool, stdout: TextSink
     ) -> ResultWriter: ...
@@ -109,6 +111,12 @@ async def run_filter(
     # the arbiter: result writes pause the status line, so they never interleave
     writer = context.writer(OutputFormat.AUTO, structured=False, stdout=spinner.guard(stdout))
     concurrency = context.concurrency(request.concurrency_flag)
+    batching = context.batching()  # item 62: whole-item judgments coalesce into shared calls
+    # Batching multiplexes many judgments onto few calls, so intake widens to
+    # fill a group; `wire` keeps every SOLO path (media, oversized chunks) at
+    # the documented max-parallel-calls contract regardless of that boost.
+    workers = concurrency if batching is None else max(concurrency, batching.size)
+    wire = asyncio.Semaphore(concurrency)
 
     # First-item brace check (streaming can't see "all items" up front): the common
     # mistake — braces over a plain-text pipe — still fails fast, before any model
@@ -150,7 +158,13 @@ async def run_filter(
         over = await gate.budget_for_oversized(item.text, item.media)
         if over is None:
             try:
-                matched = await _judge(current, tokens, item, log, converter)
+                if batching is not None and not item.media:
+                    # coalescible (item 62) — the shared flight is the call,
+                    # budgeted downstream; no wire gate here
+                    matched = await _judge(current, tokens, item, log, converter, batch=True)
+                else:
+                    async with wire:  # media rides solo (item 62 §7), wire-gated
+                        matched = await _judge(current, tokens, item, log, converter)
             except ItemError as exc:
                 if (
                     request.whole
@@ -162,24 +176,27 @@ async def run_filter(
                 # — halve, judge the halves ANY-true; user cuts stay errors
                 halves = resplit_halves(item.text, cause=exc)
                 diagnostics.note(resplit_note(describe_source(item.source)))
-                matched = await judge_any(
-                    halves,
-                    judge_chunk,
-                    where=describe_source(item.source),
-                    estimate=estimate_tokens(item.text),
-                )
+                async with wire:
+                    matched = await judge_any(
+                        halves,
+                        judge_chunk,
+                        where=describe_source(item.source),
+                        estimate=estimate_tokens(item.text),
+                    )
         elif request.whole:
             # --whole: the old D26 refusal — reproducibility beats handling
             raise ItemError(gate.refusal(over))
         else:
             # D26 v2: judge the chunks, ANY match keeps the whole item (--not
-            # inverts after), early exit on the first true chunk — disclosed
-            matched = await judge_any(
-                split_text(item.text, over.budget),
-                judge_chunk,
-                where=describe_source(item.source),
-                estimate=over.estimate,
-            )
+            # inverts after), early exit on the first true chunk — disclosed.
+            # Oversized items never batch (item 62 §7) — solo, wire-gated.
+            async with wire:
+                matched = await judge_any(
+                    split_text(item.text, over.budget),
+                    judge_chunk,
+                    where=describe_source(item.source),
+                    estimate=over.estimate,
+                )
         slot.tally(str(current.ref))
         return item, matched
 
@@ -197,7 +214,7 @@ async def run_filter(
     outcomes = run_ordered(
         items_iter,
         worker,
-        concurrency=concurrency,
+        concurrency=workers,
         failure_policy=policy,
         stop=stop,
         failover=failover,
@@ -247,6 +264,7 @@ async def _judge(
     converter: Converter,
     *,
     whole: bool = True,
+    batch: bool = False,
 ) -> bool:
     had_media = bool(item.media)  # conversions land in .text, not in .data
     item = await ensure_text(item, log=log, converter=converter)  # D33 ladder
@@ -254,7 +272,9 @@ async def _judge(
     # item 57: a whole record judges as its rendered fields; a chunk (or a
     # converted media item, whose transcript lives only in .text) as its text
     payload = render_input(item) if whole and not had_media else render_input(item.text)
-    request = build_filter_request(condition, payload)
+    # item 62: only whole, media-free judgments coalesce — chunks and converted
+    # media stay solo (the belt behind the worker's own gate)
+    request = build_filter_request(condition, payload, batch=batch and whole and not had_media)
     reply = await model.complete(request)
     try:
         verdict = validate_and_coerce(reply, JUDGE_SCHEMA)

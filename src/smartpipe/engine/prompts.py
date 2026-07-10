@@ -26,6 +26,7 @@ from smartpipe.core.errors import ItemError, UsageFault
 from smartpipe.engine.fieldpath import MISSING, has_path_syntax, lookup, parse_path
 from smartpipe.engine.schema import shorthand_to_schema
 from smartpipe.models.base import (  # shared request value types, not behavior
+    BatchHint,
     CompletionRequest,
     ImageData,
     MediaData,
@@ -341,7 +342,11 @@ def build_map_request(
     item_text: str,
     *,
     media: tuple[MediaData, ...] = (),
+    batch: bool = False,
 ) -> CompletionRequest:
+    """``batch=True`` (item 62) marks the request coalescible: the instruction
+    and payload ride separately in a ``BatchHint`` so eligible requests can be
+    packed into one labeled call. Media never batches — the hint is withheld."""
     max_tokens = _STRUCTURED_MAX_TOKENS if plan.mode == "structured" else _PLAIN_MAX_TOKENS
     prefixed = any(isinstance(part, ImageData) for part in media)
     system = f"{IMAGE_ITEM_PREFIX}{plan.system}" if prefixed else plan.system
@@ -351,20 +356,22 @@ def build_map_request(
         json_schema=plan.schema,
         max_tokens=max_tokens,
         media=media,
+        batch=BatchHint(instruction, item_text) if batch and not media else None,
     )
 
 
 def build_repair_request(
     original: CompletionRequest, *, bad_reply: str, error: str
 ) -> CompletionRequest:
-    """Re-ask with the validator's complaint so the model can self-correct once."""
+    """Re-ask with the validator's complaint so the model can self-correct once.
+    A repair never re-batches (item 62 §4) — the hint is stripped."""
     user = (
         f"{original.user}\n\n"
         f"Your previous reply was:\n{bad_reply}\n\n"
         f"That was invalid: {error}\n"
         "Reply again with ONLY a corrected JSON object."
     )
-    return replace(original, user=user)
+    return replace(original, user=user, batch=None)
 
 
 def reject_comma_groups(tokens: tuple[Token, ...]) -> None:
@@ -399,14 +406,20 @@ def interpolate_fields(tokens: tuple[Token, ...], data: Mapping[str, object] | N
     return "".join(parts)
 
 
-def build_filter_request(condition: str, item_text: str) -> CompletionRequest:
+def build_filter_request(
+    condition: str, item_text: str, *, batch: bool = False
+) -> CompletionRequest:
     """``item_text`` arrives as a ``render_input`` block (item 57) — the
-    ``<input>`` fences label the payload, so no extra "Item:" header."""
+    ``<input>`` fences label the payload, so no extra "Item:" header.
+    ``batch=True`` (item 62) marks the judgment coalescible; the condition is
+    the per-item instruction (field-interpolated conditions vary per item)."""
+    instruction = f"Condition: {condition}"
     return CompletionRequest(
         system=FILTER_JUDGE_SYSTEM,
-        user=f"Condition: {condition}\n\n{item_text}",
+        user=f"{instruction}\n\n{item_text}",
         json_schema=JUDGE_SCHEMA,
         max_tokens=_JUDGE_MAX_TOKENS,
+        batch=BatchHint(instruction, item_text) if batch else None,
     )
 
 
@@ -567,9 +580,9 @@ def render_input(item: Item | str) -> str:
     plumbing — media rides the actual API image/audio parts. Plain text (and
     a raw ``str`` payload — a chunk, a transcript) rides unchanged. A pure
     ``{"text": …}`` record projects to its text, the projection rule every
-    verb shares. Both shapes wear ``<input>`` fences (the batching
-    prerequisite: a later feature numbers them ``<input_1>``); an empty
-    payload renders as nothing at all.
+    verb shares. Both shapes wear ``<input>`` fences — the batching
+    prerequisite: the coalescer (item 62) labels them ``<input id="rN">``
+    when packing; an empty payload renders as nothing at all.
     """
     match item:
         case str(text):

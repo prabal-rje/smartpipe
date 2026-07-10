@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
 from smartpipe.engine.chunking import is_context_overflow
+from smartpipe.engine.coalesce import max_group
 from smartpipe.engine.prompts import parse_prompt, plan_map, to_instruction
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import load_schema
@@ -115,6 +116,15 @@ async def run_extend(
         full=request.full,
     )
     concurrency = context.concurrency(request.concurrency_flag)
+    batching = context.batching()  # item 62: eligible items coalesce into shared calls
+    coalescing = batching is not None and max_group(plan.schema, batching.size) >= 2
+    # Batching multiplexes many items onto few calls, so intake widens to fill a
+    # group; `wire` keeps every SOLO path (media, oversized) at the documented
+    # max-parallel-calls contract regardless of that boost.
+    workers = (
+        max(concurrency, batching.size) if batching is not None and coalescing else concurrency
+    )
+    wire = asyncio.Semaphore(concurrency)
 
     tally = None
     if request.tally_field is not None:
@@ -138,22 +148,31 @@ async def run_extend(
             # --whole: the old D26 refusal — reproducibility beats handling
             raise ItemError(gate.refusal(over))
         if over is not None:
-            # D26 v2: extract per chunk, then ONE merge call against the same schema
-            result = await transform_oversized(
-                current, plan, instruction, item, over, keep_invalid=request.keep_invalid
-            )
-        else:
-            try:
-                result = await map_one(
-                    current,
-                    plan,
-                    instruction,
-                    item,
-                    log,
-                    frame_every=request.frame_every,
-                    max_frames=request.max_frames,
-                    keep_invalid=request.keep_invalid,
+            # D26 v2: extract per chunk, then ONE merge call against the same
+            # schema. Oversized items never batch (item 62 §7) — solo, wire-gated.
+            async with wire:
+                result = await transform_oversized(
+                    current, plan, instruction, item, over, keep_invalid=request.keep_invalid
                 )
+        else:
+            attempt = partial(
+                map_one,
+                current,
+                plan,
+                instruction,
+                item,
+                log,
+                frame_every=request.frame_every,
+                max_frames=request.max_frames,
+                keep_invalid=request.keep_invalid,
+            )
+            try:
+                if coalescing and not item.media:
+                    result = await attempt(batch=True)  # coalescible — the shared
+                    # flight is the call, budgeted downstream; no wire gate here
+                else:
+                    async with wire:  # media rides solo (item 62 §7), wire-gated
+                        result = await attempt()
             except ItemError as exc:
                 if (
                     request.whole
@@ -162,14 +181,15 @@ async def run_extend(
                 ):
                     raise
                 # item 3: the wire rejected the estimate on a MACHINE-cut item
-                result = await transform_resplit(
-                    current,
-                    plan,
-                    instruction,
-                    item,
-                    keep_invalid=request.keep_invalid,
-                    cause=exc,
-                )
+                async with wire:
+                    result = await transform_resplit(
+                        current,
+                        plan,
+                        instruction,
+                        item,
+                        keep_invalid=request.keep_invalid,
+                        cause=exc,
+                    )
         assert isinstance(result, Mapping)  # structured mode: validated against the schema
         slot.tally(str(current.ref))
         return item, result
@@ -188,7 +208,7 @@ async def run_extend(
     outcomes = run_ordered(
         items_iter,
         worker,
-        concurrency=concurrency,
+        concurrency=workers,
         failure_policy=policy,
         stop=stop,
         failover=failover,
