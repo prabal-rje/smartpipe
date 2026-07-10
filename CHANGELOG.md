@@ -93,9 +93,20 @@ The identity release.
   double-underscore namespace that rides every record: `__source` (path plus
   HOW the item was cut - file, lines, jsonl, pages, minutes, segment index),
   `__media` (one transport object for bytes crossing a pipe), `__score`
-  (join), `__invalid`/`__error`/`__raw` (kept failures). Known fields
-  round-trip through saved files; unknown `__` fields warn once and carry.
-  User data owns everything up to one leading underscore.
+  (top_k and join similarity), `__rank` (top_k), `__snapshot` (top_k
+  --stream markers), `__distance` (outliers), `__invalid`/`__error`/`__raw`
+  (kept failures). Known fields round-trip through saved files; unknown `__`
+  fields warn once and carry. User data owns everything up to one leading
+  underscore - which is why the last single-underscore stragglers moved:
+  pre-1.4 `top_k`/`outliers` wrote `_score`/`_rank`/`_snapshot`/`_distance`,
+  and those spellings stay readable for one release (CSV/TSV still sort them
+  into the trailing columns) but are never written again. In the same sweep,
+  `cluster --explode` overwriting an existing `cluster` field became a
+  disclosed overwrite (one stderr warning) instead of a silent one.
+- **top_k ranks can no longer collide.** Ranking keyed on each item's
+  source index, so two page-1 records from different PDFs fought over one
+  slot and a result silently vanished. Ranks are now run-scoped ordinals in
+  arrival order, in both the embedded and precomputed-vector paths.
 - **Records in, records out.** A plain-prompt `map` over records now returns
   a record (`{"result": …}` plus the spine) instead of bare prose - structure
   and provenance survive transformation. Text lines still leave as text.
@@ -180,6 +191,19 @@ The identity release.
   over alphabetical luck (cloud tags compete equally), and speaks in the
   same color voice as the other commands with a menu of detected local
   tags and provider-prefixed cloud examples.
+- **Exit 141 is now deliberate, and the -13 flake is dead.** smartpipe used
+  to arm the default SIGPIPE handler, so a downstream `| head` killed it by
+  raw signal - and, one run in a few hundred, a stray EPIPE on asyncio's
+  own self-pipe killed a healthy run mid-teardown, skipping the receipt
+  (the CI flake that delayed rc3). SIGPIPE now stays ignored; a closed
+  stdout surfaces as BrokenPipeError and exits a silent, deliberate 141
+  with every finally honored. (click 8.4's own EPIPE-to-exit-1 trap is
+  defused on the way.) One visible delta: `kill -PIPE` no longer
+  terminates smartpipe; pipeline behavior is unchanged.
+- **A files-then-stdin wait has a name.** Chaining positional files into a
+  stdin read used to end in a silent hang when nothing was piped. All three
+  chain paths now say once, on stderr:
+  `note: files done - now reading stdin (pipe data or close it; files-only: add < /dev/null)`.
 - **Docs bug, live-caught: `cluster | chart` drew flat bars.** The summary
   rows are one-per-cluster, so charting them counts every theme once. The
   README quick-tour step, the `cluster` help epilog, and the `.sem`
