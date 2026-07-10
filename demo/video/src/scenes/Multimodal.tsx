@@ -131,7 +131,7 @@ const LINES: readonly TerminalLine[] = [
   {
     kind: "cmd",
     at: sec(5.2),
-    text: 'smartpipe split --by minutes:5 recordings/*.mp3 | smartpipe map "List every commitment made"',
+    text: "smartpipe split --by minutes:5 'recordings/*.mp3' | smartpipe map \"List every commitment made\"",
   },
   {
     kind: "out",

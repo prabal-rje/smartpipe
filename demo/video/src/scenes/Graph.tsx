@@ -19,7 +19,7 @@ const LINES: readonly TerminalLine[] = [
   {
     kind: "cmd",
     at: sec(0.4),
-    text: 'smartpipe graph --fast case/* --entities "person, company, account"',
+    text: "smartpipe graph --fast 'case/*' --entities \"person, company, account\"",
   },
   { kind: "note", at: sec(2.9), text: "note: 2 entity names folded into 1 node" },
   {

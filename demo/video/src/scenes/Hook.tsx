@@ -9,7 +9,7 @@ const LINES: readonly TerminalLine[] = [
   {
     kind: "cmd",
     at: sec(0.4),
-    text: 'smartpipe map "Extract {vendor, total}" invoices/*.pdf',
+    text: "smartpipe map \"Extract {vendor, total}\" 'invoices/*.pdf'",
   },
   { kind: "out", at: sec(2.9), text: '{"vendor":"Acme Corp","total":1250,"__source":{"path":"invoices/acme-0642.pdf","as":"file"}}' },
   { kind: "out", at: sec(3.2), text: '{"vendor":"Northwind Traders","total":842.5,"__source":{"path":"invoices/northwind-0611.pdf","as":"file"}}' },
