@@ -1,0 +1,13 @@
+[
+  { "id": "h1", "at": 180, "text": "This is smartpipe. Point it at a folder of invoices. Ask in English." },
+  { "id": "h2", "at": 372, "text": "Structured rows come back, stamped with their source. Every run ends with a receipt." },
+  { "id": "m1", "at": 600, "text": "It's not just text. PDFs, images, audio, and video are native inputs." },
+  { "id": "m2", "at": 810, "text": "Split a call into five-minute segments. Ask what was promised." },
+  { "id": "c1", "at": 1026, "text": "Free verbs cut the pile first. The model only sees what survives." },
+  { "id": "c2", "at": 1245, "text": "Every call lands on the receipt. Reruns come from cache." },
+  { "id": "s1", "at": 1446, "text": "Embed a folder once. It runs locally, on your CPU." },
+  { "id": "s2", "at": 1635, "text": "Then search by meaning. No database." },
+  { "id": "g1", "at": 1806, "text": "One command turns a folder of case files into a knowledge graph." },
+  { "id": "g2", "at": 1986, "text": "Entities found on-device. Duplicates folded. Zero model calls." },
+  { "id": "x1", "at": 2190, "text": "One brew install away. Semantic pipes, for your terminal." }
+]

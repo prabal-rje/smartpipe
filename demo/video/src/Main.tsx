@@ -9,9 +9,18 @@ import { Graph } from "./scenes/Graph";
 import { Hook } from "./scenes/Hook";
 import { Multimodal } from "./scenes/Multimodal";
 import { Scale } from "./scenes/Scale";
+import { duckFactor, Narration } from "./Narration";
 
-/** The full 80s cut: one persistent background, seven scenes in series. */
-export const Main: React.FC = () => {
+/** Music bed base gain. Owner order (2026-07-09): "lower BG volume much
+ *  more" — 0.55 → 0.14, about −12 dB. Texture, never presence. */
+const MUSIC_BASE = 0.14;
+
+export type MainProps = { narrated?: boolean };
+
+/** The full 80s cut: one persistent background, seven scenes in series.
+ *  With `narrated`, the Rime voiceover plays on top, a subtitle band shows
+ *  the spoken words, and the music ducks a further few dB under speech. */
+export const Main: React.FC<MainProps> = ({ narrated = false }) => {
   return (
     <AbsoluteFill>
       {/* Music bed: Silicon Prism Waltz (60s, looped to cover the 80s cut).
@@ -21,7 +30,8 @@ export const Main: React.FC = () => {
         loop
         src={staticFile("silicon-prism-waltz.m4a")}
         volume={(f) =>
-          0.55 *
+          MUSIC_BASE *
+          (narrated ? duckFactor(f) : 1) *
           interpolate(
             f,
             [0, 36, TOTAL_FRAMES - 96, TOTAL_FRAMES - 8],
@@ -54,6 +64,7 @@ export const Main: React.FC = () => {
           <Close />
         </Series.Sequence>
       </Series>
+      {narrated ? <Narration /> : null}
     </AbsoluteFill>
   );
 };

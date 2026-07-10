@@ -3,3 +3,4 @@ node_modules/
 out/*
 !out/smartpipe-demo.mp4
 out/
+public/narration/

@@ -43,6 +43,17 @@ export const RemotionRoot: React.FC = () => {
         width={WIDTH}
         height={HEIGHT}
       />
+      {/* The narrated cut: same timeline + Rime voiceover, subtitles, ducked
+          music. Needs public/narration/*.wav — run scripts/fetch-narration.mjs. */}
+      <Composition
+        id="MainNarrated"
+        component={Main}
+        durationInFrames={TOTAL_FRAMES}
+        fps={FPS}
+        width={WIDTH}
+        height={HEIGHT}
+        defaultProps={{ narrated: true }}
+      />
       {SCENES.map((s) => (
         <Composition
           key={s.id}

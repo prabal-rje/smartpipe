@@ -9,8 +9,14 @@ reusable `<Terminal>` component and the frame-math constants in
 `out/smartpipe-demo.mp4`; each scene is also registered as its own
 composition (`ColdOpen`, `Hook`, `Multimodal`, `CostHonesty`, `Scale`,
 `Graph`, `Close`), so `npx remotion render Hook out/hook.mp4` re-renders one
-scene independently. The music bed is `public/silicon-prism-waltz.m4a` (60 s,
-looped over the 80 s cut with a fade-out); if you ever need a
+scene independently. The narrated cut is the `MainNarrated` composition:
+the script text lives in `src/narration/lines.json`, and
+`RIME_API_KEY=... node scripts/fetch-narration.mjs` synthesizes the
+voiceover wavs (Rime.AI, speaker cupola) into the gitignored
+`public/narration/` and refreshes `src/narration/durations.json` - fetch
+before rendering `MainNarrated`. The music bed is
+`public/silicon-prism-waltz.m4a` (60 s, looped over the 80 s cut with a
+fade-out, held far below the voice); if you ever need a
 no-strings-attached replacement, `node scripts/make-music.mjs` (ffmpeg
 required) synthesizes an original ambient track from scratch into
 `public/music.m4a` - royalty-free by construction - and you can point the
