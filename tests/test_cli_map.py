@@ -389,7 +389,13 @@ def test_batching_on_packs_items_and_discloses(
     import re
 
     monkeypatch.setenv("SMARTPIPE_BATCH", "on")  # the conftest pin holds everywhere else
-    monkeypatch.setenv("SMARTPIPE_BATCH_WINDOW_MS", "5")
+    # Deterministic grouping (macOS-3.13 matrix flake, 2026-07-10): K=3 dispatches
+    # synchronously on the third enqueue (map guarantees >= K workers when
+    # coalescing), so the flight never depends on the window timer racing a loaded
+    # runner. A straggler flushed by the timer flies SOLO - which this packed-only
+    # mock cannot answer. The huge window is the belt: it must never fire first.
+    monkeypatch.setenv("SMARTPIPE_BATCH_SIZE", "3")
+    monkeypatch.setenv("SMARTPIPE_BATCH_WINDOW_MS", "60000")
     block = re.compile(r'<input id="(r\d+)">\n(.*?)\n</input>', re.DOTALL)
     calls: list[str] = []
 
