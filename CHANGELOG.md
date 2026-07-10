@@ -264,6 +264,28 @@ The identity release.
   media-embedding capability.
 
 ### Setup that reads the room
+- **`auth login` now connects every provider, not just ChatGPT.** Pick
+  from the full list - OpenAI appears twice because it really is two
+  wires (API key vs ChatGPT login, and the login wire has no
+  embeddings) - paste your key at a masked prompt after the create-a-key
+  URL, and it validates live before storing (with an honest
+  "store anyway - the provider may be having a bad minute" escape).
+  Keys live at `~/.local/share/smartpipe/auth.json`, owner-only
+  permissions from the first byte, masked everywhere they surface, and
+  the environment variable always wins. `auth list` shows what's
+  connected and which source is live; `auth logout` removes.
+- **Setup walks three questions in order: text model, embeddings,
+  document OCR.** Every stage shows every provider - connected ones
+  badged, unconnected ones connectable inline without leaving the flow.
+  The embedding stage only lists wires that embed; OCR is optional and
+  skippable in one keypress. At the end, one consented verification
+  pass (~5 tiny requests) probes what your models can actually do -
+  and if the basic text check fails, smartpipe reports a setup fault
+  instead of pretending your model lacks modalities. Results feed the
+  capability chips you see in every picker from then on, alongside a
+  public model registry and your own declarations for self-hosted
+  models.
+
 - **The schema workshop.** `smartpipe schema` with no arguments at a
   terminal opens a small interactive draft loop - your schema pinned up
   top as colored braces, commands scrolling below: `/add name type`,
