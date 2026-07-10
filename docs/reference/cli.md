@@ -1,7 +1,10 @@
 # CLI reference
 
 The complete surface, in one page. `smartpipe PATH…` (no verb) is reader
-mode: it emits the files' items as JSONL records, cut per `--as`. As of 1.0 this is a contract governed by
+mode: it emits the files' items as JSONL records, cut per `--as` - zero model
+calls unless an `ocr-model` is configured (then PDFs/images parse through it,
+disclosed per row; `--ocr-model` overrides, `--max-calls` caps).
+As of 1.0 this is a contract governed by
 [SemVer](https://semver.org) - flags, formats, and exit codes won't change
 within a major version.
 
@@ -47,7 +50,7 @@ to `stderr`.
 | [`config`](#config) | posture toggles; back-compat door to `use` | free - no model calls |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing (`--probe` adds the paid modality matrix) | exit 0 = ready |
-| `schema` | braces/DSL compile FREE (`--check FILE`, `--example`, stdin REPL); bare at a terminal opens the [workshop](#schema-workshop); plain English drafts with a model (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
+| `schema` | braces/DSL compile FREE (`--check FILE` validates declared fields only - `--strict` forbids unknowns; `--example`; stdin REPL); bare at a terminal opens the [workshop](#schema-workshop); plain English drafts with a model (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
 
 ## Common options
 

@@ -22,7 +22,8 @@ predictable.
 
 ## The granularity ladder
 
-How a crate becomes items is a dial, not a guess:
+How a crate becomes items is a dial, not a guess (the full ladder - mixing,
+the census, strict-rows - is [its own page](granularity.md)):
 
 - **Paths decide the default.** A named `.jsonl`/`.ndjson` file cuts into
   strict records (a bad row is a loud error naming file and line); every
@@ -88,12 +89,20 @@ spine an item travels on:
 
 - `__source` - how the item was cut: `{"path": …, "as": "lines", "line": 12}`
   (plus a human label like `report.pdf §3/12` when a stage created it).
+- `__sources` - a join pair's two parents (left's ref, then right's).
 - `__media` - media transport: `{"kind": "image", "mime": …, "data_b64": …}`.
 - `__score` - a similarity: `top_k`'s per-result score, `join`'s per-pair score.
 - `__rank` / `__snapshot` - `top_k --stream`'s leaderboard position and
   snapshot marker.
 - `__distance` - `outliers`' weirdness score.
 - `__invalid` / `__error` / `__raw` - the `--keep-invalid` failure markers.
+
+Synthesized records carry a summary spine: a record no single input row
+produced (a reduce window or group, a cluster row, a diff theme) says what it
+summarizes - `{"as": "window", "span": [1, 100], "count": 100}`,
+`{"as": "group", "group": …, "count": N}`, `{"as": "all", "count": N}`,
+`{"as": "cluster", "count": N}`, `{"as": "diff", "side": …, "count": N}` -
+under the same `__source` key.
 
 Known spine fields round-trip through any number of stages. Unknown `__`
 fields warn once and carry through untouched; your own data may use at most

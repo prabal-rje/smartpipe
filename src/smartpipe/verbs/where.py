@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode
-from smartpipe.engine.predicate import FieldTally, evaluate, parse_predicate
+from smartpipe.engine.predicate import FieldTally, evaluate, parse_predicate, referenced_fields
 from smartpipe.io import diagnostics
 from smartpipe.io.items import item_from_line
 
@@ -30,6 +30,9 @@ class WhereRequest:
 
 def run_where(request: WhereRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCode:
     predicate = parse_predicate(request.predicate)  # UsageFault (64) before reading stdin
+    # a text-only predicate holds on plain lines by design — only a predicate
+    # that reads RECORD fields can miss them on a plain line (items 19/20)
+    needs_fields = any(name != "text" for name in referenced_fields(predicate))
     tally = FieldTally()
     seen = 0
     matched = 0
@@ -42,7 +45,7 @@ def run_where(request: WhereRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCo
         if evaluate(predicate, item, tally):
             matched += 1
             stdout.write(item.raw + "\n")
-        elif item.data is None:
+        elif item.data is None and needs_fields:
             no_fields += 1  # a plain line the predicate couldn't hold (item 20)
     diagnostics.note(f"where: {matched:,} of {seen:,} matched")
     if no_fields:

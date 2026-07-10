@@ -453,9 +453,10 @@ class GeometryFence:
                 "one run, one vector space — text items embed with "
                 f"{self.text_ref}, media items with {self.media_ref}\n"
                 "  Vectors from two models can't be compared, so smartpipe refuses to mix them.\n"
-                f"  Fix: use the joint model for everything (smartpipe config embed-model "
-                f"{self.media_ref}),\n"
-                "  or feed media-only input when media-embed-model stands apart."
+                f"  Fix: use the joint model for everything - set embed-model to "
+                f"{self.media_ref}\n"
+                "  (smartpipe use walks you through it), or feed media-only input when\n"
+                "  media-embed-model stands apart."
             )
 
 

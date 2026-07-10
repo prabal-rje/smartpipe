@@ -13,8 +13,10 @@ live in [the item](the-item.md); this page is the ingestion mechanics.
 | ONE binary document (`< report.pdf`) | one whole-document item, spooled and extracted |
 | an image / audio / video stream | one media item, bytes carried to the model |
 
-Mixed streams are legal; `--strict-rows` (or `SMARTPIPE_STRICT_ROWS=1`) makes
-them an error when your pipeline demands one kind.
+Mixed streams are legal in an interactive pipe; `--strict-rows` (or
+`SMARTPIPE_STRICT_ROWS=1`) makes them an error naming the first mixed row,
+and `.sem` runs are strict by default (unattended = loud) - the full story is
+[the granularity ladder](granularity.md).
 
 ## Named files
 
@@ -87,6 +89,11 @@ smartpipe report.pdf | head -1
 smartpipe notes.txt --as lines | smartpipe write 'copy/{name}'
 # {name} = the source file's name, carried by __source - notes.txt becomes copy/notes.txt
 ```
+
+The reader is zero-calls by default. A configured `ocr-model` is the one
+exception: PDFs and images parse through it exactly as the ingesting verbs
+would (disclosed per row; `--max-calls` caps it, and a folder of 20+
+parseable files gets a preflight note before the first call).
 
 ## What rides along
 

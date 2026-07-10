@@ -29,6 +29,7 @@ __all__ = [
     "Predicate",
     "evaluate",
     "parse_predicate",
+    "referenced_fields",
 ]
 
 WHERE_MENU = (
@@ -274,6 +275,23 @@ def evaluate(predicate: Predicate, item: Item, tally: FieldTally) -> bool:
             if value is None:
                 return False
             return _compare(field_name, value, op, expected, tally)
+        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+            assert_never(unreachable)
+
+
+def referenced_fields(predicate: Predicate) -> frozenset[str]:
+    """Every field name the predicate reads — pure AST walk. ``where`` uses it
+    to tell a true field-miss from a plain line judged by ``text`` alone
+    (item 19: only the former is a strict-rows matter)."""
+    match predicate:
+        case And(left, right) | Or(left, right):
+            return referenced_fields(left) | referenced_fields(right)
+        case Not(inner):
+            return referenced_fields(inner)
+        case Has(field_name, _) | Contains(field_name, _) | Matches(field_name, _):
+            return frozenset((field_name,))
+        case Compare(field_name, _, _):
+            return frozenset((field_name,))
         case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
             assert_never(unreachable)
 

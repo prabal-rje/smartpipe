@@ -282,3 +282,66 @@ def test_object_list_example_is_deterministic(run_cli: RunCli) -> None:
     code, out, _err = run_cli(["schema", "{events {name string, n number}[]}", "--example"])
     assert code == 0
     assert json.loads(out) == {"events": [{"name": "text", "n": 0}]}
+
+
+# --- open-world --check (item 46) ---------------------------------------------------
+
+
+def test_check_ignores_extras_by_default_with_a_hint(run_cli: RunCli, tmp_path: Path) -> None:
+    """extend-then-check: rows carrying originals + __source pass unaided."""
+    data = tmp_path / "out.jsonl"
+    data.write_text(
+        '{"vendor": "Acme", "original": 7, "__source": {"path": "-", "as": "lines", "line": 1}}\n'
+    )
+    code, _out, err = run_cli(["schema", "{vendor string}", "--check", str(data)])
+    assert code == 0
+    assert "schema check: 1 of 1 rows pass" in err
+    assert "(extras ignored - add --strict to forbid unknown fields)" in err
+
+
+def test_check_hint_fires_only_when_extras_existed(run_cli: RunCli, tmp_path: Path) -> None:
+    data = tmp_path / "out.jsonl"
+    data.write_text('{"vendor": "Acme"}\n')
+    code, _out, err = run_cli(["schema", "{vendor string}", "--check", str(data)])
+    assert code == 0
+    assert "extras ignored" not in err
+
+
+def test_check_missing_required_still_fails_verbatim(run_cli: RunCli, tmp_path: Path) -> None:
+    data = tmp_path / "out.jsonl"
+    data.write_text('{"total": 5}\n')
+    code, _out, err = run_cli(["schema", "vendor string; total number >= 0", "--check", str(data)])
+    assert code == 1
+    assert "row 1: 'vendor' is a required property" in err
+
+
+def test_check_bad_values_still_fail_verbatim(run_cli: RunCli, tmp_path: Path) -> None:
+    data = tmp_path / "out.jsonl"
+    data.write_text('{"vendor": "Acme", "total": -1, "extra": true}\n')
+    code, _out, err = run_cli(["schema", "vendor string; total number >= 0", "--check", str(data)])
+    assert code == 1
+    assert "row 1:" in err and "minimum" in err
+
+
+def test_check_nullable_fields_may_be_absent(run_cli: RunCli, tmp_path: Path) -> None:
+    data = tmp_path / "out.jsonl"
+    data.write_text('{"vendor": "Acme"}\n')
+    code, _out, err = run_cli(["schema", "{vendor string, note string?}", "--check", str(data)])
+    assert code == 0
+    assert "1 of 1 rows pass" in err
+
+
+def test_check_strict_restores_the_closed_world(run_cli: RunCli, tmp_path: Path) -> None:
+    data = tmp_path / "out.jsonl"
+    data.write_text('{"vendor": "Acme", "__source": {"path": "-"}}\n')
+    code, _out, err = run_cli(["schema", "{vendor string}", "--check", str(data), "--strict"])
+    assert code == 1
+    assert "Additional properties are not allowed" in err
+    assert "'__source' was unexpected" in err
+    assert "extras ignored" not in err  # strict forbids; it never merely ignores
+
+
+def test_strict_without_check_is_a_usage_error(run_cli: RunCli) -> None:
+    code, _out, err = run_cli(["schema", "{vendor string}", "--strict"])
+    assert code == 64
+    assert "--strict" in err and "--check" in err

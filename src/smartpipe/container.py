@@ -196,15 +196,19 @@ class AppContainer:
             return None
         ref = parse_model_ref(raw)
         if ref.provider == "mistral":
+            from smartpipe.models.budget import budgeted_parser
             from smartpipe.models.ocr import MistralOcrParser
 
-            return MistralOcrParser(
+            parser = MistralOcrParser(
                 ref=ref,
                 client=self.http_client,
                 api_key=require_api_key(self.env, ref.name, MISTRAL_WIRE),
                 base_url=resolve_base_url(self.env, MISTRAL_WIRE),
                 retry=self.retry,
             )
+            # item 48: the dedicated OCR wire wears the belt too — one charge
+            # per parse call (the vision rung below is budgeted via its chat)
+            return parser if self.budget is None else budgeted_parser(parser, self.budget)
         from smartpipe.models.ocr import VisionOcrParser
 
         return VisionOcrParser(chat=self._wrap_chat(self._build_chat(ref)))

@@ -2,8 +2,11 @@
 
 ``smartpipe PATH…`` — a first argument that is no verb but exists on disk —
 emits the files' items to stdout as JSONL records, cut per the ``--as`` dial,
-each carrying its ``__`` spine (``__source``, ``__media``). Zero model calls:
-this is ingestion made visible, the front half of the read/write mirror.
+each carrying its ``__`` spine (``__source``, ``__media``). Zero model calls
+by default — this is ingestion made visible, the front half of the read/write
+mirror. The ONE exception (item 48, owner: "do what the user configured"): a
+configured ``ocr-model`` parses PDF/image crates exactly like the ingesting
+verbs do, each use disclosed per row, cappable with ``--max-calls``.
 """
 
 from __future__ import annotations
@@ -13,11 +16,14 @@ import sys
 
 import click
 
+from smartpipe.cli.input_options import ocr_model_option
 from smartpipe.core.errors import ExitCode
 from smartpipe.io.inputs import InputSpec
 from smartpipe.io.items import item_record
 
 __all__ = ["read_command"]
+
+_PREFLIGHT_FILES = 20  # above this many parseable files, say so before parsing
 
 
 @click.command(name="read", hidden=True)
@@ -36,7 +42,20 @@ __all__ = ["read_command"]
     help="Cut granularity: file = one item per file; lines = text rows; "
     "jsonl = strict records; csv = header-named rows.",
 )
-def read_command(paths: tuple[str, ...], as_mode: str | None, bare: bool) -> None:
+@ocr_model_option
+@click.option(
+    "--max-calls",
+    "max_calls",
+    type=int,
+    help="Stop after N model calls (cost cap; only ocr-model parsing ever calls one).",
+)
+def read_command(
+    paths: tuple[str, ...],
+    as_mode: str | None,
+    bare: bool,
+    ocr_model_flag: str | None,
+    max_calls: int | None,
+) -> None:
     """Emit the named files' items as JSONL records (reader mode).
 
     \b
@@ -45,24 +64,61 @@ def read_command(paths: tuple[str, ...], as_mode: str | None, bare: bool) -> Non
       smartpipe notes.txt --as lines           # one record per line
       smartpipe 'logs/*.jsonl'                 # strict records, per row
       smartpipe export.csv                     # header-named records, per row
+
+    Reading is free - zero model calls - UNLESS an ocr-model is configured
+    (config, SMARTPIPE_OCR_MODEL, or --ocr-model): then PDFs and images parse
+    through it, exactly as the ingesting verbs would, each use disclosed on
+    stderr. --max-calls caps that spend.
     """
-    code = asyncio.run(_run(InputSpec(patterns=paths, from_files=False, as_mode=as_mode), bare))
+    spec = InputSpec(patterns=paths, from_files=False, as_mode=as_mode)
+    code = asyncio.run(_run(spec, bare, ocr_model_flag, max_calls))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(spec: InputSpec, bare: bool) -> ExitCode:
-    from smartpipe.io.readers import resolve_items
+async def _run(
+    spec: InputSpec, bare: bool, ocr_flag: str | None, max_calls: int | None
+) -> ExitCode:
+    import os
+
+    from smartpipe.cli.interrupts import settle_budget
+    from smartpipe.container import build_container
+    from smartpipe.io import diagnostics, readers
     from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 
-    items, _total = resolve_items(spec, sys.stdin)
-    # records for machines, always — reader mode's whole output IS the record
-    writer = make_writer(
-        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, bare=bare), sys.stdout
-    )
-    produced = 0
-    async for item in items:
-        writer.write_record(item_record(item))
-        produced += 1
-    writer.flush()
-    return ExitCode.OK if produced else ExitCode.PARTIAL
+    # --max-calls drains intake (the standard belt semantics); Ctrl-C keeps
+    # the reader's immediate exit — there is no in-flight work to drain.
+    stop = asyncio.Event()
+    async with build_container(os.environ, max_calls=max_calls, stop=stop) as container:
+        parser = container.document_parser(ocr_flag)  # None = today's free path, byte-identical
+        log = diagnostics.DegradationLog()
+        ocr = readers.OcrIngest(parser, log) if parser is not None else None
+        if parser is not None and spec.patterns:
+            _preflight(spec.patterns, spec.as_mode, ref=str(parser.ref))
+        items, _total = readers.resolve_items(spec, sys.stdin, stop=stop, ocr=ocr)
+        # records for machines, always — reader mode's whole output IS the record
+        writer = make_writer(
+            WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, bare=bare), sys.stdout
+        )
+        produced = 0
+        try:
+            async for item in items:
+                writer.write_record(item_record(item))
+                produced += 1
+        finally:
+            writer.flush()
+            log.finish()
+        code = ExitCode.OK if produced else ExitCode.PARTIAL
+        return settle_budget(container.budget, code)
+
+
+def _preflight(patterns: tuple[str, ...], as_mode: str | None, *, ref: str) -> None:
+    """Item 48: a folder of scans through a paid parser deserves a heads-up
+    BEFORE the first call — with the belt named."""
+    from smartpipe.io import diagnostics
+    from smartpipe.io.inputs import expand_globs
+    from smartpipe.io.readers import ocr_eligible_count
+
+    count = ocr_eligible_count(expand_globs(patterns), as_mode)
+    if count > _PREFLIGHT_FILES:
+        diagnostics.note(f"~{count} pages will parse through {ref} - --max-calls caps it")

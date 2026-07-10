@@ -36,12 +36,17 @@ loud error naming the file and line.
 ## Peek before you spend
 
 With no verb at all, the binary is the reader - see exactly what items a
-file yields, for free:
+file yields:
 
 ```bash
 smartpipe report.pdf | head -2
 smartpipe notes.txt --as lines | head -3
 ```
+
+Reading is free - zero model calls - with one deliberate exception: when you
+have configured an `ocr-model`, PDFs and images parse through it here too,
+exactly as they would in a verb (each use disclosed on stderr, `--max-calls`
+caps it). Unset, nothing ever calls out.
 
 `--dry-run` on `map`/`extend` goes one step further: it prints the fully
 composed first request (system prompt, schema, and the first item's payload

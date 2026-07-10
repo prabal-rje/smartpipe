@@ -40,6 +40,7 @@ _BOM = "﻿"
 KNOWN_META = frozenset(
     {
         "__source",
+        "__sources",
         "__media",
         "__score",
         "__rank",

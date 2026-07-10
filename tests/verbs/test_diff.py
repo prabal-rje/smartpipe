@@ -93,6 +93,9 @@ async def test_lopsided_themes_carry_sides_and_shares(tmp_path: Path) -> None:
     assert by_side["left"]["share_left"] == 0.67
     assert by_side["left"]["share_right"] == 0.0
     assert by_side["right"]["theme"] == "disk pressure"
+    # item 64: theme rows carry a summary spine - side + member count
+    assert by_side["left"]["__source"] == {"as": "diff", "side": "left", "count": 2}
+    assert by_side["right"]["__source"] == {"as": "diff", "side": "right", "count": 2}
     assert "left = stdin (3)" in err  # provenance + preview line
     assert "1 shared theme(s) omitted" in err  # healthcheck lives on both sides
 

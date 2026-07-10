@@ -7,7 +7,7 @@ with both shares as evidence.
 ```bash
 smartpipe diff --right errors-before.log < errors-during.log
 # → diff: left = stdin (2,114) · right = errors-before.log (1,884) · ~4,000 embeddings + labels for the lopsided themes
-# → {"side": "left", "theme": "timeouts calling payments-v2", "share_left": 0.34, "share_right": 0.02, "examples": ["upstream payments-v2 504", "…"]}
+# → {"side": "left", "theme": "timeouts calling payments-v2", "share_left": 0.34, "share_right": 0.02, "examples": ["upstream payments-v2 504", "…"], "__source": {"as": "diff", "side": "left", "count": 712}}
 ```
 
 Left is `stdin`, right is `--right FILE` - the same shape as `join`. Balanced

@@ -343,11 +343,16 @@ def _accepts(instance: object, schema: Mapping[str, object]) -> bool:
 
 def aggregate_coverage(schema: Mapping[str, object], lines: Iterable[str]) -> CoverageReport:
     """Validate every row against the schema AND each field's own subschema:
-    row pass/fail, per-field presence, per-field type misses."""
+    row pass/fail, per-field presence, per-field type misses. Row pass/fail is
+    OPEN-WORLD (item 46, same machinery as ``schema --check``): only declared
+    fields are judged — extras and the ``__`` spine never fail a row here."""
+    from smartpipe.engine.schema import open_check_schema
+
+    check = open_check_schema(schema)
     properties = as_record(schema.get("properties")) or {}
     rows = tuple(_parse_row(line) for line in lines if line.strip())
     records = tuple(as_record(row) for row in rows if not isinstance(row, _NotJson))
-    passed = sum(1 for row in rows if not isinstance(row, _NotJson) and _accepts(row, schema))
+    passed = sum(1 for row in rows if not isinstance(row, _NotJson) and _accepts(row, check))
     fields = tuple(
         _field_coverage(name, as_record(prop) or {}, records) for name, prop in properties.items()
     )

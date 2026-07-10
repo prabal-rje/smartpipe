@@ -78,7 +78,10 @@ def embed_command(
         ocr_model_flag=ocr_model_flag,
         concurrency_flag=concurrency_flag,
         input=input_spec(
-            positional_paths(paths, in_patterns), from_files=from_files, as_mode=as_mode
+            positional_paths(paths, in_patterns),
+            from_files=from_files,
+            as_mode=as_mode,
+            strict_rows=strict_rows,
         ),
         fields=fields,
     )

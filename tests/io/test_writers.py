@@ -287,7 +287,13 @@ def test_bare_strips_meta_from_jsonl_records() -> None:
     writer = make_writer(
         WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, bare=True), stream
     )
-    writer.write_record({"result": "hola", "__source": {"path": "-", "as": "lines", "line": 1}})
+    writer.write_record(
+        {
+            "result": "hola",
+            "__source": {"path": "-", "as": "lines", "line": 1},
+            "__sources": [{"path": "-", "as": "lines", "line": 1}],  # item 64 rides the same rule
+        }
+    )
     assert stream.getvalue() == '{"result":"hola"}\n'
 
 

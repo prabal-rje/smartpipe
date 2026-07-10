@@ -192,6 +192,132 @@ verb = "cluster"
     assert "stage themes" in out and "[model calls]" in out
 
 
+# --- strict rows by default (item 19) ----------------------------------------------
+
+
+MIXED = '{"level": "error"}\nplain text\n'
+
+
+def test_sem_run_defaults_strict_rows(run_cli: RunCli, tmp_path: Path) -> None:
+    """A .sem run treats a mixed stream as an ERROR (unattended = loud)."""
+    script = _sem(tmp_path, 'verb = "split"\n')
+    code, _out, err = run_cli(["run", str(script)], stdin=MIXED)
+    assert code == 64
+    assert "line 2 is a plain text line in a record stream" in err
+    assert "demands one kind" in err
+
+
+def test_sem_strict_rows_false_restores_the_census_note(run_cli: RunCli, tmp_path: Path) -> None:
+    script = _sem(tmp_path, 'verb = "split"\nstrict-rows = false\n')
+    code, _out, err = run_cli(["run", str(script)], stdin=MIXED)
+    assert code == 0
+    assert "input: 1 records · 1 plain lines" in err
+
+
+def test_sem_pure_stream_passes_under_the_strict_default(run_cli: RunCli, tmp_path: Path) -> None:
+    script = _sem(tmp_path, 'verb = "split"\n')
+    code, out, _err = run_cli(["run", str(script)], stdin='{"a": 1}\n{"b": 2}\n')
+    assert code == 0
+    assert out.count("\n") == 2
+
+
+def test_pipeline_mixed_stream_fails_loudly_naming_the_row(run_cli: RunCli, tmp_path: Path) -> None:
+    script = tmp_path / "mixed.sem"
+    script.write_text(
+        """\
+[stage.keep]
+verb = "sample"
+count = 5
+
+[stage.cut]
+verb = "split"
+""",
+        encoding="utf-8",
+    )
+    code, _out, err = run_cli(["run", str(script)], stdin=MIXED)
+    assert code == 64
+    assert "line 2 is a plain text line in a record stream" in err
+
+
+def test_pipeline_stage_opt_out_restores_the_note(run_cli: RunCli, tmp_path: Path) -> None:
+    script = tmp_path / "mixed.sem"
+    script.write_text(
+        """\
+[stage.keep]
+verb = "sample"
+count = 5
+
+[stage.cut]
+verb = "split"
+strict-rows = false
+""",
+        encoding="utf-8",
+    )
+    code, _out, err = run_cli(["run", str(script)], stdin=MIXED)
+    assert code == 0
+    assert "input: 1 records · 1 plain lines" in err
+
+
+def test_pipeline_top_level_opt_out_covers_every_stage(run_cli: RunCli, tmp_path: Path) -> None:
+    script = tmp_path / "mixed.sem"
+    script.write_text(
+        """\
+strict-rows = false
+
+[stage.keep]
+verb = "sample"
+count = 5
+
+[stage.cut]
+verb = "split"
+""",
+        encoding="utf-8",
+    )
+    code, _out, err = run_cli(["run", str(script)], stdin=MIXED)
+    assert code == 0
+    assert "input: 1 records · 1 plain lines" in err
+
+
+def test_cli_strict_rows_flag_wins_over_the_sem_opt_out(run_cli: RunCli, tmp_path: Path) -> None:
+    script = _sem(tmp_path, 'verb = "split"\nstrict-rows = false\n')
+    code, _out, err = run_cli(["run", str(script), "--strict-rows"], stdin=MIXED)
+    assert code == 64
+    assert "line 2 is a plain text line" in err
+
+
+def test_env_strict_rows_wins_over_the_sem_opt_out(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SMARTPIPE_STRICT_ROWS", "1")
+    script = _sem(tmp_path, 'verb = "split"\nstrict-rows = false\n')
+    code, _out, err = run_cli(["run", str(script)], stdin=MIXED)
+    assert code == 64
+    assert "line 2 is a plain text line" in err
+
+
+def test_interactive_pipe_keeps_the_permissive_note(run_cli: RunCli) -> None:
+    """The flip is .sem-scoped: a typed pipe keeps today's census note."""
+    code, _out, err = run_cli(["split"], stdin=MIXED)
+    assert code == 0
+    assert "input: 1 records · 1 plain lines" in err
+    assert "demands one kind" not in err
+
+
+def test_sem_field_miss_rows_are_errors_too(run_cli: RunCli, tmp_path: Path) -> None:
+    """where's field-less-rows note is an error under the .sem default."""
+    script = _sem(tmp_path, 'verb = "where"\npredicate = \'level == "error"\'\n')
+    code, _out, err = run_cli(["run", str(script)], stdin="plain one\nplain two\n")
+    assert code == 64
+    assert "demands records" in err
+
+
+def test_strict_rows_key_wrong_type_screen(run_cli: RunCli, tmp_path: Path) -> None:
+    script = _sem(tmp_path, 'verb = "split"\nstrict-rows = "yes"\n')
+    code, _out, err = run_cli(["run", str(script)], stdin=MIXED)
+    assert code == 64
+    assert "'strict-rows' should be true or false" in err
+
+
 def test_pipeline_stages_set_and_clear_the_status_line_stage_label(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

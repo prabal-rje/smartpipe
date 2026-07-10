@@ -20,6 +20,7 @@ from smartpipe.core.errors import ItemError, SetupFault
 if TYPE_CHECKING:
     import asyncio
     from collections.abc import Sequence
+    from pathlib import Path
 
     from smartpipe.models.base import (
         ChatModel,
@@ -29,8 +30,9 @@ if TYPE_CHECKING:
         MediaEmbeddingModel,
         ModelRef,
     )
+    from smartpipe.models.ocr import DocumentParser, OcrPage
 
-__all__ = ["CallBudget", "budgeted_chat", "budgeted_embed"]
+__all__ = ["CallBudget", "budgeted_chat", "budgeted_embed", "budgeted_parser"]
 
 
 @dataclass(slots=True)
@@ -115,8 +117,34 @@ class _BudgetedMediaEmbed:
         return await self.inner.embed_parts(parts)
 
 
+@dataclass(frozen=True, slots=True)
+class _BudgetedParser:
+    """The belt on the dedicated OCR wire (item 48): one charge per parse
+    call. Only the mistral parser needs it — the vision rung's chat model is
+    already wrapped, so wrapping that parser too would double-charge."""
+
+    inner: DocumentParser
+    budget: CallBudget
+
+    @property
+    def ref(self) -> ModelRef:
+        return self.inner.ref
+
+    async def parse_image(self, image: ImageData) -> str:
+        self.budget.charge()
+        return await self.inner.parse_image(image)
+
+    async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+        self.budget.charge()
+        return await self.inner.parse_pdf(path)
+
+
 def budgeted_chat(inner: ChatModel, budget: CallBudget) -> ChatModel:
     return _BudgetedChat(inner, budget)
+
+
+def budgeted_parser(inner: DocumentParser, budget: CallBudget) -> DocumentParser:
+    return _BudgetedParser(inner, budget)
 
 
 def budgeted_embed(inner: EmbeddingModel, budget: CallBudget) -> EmbeddingModel:

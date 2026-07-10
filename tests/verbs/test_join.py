@@ -175,6 +175,10 @@ async def test_matches_pair_and_nests_both_sides(tmp_path: Path) -> None:
             "left": {"text": "printer smoking"},
             "right": {"name": "LaserJet 9"},
             "__score": pytest.approx(0.9969, abs=1e-3),
+            "__sources": [
+                {"path": "-", "as": "lines", "line": 1},
+                {"path": "right.jsonl", "as": "lines", "line": 1},
+            ],
         }
     ]
 
@@ -716,6 +720,11 @@ async def test_on_alone_is_a_free_key_equality_join(tmp_path: Path) -> None:
     assert rows[0]["left"]["qty"] == 3
     assert rows[0]["right"]["name"] == "bolt"
     assert "__score" not in rows[0]  # deterministic: no similarity to report
+    # item 64: --on-only pairs carry provenance too - [left's ref, right's ref]
+    assert rows[0]["__sources"] == [
+        {"path": "-", "as": "jsonl", "line": 1},
+        {"path": "right.jsonl", "as": "lines", "line": 1},
+    ]
 
 
 async def test_on_alone_supports_anti_kind(tmp_path: Path) -> None:

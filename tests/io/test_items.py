@@ -245,3 +245,12 @@ def test_embedder_stamp_is_known_meta(capsys: pytest.CaptureFixture[str]) -> Non
     items_module._warned_meta.clear()  # pyright: ignore[reportPrivateUsage] — test isolation
     item_from_line('{"text": "t", "__embedder": "jina/jina-clip-v2"}', 0)
     assert "__embedder" not in capsys.readouterr().err  # a known field never warns
+
+
+def test_pair_sources_are_known_meta(capsys: pytest.CaptureFixture[str]) -> None:
+    """join's __sources (item 64) round-trips like any known spine field."""
+    from smartpipe.io import items as items_module
+
+    items_module._warned_meta.clear()  # pyright: ignore[reportPrivateUsage] — test isolation
+    item_from_line('{"left": {}, "right": {}, "__sources": []}', 0)
+    assert "__sources" not in capsys.readouterr().err

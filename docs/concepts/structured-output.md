@@ -149,6 +149,27 @@ With a schema, smartpipe:
 - **retries once** if the first reply doesn't validate, re-asking the model with the
   specific error - and skips the item (with a warning) only if that retry also fails.
 
+## Checking a dataset: `schema --check`
+
+`smartpipe schema EXPR --check file.jsonl` validates every row and exits 0
+only when all pass. The check is **open-world by default**: only the fields
+you declared are judged - each must exist (unless marked `?`/`optional`) and
+match its type/enum; undeclared fields, your own originals and the `__`
+spine alike, are ignored. So `map`/`extend` output checks cleanly as-is - no
+`--bare` detour needed:
+
+```bash
+smartpipe extend "Add {label enum(spam, genuine)}" < posts.jsonl > out.jsonl
+smartpipe schema '{label enum(spam, genuine)}' --check out.jsonl
+# → note: schema check: 200 of 200 rows pass
+# → note: (extras ignored - add --strict to forbid unknown fields)
+```
+
+`--strict` restores the closed world - a contract check that forbids unknown
+fields, byte-alike with the errors you'd get at extraction time. The
+extraction-time request schema is a different artifact and stays closed
+either way (provider strict modes demand it).
+
 ## When to use which
 
 | | Inline `{braces}` | `--schema` file |

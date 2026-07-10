@@ -99,7 +99,7 @@ async def test_pure_streams_stay_silent(capsys: pytest.CaptureFixture[str]) -> N
     assert "input:" not in capsys.readouterr().err
 
 
-async def test_strict_rows_turns_the_census_into_an_error() -> None:
+async def test_strict_rows_raises_early_naming_the_mixed_row() -> None:
     import io as _io
 
     import pytest as _pytest
@@ -107,6 +107,42 @@ async def test_strict_rows_turns_the_census_into_an_error() -> None:
     from smartpipe.core.errors import UsageFault
     from smartpipe.io.readers import stdin_items
 
-    stream = _io.StringIO('{"a": 1}\nplain\n')
-    with _pytest.raises(UsageFault, match="--strict-rows demands one kind"):
+    stream = _io.StringIO('{"a": 1}\nplain\n{"b": 2}\n')
+    collected: list[Item] = []
+    with _pytest.raises(UsageFault) as excinfo:
+        async for item in stdin_items(stream, strict_rows=True):
+            collected.append(item)
+    message = str(excinfo.value)
+    assert "line 2 is a plain text line in a record stream" in message
+    assert "--strict-rows demands one kind" in message
+    # early: the offending row never reaches the verb, nor does anything after it
+    assert [item.raw for item in collected] == ['{"a": 1}']
+
+
+async def test_strict_rows_names_a_record_in_a_plain_stream() -> None:
+    import io as _io
+
+    import pytest as _pytest
+
+    from smartpipe.core.errors import UsageFault
+    from smartpipe.io.readers import stdin_items
+
+    stream = _io.StringIO('plain\n{"a": 1}\n')
+    with _pytest.raises(UsageFault, match="line 2 is a record in a plain-text stream"):
         _ = [item async for item in stdin_items(stream, strict_rows=True)]
+
+
+async def test_strict_rows_env_var_matches_the_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import io as _io
+
+    import pytest as _pytest
+
+    from smartpipe.core.errors import UsageFault
+    from smartpipe.io.readers import stdin_items
+
+    monkeypatch.setenv("SMARTPIPE_STRICT_ROWS", "1")
+    stream = _io.StringIO('{"a": 1}\nplain\n')
+    with _pytest.raises(UsageFault, match="line 2 is a plain text line"):
+        _ = [item async for item in stdin_items(stream)]

@@ -27,6 +27,7 @@ import click
 
 from smartpipe.cli.completions import complete_chat_models
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.core.jsontools import as_record
 from smartpipe.engine.prompts import (
     build_repair_request,
     build_schema_request,
@@ -38,7 +39,7 @@ from smartpipe.engine.schema_dsl import dsl_to_schema, type_token
 from smartpipe.io import diagnostics
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
 
 __all__ = ["schema_command"]
 
@@ -84,6 +85,12 @@ _NO_BRACE_GROUP = (
     help="Print one synthetic instance that validates (deterministic).",
 )
 @click.option(
+    "--strict",
+    "strict",
+    is_flag=True,
+    help="With --check: forbid undeclared fields (the closed-world contract check).",
+)
+@click.option(
     "--model",
     "model_flag",
     shell_complete=complete_chat_models,
@@ -93,6 +100,7 @@ def schema_command(
     description: str | None,
     check_path: Path | None,
     example: bool,
+    strict: bool,
     model_flag: str | None,
 ) -> None:
     """Turn a field description into a JSON Schema, and put it to work.
@@ -113,6 +121,12 @@ def schema_command(
     """
     if check_path is not None and example:
         raise UsageFault(_ONE_QUESTION)
+    if strict and check_path is None:
+        raise UsageFault(
+            "--strict is --check's dial - pair them\n"
+            "  --check validates only the DECLARED fields; --strict forbids unknown ones.\n"
+            "  Example: smartpipe schema '{vendor string}' --check data.jsonl --strict"
+        )
     if description is None:
         if check_path is not None or example:
             raise UsageFault(_DETERMINISTIC_ONLY)
@@ -122,7 +136,9 @@ def schema_command(
             raise SystemExit(int(workshop_entry()))
         raise SystemExit(int(_repl(sys.stdin)))
     if _is_expression(description):
-        code = _run_free(_compile_expression(description), check_path, example=example)
+        code = _run_free(
+            _compile_expression(description), check_path, example=example, strict=strict
+        )
     elif check_path is not None or example:
         raise UsageFault(_DETERMINISTIC_ONLY)
     else:
@@ -159,25 +175,35 @@ def _compile_expression(text: str) -> dict[str, object]:
     return dsl_to_schema(text)
 
 
-def _run_free(schema: dict[str, object], check_path: Path | None, *, example: bool) -> ExitCode:
+def _run_free(
+    schema: dict[str, object], check_path: Path | None, *, example: bool, strict: bool = False
+) -> ExitCode:
     if check_path is not None:
-        return _check_rows(schema, check_path)
+        return _check_rows(schema, check_path, strict=strict)
     payload = example_instance(schema) if example else schema
     click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
     return ExitCode.OK
 
 
-def _check_rows(schema: dict[str, object], path: Path) -> ExitCode:
+def _check_rows(schema: dict[str, object], path: Path, *, strict: bool = False) -> ExitCode:
     """Validate a JSONL file: first failures verbatim (capped), one tally line,
-    exit 0 only when every row passes."""
+    exit 0 only when every row passes. Open-world by default (item 46): only
+    the DECLARED fields are validated — extras (user data, the ``__`` spine)
+    are ignored with one dim hint; ``--strict`` restores the closed world."""
+    from smartpipe.engine.schema import open_check_schema
+
+    check_schema = dict(schema) if strict else open_check_schema(schema)
+    declared = as_record(schema.get("properties")) or {}
     total = 0
     failed = 0
+    extras_seen = False
     with path.open(encoding="utf-8") as handle:
         for number, line in enumerate(handle, start=1):
             if not line.strip():
                 continue
             total += 1
-            message = _row_error(schema, line)
+            message, extras = _row_error(check_schema, declared, line)
+            extras_seen = extras_seen or extras
             if message is None:
                 continue
             failed += 1
@@ -187,21 +213,29 @@ def _check_rows(schema: dict[str, object], path: Path) -> ExitCode:
                 diagnostics.warn("more failures follow (suppressed; the tally lands at the end)")
     verdict = f"schema check: {total - failed} of {total} rows pass"
     diagnostics.note(verdict if failed == 0 else f"{verdict} ({failed} failed)")
+    if extras_seen and not strict:
+        diagnostics.note("(extras ignored - add --strict to forbid unknown fields)")
     return ExitCode.OK if failed == 0 else ExitCode.PARTIAL
 
 
-def _row_error(schema: dict[str, object], line: str) -> str | None:
+def _row_error(
+    schema: dict[str, object], declared: Mapping[str, object], line: str
+) -> tuple[str | None, bool]:
+    """One row's verdict: (error message or None, whether undeclared top-level
+    fields rode along)."""
     import jsonschema  # function-local: --help must not pay for the validator stack
 
     try:
         parsed: object = json.loads(line)
     except json.JSONDecodeError as exc:
-        return f"not JSON ({exc.msg})"
+        return f"not JSON ({exc.msg})", False
+    row = as_record(parsed)
+    extras = row is not None and any(key not in declared for key in row)
     try:
         jsonschema.validate(parsed, schema)
     except jsonschema.ValidationError as exc:
-        return exc.message
-    return None
+        return exc.message, extras
+    return None, extras
 
 
 def _repl(lines: Iterable[str]) -> ExitCode:

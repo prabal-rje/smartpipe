@@ -215,3 +215,19 @@ def test_malformed_path_is_loud_when_no_literal_column_claims_it() -> None:
     node = parse_predicate("a.b[x] > 0")
     with pytest.raises(UsageFault, match=r"a\.b\[x\] - index must be a number"):
         evaluate(node, item, tally)
+
+
+# --- referenced_fields (ledger item 19: strict-rows tally scoping) -------------------
+
+
+def test_referenced_fields_walks_the_whole_tree() -> None:
+    from smartpipe.engine.predicate import parse_predicate, referenced_fields
+
+    node = parse_predicate('text has "ERROR" and (level == "warn" or not msg matches /x/)')
+    assert referenced_fields(node) == frozenset({"text", "level", "msg"})
+
+
+def test_referenced_fields_text_only_predicate() -> None:
+    from smartpipe.engine.predicate import parse_predicate, referenced_fields
+
+    assert referenced_fields(parse_predicate('text contains "retry"')) == frozenset({"text"})

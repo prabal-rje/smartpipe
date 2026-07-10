@@ -6,7 +6,7 @@ The SQL join's semantic cousin: no keys, no exact equality - meaning.
 ```bash
 cat tickets.jsonl \
 | smartpipe join "ticket {left.text} concerns product {right.name}" --right products.jsonl
-# → {"left": {"text": "the laser printer keeps smoking"}, "right": {"name": "LaserJet 9"}, "__score": 0.91}
+# → {"left": {"text": "the laser printer keeps smoking"}, "right": {"name": "LaserJet 9"}, "__score": 0.91, "__sources": [{"path": "-", "as": "lines", "line": 3}, {"path": "products.jsonl", "as": "lines", "line": 12}]}
 ```
 
 ## How it works (and why it's affordable)
@@ -57,8 +57,13 @@ One record per **matched pair**, in left-input order, a left item's matches
 consecutive and ranked by similarity:
 
 ```json
-{"left": {…}, "right": {…}, "__score": 0.87}
+{"left": {…}, "right": {…}, "__score": 0.87, "__sources": [{…left's ref…}, {…right's ref…}]}
 ```
+
+`__sources` (item 64) is the pair's provenance: a two-element list with each
+parent's spine ref (left's, then right's) in the compact `__source` form -
+`--on`-only joins carry it too. `--bare` strips it with the rest of the `__`
+spine.
 
 The sides stay nested (never flat-merged) so identical field names on both
 sides can't corrupt each other. Exit codes are the usual contract: `0` all

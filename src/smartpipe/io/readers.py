@@ -39,6 +39,7 @@ __all__ = [
     "figure_note",
     "file_items",
     "from_files_items",
+    "ocr_eligible_count",
     "ocr_route",
     "resolve_items",
     "stdin_items",
@@ -173,15 +174,23 @@ async def _stream_path_items(
 def _any_ocr_eligible(paths: Sequence[Path], as_mode: str | None) -> bool:
     """Only an actually-parseable file flips ingestion onto the OCR path —
     text-only corpora keep their known total (and embed's batched calls)."""
-    for path in paths:
-        try:
-            with path.open("rb") as handle:
-                head = handle.read(_HEAD_BYTES)
-        except OSError:
-            continue
-        if ocr_route(detect_kind(path, head), as_mode) is not None:
-            return True
-    return False
+    return any(_is_ocr_eligible(path, as_mode) for path in paths)
+
+
+def ocr_eligible_count(paths: Sequence[Path], as_mode: str | None) -> int:
+    """How many named files a configured ocr-model would parse — the reader's
+    preflight arithmetic (item 48). Unreadable files count as not parseable;
+    they get their own skip warning at load time."""
+    return sum(1 for path in paths if _is_ocr_eligible(path, as_mode))
+
+
+def _is_ocr_eligible(path: Path, as_mode: str | None) -> bool:
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(_HEAD_BYTES)
+    except OSError:
+        return False
+    return ocr_route(detect_kind(path, head), as_mode) is not None
 
 
 async def _ocr_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item] | None:
@@ -510,6 +519,7 @@ async def stdin_items(
     index = 0
     records = 0
     plain = 0
+    strict = strict_rows or bool(os.environ.get("SMARTPIPE_STRICT_ROWS", "").strip())
     cutter = (
         CsvCutter(origin=None, delimiter=",", empty_ok=csv_empty_ok) if as_mode == "csv" else None
     )
@@ -528,6 +538,10 @@ async def stdin_items(
                 plain += 1
             else:
                 records += 1
+            if strict and records and plain:
+                # item 19: fail at the FIRST mixed row, naming it — before the
+                # verb sees it, before anything downstream could spend on it
+                raise UsageFault(_mixed_row_screen(index, is_record=item.data is not None))
             yield item
             index += 1
         elif tag == "document":
@@ -562,22 +576,28 @@ async def stdin_items(
     if cutter is not None:
         for item in cutter.finish():  # EOF flush; a header-less stream refuses here
             yield item
-    _report_census(records, plain, strict=strict_rows)
+    _report_census(records, plain)
 
 
-def _report_census(records: int, plain: int, *, strict: bool) -> None:
-    """The kind census (item 20): a MIXED stream gets one stderr note —
-    --strict-rows (or SMARTPIPE_STRICT_ROWS) turns it into an error."""
+def _report_census(records: int, plain: int) -> None:
+    """The kind census (item 20): a MIXED stream gets one stderr note. Under
+    --strict-rows (or SMARTPIPE_STRICT_ROWS, or a .sem run's default — item 19)
+    the stream never reaches EOF mixed: the first mixed row raised already."""
     if not records or not plain:
         return
-    line = f"input: {records:,} records · {plain:,} plain lines"
-    if strict or os.environ.get("SMARTPIPE_STRICT_ROWS", "").strip():
-        raise UsageFault(
-            f"{line}\n"
-            "  --strict-rows demands one kind — declare it: --as jsonl (records) "
-            "or --as lines (text)."
-        )
-    diagnostics.note(line)
+    diagnostics.note(f"input: {records:,} records · {plain:,} plain lines")
+
+
+def _mixed_row_screen(index: int, *, is_record: bool) -> str:
+    """The strict-rows error (items 19/20): name the first row that broke the
+    stream's kind, then the fix."""
+    kind = "a record" if is_record else "a plain text line"
+    stream = "a plain-text stream" if is_record else "a record stream"
+    return (
+        f"input: line {index + 1} is {kind} in {stream}\n"
+        "  --strict-rows demands one kind - declare it: --as jsonl (records) "
+        "or --as lines (text)."
+    )
 
 
 async def _ocr_stdin_document(payload: _StdinDocument, ocr: OcrIngest) -> list[Item] | None:

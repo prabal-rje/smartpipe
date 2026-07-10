@@ -38,7 +38,7 @@ from smartpipe.engine.runner import (
 from smartpipe.engine.schema import validate_and_coerce
 from smartpipe.io import diagnostics, readers
 from smartpipe.io.inputs import STDIN
-from smartpipe.io.items import ItemSource, describe_source, item_from_line
+from smartpipe.io.items import ItemSource, describe_source, item_from_line, source_record
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.verbs.common import (
     ModelSlot,
@@ -264,6 +264,7 @@ async def run_join(
                                 "left": _payload(left),
                                 "right": _payload(kept_right[position]),
                                 "__score": round(score, 4),
+                                "__sources": _pair_sources(left, kept_right[position]),
                             }
                         )
                 matched_pairs += len(matches)
@@ -517,7 +518,11 @@ async def _run_key_join(
             if request.kind != "anti":
                 for position in positions:
                     writer.write_record(
-                        {"left": _payload(left), "right": _payload(right_items[position])}
+                        {
+                            "left": _payload(left),
+                            "right": _payload(right_items[position]),
+                            "__sources": _pair_sources(left, right_items[position]),
+                        }
                     )
             matched_pairs += len(positions)
             if not positions:
@@ -552,6 +557,12 @@ async def _run_key_join(
 
 def _payload(item: Item) -> dict[str, object]:
     return dict(item.data) if item.data is not None else {"text": item.text}
+
+
+def _pair_sources(left: Item, right: Item) -> list[dict[str, object]]:
+    """Item 64: a synthesized pair carries BOTH parents' spine refs — left's,
+    then right's, in compact ``source_record`` form."""
+    return [source_record(left.source), source_record(right.source)]
 
 
 async def _judge(chat: ChatModel, tokens: tuple[Token, ...], left: Item, right: Item) -> bool:
