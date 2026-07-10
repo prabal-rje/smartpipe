@@ -29,18 +29,18 @@ validation:
     not_found: warn
     anchors: warn  # anchor rot fails --strict (release matrix row 4)
 
-# --- Algolia DocSearch (pre-wired, INERT until credentials exist) -------------
-# The DocSearch application is pending. When the credentials arrive, fill in
-# the three values below - overrides/main.html then loads docsearch.js v3 and
-# swaps it in for the built-in search box. While ANY value is empty the
-# override renders nothing and mkdocs-material's built-in search plugin keeps
-# working untouched. The api_key is the SEARCH-ONLY public key (safe to
-# commit; never the admin key). Activation notes: CONTRIBUTING.md.
+# --- Algolia DocSearch (LIVE since 2026-07-10) --------------------------------
+# overrides/main.html loads docsearch.js v3 and swaps it in for the built-in
+# search box whenever all three values are set; blank ANY value to fall back
+# to mkdocs-material's built-in search. The api_key is the SEARCH-ONLY public
+# key (ships in page source by design; never the admin key). The index name
+# is what DocSearch provisioned - verified live before activation.
+# Activation notes: CONTRIBUTING.md.
 extra:
   algolia:
-    app_id: ""      # DocSearch application ID
-    api_key: ""     # search-only public API key
-    index_name: ""  # e.g. smartpipe
+    app_id: "6E0CTWKH98"
+    api_key: "81a27a0eaac47eccbf611620505b99e3"  # search-only public key
+    index_name: "Documentation Website"
 
 nav:
   - Home: index.md
