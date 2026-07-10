@@ -53,6 +53,15 @@ The identity release.
   power path.
 
 ### The item — one law for everything in a pipe
+- **Nested field paths, everywhere you read.** `where 'user.plan ==
+  "pro"'`, `sort --by metrics.score`, `chart items[0].category`,
+  `summarize 'avg(metrics.score) by user.plan'`, and `"Is {user.plan}
+  worth it?"` in prompts - one grammar (`a.b.c`, `items[0]`,
+  `a.b['weird key']`) across all five surfaces. A column literally
+  named `user.plan` always wins over the traversal, so CSV headers
+  with dots keep working. Extraction names stay flat - paths are for
+  reading, and the error says so.
+
 - **Dates are a type, and they come back ISO.** `{due date}` and
   `{ts datetime}` join the brace grammar. However the model phrases it
   ("Jan 15, 2026", "15/01/2026"), the field canonicalizes to
