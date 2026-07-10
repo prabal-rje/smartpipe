@@ -21,6 +21,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   is reverted. Exporting a variable is consent; a file on disk is not.
 
 ### Added
+- **Request batching: N small items, one model call.** map, extend, and
+  filter now coalesce eligible items into packed requests - ten
+  one-line classifications cost one HTTP call instead of ten, and
+  `--max-calls` counts what actually flies. Each item keeps its own
+  labeled slot in the reply, so a model that skips one names exactly
+  which item re-runs solo; valid answers are never thrown away with the
+  batch. Caching stays per item, media and oversized items never batch,
+  and one stderr note tells you what happened:
+  `note: batched 500 items into 42 calls`. On by default;
+  `smartpipe config batching off` (or `SMARTPIPE_BATCH=off`) restores
+  strict one-call-per-item behavior.
 - **Field paths reach everywhere.** The nested-path grammar (`a.b.c`,
   `items[0]`, `a['weird key']`) now also works in `--fields`, `write`
   templates (`smartpipe write 'out/{user.plan}/{stem}.txt'`),
