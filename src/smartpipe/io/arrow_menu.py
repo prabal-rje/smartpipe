@@ -149,6 +149,27 @@ def arrow_choose(
         stream.flush()
 
 
+def read_sequence(read1: Callable[[], str], pending: Callable[[], bool]) -> str:
+    """One keypress from injected byte-level primitives — the escape-sequence
+    accumulation, separated from raw-terminal I/O so it is testable.
+
+    An arrow arrives as 3 bytes (CSI ``\\x1b[A`` or application-mode SS3
+    ``\\x1bOA``) that land TOGETHER: the reader must drain what is pending
+    at the byte layer, never through a buffered stream (the owner-hit bug:
+    ``sys.stdin.read(1)`` slurped the whole sequence into Python's buffer,
+    ``select`` on the fd then saw nothing, and a bare ESC cancelled the menu).
+    """
+    first = read1()
+    if first == "\x03":
+        raise KeyboardInterrupt
+    if first != "\x1b":
+        return first
+    sequence = first
+    while len(sequence) < 3 and pending():
+        sequence += read1()
+    return sequence
+
+
 def _read_key() -> str:  # pragma: no cover — raw terminal I/O
     if sys.platform == "win32":
         import msvcrt
@@ -159,6 +180,7 @@ def _read_key() -> str:  # pragma: no cover — raw terminal I/O
         if first in ("\x00", "\xe0"):  # arrow keys arrive as a two-char scan code
             return {"H": "\x1b[A", "P": "\x1b[B"}.get(msvcrt.getwch(), "")
         return first
+    import os
     import select
     import termios
     import tty
@@ -167,14 +189,10 @@ def _read_key() -> str:  # pragma: no cover — raw terminal I/O
     saved = termios.tcgetattr(fd)
     try:
         tty.setcbreak(fd)
-        first = sys.stdin.read(1)
-        if first == "\x03":
-            raise KeyboardInterrupt
-        if first != "\x1b":
-            return first
-        sequence = first
-        while len(sequence) < 3 and select.select([sys.stdin], [], [], 0.05)[0]:
-            sequence += sys.stdin.read(1)
-        return sequence
+        # os.read on the fd, never sys.stdin: buffering must not eat the tail
+        return read_sequence(
+            lambda: os.read(fd, 1).decode("utf-8", "replace"),
+            lambda: bool(select.select([fd], [], [], 0.05)[0]),
+        )
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)

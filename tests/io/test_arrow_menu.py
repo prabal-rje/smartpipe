@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 from smartpipe.io.arrow_menu import (
@@ -9,6 +11,7 @@ from smartpipe.io.arrow_menu import (
     decode_key,
     menu_capable,
     numbered_choose,
+    read_sequence,
     render_menu,
     step,
 )
@@ -115,3 +118,48 @@ def test_numbered_choose_two_strikes_then_none() -> None:
     assert numbered_choose("Pick:", ("a", "b"), 0, ask=ask, say=lambda _l: None) is None
     assert len(asked) == 2
     assert "number" in asked[1]  # the reprompt names what it wants
+
+
+def _feeder(
+    *chars: str,
+) -> tuple[list[str], tuple[Callable[[], str], Callable[[], bool]]]:
+    queue = list(chars)
+
+    def read1() -> str:
+        return queue.pop(0)
+
+    def pending() -> bool:
+        return bool(queue)
+
+    return queue, (read1, pending)
+
+
+def test_read_sequence_assembles_a_csi_arrow() -> None:
+    """The owner-hit bug: all three arrow bytes arrive together; a buffered
+    reader swallowed the tail and a bare ESC cancelled the picker."""
+    _, (read1, pending) = _feeder("\x1b", "[", "A")
+    assert read_sequence(read1, pending) == "\x1b[A"
+
+
+def test_read_sequence_assembles_an_ss3_arrow() -> None:
+    _, (read1, pending) = _feeder("\x1b", "O", "B")
+    assert read_sequence(read1, pending) == "\x1bOB"
+
+
+def test_read_sequence_bare_escape_stays_cancel() -> None:
+    _, (read1, pending) = _feeder("\x1b")
+    assert read_sequence(read1, pending) == "\x1b"
+
+
+def test_read_sequence_plain_key_returns_immediately() -> None:
+    queue, (read1, pending) = _feeder("j", "x")
+    assert read_sequence(read1, pending) == "j"
+    assert queue == ["x"]  # never over-reads
+
+
+def test_read_sequence_ctrl_c_raises() -> None:
+    import pytest
+
+    _, (read1, pending) = _feeder("\x03")
+    with pytest.raises(KeyboardInterrupt):
+        read_sequence(read1, pending)
