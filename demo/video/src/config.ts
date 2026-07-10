@@ -16,8 +16,9 @@ export const SCENE = {
   hook: sec(14), // 2 — map over invoices/*.pdf
   multimodal: sec(14), // 3 — files → pipe → records; audio commitments
   cost: sec(14), // 4 — where (free) → filter (paid) funnel + receipt
-  scale: sec(12), // 5 — embed a folder of videos, top_k by meaning
-  close: sec(8), // 6 — wordmark, install line, URL, fade
+  scale: sec(12), // 5 — embed a folder of tickets, top_k by meaning
+  graph: sec(13), // 6 — graph --fast: entities + edges, zero model calls
+  close: sec(8), // 7 — wordmark, install line, URL, fade
 } as const;
 
 export const TOTAL_FRAMES =
@@ -26,6 +27,7 @@ export const TOTAL_FRAMES =
   SCENE.multimodal +
   SCENE.cost +
   SCENE.scale +
+  SCENE.graph +
   SCENE.close;
 
 /** Terminal-native palette: near-black, cyan + green accents, zinc text. */

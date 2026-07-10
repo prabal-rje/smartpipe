@@ -77,7 +77,7 @@ const RecordChip: React.FC<{ file: FlowFile; index: number }> = ({
         top: y,
         opacity: t,
         fontFamily: MONO,
-        fontSize: 23,
+        fontSize: 20,
         padding: "10px 18px",
         borderRadius: 9,
         border: `1px solid ${COLORS.panelBorder}`,
@@ -87,9 +87,15 @@ const RecordChip: React.FC<{ file: FlowFile; index: number }> = ({
     >
       <span style={{ color: COLORS.faint }}>{'{'}</span>
       <span style={{ color: COLORS.ghost }}>{'"__source"'}</span>
+      <span style={{ color: COLORS.faint }}>{':{'}</span>
+      <span style={{ color: COLORS.cyanDim }}>{'"path"'}</span>
       <span style={{ color: COLORS.faint }}>:</span>
       <span style={{ color: COLORS.greenDim }}>{`"${file.source}"`}</span>
-      <span style={{ color: COLORS.faint }}>{'}'}</span>
+      <span style={{ color: COLORS.faint }}>,</span>
+      <span style={{ color: COLORS.cyanDim }}>{'"as"'}</span>
+      <span style={{ color: COLORS.faint }}>:</span>
+      <span style={{ color: COLORS.greenDim }}>{'"file"'}</span>
+      <span style={{ color: COLORS.faint }}>{'}}'}</span>
     </div>
   );
 };
@@ -125,19 +131,19 @@ const LINES: readonly TerminalLine[] = [
   {
     kind: "cmd",
     at: sec(5.2),
-    text: 'smartpipe recordings/*.mp3 | smartpipe map "List every commitment made"',
+    text: 'smartpipe split --by minutes:5 recordings/*.mp3 | smartpipe map "List every commitment made"',
   },
   {
     kind: "out",
     at: sec(8.2),
-    text: '{"result":"Dana: revised SOW to the client by Friday","__source":"call-03.mp3 §00:10-00:20"}',
+    text: '{"result":"Dana: revised SOW to the client by Friday","__source":{"path":"call-03.mp3","as":"minutes","segment":2}}',
   },
   {
     kind: "out",
     at: sec(8.6),
-    text: '{"result":"Sam: escalate the refund to finance today","__source":"call-03.mp3 §14:02-14:19"}',
+    text: '{"result":"Sam: escalate the refund to finance today","__source":{"path":"call-03.mp3","as":"minutes","segment":3}}',
   },
-  { kind: "note", at: sec(9.6), text: "note: run: 12 items · audio sent natively · 18,344 tokens" },
+  { kind: "note", at: sec(9.6), text: "note: run: ↑18.3k ↓412 tok · 4.1 MB audio (3) · 12m04s" },
 ];
 
 /** Scene 3 — multimodal: files flow into the pipe and come out as records. */
@@ -172,7 +178,7 @@ export const Multimodal: React.FC = () => {
             lines={LINES}
             width={1660}
             height={290}
-            fontSize={23}
+            fontSize={22}
           />
         </div>
       </AbsoluteFill>

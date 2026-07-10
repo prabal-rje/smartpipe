@@ -24,7 +24,12 @@ const LINES: readonly TerminalLine[] = [
   {
     kind: "note",
     at: sec(9.2),
-    text: "note: run: 9,204 in · 312 out tokens · $0 cached on rerun",
+    text: "note: run: ↑9.2k ↓312 tok",
+  },
+  {
+    kind: "note",
+    at: sec(10.0),
+    text: "note: cache: 312 hits · 0 calls",
   },
 ];
 

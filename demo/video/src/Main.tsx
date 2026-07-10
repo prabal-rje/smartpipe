@@ -5,15 +5,16 @@ import { Background } from "./components/Background";
 import { Close } from "./scenes/Close";
 import { ColdOpen } from "./scenes/ColdOpen";
 import { CostHonesty } from "./scenes/CostHonesty";
+import { Graph } from "./scenes/Graph";
 import { Hook } from "./scenes/Hook";
 import { Multimodal } from "./scenes/Multimodal";
 import { Scale } from "./scenes/Scale";
 
-/** The full ~70s cut: one persistent background, six scenes in series. */
+/** The full 80s cut: one persistent background, seven scenes in series. */
 export const Main: React.FC = () => {
   return (
     <AbsoluteFill>
-      {/* Music bed: Silicon Prism Waltz (60s, looped to cover the 70s cut).
+      {/* Music bed: Silicon Prism Waltz (60s, looped to cover the 80s cut).
           Volume envelope: quick fade-in, steady bed, fade-out over the close.
           A fully synthesized fallback lives at scripts/make-music.mjs. */}
       <Audio
@@ -45,6 +46,9 @@ export const Main: React.FC = () => {
         </Series.Sequence>
         <Series.Sequence durationInFrames={SCENE.scale}>
           <Scale />
+        </Series.Sequence>
+        <Series.Sequence durationInFrames={SCENE.graph}>
+          <Graph />
         </Series.Sequence>
         <Series.Sequence durationInFrames={SCENE.close}>
           <Close />

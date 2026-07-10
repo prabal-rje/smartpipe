@@ -6,6 +6,7 @@ import { Main } from "./Main";
 import { Close } from "./scenes/Close";
 import { ColdOpen } from "./scenes/ColdOpen";
 import { CostHonesty } from "./scenes/CostHonesty";
+import { Graph } from "./scenes/Graph";
 import { Hook } from "./scenes/Hook";
 import { Multimodal } from "./scenes/Multimodal";
 import { Scale } from "./scenes/Scale";
@@ -27,6 +28,7 @@ const SCENES: readonly { id: string; component: React.FC; duration: number }[] =
   { id: "Multimodal", component: standalone(Multimodal), duration: SCENE.multimodal },
   { id: "CostHonesty", component: standalone(CostHonesty), duration: SCENE.cost },
   { id: "Scale", component: standalone(Scale), duration: SCENE.scale },
+  { id: "Graph", component: standalone(Graph), duration: SCENE.graph },
   { id: "Close", component: standalone(Close), duration: SCENE.close },
 ];
 

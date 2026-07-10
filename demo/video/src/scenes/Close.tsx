@@ -14,9 +14,8 @@ import { Wordmark } from "../components/Wordmark";
 
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
-// TODO: replace with `brew install prabal-rje/tap/smartpipe` once the Homebrew tap ships.
 const INSTALL_LINES: readonly TerminalLine[] = [
-  { kind: "cmd", at: sec(2.0), cps: CPS.slow, text: "pip install smartpipe-cli" },
+  { kind: "cmd", at: sec(2.0), cps: CPS.slow, text: "brew install prabal-rje/tap/smartpipe" },
 ];
 
 /** Scene 6 — close: the wordmark returns, the install line types, fade out. */

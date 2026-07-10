@@ -3,8 +3,9 @@ import { AbsoluteFill } from "remotion";
 import { COLORS } from "../config";
 
 /**
- * The stage every scene plays on: near-black, a whisper of a dot grid,
- * two barely-there color glows, scanlines, and a vignette.
+ * The stage every scene plays on: a FLAT near-black ground (owner ruling,
+ * 2026-07-09: no glowy background gradient), a whisper of a dot grid,
+ * scanlines, and a vignette.
  */
 export const Background: React.FC = () => {
   return (
@@ -16,14 +17,6 @@ export const Background: React.FC = () => {
             "radial-gradient(circle, rgba(228,228,231,0.055) 1px, transparent 1.4px)",
           backgroundSize: "28px 28px",
           backgroundPosition: "14px 14px",
-        }}
-      />
-      {/* ambient color glows */}
-      <AbsoluteFill
-        style={{
-          background:
-            "radial-gradient(820px 560px at 22% 18%, rgba(34,211,238,0.07), transparent 70%)," +
-            "radial-gradient(900px 620px at 82% 78%, rgba(52,211,153,0.055), transparent 70%)",
         }}
       />
       {/* scanlines */}
