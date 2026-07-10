@@ -248,6 +248,25 @@ async def test_build_container_stays_silent_without_repairs(
     assert "repaired deterministically" not in capsys.readouterr().err
 
 
+async def test_build_container_overlays_stored_keys(tmp_path: Path) -> None:
+    from smartpipe.config.credentials import keys_path, save_api_key
+
+    env = {
+        "XDG_CONFIG_HOME": str(tmp_path / "cfg"),
+        "APPDATA": str(tmp_path / "cfg"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+        "LOCALAPPDATA": str(tmp_path / "data"),
+    }
+    save_api_key(keys_path(env), "mistral", "mk-stored")
+    async with build_container(env) as container:
+        assert container.env["MISTRAL_API_KEY"] == "mk-stored"  # the store fills the gap
+        model = await container.chat_model("mistral-small-latest")
+        assert isinstance(model, OpenAIChatModel)
+        assert model.api_key == "mk-stored"  # …all the way to the wire
+    async with build_container({**env, "MISTRAL_API_KEY": "mk-env"}) as container:
+        assert container.env["MISTRAL_API_KEY"] == "mk-env"  # env ALWAYS wins
+
+
 async def test_build_container_surfaces_broken_config(tmp_path: Path) -> None:
     cfg_dir = tmp_path / "smartpipe"
     cfg_dir.mkdir()

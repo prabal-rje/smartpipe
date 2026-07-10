@@ -31,6 +31,10 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from smartpipe.io import metering
 
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    # …nor the developer's real key store (the auth-login wave): every test
+    # resolves the data-dir auth.json inside its own tmp_path.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "data"))  # the windows twin
     metering.reset()
 
 
