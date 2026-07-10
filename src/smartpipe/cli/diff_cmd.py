@@ -11,7 +11,8 @@ import click
 
 from smartpipe.cli.completions import complete_chat_models, complete_embed_models
 from smartpipe.cli.input_options import ocr_model_option
-from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
+from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.diff import DiffRequest, run_diff
 
@@ -42,6 +43,7 @@ __all__ = ["diff_command"]
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@manifest_option
 @click.option(
     "--allow-captions",
     "allow_captions",
@@ -51,6 +53,7 @@ __all__ = ["diff_command"]
 @ocr_model_option
 def diff_command(
     right: Path,
+    manifest_path: Path | None,
     top: int | None,
     show_all: bool,
     model_flag: str | None,
@@ -84,12 +87,12 @@ def diff_command(
         allow_captions=allow_captions,
         ocr_model_flag=ocr_model_flag,
     )
-    code = asyncio.run(_run(request, max_calls))
+    code = asyncio.run(_run(request, max_calls, manifest_path))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: DiffRequest, max_calls: int | None) -> ExitCode:
+async def _run(request: DiffRequest, max_calls: int | None, manifest_path: Path | None) -> ExitCode:
     from dataclasses import replace
 
     from smartpipe.container import build_container
@@ -100,5 +103,8 @@ async def _run(request: DiffRequest, max_calls: int | None) -> ExitCode:
     ):
         if not request.allow_captions and container.config.allow_captions:
             request = replace(request, allow_captions=True)  # profile consent (D35)
-        code = await run_diff(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
-        return settle_budget(container.budget, code)
+        begin_manifest(manifest_path, verb="diff")
+        return await settled(
+            run_diff(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            container.budget,
+        )

@@ -51,7 +51,13 @@ _ANTHROPIC_VERSION = "2023-06-01"
 async def fetch_catalog(
     provider: str, env: Mapping[str, str], client: httpx.AsyncClient
 ) -> tuple[str, ...] | None:
-    """The provider's chat-model names, or None (no key, no wire, or any failure)."""
+    """The provider's chat-model names, or None (no key, no wire, or any failure).
+    Under --local-only (item 65d) every fetcher answers None without a request:
+    the fenced run makes no network calls at all."""
+    from smartpipe.core.fence import local_only
+
+    if local_only(env):
+        return None
     match provider:
         case "openai":
             return await _openai(env, client)
@@ -73,6 +79,10 @@ async def fetch_embed_catalog(
     """The provider's embedding-model names, or None. Providers without a
     fetchable embed catalog (jina, local, ollama) are the caller's curated
     lists - no wire exists for them here."""
+    from smartpipe.core.fence import local_only
+
+    if local_only(env):
+        return None
     match provider:
         case "openai":
             payload = await _openai_models_payload(env, client)
@@ -91,8 +101,12 @@ async def fetch_registry(
     env: Mapping[str, str], client: httpx.AsyncClient
 ) -> dict[str, RegistryCaps] | None:
     """models.dev's public capability map — the chips' middle source. Graceful
-    absent: any wire trouble is a plain None (no registry = no registry chips)."""
-    del env  # the registry is public; the parameter keeps the fetcher family uniform
+    absent: any wire trouble is a plain None (no registry = no registry chips).
+    Public or not, --local-only forbids the request (item 65d)."""
+    from smartpipe.core.fence import local_only
+
+    if local_only(env):
+        return None
     payload = await _get_json(client, REGISTRY_URL, headers={})
     return parse_models_dev(payload) if payload is not None else None
 

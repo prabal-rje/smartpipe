@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 import click
 
 from smartpipe import __version__
+from smartpipe.cli.agree_cmd import agree_command
 from smartpipe.cli.auth_cmd import auth_command
 from smartpipe.cli.cache_cmd import cache_command
 from smartpipe.cli.chart_cmd import chart_command
@@ -221,8 +222,19 @@ def _entry_point_command(name: str) -> click.Command | None:
 
 @click.group(cls=_RootGroup)
 @click.version_option(__version__, prog_name="smartpipe", message="%(prog)s %(version)s")
-def cli() -> None:
+@click.option(
+    "--local-only",
+    "local_only_flag",
+    is_flag=True,
+    help="Hard privacy fence: refuse every cloud wire; the run makes no network "
+    "calls at all (env form: SMARTPIPE_LOCAL_ONLY=1).",
+)
+def cli(local_only_flag: bool) -> None:
     """smartpipe — semantic pipes for your terminal: documents, images, audio, video, text."""
+    if local_only_flag:
+        # the flag becomes the env form so ONE predicate (core/fence.local_only)
+        # governs the container, the update ping, and the catalog fetches
+        os.environ["SMARTPIPE_LOCAL_ONLY"] = "1"
 
 
 cli.add_command(map_command)
@@ -250,6 +262,7 @@ cli.add_command(write_command)
 cli.add_command(readable_command)
 cli.add_command(summarize_command)
 cli.add_command(sample_command)
+cli.add_command(agree_command)
 cli.add_command(getschema_command)
 cli.add_command(sort_command)
 cli.add_command(auth_command)
@@ -293,7 +306,10 @@ def main() -> None:
     # CI, kill switches) and swallow every failure.
     from smartpipe.io import update_check
 
-    update_check.begin_background_check()
+    # --local-only is parsed AFTER this hook would fire, so the flag is
+    # pre-scanned here; the env form is caught by check_allowed itself (65d)
+    if "--local-only" not in sys.argv[1:]:
+        update_check.begin_background_check()
     try:
         result = cli.main(
             standalone_mode=False,

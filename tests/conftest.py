@@ -58,6 +58,10 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # test_batching.py, tests/models/test_coalesce.py, test_cli_map.py's
     # batching test, which re-enables it explicitly).
     monkeypatch.setenv("SMARTPIPE_BATCH", "off")
+    # …nor an ambient --local-only fence (item 65d): the flag exports
+    # SMARTPIPE_LOCAL_ONLY into os.environ, so the delenv both isolates tests
+    # from the developer's shell and undoes any in-process export at teardown
+    monkeypatch.delenv("SMARTPIPE_LOCAL_ONLY", raising=False)
     metering.reset()
 
 

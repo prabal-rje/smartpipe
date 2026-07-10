@@ -120,6 +120,9 @@ async def run_map(
     tokens = parse_prompt(request.prompt, allow_descriptions=True)  # rung 2 (D22)
     schema = resolve_schema(request.schema_path, request.schema_dsl, loader=load_schema)
     plan = plan_map(tokens, schema=schema)
+    from smartpipe.io import manifest
+
+    manifest.record_schema(plan.schema)  # the compiled schema, braces included (item 65a)
     instruction = to_instruction(tokens)
     if request.dry_run:  # before model resolution: a dry run is free even pre-setup
         items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)

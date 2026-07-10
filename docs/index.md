@@ -83,7 +83,8 @@ paid stage:
 | [`where`](verbs/where.md) | filter on exact field predicates | SQL `WHERE` |
 | [`summarize`](verbs/summarize.md) | count, average, percentiles, time buckets | SQL `GROUP BY` |
 | [`sort`](verbs/sort.md) | order items by a field | `sort` |
-| [`sample`](verbs/sample.md) | take a seeded random subset | `shuf` |
+| [`sample`](verbs/sample.md) | take a seeded random subset; `--by` stratifies | `shuf` |
+| [`agree`](verbs/agree.md) | inter-rater agreement: kappa, alpha, confusion | the reviewers' number |
 | [`getschema`](verbs/getschema.md) | list fields, types, and coverage | `head`, for structure |
 | [`split`](verbs/split.md) | break items into pieces (pages, minutes) | `split` |
 | [`chart`](reference/cli.md) | terminal bars, SVG/PNG, facets, time series | quick plots |

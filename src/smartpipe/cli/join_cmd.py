@@ -18,7 +18,8 @@ from smartpipe.cli.input_options import (
     positional_paths,
     resolve_prompt,
 )
-from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
+from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.io.writers import OutputFormat
 from smartpipe.verbs.join import JoinRequest, run_join
@@ -116,6 +117,7 @@ __all__ = ["join_command"]
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel left items.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@manifest_option
 @fields_option
 @click.option(
     "--allow-captions",
@@ -133,6 +135,7 @@ __all__ = ["join_command"]
 @input_options
 def join_command(
     predicate: str | None,
+    manifest_path: Path | None,
     on_keys: tuple[str, ...],
     prompt_file: Path | None,
     right: Path,
@@ -202,12 +205,12 @@ def join_command(
         ),
         fields=fields,
     )
-    code = asyncio.run(_run(request, max_calls))
+    code = asyncio.run(_run(request, max_calls, manifest_path))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: JoinRequest, max_calls: int | None) -> ExitCode:
+async def _run(request: JoinRequest, max_calls: int | None, manifest_path: Path | None) -> ExitCode:
     from smartpipe.container import build_container
 
     async with (
@@ -218,5 +221,8 @@ async def _run(request: JoinRequest, max_calls: int | None) -> ExitCode:
             from dataclasses import replace as _replace
 
             request = _replace(request, allow_captions=True)  # profile consent (D35)
-        code = await run_join(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
-        return settle_budget(container.budget, code)
+        begin_manifest(manifest_path, verb="join", prompt=request.predicate)
+        return await settled(
+            run_join(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            container.budget,
+        )

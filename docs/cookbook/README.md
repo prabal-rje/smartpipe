@@ -18,6 +18,7 @@ with the Unix tools you already use (or don't yet - the
 | [Log triage](log-triage.md) | Filter, cluster, and diff noisy logs by meaning |
 | [Ranking documents](ranking-documents.md) | Find the most relevant files for a query |
 | [Live monitoring](live-monitoring.md) | `tail -f` through semantic verbs, windows, and a live leaderboard |
+| [Research methods](research-methods.md) | Stratified samples, inter-rater agreement, run manifests, and the --local-only fence |
 
 ## Try the recipes on real files
 

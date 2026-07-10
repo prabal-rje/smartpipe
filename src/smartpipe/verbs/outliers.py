@@ -91,6 +91,9 @@ async def run_outliers(
             diagnostics.warn(f"excluded: {describe_source(outcome.source)} ({outcome.reason})")
         position += 1
     log.finish()
+    from smartpipe.io import manifest
+
+    manifest.record_counts(done=len(vectors), skipped=len(items) - len(vectors))
     if len(vectors) < 3:
         raise UsageFault("outliers needs at least 3 embeddable items")
 

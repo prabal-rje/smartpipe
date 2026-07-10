@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 import click
 
@@ -15,7 +16,8 @@ from smartpipe.cli.input_options import (
     ocr_model_option,
     positional_paths,
 )
-from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
+from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.cluster import ClusterRequest, run_cluster
 
@@ -45,6 +47,7 @@ __all__ = ["cluster_command"]
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@manifest_option
 @click.option(
     "--allow-captions",
     "allow_captions",
@@ -55,6 +58,7 @@ __all__ = ["cluster_command"]
 @input_options
 def cluster_command(
     k: int | None,
+    manifest_path: Path | None,
     top: int | None,
     explode: str | None,
     model_flag: str | None,
@@ -99,12 +103,14 @@ def cluster_command(
             strict_rows=strict_rows,
         ),
     )
-    code = asyncio.run(_run(request, max_calls))
+    code = asyncio.run(_run(request, max_calls, manifest_path))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: ClusterRequest, max_calls: int | None) -> ExitCode:
+async def _run(
+    request: ClusterRequest, max_calls: int | None, manifest_path: Path | None
+) -> ExitCode:
     from dataclasses import replace
 
     from smartpipe.container import build_container
@@ -115,5 +121,8 @@ async def _run(request: ClusterRequest, max_calls: int | None) -> ExitCode:
     ):
         if not request.allow_captions and container.config.allow_captions:
             request = replace(request, allow_captions=True)  # profile consent (D35)
-        code = await run_cluster(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
-        return settle_budget(container.budget, code)
+        begin_manifest(manifest_path, verb="cluster")
+        return await settled(
+            run_cluster(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            container.budget,
+        )

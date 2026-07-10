@@ -102,7 +102,13 @@ def is_fresh(cached: CachedCheck | None, now: float) -> bool:
 
 def check_allowed(env: Mapping[str, str], *, is_tty: bool) -> bool:
     """Every kill switch, for the check AND the notice: stderr must be a TTY,
-    CI never nags, ``SMARTPIPE_NO_UPDATE_CHECK`` wins, then the config key."""
+    CI never nags, ``SMARTPIPE_NO_UPDATE_CHECK`` wins, then the config key.
+    ``--local-only`` (item 65d) silences it too: the fenced run makes no
+    network calls at all - the PyPI ping included."""
+    from smartpipe.core.fence import local_only
+
+    if local_only(env):
+        return False
     if not is_tty:
         return False
     if env.get("SMARTPIPE_NO_UPDATE_CHECK", "").strip():

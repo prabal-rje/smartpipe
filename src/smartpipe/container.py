@@ -24,7 +24,7 @@ from smartpipe.cli import screens
 from smartpipe.config.paths import config_path
 from smartpipe.config.store import Config, load_config
 from smartpipe.core.errors import SetupFault, UsageFault
-from smartpipe.io import diagnostics, tty
+from smartpipe.io import diagnostics, manifest, tty
 from smartpipe.io.tty import ColorMode
 from smartpipe.io.writers import (
     OutputFormat,
@@ -90,6 +90,7 @@ class AppContainer:
         resolved = await resolve_chat_ref(flag, self.env, self.config, self.probe_ollama)
         if resolved.notice is not None:
             diagnostics.note(resolved.notice)
+        manifest.record_model("chat", str(resolved.ref))
         return self._wrap_chat(self._build_chat(resolved.ref))
 
     def batching(self) -> BatchSettings | None:
@@ -137,6 +138,7 @@ class AppContainer:
         if not raw:
             return None
         ref = parse_model_ref(raw)
+        self._fence(ref, "chat")  # a cloud fallback fails HERE, not at switch time
         if _looks_like_embedder(ref):
             raise UsageFault(
                 f"fallback-model works for chat models only — '{raw}' embeds\n"
@@ -151,6 +153,7 @@ class AppContainer:
         keys/login are checked here, so a fallback with missing credentials
         surfaces as the ordinary SetupFault (the caller notes it and dies on
         the provider-down screen)."""
+        manifest.record_model("chat_fallback", str(ref))
         return self._wrap_chat(self._build_chat(ref))
 
     async def context_window(self, ref: ModelRef) -> int | None:
@@ -174,7 +177,9 @@ class AppContainer:
         return self.window_cache[key]
 
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel:
-        model = self._build_embed(resolve_embed_ref(flag, self.env, self.config))
+        ref = resolve_embed_ref(flag, self.env, self.config)
+        manifest.record_model("embed", str(ref))
+        model = self._build_embed(ref)
         return model if self.budget is None else budgeted_embed(model, self.budget)
 
     async def media_embedding_model(self, flag: str | None = None) -> EmbeddingModel | None:
@@ -191,7 +196,10 @@ class AppContainer:
             return None
         from smartpipe.models.base import supports_media_embedding
 
-        model = self._build_embed(parse_model_ref(raw))
+        media_ref = parse_model_ref(raw)
+        self._fence(media_ref, "media_embed")  # the media-role wording, before embed's
+        manifest.record_model("media_embed", str(media_ref))
+        model = self._build_embed(media_ref)
         probe: object = model  # narrow a VIEW, not the binding — the return stays typed
         if not supports_media_embedding(probe):
             raise SetupFault(
@@ -218,6 +226,8 @@ class AppContainer:
         if not raw:
             return None
         ref = parse_model_ref(raw)
+        self._fence(ref, "ocr")  # a vision rung re-checks via _build_chat; harmless
+        manifest.record_model("ocr", str(ref))
         if ref.provider == "mistral":
             from smartpipe.models.budget import budgeted_parser
             from smartpipe.models.ocr import MistralOcrParser
@@ -252,6 +262,7 @@ class AppContainer:
             else:
                 return None
         ref = parse_model_ref(raw)
+        self._fence(ref, "stt")
         if ref.provider != "openai":
             raise SetupFault(
                 f"error: no STT wire for {ref.provider!r} yet\n"
@@ -266,6 +277,7 @@ class AppContainer:
             )
         from smartpipe.models.stt import RemoteTranscriber
 
+        manifest.record_model("stt", str(ref))
         return RemoteTranscriber(ref=ref, client=self.http_client, api_key=key, retry=self.retry)
 
     def entity_finder(self, labels: Sequence[str]) -> EntityFinder:
@@ -375,7 +387,15 @@ class AppContainer:
             retry=self.retry,
         )
 
+    def _fence(self, ref: ModelRef, role: str) -> None:
+        """--local-only (item 65d): refuse any wire that would leave this
+        machine - HERE, at build time, before any spend or network."""
+        from smartpipe.core.fence import ensure_local_wire
+
+        ensure_local_wire(ref, self.env, role=role, ollama_host=resolve_host(self.env))
+
     def _build_chat(self, ref: ModelRef) -> ChatModel:
+        self._fence(ref, "chat")
         match ref.provider:
             case "ollama":
                 return OllamaChatModel(
@@ -432,6 +452,7 @@ class AppContainer:
         )
 
     def _build_embed(self, ref: ModelRef) -> EmbeddingModel:
+        self._fence(ref, "embed")
         match ref.provider:
             case "local":  # D44: the on-device default — no server, no key
                 from smartpipe.models.local_embed import LocalEmbeddingModel
@@ -478,7 +499,10 @@ class AppContainer:
                 assert_never(unreachable)
 
     async def probe_ollama(self) -> tuple[str, ...] | None:
-        """Installed ollama model names, or None if nothing is listening."""
+        """Installed ollama model names, or None if nothing is listening.
+        Under --local-only a remote OLLAMA_HOST refuses BEFORE the probe -
+        even a tags request is a network call the fence forbids."""
+        self._fence(ModelRef(provider="ollama", name="(autodetect)"), "chat")
         return await ollama_model_names(self.http_client, resolve_host(self.env))
 
 
@@ -576,6 +600,7 @@ async def build_container(
 
     metering.reset()  # a fresh run's meter (D40)
     reset_deterministic_repairs()  # rung 0's tally is run-scoped, like the meter (item 58)
+    manifest.reset()  # the --manifest collector is run-scoped too (item 65a); begin() re-arms
     container = AppContainer(
         # env > stored key, per provider — `auth login`'s store fills only the gaps
         env=overlay_stored_keys(environ, stored_api_keys(keys_path(environ))),

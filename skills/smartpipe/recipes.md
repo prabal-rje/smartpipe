@@ -69,6 +69,18 @@ smartpipe graph "who pays whom" 'filings/*.pdf' --max-calls 500
 cat edges.jsonl | smartpipe graph --save deals.graphml
 # accepts {"source","target"} (graph's own shape) or {"subject","relation","object"} rows;
 # --save by extension: .graphml/.dot/.mmd/.csv/.html, or a trailing-slash dir/ = Obsidian vault
+
+# evaluation ritual: stratified subset → recorded model run → agreement vs gold (agree+sample are FREE)
+smartpipe sample 200 --by label < corpus.jsonl > subset.jsonl   # class balance kept; seed 0 = citable
+smartpipe extend "Classify: {label enum(bug, feature, question)}" --manifest run.json \
+  < subset.jsonl > model.jsonl                # run.json records models, prompt+sha256, counts, receipt
+smartpipe agree model.jsonl gold.jsonl --on id
+# first row: {"n","observed_agreement","cohen_kappa","krippendorff_alpha"}, then confusion cells
+# {"label_a","label_b","count"}; kappa/alpha come back null (never NaN) when only one class appears
+
+# sensitive data: the hard fence - refuses every cloud wire; the run makes ZERO network calls
+smartpipe --local-only map "Redact any patient name" < notes.jsonl   # env form: SMARTPIPE_LOCAL_ONLY=1
+# a cloud model (or a remote OLLAMA_HOST) under the fence = exit 2 BEFORE any spend, local fix named
 ```
 
 Reminders that keep these safe:
