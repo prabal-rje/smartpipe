@@ -131,6 +131,7 @@ _UTILITIES: tuple[tuple[str, str], ...] = (
     ("where", "Keep rows matching a deterministic predicate"),
     ("summarize", "Aggregate records: count/avg/percentiles by field"),
     ("sample", "Keep N random rows (seeded, reproducible)"),
+    ("agree", "Score inter-rater agreement between two label files"),
     ("getschema", "Report the stream's fields, types, coverage"),
     ("sort", "Order records by a field (numbers, then strings)"),
     ("split", "Break oversized items into chunks"),
@@ -140,6 +141,7 @@ _UTILITIES: tuple[tuple[str, str], ...] = (
     ("use", "Set up models (interactive, or: use gemini)"),
     ("config", "Show settings and toggle postures"),
     ("update", "Upgrade smartpipe with the tool that installed it"),
+    ("demo", "Fetch the 26 MB practice corpus (free download)"),
 )
 
 _NAME_WIDTH = max(len(name) for name, _ in (*_VERBS, *_UTILITIES)) + 2
