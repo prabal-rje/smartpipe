@@ -57,8 +57,8 @@ Some tools fit certain jobs better:
 
 - **Local model probing, with explicit cloud setup** - if no chat model is configured,
   smartpipe probes local Ollama first. If it finds no usable model, it stops with
-  setup instructions. Cloud calls happen only after you choose a cloud model,
-  profile, or login path.
+  setup instructions. Cloud calls happen only after you choose a cloud model or
+  login path.
 
 - **`grep --color=auto`-style adaptive output** - human view at a terminal, JSONL when piped, with no flag.
 

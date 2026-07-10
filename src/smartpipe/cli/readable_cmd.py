@@ -39,7 +39,7 @@ def readable_command(full: bool, bare: bool) -> None:
     from smartpipe.io.preview import maybe_preview
 
     color = tty.stdout_supports_color()
-    config = load_config(config_path(os.environ), os.environ)
+    config = load_config(config_path(os.environ))
     media_lines = maybe_preview(
         enabled=config.media_previews is not False,
         color=color,

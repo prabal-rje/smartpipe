@@ -14,8 +14,8 @@ provider under their terms.
 smartpipe will not silently call a paid cloud API. If no chat model is configured,
 it tries local Ollama. If no usable Ollama model is found, it stops and asks.
 
-Paid media conversions require `allow-captions`. Cloud profiles set that consent
-when selected; remote transcription follows the same rule.
+Paid media conversions require `allow-captions`. A cloud `smartpipe use` pick sets
+that consent when stamped (and says so); remote transcription follows the same rule.
 
 Two pieces are local regardless of your chat model: **embeddings** and **local
 transcription**. The default embedder is `fastembed`'s `nomic` model. Local
@@ -43,7 +43,7 @@ The rules that keep that safe:
 - **The environment always wins** over a stored key - resolution is
   flag > env > stored key > nothing.
 - **Every display masks keys** (`sk-...9f2`) - `smartpipe auth list` shows the
-  provider, the masked key, and which source is live; `smartpipe config show`
+  provider, the masked key, and which source is live; `smartpipe using`
   shows model settings, never a key.
 - **Removal is one command**: `smartpipe auth logout PROVIDER` deletes the
   entry. If you never run `auth login`, the file never exists.
@@ -79,7 +79,7 @@ the endpoint you configured.
 smartpipe makes **no network calls except to the model endpoint you configured** and
 one-time model asset downloads for local Whisper or local embeddings.
 
-Two interactive exceptions, both data-free: `smartpipe config` fetches model
+Two interactive exceptions, both data-free: `smartpipe use` fetches model
 catalogs from providers you've connected and a public capability registry
 (`models.dev/api.json`) to label menu rows - day-cached, nothing about you or
 your data in the request, and any failure just means a plainer menu.

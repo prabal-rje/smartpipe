@@ -20,7 +20,7 @@ Parent: [SKILL.md](../../SKILL.md)
 ## Belts
 
 - `--max-calls N` on every exploratory run. Auto-chunked oversized items spend calls too - they count against it.
-- `--model NAME` on any paid verb overrides the model for THAT run only - the cheapest cost control after not calling at all. Example: `smartpipe filter "spam" --model ollama/qwen3:0.6b --max-calls 20 < posts.txt` judges locally for free. Check what's available first: `smartpipe config show`.
+- `--model NAME` on any paid verb overrides the model for THAT run only - the cheapest cost control after not calling at all. Example: `smartpipe filter "spam" --model ollama/qwen3:0.6b --max-calls 20 < posts.txt` judges locally for free. Check what's available first: `smartpipe using`.
 - The result cache is OFF by default. Turn it on once: `smartpipe config cache on`. After that, identical reruns are ~free and cache hits do NOT count against `--max-calls`. The cache keys on everything reply-affecting, including the model - switching models = cold cache.
 - Receipt on stderr at run end (`note: run: ↑114 ↓56 tok`): real tokens/media spent. Trust it over estimates.
 - `smartpipe usage` - free meter of model spend over time (hour/day/week/month/lifetime).

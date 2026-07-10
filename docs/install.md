@@ -84,7 +84,7 @@ to Ollama's `nomic` model. Python 3.11-3.13 has the complete box today.
 
 ## Tab completion
 
-The `smartpipe config` wizard offers to set this up for you; the manual
+The `smartpipe use` wizard offers to set this up for you; the manual
 per-shell lines live in [troubleshooting](troubleshooting.md#installing-tab-completion-by-hand).
 
 ## Next

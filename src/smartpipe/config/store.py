@@ -7,7 +7,14 @@ with the key named; API keys are never stored here. Writes are atomic
 (same-directory temp file + ``os.replace``), so a concurrent reader can never
 see a torn file. Comments do not survive a rewrite: tomli-w cannot round-trip
 them and tomlkit stays outside the dependency budget — docs/reference/cli.md
-says so out loud.
+says so out loud. The ONE exception is the provenance header ("the receipt",
+item 30): every stamped save writes ``# stamped by: smartpipe use (…)`` as the
+first line, and unstamped rewrites carry the existing header forward — the
+file documents how it got that way.
+
+Profiles are retired (item 30): the ``profile`` key and ``[profiles.*]``
+tables are ignored on read (one warn through the injected channel, never a
+crash) and stripped on the next save — the rewrite is the cure.
 """
 
 from __future__ import annotations
@@ -24,19 +31,16 @@ import tomli_w
 
 from smartpipe.config.paths import human_path
 from smartpipe.core.errors import SetupFault
-from smartpipe.core.jsontools import as_items, as_record, as_str
+from smartpipe.core.jsontools import as_items, as_str
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
 __all__ = [
-    "BUILTIN_PROFILES",
     "Config",
     "load_config",
-    "profile_names",
     "save_config",
-    "set_active_profile",
 ]
 
 
@@ -47,7 +51,6 @@ class Config:
     embed_model: str | None = None
     concurrency: int | None = None
     output: str | None = None
-    profile: str | None = None  # the active profile's name (D30)
     allow_captions: bool | None = None  # cloud conversions consent (D35; flag wins)
     stt_model: str | None = None  # remote transcription role (D39/05); unset = the ladder
     ocr_model: str | None = None  # document parsing role (item 40); unset = local extraction
@@ -62,127 +65,51 @@ class Config:
     model_capabilities: tuple[str, ...] | None = None
 
 
-_EMPTY_PROFILE: Mapping[str, object] = {}
-
-# D30: shipped presets, generated here so they can't rot in user files. A
-# profile is ONLY a bundle of existing config keys — that's the fence.
-BUILTIN_PROFILES: Mapping[str, Mapping[str, object]] = {
-    # picking a cloud preset IS the consent for paid image/audio-to-text
-    # conversions (D35) — the wizard says so; per-row disclosures continue
-    # gpt-5.4-mini works on BOTH the key wire and the ChatGPT-login (Codex)
-    # wire — 4o-mini is rejected by Codex accounts (owner-hit). Audio input is
-    # assumed UNSUPPORTED on OpenAI: the ladder falls to whisper automatically.
-    "openai": {
-        "model": "gpt-5.4-mini",
-        "embed-model": "text-embedding-3-small",
-        "allow-captions": True,
-    },
-    "gemini": {
-        "model": "gemini-3.1-flash-lite",  # GA, fully multimodal, probe-verified (D45)
-        "embed-model": "gemini/gemini-embedding-001",
-        "allow-captions": True,
-    },
-    "local": {
-        "model": "ollama/gemma-4-e2b",  # multimodal 2.3B-effective, 128k
-        "embed-model": "ollama/embeddinggemma",  # the pivot anchor: 308M, multilingual
-    },
-}
+# Retired by item 30 (the `use` collapse): ignored on read, stripped on write.
+_RETIRED_KEYS = ("profile", "profiles")
+_PROFILES_REMOVED = "profiles were removed - run smartpipe use"
+_HEADER_PREFIX = "# stamped by: "
 
 
-def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Config:
-    """Flat keys win over the active profile (a direct set is the most recent
-    intent); the active profile is SMARTPIPE_PROFILE > the file's `profile` key."""
+def load_config(path: Path, *, warn: Callable[[str], None] | None = None) -> Config:
+    """The file's flat keys, typed. Retired profile keys are ignored — one
+    warn through the injected channel (None = silent, e.g. shell completion,
+    which must never print)."""
     data = _read_raw(path)
-    active = _active_profile(data, environ or {}, path)
-    base: Mapping[str, object] = _profile_values(data, active, path) if active is not None else {}
-    merged = {**base, **{k: v for k, v in data.items() if k != "profiles"}}
+    if warn is not None and any(key in data for key in _RETIRED_KEYS):
+        warn(_PROFILES_REMOVED)
     return Config(
-        model=_string(merged, "model", path),
-        fallback_model=_string(merged, "fallback-model", path),
-        embed_model=_string(merged, "embed-model", path),
-        concurrency=_positive_int(merged, "concurrency", path),
-        output=_string(merged, "output", path),
-        profile=active,
-        allow_captions=_boolean(merged, "allow-captions", path),
-        stt_model=_string(merged, "stt-model", path),
-        ocr_model=_string(merged, "ocr-model", path),
-        media_embed_model=_string(merged, "media-embed-model", path),
-        cache=_boolean(merged, "cache", path),
-        cache_days=_positive_int(merged, "cache-days", path),
-        cache_max_mb=_positive_int(merged, "cache-max-mb", path),
-        update_check=_boolean(merged, "update-check", path),
-        media_previews=_boolean(merged, "media-previews", path),
-        model_capabilities=_capability_list(merged, "model-capabilities", path),
+        model=_string(data, "model", path),
+        fallback_model=_string(data, "fallback-model", path),
+        embed_model=_string(data, "embed-model", path),
+        concurrency=_positive_int(data, "concurrency", path),
+        output=_string(data, "output", path),
+        allow_captions=_boolean(data, "allow-captions", path),
+        stt_model=_string(data, "stt-model", path),
+        ocr_model=_string(data, "ocr-model", path),
+        media_embed_model=_string(data, "media-embed-model", path),
+        cache=_boolean(data, "cache", path),
+        cache_days=_positive_int(data, "cache-days", path),
+        cache_max_mb=_positive_int(data, "cache-max-mb", path),
+        update_check=_boolean(data, "update-check", path),
+        media_previews=_boolean(data, "media-previews", path),
+        model_capabilities=_capability_list(data, "model-capabilities", path),
     )
 
 
-def set_active_profile(path: Path, name: str | None) -> None:
-    """Flip ONLY the profile key — never the flat keys, so resolved profile
-    values are not materialized into the file (they'd shadow every later
-    profile switch)."""
-    merged = dict(_read_raw(path))
-    if name is None:
-        merged.pop("profile", None)
-    else:
-        merged["profile"] = name
-    _write_raw(path, merged)
-
-
-def profile_names(path: Path) -> tuple[str, ...]:
-    """Every selectable profile: user-defined tables plus the shipped presets."""
-    defined = as_record(_read_raw(path).get("profiles"))
-    names = set(BUILTIN_PROFILES)
-    if defined is not None:
-        names.update(defined)
-    return tuple(sorted(names))
-
-
-def _active_profile(
-    data: Mapping[str, object], environ: Mapping[str, str], path: Path
-) -> str | None:
-    from_env = environ.get("SMARTPIPE_PROFILE", "").strip()
-    name = from_env or _string(data, "profile", path)
-    if not name:
-        return None
-    defined = as_record(data.get("profiles"))
-    known: set[str] = set(BUILTIN_PROFILES)
-    if defined is not None:
-        known |= set(defined)
-    if name not in known:
-        raise SetupFault(
-            f"error: profile {name!r} doesn't exist\n"
-            f"  Known profiles: {', '.join(sorted(known))}\n"
-            "  Pick one: smartpipe config profile NAME — or define [profiles."
-            f"{name}] in {human_path(path)}"
-        )
-    return name
-
-
-def _profile_values(data: Mapping[str, object], name: str, path: Path) -> Mapping[str, object]:
-    del path  # errors here don't need the file location — the key names suffice
-    defined = as_record(data.get("profiles"))
-    table = as_record(defined.get(name)) if defined is not None else None
-    if table is not None:
-        allowed = {"model", "embed-model", "concurrency", "output", "allow-captions"}
-        unknown = set(table) - allowed
-        if unknown:
-            raise SetupFault(
-                f"error: profile {name!r} has unknown key {sorted(unknown)[0]!r}\n"
-                f"  A profile bundles: {', '.join(sorted(allowed))}"
-            )
-        return table
-    return BUILTIN_PROFILES.get(name, _EMPTY_PROFILE)
-
-
-def save_config(path: Path, config: Config) -> None:
+def save_config(path: Path, config: Config, *, stamped_by: str | None = None) -> None:
+    """Write the file atomically. ``stamped_by`` names the door that wrote it
+    ("smartpipe use", "smartpipe config", …) — the receipt header; None keeps
+    whatever header the file already carries."""
     merged = dict(_read_raw(path))  # a corrupt file fails loudly before we overwrite evidence
+    for retired in _RETIRED_KEYS:
+        merged.pop(retired, None)  # profiles are gone; the rewrite is the cure
     ours: dict[str, str | int | list[str] | None] = {
         "model": config.model,
         "fallback-model": config.fallback_model,
         "embed-model": config.embed_model,
         "concurrency": config.concurrency,
         "output": config.output,
-        "profile": config.profile,
         "allow-captions": config.allow_captions,
         "stt-model": config.stt_model,
         "ocr-model": config.ocr_model,
@@ -201,14 +128,32 @@ def save_config(path: Path, config: Config) -> None:
             merged.pop(key, None)  # None = unset (pinned semantics)
         else:
             merged[key] = value
-    _write_raw(path, merged)
+    _write_raw(path, merged, header=_header_line(path, stamped_by))
 
 
-def _write_raw(path: Path, merged: dict[str, object]) -> None:
+def _header_line(path: Path, stamped_by: str | None) -> str | None:
+    """The receipt: a fresh stamp for this door, or the file's existing header."""
+    if stamped_by is not None:
+        from datetime import UTC, datetime
+
+        stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%MZ")
+        return f"{_HEADER_PREFIX}{stamped_by} ({stamp})"
+    if not path.exists():
+        return None
+    with contextlib.suppress(OSError):
+        first = path.read_text(encoding="utf-8").split("\n", 1)[0]
+        if first.startswith(_HEADER_PREFIX):
+            return first
+    return None
+
+
+def _write_raw(path: Path, merged: dict[str, object], *, header: str | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            if header is not None:
+                handle.write(header + "\n")
             handle.write(tomli_w.dumps(merged))
         os.replace(tmp, path)  # atomic on POSIX & Windows (same volume by construction)
     except BaseException:

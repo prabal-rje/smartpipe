@@ -127,7 +127,7 @@ calls by construction.
 
 ```bash
 # 1. point smartpipe at a model (ChatGPT login, a cloud key, or local Ollama)
-smartpipe config
+smartpipe use
 
 # 2. ask one question across a folder of mixed documents
 smartpipe map "What does this say about pricing?" 'docs/*.pdf'

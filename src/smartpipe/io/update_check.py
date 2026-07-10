@@ -118,7 +118,7 @@ def _config_allows(env: Mapping[str, str]) -> bool:
     from smartpipe.config.store import load_config
 
     try:
-        return load_config(config_path(env), env).update_check is not False
+        return load_config(config_path(env)).update_check is not False
     except Exception:
         return False
 

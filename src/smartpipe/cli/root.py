@@ -21,7 +21,7 @@ from smartpipe.cli.cache_cmd import cache_command
 from smartpipe.cli.chart_cmd import chart_command
 from smartpipe.cli.cite_cmd import cite_command
 from smartpipe.cli.cluster_cmd import cluster_command
-from smartpipe.cli.config_cmd import config_command
+from smartpipe.cli.config_cmd import config_command, use_command, using_command
 from smartpipe.cli.diff_cmd import diff_command
 from smartpipe.cli.distinct_cmd import distinct_command
 from smartpipe.cli.doctor_cmd import doctor_command
@@ -48,7 +48,7 @@ from smartpipe.cli.update_cmd import update_command
 from smartpipe.cli.usage_cmd import usage_command
 from smartpipe.cli.where_cmd import where_command
 from smartpipe.cli.write_cmd import write_command
-from smartpipe.core.errors import ExitCode, SempipeError, UsageFault
+from smartpipe.core.errors import ExitCode, SempipeError, SetupFault, UsageFault
 
 if True:  # typing-only import kept runtime-cheap
     from collections.abc import Iterable
@@ -238,6 +238,8 @@ cli.add_command(distinct_command)
 cli.add_command(outliers_command)
 cli.add_command(run_command)
 cli.add_command(config_command)
+cli.add_command(use_command)
+cli.add_command(using_command)
 cli.add_command(doctor_command)
 cli.add_command(schema_command)
 cli.add_command(split_command)
@@ -314,6 +316,13 @@ def main() -> None:
         click.echo(f"  try: {command_path} --help", err=True)
         raise SystemExit(int(ExitCode.USAGE)) from exc
     except SempipeError as exc:
+        if isinstance(exc, SetupFault):
+            # the NO_MODEL screen at a real terminal offers the setup wizard
+            # (item 50); every other fault — and every non-TTY context — is
+            # byte-identical to diagnostics.die
+            from smartpipe.cli.rescue import die_with_rescue
+
+            die_with_rescue(exc, debug=debug)
         diagnostics.die(exc, debug=debug)
     except (KeyboardInterrupt, click.Abort):
         raise SystemExit(int(ExitCode.INTERRUPTED)) from None

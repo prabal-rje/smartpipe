@@ -144,9 +144,7 @@ def _check_model(
     from smartpipe.models.base import parse_model_ref
 
     if configured is None:
-        return CheckResult(
-            section, "fail", "no model configured — fix: smartpipe config model ollama/qwen3:8b"
-        )
+        return CheckResult(section, "fail", "no model configured — fix: smartpipe use")
     try:
         ref = parse_model_ref(configured)
     except UsageFault as exc:

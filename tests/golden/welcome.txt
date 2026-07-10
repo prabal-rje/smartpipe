@@ -30,11 +30,12 @@ Utilities (free — no model calls):
   write      Route items to files (the egress door)
   readable   Render records as blocks for human eyes
   chart      Draw a bar chart of results (--save writes SVG/PNG)
-  config     Configure models and settings
+  use        Set up models (interactive, or: use gemini)
+  config     Show settings and toggle postures
   update     Upgrade smartpipe with the tool that installed it
 
 Get started:
-  smartpipe config                                     # one-minute interactive setup
+  smartpipe use                                        # one-minute interactive setup
   echo "hello" | smartpipe map "translate to Spanish"
 
 'smartpipe <command> --help' shows examples for each command.

@@ -14,9 +14,9 @@ Each of these also prints as a screen on `stderr` when the error occurs; this pa
 smartpipe has nothing to talk to. Pick one:
 
 - **Log in with ChatGPT:** `smartpipe auth login` (a Plus/Pro plan, no API
-  key), then `smartpipe config model gpt-5.4`.
+  key), then `smartpipe use gpt-5.4`.
 - **Use a cloud API key:** `export OPENAI_API_KEY=…` (or `ANTHROPIC_API_KEY`) and pass
-  `--model gpt-5.4-mini` (or set a default with `smartpipe config model …`).
+  `--model gpt-5.4-mini` (or set a default with `smartpipe use gpt-5.4-mini`).
 - **Run a local model (free):** install [Ollama](https://ollama.com), then
   `ollama pull qwen3:8b`. smartpipe finds it automatically.
 
@@ -30,7 +30,7 @@ smartpipe elsewhere with `OLLAMA_HOST`. Confirm it's up with `ollama list`.
 ## "model 'X' isn't available" (exit 2)
 
 The model name isn't pulled locally. `ollama pull X`, or pick one you have with
-`ollama list` / `smartpipe config model …`.
+`ollama list` / `smartpipe use ollama`.
 
 ## "needs an OpenAI API key or a ChatGPT login" (exit 2)
 
@@ -97,7 +97,7 @@ The cloud endpoint answered 404 for that model name - every item would fail the
 same way, so smartpipe stopped at the **first** occurrence instead of burning
 through your input. Model names drift (e.g. `gemini-2.0-flash-lite` retired in
 favor of `gemini-2.5-flash-lite`); check the provider's current list, or switch:
-`smartpipe config model <name>`.
+`smartpipe use <name>`.
 
 ## "the endpoint rejected the --schema" (exit 2)
 
@@ -204,7 +204,7 @@ with `SMARTPIPE_DEBUG=1` for a traceback to include.
 
 ## Installing tab completion by hand
 
-The `smartpipe config` wizard offers to install completions for `zsh` and
+The `smartpipe use` wizard offers to install completions for `zsh` and
 `bash`; if you declined, use a different shell, or manage your rc files
 yourself, it's one line per shell. Completions cover verbs and flags - and
 `--model` / `--embed-model` suggest your configured model plus whatever

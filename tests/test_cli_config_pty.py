@@ -50,7 +50,6 @@ def _isolated_env(tmp_path: Path) -> dict[str, str]:
         "SMARTPIPE_MODEL",
         "SMARTPIPE_EMBED_MODEL",
         "SMARTPIPE_OCR_MODEL",
-        "SMARTPIPE_PROFILE",
     ):
         env.pop(name, None)
     return env

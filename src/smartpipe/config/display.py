@@ -1,4 +1,5 @@
-"""Rendering ``config show`` — pure, so the exact layout is golden-testable.
+"""Rendering ``smartpipe using`` (alias: ``config show``) — pure, so the exact
+layout is golden-testable.
 
 The point of the origin column (plan/decisions.md D09): precedence is never a
 mystery. Each effective value is shown with where it came from — env var,
@@ -36,9 +37,7 @@ class Setting:
 
 
 def settings_with_origin(env: Mapping[str, str], config: Config) -> tuple[Setting, ...]:
-    profile = _active_profile(env, config)
     return (
-        *((profile,) if profile is not None else ()),
         _resolve("model", env.get("SMARTPIPE_MODEL"), config.model),
         _resolve("fallback-model", env.get("SMARTPIPE_FALLBACK_MODEL"), config.fallback_model),
         _resolve("embed-model", env.get("SMARTPIPE_EMBED_MODEL"), config.embed_model),
@@ -75,15 +74,6 @@ def render_show(
         column_widths=(key_width, None),
     )
     return "\n".join(part for part in (rendered_settings, rendered_path) if part)
-
-
-def _active_profile(env: Mapping[str, str], config: Config) -> Setting | None:
-    env_value = env.get("SMARTPIPE_PROFILE", "").strip()
-    if env_value:
-        return Setting("profile", env_value, "env")
-    if config.profile is not None:
-        return Setting("profile", config.profile, "config file")
-    return None
 
 
 def _resolve(key: str, env_value: str | None, config_value: object) -> Setting:
