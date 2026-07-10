@@ -18,7 +18,8 @@ from smartpipe.cli.input_options import (
     positional_paths,
     resolve_prompt,
 )
-from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
+from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.io.writers import OutputFormat
 from smartpipe.verbs.map import MapRequest, run_map
@@ -123,11 +124,13 @@ __all__ = ["map_command"]
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@manifest_option
 @fields_option
 @ocr_model_option
 @input_options
 def map_command(
     prompt: str | None,
+    manifest_path: Path | None,
     ocr_model_flag: str | None,
     frame_every: float | None,
     max_frames: int | None,
@@ -196,17 +199,20 @@ def map_command(
         ),
         fields=fields,
     )
-    code = asyncio.run(_run(request, max_calls))
+    code = asyncio.run(_run(request, max_calls, manifest_path))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: MapRequest, max_calls: int | None) -> ExitCode:
+async def _run(request: MapRequest, max_calls: int | None, manifest_path: Path | None) -> ExitCode:
     from smartpipe.container import build_container
 
     async with (
         graceful_interrupts() as stop,
         build_container(os.environ, max_calls=max_calls, stop=stop) as container,
     ):
-        code = await run_map(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
-        return settle_budget(container.budget, code)
+        begin_manifest(manifest_path, verb="map", prompt=request.prompt)
+        return await settled(
+            run_map(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            container.budget,
+        )

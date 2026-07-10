@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 import click
 
@@ -16,7 +17,8 @@ from smartpipe.cli.input_options import (
     ocr_model_option,
     positional_paths,
 )
-from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
+from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.embed import EmbedRequest, run_embed
 
@@ -38,6 +40,7 @@ __all__ = ["embed_command"]
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@manifest_option
 @fields_option
 @click.option(
     "--allow-captions",
@@ -49,6 +52,7 @@ __all__ = ["embed_command"]
 @input_options
 def embed_command(
     model_flag: str | None,
+    manifest_path: Path | None,
     ocr_model_flag: str | None,
     media_model_flag: str | None,
     concurrency_flag: int | None,
@@ -85,12 +89,14 @@ def embed_command(
         ),
         fields=fields,
     )
-    code = asyncio.run(_run(request, max_calls))
+    code = asyncio.run(_run(request, max_calls, manifest_path))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: EmbedRequest, max_calls: int | None) -> ExitCode:
+async def _run(
+    request: EmbedRequest, max_calls: int | None, manifest_path: Path | None
+) -> ExitCode:
     from smartpipe.container import build_container
 
     async with (
@@ -101,5 +107,8 @@ async def _run(request: EmbedRequest, max_calls: int | None) -> ExitCode:
             from dataclasses import replace as _replace
 
             request = _replace(request, allow_captions=True)  # profile consent (D35)
-        code = await run_embed(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
-        return settle_budget(container.budget, code)
+        begin_manifest(manifest_path, verb="embed")
+        return await settled(
+            run_embed(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            container.budget,
+        )

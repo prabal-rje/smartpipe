@@ -18,7 +18,8 @@ from smartpipe.cli.input_options import (
     positional_paths,
     resolve_prompt,
 )
-from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
+from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.reduce import ReduceRequest, run_reduce
 
@@ -52,6 +53,7 @@ __all__ = ["reduce_command"]
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@manifest_option
 @click.option("--verbose", is_flag=True, help="Show the chunking tree on stderr.")
 @click.option("--window", type=int, help="Stream mode: reduce every N lines (tumbling).")
 @click.option("--every", type=int, help="With --window: slide, reducing after every M lines.")
@@ -66,6 +68,7 @@ __all__ = ["reduce_command"]
 @input_options
 def reduce_command(
     prompt: str | None,
+    manifest_path: Path | None,
     ocr_model_flag: str | None,
     prompt_file: Path | None,
     schema_path: Path | None,
@@ -116,12 +119,14 @@ def reduce_command(
         ),
         fields=fields,
     )
-    code = asyncio.run(_run(request, max_calls))
+    code = asyncio.run(_run(request, max_calls, manifest_path))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: ReduceRequest, max_calls: int | None) -> ExitCode:
+async def _run(
+    request: ReduceRequest, max_calls: int | None, manifest_path: Path | None
+) -> ExitCode:
     from smartpipe.container import build_container
 
     if request.window is None:  # whole-set mode: ^C exits immediately; budget is fatal (D18)
@@ -130,7 +135,11 @@ async def _run(request: ReduceRequest, max_calls: int | None) -> ExitCode:
                 from dataclasses import replace as _replace
 
                 request = _replace(request, allow_captions=True)  # profile consent (D35)
-            return await run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout)
+            begin_manifest(manifest_path, verb="reduce", prompt=request.prompt)
+            return await settled(
+                run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout),
+                None,  # whole-set mode never settles the belt - exhaustion is fatal
+            )
     async with (  # stream mode drains + flushes partial
         graceful_interrupts() as stop,
         build_container(os.environ, max_calls=max_calls, stop=stop) as container,
@@ -139,5 +148,8 @@ async def _run(request: ReduceRequest, max_calls: int | None) -> ExitCode:
             from dataclasses import replace as _replace
 
             request = _replace(request, allow_captions=True)  # profile consent (D35)
-        code = await run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
-        return settle_budget(container.budget, code)
+        begin_manifest(manifest_path, verb="reduce", prompt=request.prompt)
+        return await settled(
+            run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            container.budget,
+        )

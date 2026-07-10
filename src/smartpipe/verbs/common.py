@@ -137,6 +137,9 @@ def breaker_policy(provider: str) -> FailurePolicy:
 
 def outcome_exit_code(*, done: int, skipped: int) -> ExitCode:
     """0 = all ok · 1 = some skipped · 3 = every item failed (spec §12)."""
+    from smartpipe.io import manifest
+
+    manifest.record_counts(done=done, skipped=skipped)  # the --manifest funnel (item 65a)
     if skipped == 0:
         return ExitCode.OK
     if done == 0:
@@ -148,6 +151,9 @@ def interrupted_exit_code(*, done: int, skipped: int) -> ExitCode:
     """After a drained Ctrl-C (ux.md §12): the run's normal outcome code — an
     interrupt doesn't mask partiality — except 130 when nothing finished at all."""
     if done == 0 and skipped == 0:
+        from smartpipe.io import manifest
+
+        manifest.record_counts(done=0, skipped=0)
         return ExitCode.INTERRUPTED
     return outcome_exit_code(done=done, skipped=skipped)
 
@@ -385,11 +391,17 @@ def resolve_schema(
             "--schema-from and --schema both shape the output — use one\n"
             "  --schema-from builds the schema from a short description; --schema loads a file."
         )
+    from smartpipe.io import manifest
+
     if dsl is not None:
         from smartpipe.engine.schema_dsl import dsl_to_schema
 
-        return dsl_to_schema(dsl)
-    return loader(path) if path is not None else None
+        compiled = dsl_to_schema(dsl)
+        manifest.record_schema(compiled)  # the --manifest funnel (item 65a)
+        return compiled
+    loaded = loader(path) if path is not None else None
+    manifest.record_schema(loaded)
+    return loaded
 
 
 def batched(items: Sequence[T], size: int) -> Iterator[tuple[T, ...]]:

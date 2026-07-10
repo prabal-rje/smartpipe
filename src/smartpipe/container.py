@@ -24,7 +24,7 @@ from smartpipe.cli import screens
 from smartpipe.config.paths import config_path
 from smartpipe.config.store import Config, load_config
 from smartpipe.core.errors import SetupFault, UsageFault
-from smartpipe.io import diagnostics, tty
+from smartpipe.io import diagnostics, manifest, tty
 from smartpipe.io.tty import ColorMode
 from smartpipe.io.writers import (
     OutputFormat,
@@ -87,6 +87,7 @@ class AppContainer:
         resolved = await resolve_chat_ref(flag, self.env, self.config, self.probe_ollama)
         if resolved.notice is not None:
             diagnostics.note(resolved.notice)
+        manifest.record_model("chat", str(resolved.ref))
         return self._wrap_chat(self._build_chat(resolved.ref))
 
     def _wrap_chat(self, model: ChatModel) -> ChatModel:
@@ -128,6 +129,7 @@ class AppContainer:
         keys/login are checked here, so a fallback with missing credentials
         surfaces as the ordinary SetupFault (the caller notes it and dies on
         the provider-down screen)."""
+        manifest.record_model("chat_fallback", str(ref))
         return self._wrap_chat(self._build_chat(ref))
 
     async def context_window(self, ref: ModelRef) -> int | None:
@@ -151,7 +153,9 @@ class AppContainer:
         return self.window_cache[key]
 
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel:
-        model = self._build_embed(resolve_embed_ref(flag, self.env, self.config))
+        ref = resolve_embed_ref(flag, self.env, self.config)
+        manifest.record_model("embed", str(ref))
+        model = self._build_embed(ref)
         return model if self.budget is None else budgeted_embed(model, self.budget)
 
     async def media_embedding_model(self, flag: str | None = None) -> EmbeddingModel | None:
@@ -168,7 +172,9 @@ class AppContainer:
             return None
         from smartpipe.models.base import supports_media_embedding
 
-        model = self._build_embed(parse_model_ref(raw))
+        media_ref = parse_model_ref(raw)
+        manifest.record_model("media_embed", str(media_ref))
+        model = self._build_embed(media_ref)
         probe: object = model  # narrow a VIEW, not the binding — the return stays typed
         if not supports_media_embedding(probe):
             raise SetupFault(
@@ -195,6 +201,7 @@ class AppContainer:
         if not raw:
             return None
         ref = parse_model_ref(raw)
+        manifest.record_model("ocr", str(ref))
         if ref.provider == "mistral":
             from smartpipe.models.budget import budgeted_parser
             from smartpipe.models.ocr import MistralOcrParser
@@ -243,6 +250,7 @@ class AppContainer:
             )
         from smartpipe.models.stt import RemoteTranscriber
 
+        manifest.record_model("stt", str(ref))
         return RemoteTranscriber(ref=ref, client=self.http_client, api_key=key, retry=self.retry)
 
     def entity_finder(self, labels: Sequence[str]) -> EntityFinder:
@@ -516,6 +524,7 @@ async def build_container(
 
     metering.reset()  # a fresh run's meter (D40)
     reset_deterministic_repairs()  # rung 0's tally is run-scoped, like the meter (item 58)
+    manifest.reset()  # the --manifest collector is run-scoped too (item 65a); begin() re-arms
     container = AppContainer(
         # env > stored key, per provider — `auth login`'s store fills only the gaps
         env=overlay_stored_keys(environ, stored_api_keys(keys_path(environ))),

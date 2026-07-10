@@ -99,6 +99,10 @@ async def run_diff(
             diagnostics.warn(f"excluded: {describe_source(outcome.source)} ({outcome.reason})")
         position += 1
     log.finish()
+    from smartpipe.io import manifest
+
+    total_in = len(left) + len(right)
+    manifest.record_counts(done=len(union_items), skipped=total_in - len(union_items))
     if not vectors:
         return ExitCode.ALL_FAILED
 

@@ -119,6 +119,9 @@ async def run_cluster(
         else:
             diagnostics.warn(f"excluded: {describe_source(outcome.source)} ({outcome.reason})")
     log.finish()
+    from smartpipe.io import manifest
+
+    manifest.record_counts(done=len(clustered_items), skipped=len(items) - len(clustered_items))
     if not vectors:
         return ExitCode.ALL_FAILED
 

@@ -86,10 +86,13 @@ async def run_distinct(
         uniques.append(item)
         unique_positions.append(position)
 
+    from smartpipe.io import manifest
+
     if request.exact:
         # --exact (item 22): the hash rung IS the answer — no embedding model
         # is even resolved, no fuzzy anything
         kept_exact = set(unique_positions)
+        manifest.record_counts(done=len(items), skipped=0)  # every item was examined
         _receipt(kept=len(kept_exact), total=len(items), exact=exact_folded, near=0)
         return _emit(
             request,
@@ -134,6 +137,8 @@ async def run_distinct(
                 f"kept unexamined: {describe_source(outcome.source)} ({outcome.reason})"
             )
     log.finish()
+    # unexamined rows are KEPT in the output but never compared - the honest skip count
+    manifest.record_counts(done=len(items) - len(unexamined), skipped=len(unexamined))
 
     clusters = leader_clusters([vectors[p] for p in embed_order], threshold=request.threshold)
     kept: set[int] = set(unexamined)

@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 import click
 
@@ -17,6 +18,7 @@ from smartpipe.cli.input_options import (
     positional_paths,
 )
 from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.graph import GraphRequest, run_graph
 
@@ -85,10 +87,12 @@ __all__ = ["graph_command"]
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@manifest_option
 @ocr_model_option
 @input_options
 def graph_command(
     fast: bool,
+    manifest_path: Path | None,
     entities: str | None,
     relations: str | None,
     name_top: int | None,
@@ -163,23 +167,29 @@ def graph_command(
             strict_rows=strict_rows,
         ),
     )
-    code = asyncio.run(_run(request, max_calls))
+    code = asyncio.run(_run(request, max_calls, manifest_path))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: GraphRequest, max_calls: int | None) -> ExitCode:
+async def _run(
+    request: GraphRequest, max_calls: int | None, manifest_path: Path | None
+) -> ExitCode:
     from smartpipe.container import build_container
 
     async with (
         graceful_interrupts() as stop,
         build_container(os.environ, max_calls=max_calls, stop=stop) as container,
     ):
-        return await run_graph(
-            request,
-            container,
-            stdin=sys.stdin,
-            stdout=sys.stdout,
-            stop=stop,
-            budget=container.budget,
+        begin_manifest(manifest_path, verb="graph", prompt=request.focus)
+        return await settled(
+            run_graph(
+                request,
+                container,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stop=stop,
+                budget=container.budget,
+            ),
+            None,  # graph settles its own belt inside run_graph
         )
