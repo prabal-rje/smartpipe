@@ -16,11 +16,29 @@ def test_graph_help_carries_the_preview_escape_hatch(run_cli: RunCli) -> None:
     assert "--window" in out
 
 
+def test_graph_help_carries_the_paid_half(run_cli: RunCli) -> None:
+    code, out, _ = run_cli(["graph", "--help"])
+    assert code == 0
+    assert "--name-top" in out
+    assert "--relations" in out
+    assert "--max-calls" in out
+    assert "focus prompt" in out
+
+
 def test_graph_without_fast_is_a_usage_fault(run_cli: RunCli) -> None:
     code, out, err = run_cli(["graph"], stdin="hello\n")
     assert code == 64
     assert out == ""
     assert "--fast" in err
+    assert "focus prompt" in err
+    assert "edge records on stdin" in err
+
+
+def test_graph_adopts_edge_records_from_stdin(run_cli: RunCli) -> None:
+    code, out, err = run_cli(["graph"], stdin='{"source": "Ann", "target": "Bob", "weight": 2}\n')
+    assert code == 0
+    assert '"relation":"co-occurs"' in out
+    assert "0 tok" in err  # adoption spends nothing
 
 
 def test_graph_fast_on_empty_stdin_is_ok_and_silent(run_cli: RunCli) -> None:

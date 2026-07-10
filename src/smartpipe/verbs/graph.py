@@ -1,11 +1,17 @@
-"""The ``graph`` verb, ``--fast`` half (wave G1): entities + co-occurrence, free.
+"""The ``graph`` verb: entities and relationships as a weighted, cited graph.
 
-The cost shape IS the feature: a local NER model finds user-named entities, a
-local embedder folds near-duplicate names, and co-occurrence inside the
-``--window`` dial becomes weighted edges with spine-ref provenance — zero chat
-calls, nothing leaves the machine. stdout is JSONL edges; ``--save`` writes
-graphml/dot/mermaid/csv/html or an Obsidian vault. The paid modes are a later
-wave; this one must stay free by construction, and the tests pin that.
+Four ways in, one fold + serialize spine (waves G1/G2):
+
+- ``--fast`` (G1): local NER + co-occurrence — zero model calls, on-device,
+  free by construction (the tests pin it). This module owns that half and the
+  shared machinery every mode reuses: the corpus scan, the canonicalization
+  fold, the JSONL edge writer, ``--save``, and the receipt tail.
+- A positional focus prompt (G2, FULL), ``--name-top`` (G2, HYBRID), and
+  edge-shaped stdin records (G2, ADOPT) live in ``verbs/graphfull`` and are
+  dispatched to from here — imported lazily so ``--fast`` never pays for them.
+
+stdout is JSONL edges; ``--save`` writes graphml/dot/mermaid/csv/html or an
+Obsidian vault.
 """
 
 from __future__ import annotations
@@ -50,16 +56,35 @@ from smartpipe.verbs.common import EMBED_BATCH_SIZE, batched, ensure_text, outco
 from smartpipe.verbs.common import transcribe as whisper_transcribe
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
     from typing import TextIO
 
-    from smartpipe.engine.graphkg import EntityFinder, GraphEdge, GraphNode
+    from smartpipe.engine.graphkg import EntityFinder, GraphEdge, GraphNode, SurfaceCount
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item, ItemSource
-    from smartpipe.models.base import AudioData, EmbeddingModel
+    from smartpipe.models.base import AudioData, ChatModel, EmbeddingModel
+    from smartpipe.models.budget import CallBudget
+    from smartpipe.models.ocr import DocumentParser
 
-__all__ = ["DEFAULT_ENTITIES", "GraphRequest", "parse_entities", "run_graph"]
+__all__ = [
+    "DEFAULT_ENTITIES",
+    "FastScan",
+    "GraphContext",
+    "GraphModelContext",
+    "GraphRequest",
+    "fold_vectors",
+    "note_folds",
+    "parse_entities",
+    "parse_relations",
+    "receipt_tail",
+    "run_graph",
+    "save_graph",
+    "scan_corpus",
+    "spine_ref",
+    "stage",
+    "write_edges",
+]
 
 DEFAULT_ENTITIES = ("person", "organization", "location")
 
@@ -70,11 +95,17 @@ _PACE_NOTE_S = 120.0  # projected grinds past two minutes get one honest note
 @dataclass(frozen=True, slots=True)
 class GraphRequest:
     fast: bool = False
+    focus: str | None = None  # the positional focus prompt — FULL mode (G2)
     entities: str | None = None  # comma-separated user-named types; None = the default set
+    relations: str | None = None  # --relations "pays, owns": the typed-ontology enum (G2)
+    name_top: int | None = None  # --name-top N: HYBRID mode (G2)
     window: str = "chunk"
     min_weight: int = 1
     save: str | None = None
     top: int | None = None  # display-format hub cap
+    model_flag: str | None = None  # --model: the extraction/naming chat wire (G2)
+    concurrency_flag: int | None = None  # --concurrency (G2)
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (G2)
     input: InputSpec = STDIN
 
 
@@ -84,6 +115,15 @@ class GraphContext(Protocol):
 
     def entity_finder(self, labels: Sequence[str]) -> EntityFinder: ...
     def fold_embedder(self) -> EmbeddingModel: ...
+
+
+class GraphModelContext(GraphContext, Protocol):
+    """The paid half's seam (G2): everything ``--fast`` has, plus the chat
+    wire and its dials — the same accessors ``map`` composes with."""
+
+    async def chat_model(self, flag: str | None = None) -> ChatModel: ...
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
+    def concurrency(self, flag: int | None = None) -> int: ...
 
 
 def parse_entities(raw: str | None) -> tuple[str, ...]:
@@ -98,32 +138,111 @@ def parse_entities(raw: str | None) -> tuple[str, ...]:
     return labels
 
 
+def parse_relations(raw: str | None) -> tuple[str, ...] | None:
+    """The ``--relations "pays, owns"`` dial: the closed relation vocabulary
+    the model must pick from (G2's precision mode); None = free strings."""
+    if raw is None:
+        return None
+    names = tuple(dict.fromkeys(part.strip() for part in raw.split(",") if part.strip()))
+    if not names:
+        raise UsageFault(
+            '--relations needs at least one name\n  Example: --relations "pays, owns, employs"'
+        )
+    return names
+
+
 async def run_graph(
     request: GraphRequest,
-    context: GraphContext,
+    context: GraphModelContext,
     *,
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
     transcriber: Callable[[AudioData], str] = whisper_transcribe,
     clock: Callable[[], float] = time.monotonic,
+    ask: Callable[[str], bool] | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
-    if not request.fast:
-        raise UsageFault(
-            "graph needs --fast for now — the free, on-device co-occurrence mode\n"
-            "  --fast makes zero model calls; the model-read modes arrive in a later release."
-        )
+    """Dispatch on the mode grammar: ``--name-top`` → hybrid, a focus prompt →
+    full, ``--fast`` → the free half, else stdin must carry edge records."""
     if request.min_weight < 1:
         raise UsageFault("--min-weight needs a positive co-occurrence count")
     if request.top is not None and request.top < 1:
         raise UsageFault("--top needs a positive node count")
-    labels = parse_entities(request.entities)
-    mode = parse_window(request.window)
+    if request.name_top is not None and request.name_top < 1:
+        raise UsageFault("--name-top needs a positive edge count")
     if request.save is not None:
         save_format(request.save)  # a typo'd extension must refuse BEFORE the work
+    if request.relations is not None and request.focus is None and request.name_top is None:
+        raise UsageFault(
+            "--relations shapes the model-read modes — pair it with a focus prompt "
+            "or --name-top\n"
+            '  Example: smartpipe graph "who pays whom" --relations "pays, owns" notes/*.md'
+        )
+    if request.name_top is not None:
+        from smartpipe.verbs.graphfull import run_hybrid
+
+        return await run_hybrid(
+            request,
+            context,
+            stdin=stdin,
+            stdout=stdout,
+            stop=stop,
+            transcriber=transcriber,
+            clock=clock,
+            budget=budget,
+        )
+    if request.focus is not None:
+        from smartpipe.verbs.graphfull import run_full
+
+        return await run_full(
+            request, context, stdin=stdin, stdout=stdout, stop=stop, ask=ask, budget=budget
+        )
+    if request.fast:
+        return await _run_fast(
+            request,
+            context,
+            stdin=stdin,
+            stdout=stdout,
+            stop=stop,
+            transcriber=transcriber,
+            clock=clock,
+        )
+    from smartpipe.verbs.graphfull import run_adopt
+
+    return await run_adopt(request, context, stdin=stdin, stdout=stdout, stop=stop)
+
+
+@dataclass(frozen=True, slots=True)
+class FastScan:
+    """Everything the free pass produces — the fast mode writes it out as-is;
+    the hybrid mode names the strongest edges first (wave G2)."""
+
+    gathered: tuple[ItemEntities, ...]
+    counts: tuple[SurfaceCount, ...]
+    canonical: Mapping[str, str]
+    folded_names: int
+    nodes: tuple[GraphNode, ...]
+    edges: tuple[GraphEdge, ...]
+    skipped: int  # items the free ladder couldn't read (censused already)
+
+
+async def scan_corpus(
+    request: GraphRequest,
+    context: GraphContext,
+    *,
+    stdin: TextIO,
+    stop: asyncio.Event | None,
+    transcriber: Callable[[AudioData], str],
+    clock: Callable[[], float],
+) -> FastScan | None:
+    """The zero-call pass shared by ``--fast`` and hybrid: read, local NER,
+    fold, co-occurrence edges. ``None`` means empty input (exit 0, silent)."""
+    labels = parse_entities(request.entities)
+    mode = parse_window(request.window)
 
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
-    read_bar = _stage("read")
+    read_bar = stage("read")
     read_bar.start(total)
     items: list[Item] = []
     async for item in items_iter:
@@ -131,14 +250,14 @@ async def run_graph(
         read_bar.advance()
     read_bar.finish()
     if not items:
-        return ExitCode.OK
+        return None
 
     finder = context.entity_finder(labels)
     log = diagnostics.DegradationLog()
     gathered: list[ItemEntities] = []
     no_free_text = 0
     failed = 0
-    entity_bar = _stage("entities")
+    entity_bar = stage("entities")
     entity_bar.start(len(items))
     stage_start = clock()
     for position, item in enumerate(items, start=1):
@@ -165,7 +284,7 @@ async def run_graph(
             continue
         gathered.append(
             ItemEntities(
-                ref=_spine_ref(item.source),
+                ref=spine_ref(item.source),
                 doc=item.source.path or item.source.name,
                 text=text,
                 spans=spans,
@@ -184,23 +303,79 @@ async def run_graph(
         )
 
     counts = surface_counts(gathered)
-    vectors = await _fold_vectors(context, [surface.name for surface in counts])
+    vectors = await fold_vectors(context, [surface.name for surface in counts])
     canonical = fold_surfaces(counts, vectors)
     folded_names, folded_nodes = fold_stats(canonical)
+    note_folds(folded_names, folded_nodes)
+
+    return FastScan(
+        gathered=tuple(gathered),
+        counts=counts,
+        canonical=canonical,
+        folded_names=folded_names,
+        nodes=build_nodes(counts, canonical),
+        edges=fold_edges(windows(gathered, mode), canonical),
+        skipped=no_free_text + failed,
+    )
+
+
+async def _run_fast(
+    request: GraphRequest,
+    context: GraphContext,
+    *,
+    stdin: TextIO,
+    stdout: TextIO,
+    stop: asyncio.Event | None,
+    transcriber: Callable[[AudioData], str],
+    clock: Callable[[], float],
+) -> ExitCode:
+    scan = await scan_corpus(
+        request, context, stdin=stdin, stop=stop, transcriber=transcriber, clock=clock
+    )
+    if scan is None:
+        return ExitCode.OK
+    kept, pruned = prune_edges(scan.edges, request.min_weight)
+    write_edges(kept, stdout)
+    if request.save is not None:
+        save_graph(request.save, scan.nodes, kept, top=request.top)
+    diagnostics.note(
+        f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
+        f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
+    )
+    return outcome_exit_code(done=len(scan.gathered), skipped=scan.skipped)
+
+
+def stage(name: str) -> Spinner:
+    """The G0 bar wearing this stage's name (a ``run`` pipeline's label wins)."""
+    spinner = make_stderr_spinner()
+    if spinner.label is None:
+        spinner.label = name
+    return spinner
+
+
+def note_folds(folded_names: int, folded_nodes: int) -> None:
+    """The canonicalization disclosure every mode shares (silent when nothing folded)."""
     if folded_names:
         plural = "s" if folded_nodes != 1 else ""
         diagnostics.note(f"{folded_names} entity names folded into {folded_nodes} node{plural}")
 
-    nodes = build_nodes(counts, canonical)
-    edges = fold_edges(windows(gathered, mode), canonical)
-    kept, pruned = prune_edges(edges, request.min_weight)
 
+def receipt_tail() -> str:
+    """The receipt's cost segment: the run's observed tokens, or an honest zero."""
+    from smartpipe.io import metering
+
+    return metering.receipt() or "0 tok"
+
+
+def write_edges(edges: Sequence[GraphEdge], stdout: TextIO) -> None:
+    """The JSONL result stream every mode shares: one edge per line, weighted,
+    with spine-ref provenance — behind the ``write`` stage bar."""
     writer = make_writer(
         WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=None), stdout
     )
-    write_bar = _stage("write")
-    write_bar.start(len(kept))
-    for edge in kept:
+    write_bar = stage("write")
+    write_bar.start(len(edges))
+    for edge in edges:
         writer.write_record(
             {
                 "source": edge.source,
@@ -213,23 +388,6 @@ async def run_graph(
         write_bar.advance()
     writer.flush()
     write_bar.finish()
-
-    if request.save is not None:
-        _save(request.save, nodes, kept, top=request.top)
-
-    diagnostics.note(
-        f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
-        f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
-    )
-    return outcome_exit_code(done=len(gathered), skipped=no_free_text + failed)
-
-
-def _stage(name: str) -> Spinner:
-    """The G0 bar wearing this stage's name (a ``run`` pipeline's label wins)."""
-    spinner = make_stderr_spinner()
-    if spinner.label is None:
-        spinner.label = name
-    return spinner
 
 
 def _note_projected_grind(elapsed: float, total_windows: int) -> None:
@@ -245,7 +403,7 @@ def _note_projected_grind(elapsed: float, total_windows: int) -> None:
     )
 
 
-def _spine_ref(source: ItemSource) -> SpineRef:
+def spine_ref(source: ItemSource) -> SpineRef:
     """The item's provenance as the engine's ref: mirrors ``source_record``."""
     position = None if source.cut == "file" else source.index + 1
     return SpineRef(
@@ -256,15 +414,13 @@ def _spine_ref(source: ItemSource) -> SpineRef:
     )
 
 
-async def _fold_vectors(
-    context: GraphContext, names: Sequence[str]
-) -> dict[str, tuple[float, ...]]:
+async def fold_vectors(context: GraphContext, names: Sequence[str]) -> dict[str, tuple[float, ...]]:
     """Embed the distinct surface names for the canonicalization fold — local,
     free. An unavailable embedder degrades to no folding, disclosed."""
     if len(names) < 2:
         return {}
     embedder = context.fold_embedder()
-    fold_bar = _stage("fold")
+    fold_bar = stage("fold")
     fold_bar.start(len(names))
     vectors: dict[str, tuple[float, ...]] = {}
     try:
@@ -279,7 +435,7 @@ async def _fold_vectors(
     return vectors
 
 
-def _save(
+def save_graph(
     raw: str, nodes: Sequence[GraphNode], edges: Sequence[GraphEdge], *, top: int | None
 ) -> None:
     """``--save`` dispatch by extension; ``--top`` caps the display formats
