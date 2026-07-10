@@ -5,6 +5,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Fixed
+- **The published 1.4.0 introduced itself as 1.4.0rc1.** `__version__` was
+  never bumped past rc1, so `--version`, `cite`, and the update-check
+  comparison all carried the rc tag - and the cite golden had pinned the
+  stale value, so tests stayed green. All four version sites fixed; the
+  release checklist now names every one of them. The README Python badge
+  also caught up with reality (3.11-3.14 - the matrix has proven 3.14 for
+  a while).
+- **A `.env` on disk no longer leaks into smartpipe's environment.** The
+  file-type sniffer inside the document parser (magika, via markitdown)
+  calls `load_dotenv()` at import time - so parsing a document while
+  sitting in a repo with a `.env` silently injected credentials the user
+  never exported. The import is now fenced: anything it adds or changes
+  is reverted. Exporting a variable is consent; a file on disk is not.
+
+### Added
+- **`smartpipe demo` - a practice corpus in one command.** Downloads the
+  26 MB playground (invoices, reports, photos, recordings, sessions,
+  JSONL) into `./smartpipe-playground` - sha256-verified before unpack,
+  staged so an interrupted download leaves nothing, idempotent on
+  re-runs, and it refuses to touch a directory it didn't create. Ends
+  with three copy-pasteable free commands; every cookbook recipe runs
+  against this corpus. Zero model calls, zero config.
 
 ## [1.4.0] — 2026-07-10
 
