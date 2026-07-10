@@ -354,7 +354,26 @@ The identity release.
   overwrites one you chose yourself), and one y/N question adds a backup
   `fallback-model` for provider outages. After a `doctor --probe`,
   catalog entries carry capability chips (`sees, hears - probed 2d ago`)
-  - probed facts, never claims. All the setter subcommands still work.
+  - probed facts, never claims.
+- **`smartpipe use` - setup is one word now.** `use gemini` (or
+  `use claude-opus-4-8`, `use ollama/qwen3:8b`) stamps a coherent bundle
+  in one shot: the model, its paired embedder, and the captions posture,
+  each line disclosed with a ✓ and a reason. No credential for the named
+  provider = a clean refusal that names the exact `auth login` command,
+  nothing stamped. Bare `use` opens the interactive flow. `smartpipe
+  using` answers "what am I running?" with every setting, its value, and
+  WHERE it came from (flag, env, config file, default) in one aligned
+  grid. The config.toml you get is signed by its door -
+  `# stamped by: smartpipe use (2026-07-10T06:38Z)` - so a mystery
+  config explains itself. The old setter subcommands (`config model`,
+  `config embed-model`, …) and profiles are gone; an old config with
+  profile keys loads with one warning and cleans itself on the next
+  save.
+- **The no-model dead end offers a hand.** At a real terminal, the
+  no-model error now ends with `run setup now? [Y/n]` - accept, walk the
+  same setup flow, and it closes with "saved - rerun your command".
+  Scripts and CI see byte-identical output to before (the offer is
+  TTY-gated), and the exit code stays honest.
 
 ### Getting it and keeping it current
 - **One-line install on every platform.**
