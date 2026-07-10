@@ -646,6 +646,7 @@ async def run_config_flow(
                     current_ocr=updated.ocr_model,
                     chat_model=updated.model,
                     env=env,
+                    chips=chips,
                     choose=choose,
                     ask=ask,
                     say=say,
@@ -995,14 +996,16 @@ async def _stage_ocr(
     current_ocr: str | None,
     chat_model: str | None,
     env: Mapping[str, str],
+    chips: ChipSources,
     choose: Callable[[str, tuple[str, ...], int], int | None],
     ask: Callable[[str, str], str],
     say: Callable[[str], None],
     connect: Callable[[StageEntry], Awaitable[bool]] | None,
 ) -> _OcrChoice | _Back:
-    """Stage 3: curated and one-keypress-skippable (unset = the built-in ladders)."""
+    """Stage 3: curated + the vision-capable catalog (item 73c), one-keypress-
+    skippable (unset = the built-in ladders)."""
     from smartpipe.cli.screens import tint
-    from smartpipe.config.picker import key_stage_entry, ocr_stage_rows
+    from smartpipe.config.picker import key_stage_entry, ocr_stage_rows, vision_ocr_candidates
 
     say(
         tint(
@@ -1012,7 +1015,7 @@ async def _stage_ocr(
         )
     )
     while True:
-        rows = ocr_stage_rows(current_ocr, chat_model)
+        rows = ocr_stage_rows(current_ocr, chat_model, vision_ocr_candidates(chips))
         back_at = len(rows)
         labels = (*(label for _action, label in rows), "back - embedding model")
         picked = choose("Document OCR - optional:", labels, 0)
@@ -1032,6 +1035,17 @@ async def _stage_ocr(
                         return _OcrChoice(current_ocr, changed=False)
                     continue
                 return _OcrChoice("mistral/mistral-ocr-latest", changed=True)
+            case "pick":  # a vision-capable catalog ref (item 73c) - the label IS the ref
+                ref = rows[picked][1]
+                provider = parse_model_ref(ref).provider
+                if provider in ("ollama", "local"):
+                    return _OcrChoice(ref, changed=True)  # no key door to connect
+                entry = key_stage_entry(env, provider)
+                if not entry.connected and (connect is None or not await connect(entry)):
+                    if connect is None:
+                        return _OcrChoice(current_ocr, changed=False)
+                    continue
+                return _OcrChoice(ref, changed=True)
             case _:  # "typed"
                 say(tint("  Type 'back' to return to the OCR choices.", "2"))
                 answer = ask("OCR model?", "mistral-ocr-latest")

@@ -10,17 +10,14 @@ from smartpipe.config.picker import (
     MENU_CAP,
     ChipSources,
     ProbeChip,
-    ProviderStatus,
     RegistryCaps,
     cache_day,
     capped_catalog,
     chip_label,
     chips_for,
-    detect_providers,
     embed_pair_allowed,
     embed_stage_entries,
     first_embed_tag,
-    has_jina_key,
     model_labels,
     ocr_stage_rows,
     ollama_chat_tags,
@@ -39,88 +36,6 @@ from smartpipe.config.picker import (
     stage_labels,
     text_stage_entries,
 )
-
-# --- detection -----------------------------------------------------------------
-
-
-def _by_provider(statuses: tuple[ProviderStatus, ...]) -> dict[str, ProviderStatus]:
-    return {status.provider: status for status in statuses}
-
-
-def test_detects_nothing_from_an_empty_environment() -> None:
-    statuses = detect_providers({}, ollama_tags=None, openai_login=False)
-    assert [s.provider for s in statuses] == [
-        "ollama",
-        "openai",
-        "gemini",
-        "anthropic",
-        "mistral",
-        "openrouter",
-    ]
-    assert all(not s.detected for s in statuses)
-    # every undetected provider says HOW to connect — the fix is the screen
-    assert "https://ollama.com" in _by_provider(statuses)["ollama"].connect_hint
-    assert "export OPENAI_API_KEY=" in _by_provider(statuses)["openai"].connect_hint
-    assert "smartpipe auth login" in _by_provider(statuses)["openai"].connect_hint
-    assert "export GEMINI_API_KEY=" in _by_provider(statuses)["gemini"].connect_hint
-    assert "export ANTHROPIC_API_KEY=" in _by_provider(statuses)["anthropic"].connect_hint
-    assert "export MISTRAL_API_KEY=" in _by_provider(statuses)["mistral"].connect_hint
-    assert "export OPENROUTER_API_KEY=" in _by_provider(statuses)["openrouter"].connect_hint
-
-
-def test_detects_env_keys_and_ollama_tags() -> None:
-    env = {"OPENAI_API_KEY": "k", "MISTRAL_API_KEY": "k", "OPENROUTER_API_KEY": "k"}
-    statuses = _by_provider(
-        detect_providers(env, ollama_tags=("llava", "qwen3:8b"), openai_login=False)
-    )
-    assert statuses["ollama"].detected and "2 local models" in statuses["ollama"].detail
-    assert statuses["openai"].detected and statuses["openai"].detail == "API key"
-    assert statuses["mistral"].detected
-    assert statuses["openrouter"].detected
-    assert not statuses["gemini"].detected
-    assert not statuses["anthropic"].detected
-
-
-def test_blank_keys_do_not_count() -> None:
-    statuses = _by_provider(
-        detect_providers({"OPENAI_API_KEY": "  "}, ollama_tags=None, openai_login=False)
-    )
-    assert not statuses["openai"].detected
-
-
-def test_chatgpt_login_detects_openai_without_a_key() -> None:
-    statuses = _by_provider(detect_providers({}, ollama_tags=None, openai_login=True))
-    assert statuses["openai"].detected
-    assert statuses["openai"].detail == "ChatGPT login"
-
-
-def test_key_plus_login_names_both() -> None:
-    statuses = _by_provider(
-        detect_providers({"OPENAI_API_KEY": "k"}, ollama_tags=None, openai_login=True)
-    )
-    assert statuses["openai"].detail == "API key + ChatGPT login"
-
-
-def test_google_api_key_detects_gemini_and_names_the_var() -> None:
-    statuses = _by_provider(
-        detect_providers({"GOOGLE_API_KEY": "k"}, ollama_tags=None, openai_login=False)
-    )
-    assert statuses["gemini"].detected
-    assert "GOOGLE_API_KEY" in statuses["gemini"].detail
-
-
-def test_gemini_key_outranks_google_key_in_the_detail() -> None:
-    env = {"GEMINI_API_KEY": "k", "GOOGLE_API_KEY": "k"}
-    statuses = _by_provider(detect_providers(env, ollama_tags=None, openai_login=False))
-    assert "GEMINI_API_KEY" in statuses["gemini"].detail
-
-
-def test_jina_key_is_noted_but_never_a_chat_provider() -> None:
-    assert has_jina_key({"JINA_API_KEY": "k"})
-    assert not has_jina_key({"JINA_API_KEY": " "})
-    statuses = detect_providers({"JINA_API_KEY": "k"}, ollama_tags=None, openai_login=False)
-    assert "jina" not in {s.provider for s in statuses}
-
 
 # --- ollama tag helpers ----------------------------------------------------------
 
@@ -532,3 +447,49 @@ def test_ocr_rows_set_offer_keep_and_unset() -> None:
     assert rows[0] == ("keep", "keep current: mistral/mistral-ocr-latest")
     actions = [action for action, _label in rows]
     assert actions == ["keep", "mistral", "typed", "unset"]
+
+
+def test_vision_candidates_follow_chip_precedence_and_dedupe() -> None:
+    from smartpipe.config.picker import vision_ocr_candidates
+
+    chips = ChipSources(
+        probed={
+            "ollama/llava": ProbeChip(sees=True, hears=False, ts=0.0),
+            "ollama/qwen3:8b": ProbeChip(sees=False, hears=False, ts=0.0),  # blind: dropped
+        },
+        registry={
+            "openai/gpt-5.4-mini": RegistryCaps(image=True, audio=False),
+            "ollama/llava": RegistryCaps(image=True, audio=False),  # dupe: probed wins
+            "openai/o4-mini": RegistryCaps(image=False, audio=False),  # text-only: dropped
+        },
+        declared={"gemini/gemini-3.1-flash-lite": ("text", "image")},
+    )
+    assert vision_ocr_candidates(chips) == (
+        "ollama/llava",
+        "gemini/gemini-3.1-flash-lite",
+        "openai/gpt-5.4-mini",
+    )
+
+
+def test_ocr_rows_list_vision_candidates_between_vision_chat_and_typed() -> None:
+    rows = ocr_stage_rows(
+        None,
+        "openai/gpt-5.4-mini",
+        ("ollama/llava", "openai/gpt-5.4-mini", "mistral/mistral-ocr-latest"),
+    )
+    actions = [action for action, _label in rows]
+    # the picked chat model and the dedicated wire never repeat as pick rows
+    assert actions == ["keep", "mistral", "vision", "pick", "typed"]
+    assert rows[3] == ("pick", "ollama/llava")
+
+
+def test_ocr_rows_cap_at_the_menu_height_and_count_the_hidden() -> None:
+    vision = tuple(f"openrouter/vendor/model-{index:02}" for index in range(40))
+    rows = ocr_stage_rows("ollama/llava", "openai/gpt-5.4-mini", vision)
+    assert len(rows) <= MENU_CAP
+    picks = [label for action, label in rows if action == "pick"]
+    assert picks == list(vision[: len(picks)])  # order kept, capped
+    hidden = 40 - len(picks)
+    typed = next(label for action, label in rows if action == "typed")
+    assert typed == f"type a model name instead… ({hidden} more not shown)"
+    assert rows[-1][0] == "unset"  # the escape rows survive the cap
