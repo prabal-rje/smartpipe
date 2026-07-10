@@ -288,6 +288,15 @@ async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the 
         async def connect(entry: StageEntry) -> bool:
             return await _connect_inline(entry, session_env, choose=choose, say=click.echo)
 
+        async def verify(config: Config) -> None:
+            await _verify_live(
+                config,
+                session_env,
+                now=now,
+                confirm=lambda question, default: click.confirm(question, default=default),
+                say=click.echo,
+            )
+
         await run_config_flow(
             current=container.config,
             env=session_env,
@@ -304,6 +313,7 @@ async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the 
             save=partial(save_config, path),
             connect=connect,
             local_embed_available=find_spec("fastembed") is not None,
+            run_verify=verify,
             offer_completions=lambda: offer_shell_completions(
                 env=os.environ,
                 home=Path.home(),
@@ -311,6 +321,48 @@ async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the 
                 say=click.echo,
             ),
         )
+
+
+async def _verify_live(
+    config: Config,
+    session_env: dict[str, str],
+    *,
+    now: float,
+    confirm: Callable[[str, bool], bool],
+    say: Callable[[str], None],
+) -> None:  # pragma: no cover — the live probe path, pragma'd like doctor --probe
+    from importlib import resources
+
+    from smartpipe.config.state_cache import load_probe_chips, probe_path, record_probe
+    from smartpipe.config.verify import VerifyReport, probe_models, run_exit_probe
+    from smartpipe.container import build_container
+
+    def asset(name: str) -> bytes:
+        return (resources.files("smartpipe.assets") / name).read_bytes()
+
+    async def live() -> VerifyReport:
+        # a fresh container: it re-reads the key store, so an inline connect
+        # made seconds ago reaches these wires too
+        async with build_container(session_env) as container:
+            chat = await container.chat_model(config.model) if config.model else None
+            embed = (
+                await container.embedding_model(config.embed_model) if config.embed_model else None
+            )
+            return await probe_models(chat, embed, asset)
+
+    location = probe_path(session_env)
+    await run_exit_probe(
+        chat_ref=config.model,
+        embed_ref=config.embed_model,
+        chips=load_probe_chips(location),
+        now=now,
+        confirm=confirm,
+        say=say,
+        probe=live,
+        record=lambda ref, sees, hears: record_probe(
+            location, ref, sees=sees, hears=hears, now=now
+        ),
+    )
 
 
 async def _connect_inline(
