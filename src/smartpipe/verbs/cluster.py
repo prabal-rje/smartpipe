@@ -159,13 +159,21 @@ async def run_cluster(
                 "size": len(members),
                 "share": round(len(members) / total, 2),
                 "examples": _examples(members, clustered_items, vectors),
+                # item 64: a synthesized summary row carries a summary spine
+                "__source": {"as": "cluster", "count": len(members)},
             }
         )
     folded = clusters[len(shown) :]
     if folded:
         size = sum(len(members) for members in folded)
         writer.write_record(
-            {"cluster": "(other)", "size": size, "share": round(size / total, 2), "examples": []}
+            {
+                "cluster": "(other)",
+                "size": size,
+                "share": round(size / total, 2),
+                "examples": [],
+                "__source": {"as": "cluster", "count": size},
+            }
         )
     writer.flush()
     return ExitCode.OK

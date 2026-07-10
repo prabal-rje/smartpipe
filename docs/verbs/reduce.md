@@ -49,8 +49,8 @@ distinct value of `FIELD`, emitting one record per group:
 ```bash
 cat reviews.jsonl \
 | smartpipe reduce "Summarize complaints" --group-by product
-# → {"group": "Widget", "result": "Users report..."}
-# → {"group": "Gadget", "result": "The main issue..."}
+# → {"group": "Widget", "result": "Users report...", "__source": {"as": "group", "group": "Widget", "count": 41}}
+# → {"group": "Gadget", "result": "The main issue...", "__source": {"as": "group", "group": "Gadget", "count": 17}}
 ```
 
 Inside the prompt, `{field}` refers to the group's value - so
@@ -77,7 +77,7 @@ fresh take on the last N lines after every M new ones):
 ```bash
 tail -f server.log \
 | smartpipe reduce --window 100 --every 20 "current error trend?"
-# → {"window_end": 100, "result": "…"}
+# → {"window_end": 100, "result": "…", "__source": {"as": "window", "span": [1, 100], "count": 100}}
 ```
 
 Each window's record carries `window_end` (the stream position); the final,

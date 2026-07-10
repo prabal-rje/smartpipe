@@ -89,9 +89,17 @@ spine an item travels on:
 
 - `__source` - how the item was cut: `{"path": …, "as": "lines", "line": 12}`
   (plus a human label like `report.pdf §3/12` when a stage created it).
+- `__sources` - a join pair's two parents (left's ref, then right's).
 - `__media` - media transport: `{"kind": "image", "mime": …, "data_b64": …}`.
 - `__score` - join's per-pair similarity.
 - `__invalid` / `__error` / `__raw` - the `--keep-invalid` failure markers.
+
+Synthesized records carry a summary spine: a record no single input row
+produced (a reduce window or group, a cluster row, a diff theme) says what it
+summarizes - `{"as": "window", "span": [1, 100], "count": 100}`,
+`{"as": "group", "group": …, "count": N}`, `{"as": "all", "count": N}`,
+`{"as": "cluster", "count": N}`, `{"as": "diff", "side": …, "count": N}` -
+under the same `__source` key.
 
 Known spine fields round-trip through any number of stages. Unknown `__`
 fields warn once and carry through untouched; your own data may use at most

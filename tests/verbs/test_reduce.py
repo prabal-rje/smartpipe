@@ -164,7 +164,10 @@ async def test_schema_final_is_validated(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     code, out, _model = await _run(request, "a\nb\n", lambda _r: '{"headline": "All good"}')
     assert code == ExitCode.OK
-    assert json.loads(out.strip()) == {"headline": "All good"}
+    assert json.loads(out.strip()) == {
+        "headline": "All good",
+        "__source": {"as": "all", "count": 2},  # item 64: the summary spine
+    }
 
 
 # --- group-by -----------------------------------------------------------------
@@ -184,8 +187,16 @@ async def test_group_by_reduces_each_group() -> None:
     code, out, _model = await _run(_request("Summarize", group_by="product"), stdin, reply)
     assert code == ExitCode.OK
     records = [json.loads(line) for line in out.splitlines()]
-    assert records[0] == {"group": "A", "result": "summary(2 items)"}
-    assert records[1] == {"group": "B", "result": "summary(1 items)"}
+    assert records[0] == {
+        "group": "A",
+        "result": "summary(2 items)",
+        "__source": {"as": "group", "group": "A", "count": 2},
+    }
+    assert records[1] == {
+        "group": "B",
+        "result": "summary(1 items)",
+        "__source": {"as": "group", "group": "B", "count": 1},
+    }
 
 
 async def test_group_by_field_reaches_prompt() -> None:
@@ -263,7 +274,11 @@ async def test_group_reduce_failure_is_partial(capsys: pytest.CaptureFixture[str
         _request("Summarize {product}", group_by="product"), stdin, reply
     )
     assert code == ExitCode.PARTIAL
-    assert json.loads(out.strip()) == {"group": "A", "result": "ok"}
+    assert json.loads(out.strip()) == {
+        "group": "A",
+        "result": "ok",
+        "__source": {"as": "group", "group": "A", "count": 1},
+    }
     assert "reduce failed for group 'B'" in capsys.readouterr().err
 
 
@@ -297,7 +312,10 @@ async def test_schema_repair_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     code, out, model = await _run(request, "a\n", reply)
     assert code == ExitCode.OK
-    assert json.loads(out.strip()) == {"headline": "fixed"}
+    assert json.loads(out.strip()) == {
+        "headline": "fixed",
+        "__source": {"as": "all", "count": 1},
+    }
     assert len(model.calls) == 2  # original + one repair
 
 

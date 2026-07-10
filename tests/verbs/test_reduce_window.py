@@ -97,9 +97,22 @@ async def test_tumbling_windows_with_partial_flush() -> None:
     code, records, _ = await _run(_request(window=2), "a\nb\nc\nd\ne\n", _count_items)
     assert code == ExitCode.OK
     assert records == [
-        {"window_end": 2, "result": "S(2)"},
-        {"window_end": 4, "result": "S(2)"},
-        {"window_end": 5, "result": "S(1)", "partial": True},
+        {
+            "window_end": 2,
+            "result": "S(2)",
+            "__source": {"as": "window", "span": [1, 2], "count": 2},
+        },
+        {
+            "window_end": 4,
+            "result": "S(2)",
+            "__source": {"as": "window", "span": [3, 4], "count": 2},
+        },
+        {
+            "window_end": 5,
+            "result": "S(1)",
+            "partial": True,
+            "__source": {"as": "window", "span": [5, 5], "count": 1},
+        },
     ]
 
 

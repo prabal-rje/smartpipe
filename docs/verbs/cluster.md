@@ -8,8 +8,8 @@ qualitative codebook in one verb.
 cat feedback.txt \
 | smartpipe cluster
 # → cluster: ~612 embeddings + one label call per cluster (typically < 20)
-# → {"cluster": "checkout fails on mobile", "size": 41, "share": 0.31, "examples": ["payment dies on iPhone", "…", "…"]}
-# → {"cluster": "praise for dark mode", "size": 17, "share": 0.13, "examples": ["…"]}
+# → {"cluster": "checkout fails on mobile", "size": 41, "share": 0.31, "examples": ["payment dies on iPhone", "…", "…"], "__source": {"as": "cluster", "count": 41}}
+# → {"cluster": "praise for dark mode", "size": 17, "share": 0.13, "examples": ["…"], "__source": {"as": "cluster", "count": 17}}
 ```
 
 The grouping threshold adapts to your corpus automatically, so there is no threshold to

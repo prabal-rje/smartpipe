@@ -37,7 +37,7 @@ from smartpipe.engine.schema import load_schema, validate_and_coerce
 from smartpipe.engine.windows import Window, WindowBuffer, WindowPolicy
 from smartpipe.io import diagnostics, readers
 from smartpipe.io.inputs import STDIN
-from smartpipe.io.items import describe_source
+from smartpipe.io.items import describe_source, source_record
 from smartpipe.io.writers import OutputFormat
 from smartpipe.verbs.common import (
     ensure_text,
@@ -190,6 +190,10 @@ async def _run_single(
     except ItemError as exc:
         diagnostics.warn(f"reduce failed: {exc}")
         return
+    if not isinstance(result, str):
+        # item 64: a whole-input synthesis carries its summary spine — how
+        # many items went in (plain-text results have no record to carry it)
+        result = {**result, "__source": {"as": "all", "count": len(payloads)}}
     _emit(writer, structured=schema is not None, result=result)
     reducer.produced += 1
 
@@ -241,14 +245,18 @@ async def _run_windowed(
         stt=context.remote_transcriber(model.ref),
         ocr=parser,
     )
-    buffer: WindowBuffer[str] = WindowBuffer(policy)
+    # the buffer holds (payload, spine position) pairs so each emitted window
+    # can carry its summary spine (item 64) without the engine knowing items
+    buffer: WindowBuffer[tuple[str, int | None]] = WindowBuffer(policy)
     produced = 0
     failed = 0
 
-    async def emit(window: Window[str]) -> None:
+    async def emit(window: Window[tuple[str, int | None]]) -> None:
         nonlocal produced, failed
         try:
-            result = await reducer.reduce(instruction, schema, list(window.items))
+            result = await reducer.reduce(
+                instruction, schema, [payload for payload, _position in window.items]
+            )
         except ItemError as exc:
             diagnostics.warn(f"skipped: window ending at line {window.end_index} ({exc})")
             failed += 1
@@ -256,6 +264,7 @@ async def _run_windowed(
         record: dict[str, object] = {"window_end": window.end_index, "result": result}
         if window.partial:
             record["partial"] = True
+        record["__source"] = _window_source(window.items)
         writer.write_record(record)
         produced += 1
 
@@ -273,7 +282,8 @@ async def _run_windowed(
                     continue
             # item 57: windows hold rendered <input> payloads (a converted
             # media item's transcript lives only in .text)
-            window = buffer.push(render_input(item.text) if had_media else render_input(item))
+            payload = render_input(item.text) if had_media else render_input(item)
+            window = buffer.push((payload, _spine_position(item)))
             if window is not None:
                 await emit(window)
         tail = buffer.flush()
@@ -305,7 +315,14 @@ async def _run_grouped(
             diagnostics.warn(f"reduce failed for group {value!r}: {exc}")
             reducer.skipped += 1
             continue
-        writer.write_record({"group": value, "result": result})
+        writer.write_record(
+            {
+                "group": value,
+                "result": result,
+                # item 64: the group's summary spine — which group, how many items
+                "__source": {"as": "group", "group": value, "count": len(group_payloads)},
+            }
+        )
         reducer.produced += 1
 
 
@@ -326,6 +343,27 @@ def _group(
             order.append(key)
         groups[key][1].append(payload)
     return [groups[key] for key in order]
+
+
+def _spine_position(item: Item) -> int | None:
+    """The item's 1-based spine position (line/page/segment) where knowable —
+    a window's span is read off its members' positions (item 64)."""
+    record = source_record(item.source)
+    return next(
+        (value for key in ("line", "page", "segment") if isinstance(value := record.get(key), int)),
+        None,
+    )
+
+
+def _window_source(items: Sequence[tuple[str, int | None]]) -> dict[str, object]:
+    """Item 64: the window's summary spine — span from the members' spine
+    positions where knowable (first and last that carry one); count always."""
+    source: dict[str, object] = {"as": "window"}
+    positions = [position for _payload, position in items if position is not None]
+    if positions:
+        source["span"] = [positions[0], positions[-1]]
+    source["count"] = len(items)
+    return source
 
 
 def _emit(writer: ResultWriter, *, structured: bool, result: str | Mapping[str, object]) -> None:

@@ -140,6 +140,12 @@ async def run_diff(
                 "share_left": round(theme.share_left, 2),
                 "share_right": round(theme.share_right, 2),
                 "examples": _examples(theme.dominant_members, union_items, vectors),
+                # item 64: a synthesized theme row carries a summary spine
+                "__source": {
+                    "as": "diff",
+                    "side": theme.side,
+                    "count": len(theme.dominant_members),
+                },
             }
         )
     writer.flush()

@@ -90,6 +90,11 @@ async def test_rows_are_sized_shared_labeled_largest_first() -> None:
     assert [row["cluster"] for row in rows] == ["checkout failures", "dark mode praise"]
     assert [row["size"] for row in rows] == [3, 2]
     assert rows[0]["share"] == 0.6
+    # item 64: summary rows carry a summary spine sized like the cluster
+    assert [row["__source"] for row in rows] == [
+        {"as": "cluster", "count": 3},
+        {"as": "cluster", "count": 2},
+    ]
     assert len(chat.calls) == 2  # one label call per cluster, never N
     assert "one label call per cluster" in err  # the preview line, before spend
 
@@ -113,6 +118,7 @@ async def test_top_folds_the_tail_honestly() -> None:
     _code, rows, _err = await _run(NamesClusters(), top=1)
     assert rows[-1]["cluster"] == "(other)"
     assert rows[-1]["size"] == 2
+    assert rows[-1]["__source"] == {"as": "cluster", "count": 2}  # the fold row too
 
 
 async def test_explode_members_labels_every_input_row() -> None:
@@ -126,3 +132,35 @@ async def test_without_chat_clusters_are_numbered_and_noted() -> None:
     _code, rows, err = await _run(None)
     assert [row["cluster"] for row in rows] == ["cluster 1", "cluster 2"]
     assert "no chat model" in err
+
+
+async def test_explode_rows_keep_their_carried_spine() -> None:
+    """--explode rows already carry their item's spine (item 64: verify,
+    don't duplicate - the record's own __source rides through untouched)."""
+
+    class _AnyEmbedding:
+        ref = ModelRef("ollama", "fake-embed")
+
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            return tuple((1.0, 0.0) for _ in texts)
+
+    class _Context(FakeContext):
+        async def embedding_model(self, flag: str | None = None) -> _AnyEmbedding:  # type: ignore[override]
+            return _AnyEmbedding()
+
+    spine = {"path": "notes.txt", "as": "lines", "line": 7}
+    line = json.dumps({"text": "payment dies on iphone", "__source": spine})
+    out = io.StringIO()
+    import contextlib
+
+    with contextlib.redirect_stderr(io.StringIO()):
+        code = await run_cluster(
+            ClusterRequest(explode="members"),
+            _Context(NamesClusters()),
+            stdin=io.StringIO(line + "\ncart dies at checkout\n"),
+            stdout=out,
+        )
+    assert code is ExitCode.OK
+    rows = [json.loads(row) for row in out.getvalue().splitlines()]
+    assert rows[0]["__source"] == spine  # carried, not duplicated
+    assert "__source" not in rows[1]  # a plain line has no spine to carry
