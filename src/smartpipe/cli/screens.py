@@ -9,11 +9,17 @@ from __future__ import annotations
 __all__ = [
     "BINARY_STDIN_UNPARSEABLE",
     "CHATGPT_LOGIN_EXPIRED",
+    "DEMO_ALREADY_HERE",
+    "DEMO_CONFIRM",
+    "DEMO_DIR_IN_THE_WAY",
+    "DEMO_READY",
     "EMBEDDINGS_NEED_KEY",
     "FIELD_REF_ON_PLAIN_INPUT",
     "NO_MODEL",
     "WELCOME",
     "cloud_model_missing",
+    "demo_download_failed",
+    "demo_verify_failed",
     "missing_anthropic_extra",
     "missing_api_key",
     "ollama_model_missing",
@@ -285,6 +291,54 @@ def update_unknown_channel(version: str) -> str:
         "    uv tool upgrade smartpipe-cli      (uv)\n"
         "    pipx upgrade smartpipe-cli         (pipx)\n"
         "    pip install -U smartpipe-cli       (pip)"
+    )
+
+
+DEMO_CONFIRM = "~26 MB download to ./smartpipe-playground - continue?"
+# click.confirm(default=True) renders the pinned prompt:
+#   ~26 MB download to ./smartpipe-playground - continue? [Y/n]:
+
+_DEMO_NEXT_STEPS = """\
+Try these (free - no model calls):
+  cd smartpipe-playground
+  smartpipe 'reports/*.pdf'                  # reader mode: the PDFs become items
+  smartpipe summarize 'count(), avg(total) by region' < data/tickets.jsonl
+  smartpipe graph --fast 'reports/*.pdf' 'recordings/*.mp3' data/feedback.txt --save corpus.html
+
+Every cookbook recipe runs on this corpus: https://prabal-rje.github.io/smartpipe/cookbook/"""
+
+DEMO_READY = f"""\
+playground ready: ./smartpipe-playground - invoices, reports, photos, recordings, sessions, JSONL
+
+{_DEMO_NEXT_STEPS}"""
+
+DEMO_ALREADY_HERE = f"""\
+playground already here: ./smartpipe-playground - nothing downloaded
+
+{_DEMO_NEXT_STEPS}"""
+
+DEMO_DIR_IN_THE_WAY = """\
+error: ./smartpipe-playground already exists and doesn't look like the playground
+  smartpipe won't overwrite files it didn't put there.
+  Fix: move or remove it, or run smartpipe demo from another directory."""
+
+
+def demo_download_failed(url: str, reason: str) -> str:
+    return (
+        f"error: the playground download failed ({reason})\n"
+        f"  URL: {url}\n"
+        "  Check your connection and retry. Fetching by hand works too:\n"
+        f"  curl -L {url} | tar xz"
+    )
+
+
+def demo_verify_failed(expected: str, actual: str) -> str:
+    return (
+        "error: the downloaded playground didn't match its published checksum\n"
+        f"  expected sha256 {expected}\n"
+        f"  got      sha256 {actual}\n"
+        "  Nothing was unpacked. A truncated download or a proxy can cause this - retry,\n"
+        "  and if it persists, report it: https://github.com/prabal-rje/smartpipe/issues"
     )
 
 

@@ -37,14 +37,21 @@ item ([feeding smartpipe](concepts/feeding-smartpipe.md) has the full table).
 
 No corpus handy? [smartpipe-playground](https://github.com/prabal-rje/smartpipe-playground)
 ships 26 MB of CC0 / public-domain practice files - invoices, reports, photos,
-recordings, screen sessions, and JSONL data:
+recordings, screen sessions, and JSONL data - and `smartpipe demo` fetches it
+(checksum-verified, no model needed):
 
 ```bash
-curl -L https://github.com/prabal-rje/smartpipe-playground/releases/download/v1/smartpipe-playground-v1.tar.gz | tar xz
+smartpipe demo
 cd smartpipe-playground
 
 smartpipe map "Extract {vendor, invoice_number, total number}" 'invoices/*.pdf'
 smartpipe filter "the customer sounds frustrated" 'recordings/*.mp3'
+```
+
+Without smartpipe on the machine yet, the corpus is one line of `curl` away:
+
+```bash
+curl -L https://github.com/prabal-rje/smartpipe-playground/releases/download/v1/smartpipe-playground-v1.tar.gz | tar xz
 ```
 
 ## Verbs

@@ -68,6 +68,19 @@ _SCREENS: dict[str, str] = {
     "update_failed": screens.update_failed("uv tool upgrade smartpipe-cli", 1),
     "update_tool_missing": screens.update_tool_missing("brew", "brew upgrade smartpipe"),
     "update_unknown_channel": screens.update_unknown_channel("1.4.0"),
+    "demo_confirm": screens.DEMO_CONFIRM,
+    "demo_ready": screens.DEMO_READY,
+    "demo_already_here": screens.DEMO_ALREADY_HERE,
+    "demo_dir_in_the_way": screens.DEMO_DIR_IN_THE_WAY,
+    "demo_download_failed": screens.demo_download_failed(
+        "https://github.com/prabal-rje/smartpipe-playground/releases/download/v1/"
+        "smartpipe-playground-v1.tar.gz",
+        "connect timeout",
+    ),
+    "demo_verify_failed": screens.demo_verify_failed(
+        "1a84a050d7eb270bd6cc620e817c1757bd0349a6b12df8fbddf755df34f8ba5b",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    ),
 }
 
 
@@ -113,5 +126,11 @@ def test_every_screen_export_is_pinned() -> None:
         "update_failed",
         "update_tool_missing",
         "update_unknown_channel",
+        "DEMO_CONFIRM",
+        "DEMO_READY",
+        "DEMO_ALREADY_HERE",
+        "DEMO_DIR_IN_THE_WAY",
+        "demo_download_failed",
+        "demo_verify_failed",
     }
     assert exported == covered, "a screens.py export is not pinned in _SCREENS"

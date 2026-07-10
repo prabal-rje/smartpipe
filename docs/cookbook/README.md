@@ -24,15 +24,20 @@ with the Unix tools you already use (or don't yet - the
 Every recipe assumes a folder of your own data, but none requires one:
 [smartpipe-playground](https://github.com/prabal-rje/smartpipe-playground)
 ships 26 MB of CC0 / public-domain invoices, reports, photos, recordings,
-screen sessions, and JSONL data:
+screen sessions, and JSONL data. Just run:
 
 ```bash
-curl -L https://github.com/prabal-rje/smartpipe-playground/releases/download/v1/smartpipe-playground-v1.tar.gz | tar xz
+smartpipe demo
 cd smartpipe-playground
 
 smartpipe map "Extract {vendor, invoice_number, total number}" 'invoices/*.pdf'
 smartpipe embed 'sessions/*.mp4' > sessions.embeddings
 ```
+
+(`smartpipe demo` is free - no model calls, checksum-verified. The same
+corpus is one `curl -L
+https://github.com/prabal-rje/smartpipe-playground/releases/download/v1/smartpipe-playground-v1.tar.gz
+| tar xz` if you'd rather fetch it by hand.)
 
 ## The shape of every recipe
 

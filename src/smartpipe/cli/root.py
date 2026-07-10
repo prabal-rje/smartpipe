@@ -22,6 +22,7 @@ from smartpipe.cli.chart_cmd import chart_command
 from smartpipe.cli.cite_cmd import cite_command
 from smartpipe.cli.cluster_cmd import cluster_command
 from smartpipe.cli.config_cmd import config_command, use_command, using_command
+from smartpipe.cli.demo_cmd import demo_command
 from smartpipe.cli.diff_cmd import diff_command
 from smartpipe.cli.distinct_cmd import distinct_command
 from smartpipe.cli.doctor_cmd import doctor_command
@@ -256,6 +257,7 @@ cli.add_command(cache_command)
 cli.add_command(update_command)
 cli.add_command(usage_command)
 cli.add_command(cite_command)
+cli.add_command(demo_command)
 cli.add_command(echo_command)
 
 

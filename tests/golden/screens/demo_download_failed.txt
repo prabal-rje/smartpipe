@@ -1,0 +1,4 @@
+error: the playground download failed (connect timeout)
+  URL: https://github.com/prabal-rje/smartpipe-playground/releases/download/v1/smartpipe-playground-v1.tar.gz
+  Check your connection and retry. Fetching by hand works too:
+  curl -L https://github.com/prabal-rje/smartpipe-playground/releases/download/v1/smartpipe-playground-v1.tar.gz | tar xz
