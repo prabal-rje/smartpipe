@@ -21,6 +21,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   is reverted. Exporting a variable is consent; a file on disk is not.
 
 ### Added
+- **The OCR role works everywhere now.** cluster, diff, distinct,
+  outliers, split, and join (both sides, `--right` included) honor a
+  configured ocr-model with the same per-row disclosure, local fallback,
+  and `--max-calls` belt as the rest - and split gains the belt flags,
+  since OCR is the one way it ever calls a model. Unset stays exactly as
+  free as before, pinned per verb. Embedding runs over OCR-parsed
+  documents batch again (a two-pass count replaced the per-item
+  fallback), and `using`/`config show` finally list every role and
+  posture - stt-model, ocr-model, media-embed-model, cache, batching,
+  update-check, media-previews - each with its value and where it came
+  from. The missing-key screens now offer `smartpipe auth login
+  PROVIDER` alongside the export line.
 - **Request batching: N small items, one model call.** map, extend, and
   filter now coalesce eligible items into packed requests - ten
   one-line classifications cost one HTTP call instead of ten, and
