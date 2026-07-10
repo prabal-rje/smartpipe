@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 import click
 
 from smartpipe import __version__
+from smartpipe.cli.agree_cmd import agree_command
 from smartpipe.cli.auth_cmd import auth_command
 from smartpipe.cli.cache_cmd import cache_command
 from smartpipe.cli.chart_cmd import chart_command
@@ -249,6 +250,7 @@ cli.add_command(write_command)
 cli.add_command(readable_command)
 cli.add_command(summarize_command)
 cli.add_command(sample_command)
+cli.add_command(agree_command)
 cli.add_command(getschema_command)
 cli.add_command(sort_command)
 cli.add_command(auth_command)
