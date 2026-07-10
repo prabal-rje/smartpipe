@@ -16,7 +16,7 @@ Parent: [SKILL.md](../../SKILL.md) · Sibling: [ingestion](ingestion.md)
 
 - Parse stdout only. stderr = notes/receipts/skips (human diagnostics).
 - Text-only flows emit plain lines; anything structured emits JSONL.
-- Records from `map`/`extend` carry `__source` (and other `__` fields). Expect them, or strip with `--bare` when a clean record is wanted (e.g. before `> out.jsonl` or `schema --check`).
+- Records from `map`/`extend` carry `__source` (and other `__` fields). Expect them, or strip with `--bare` when a clean record is wanted (e.g. before `> out.jsonl`; `schema --check` ignores them by default, so no `--bare` needed there).
 - The TTY view is NOT output. At a terminal, records render as numbered pretty blocks; piped, the same run emits JSONL:
   - WRONG - screen-scraping what a terminal showed:
     ```

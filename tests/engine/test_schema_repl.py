@@ -341,3 +341,16 @@ def test_pasting_an_object_list_round_trips_through_the_workshop() -> None:
     replayed = plan_map(parse_prompt(rendered, allow_descriptions=True), schema=None)
     original = plan_map(parse_prompt(text, allow_descriptions=True), schema=None)
     assert replayed.schema == original.schema
+
+
+def test_coverage_row_pass_is_open_world(  # item 46: /test inherits the open default
+) -> None:
+    schema = {
+        "type": "object",
+        "properties": {"vendor": {"type": "string"}},
+        "required": ["vendor"],
+        "additionalProperties": False,
+    }
+    lines = ['{"vendor": "Acme", "original": 1, "__source": {"path": "-"}}']
+    report = aggregate_coverage(schema, lines)
+    assert report.passed == 1  # extras (user data + the spine) are ignored

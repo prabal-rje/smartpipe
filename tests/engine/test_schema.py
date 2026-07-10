@@ -465,3 +465,47 @@ def test_ambiguity_without_a_note_callback_is_silent() -> None:
         validate_and_coerce('{"due": "01/02/2026", "ts": "2026-01-05"}', _DATED)["due"]
         == "2026-01-02"
     )
+
+
+# --- the open-world check artifact (item 46) -----------------------------------------
+
+
+def test_open_check_schema_ignores_undeclared_fields() -> None:
+    from smartpipe.engine.schema import open_check_schema, shorthand_to_schema
+
+    schema = shorthand_to_schema(["vendor"])
+    opened = open_check_schema(schema)
+    assert opened["additionalProperties"] is True
+    assert opened["required"] == ["vendor"]
+    assert schema["additionalProperties"] is False  # the request artifact is untouched
+
+
+def test_open_check_schema_lets_nullable_fields_be_absent() -> None:
+    from smartpipe.engine.schema import open_check_schema, shorthand_to_schema
+
+    schema = shorthand_to_schema(["vendor", "note"], nullable=frozenset({"note"}))
+    opened = open_check_schema(schema)
+    assert opened["required"] == ["vendor"]  # a ? field may be absent, not just null
+
+
+def test_open_check_schema_keeps_per_field_schemas_verbatim() -> None:
+    from smartpipe.engine.schema import open_check_schema
+    from smartpipe.engine.schema_dsl import dsl_to_schema
+
+    schema = dsl_to_schema("total number >= 0")
+    opened = open_check_schema(schema)
+    assert opened["properties"] == schema["properties"]
+
+
+def test_open_check_schema_handles_schemas_without_properties() -> None:
+    from smartpipe.engine.schema import open_check_schema
+
+    assert open_check_schema({"type": "object"})["additionalProperties"] is True
+
+
+def test_open_check_schema_keeps_required_names_without_a_property() -> None:
+    from smartpipe.engine.schema import open_check_schema
+
+    # a hand-written schema may require a name it never describes - not nullable
+    schema: dict[str, object] = {"type": "object", "required": ["ghost"]}
+    assert open_check_schema(schema)["required"] == ["ghost"]

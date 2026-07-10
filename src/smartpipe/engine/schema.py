@@ -29,6 +29,7 @@ __all__ = [
     "example_instance",
     "is_strict_compatible",
     "load_schema",
+    "open_check_schema",
     "parse_schema_draft",
     "reset_deterministic_repairs",
     "shorthand_to_schema",
@@ -78,6 +79,33 @@ def shorthand_to_schema(
         "required": list(fields),
         "additionalProperties": False,
     }
+
+
+def open_check_schema(schema: Mapping[str, object]) -> dict[str, object]:
+    """The CHECK artifact (item 46): open-world validation of the declared
+    fields only. Undeclared fields — user data and the ``__`` spine alike —
+    are ignored (``additionalProperties: true``), and a nullable ``?`` field
+    may be absent, not just null (dropped from ``required``). Per-field
+    schemas ride verbatim. The extraction-time REQUEST schema is a different
+    artifact and stays closed — strict-mode wires demand it."""
+    opened = dict(schema)
+    opened["additionalProperties"] = True
+    properties = as_record(schema.get("properties")) or {}
+    required = as_items(schema.get("required")) or ()
+    opened["required"] = [
+        name
+        for name in required
+        if isinstance(name, str) and not _admits_null(as_record(properties.get(name)))
+    ]
+    return opened
+
+
+def _admits_null(prop: Mapping[str, object] | None) -> bool:
+    """Whether the property was marked ``?`` (its type union includes null)."""
+    if prop is None:
+        return False
+    union = as_items(prop.get("type"))
+    return union is not None and "null" in union
 
 
 def is_strict_compatible(schema: Mapping[str, object]) -> bool:

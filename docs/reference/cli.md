@@ -48,7 +48,7 @@ to `stderr`.
 | [`config`](#config) | view and set defaults | interactive setup |
 | [`run`](#run) | execute a saved `.sem` stage file | [format](sem-files.md) |
 | [`doctor`](#doctor) | check the whole setup, spend nothing (`--probe` adds the paid modality matrix) | exit 0 = ready |
-| `schema` | braces/DSL compile FREE (`--check FILE`, `--example`, stdin REPL); bare at a terminal opens the [workshop](#schema-workshop); plain English drafts with a model (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
+| `schema` | braces/DSL compile FREE (`--check FILE` validates declared fields only - `--strict` forbids unknowns; `--example`; stdin REPL); bare at a terminal opens the [workshop](#schema-workshop); plain English drafts with a model (one call, validated) | [ladder](../concepts/structured-output.md#the-ladder-top-to-bottom) |
 
 ## Common options
 

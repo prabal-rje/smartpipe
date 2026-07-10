@@ -66,9 +66,8 @@ smartpipe sample 20 < posts.jsonl | smartpipe extend "Add {label enum(spam, prom
 - Agents: NEVER run bare `smartpipe schema` (no argument) - at a terminal it opens an interactive workshop and a non-interactive session gains nothing. Always pass the expression, with `--check`/`--example` as needed.
 - A long instruction lives in a file: write it to `prompt.md`, then `smartpipe map @prompt.md data.txt` (or `--prompt-file prompt.md`). Braces inside the file still work. Verify free first: `smartpipe map @prompt.md data.txt --dry-run`.
 - Braces/DSL compile deterministically (free). A plain-English description is the one paid rung: 1 draft call + at most 1 repair; a failed draft exits 3 with nothing on stdout.
-- `--check` gotcha: brace schemas reject unknown fields, and map/extend output carries `__source`.
-  - WRONG: `smartpipe map "Extract {vendor string}" invoice.txt > out.jsonl` then `--check out.jsonl` → `⚠ row 1: Additional properties are not allowed ('__source' was unexpected)`
-  - RIGHT: produce the file with `--bare`, then `--check` passes on the data itself.
+- `--check` is open-world by default: it validates only the DECLARED fields (each must exist unless marked `?`/`optional`, and must match its type/enum); undeclared fields - your originals and the `__` spine alike - are ignored with a dim hint. So map/extend output checks cleanly as-is; `--bare` is NOT needed for checking.
+  - Contract check (forbid unknown fields): add `--strict` - today's closed-world errors, verbatim.
 - `sample` reads stdin only, is seeded (same rows every run), and is free.
 
 ## Robust batch runs
