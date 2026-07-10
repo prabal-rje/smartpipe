@@ -158,6 +158,7 @@ async def _stream_path_items(
                 yield item
                 ordinal += 1
     if stdin is not None:
+        _note_stdin_transition()
         async for item in stdin_items(
             stdin,
             stop=stop,
@@ -267,8 +268,18 @@ async def _ocr_path_items(
             yield item
         ordinal += 1
     if stdin is not None:
+        _note_stdin_transition()
         async for item in stdin_items(stdin, stop=stop, as_mode=as_mode, ocr=ocr):
             yield item
+
+
+def _note_stdin_transition() -> None:
+    """Item 69: positional files are done and the chain now WAITS on the piped
+    stdin (spec §8). That wait looks exactly like a hang — one pinned note
+    (wording is contract) names it and both ways out."""
+    diagnostics.note(
+        "files done - now reading stdin (pipe data or close it; files-only: add < /dev/null)"
+    )
 
 
 async def _chain_files_then_stdin(
@@ -280,6 +291,7 @@ async def _chain_files_then_stdin(
 ) -> AsyncIterator[Item]:
     for item in loaded:
         yield item
+    _note_stdin_transition()
     async for item in stdin_items(stdin, stop=stop, as_mode=as_mode, ocr=ocr):
         yield item
 

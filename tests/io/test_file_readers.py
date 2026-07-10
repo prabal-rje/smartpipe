@@ -146,7 +146,9 @@ async def test_in_plus_piped_stdin_is_files_first_then_lines(tmp_path: Path) -> 
     assert describe_source(items[1].source) == "line 1"
 
 
-async def test_in_with_tty_stdin_is_files_only(tmp_path: Path) -> None:
+async def test_in_with_tty_stdin_is_files_only(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "a.txt").write_text("file-a")
 
     class TtyStdin(io.StringIO):
@@ -158,6 +160,44 @@ async def test_in_with_tty_stdin_is_files_only(tmp_path: Path) -> None:
     items = [item async for item in items_iter]
     assert total == 1  # finite again — no stdin leg, ETA stays
     assert [i.text for i in items] == ["file-a"]
+    assert "files done" not in capsys.readouterr().err  # no stdin leg, no note
+
+
+# --- item 69: the files-then-stdin transition note --------------------------------
+
+_TRANSITION_NOTE = (
+    "note: files done - now reading stdin (pipe data or close it; files-only: add < /dev/null)"
+)
+
+
+async def test_files_then_stdin_transition_notes_exactly_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Spec §8's wait on stdin looked like a hang — one pinned note names it."""
+    (tmp_path / "a.txt").write_text("file-a")
+    spec = InputSpec(patterns=(str(tmp_path / "*.txt"),), from_files=False)
+    items_iter, _total = resolve_items(spec, io.StringIO("line-1\nline-2\n"))
+    _items = [item async for item in items_iter]
+    assert capsys.readouterr().err.count(_TRANSITION_NOTE) == 1
+
+
+async def test_stdin_only_runs_never_note_the_transition(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    items_iter, _total = resolve_items(InputSpec(patterns=(), from_files=False), io.StringIO("x\n"))
+    _items = [item async for item in items_iter]
+    assert "files done" not in capsys.readouterr().err
+
+
+async def test_csv_chain_also_notes_the_stdin_transition(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # the csv mix streams through its own chain path — same wait, same note
+    (tmp_path / "d.csv").write_text("header\nvalue\n")
+    spec = InputSpec(patterns=(str(tmp_path / "*.csv"),), from_files=False)
+    items_iter, _total = resolve_items(spec, io.StringIO("line-1\n"))
+    _items = [item async for item in items_iter]
+    assert capsys.readouterr().err.count(_TRANSITION_NOTE) == 1
 
 
 async def test_in_plus_from_files_is_a_usage_error(tmp_path: Path) -> None:
