@@ -1,3 +1,4 @@
 error: model 'claude-opus-4-8' needs an Anthropic API key
-  smartpipe found no ANTHROPIC_API_KEY in the environment. Keys are never stored in config.
+  smartpipe found no ANTHROPIC_API_KEY in the environment and no stored key.
   Fix: export ANTHROPIC_API_KEY=sk-ant-...        (add it to your shell profile to persist)
+   or: smartpipe auth login anthropic        (checks the key, stores it for every run)

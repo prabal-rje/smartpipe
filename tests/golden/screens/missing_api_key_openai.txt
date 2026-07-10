@@ -1,3 +1,4 @@
 error: model 'gpt-4o-mini' needs an OpenAI API key
-  smartpipe found no OPENAI_API_KEY in the environment. Keys are never stored in config.
+  smartpipe found no OPENAI_API_KEY in the environment and no stored key.
   Fix: export OPENAI_API_KEY=sk-...        (add it to your shell profile to persist)
+   or: smartpipe auth login openai-api        (checks the key, stores it for every run)
