@@ -60,6 +60,18 @@ def test_cache_env_values_win_and_normalize() -> None:
     assert junk["cache"] == Setting("cache", "off", "default")  # the container ignores junk too
 
 
+def test_batching_row_mirrors_the_container_ladder() -> None:
+    # unset = on (item 62: coalescing is the default posture)
+    default = {s.key: s for s in settings_with_origin({}, Config())}
+    assert default["batching"] == Setting("batching", "on", "default")
+    stamped = {s.key: s for s in settings_with_origin({}, Config(batching=False))}
+    assert stamped["batching"] == Setting("batching", "off", "config file")
+    env = {s.key: s for s in settings_with_origin({"SMARTPIPE_BATCH": "off"}, Config())}
+    assert env["batching"] == Setting("batching", "off", "env")
+    junk = {s.key: s for s in settings_with_origin({"SMARTPIPE_BATCH": "maybe"}, Config())}
+    assert junk["batching"] == Setting("batching", "on", "default")  # junk falls through
+
+
 def test_update_check_env_kill_switch_shows_as_env_off() -> None:
     env = {"SMARTPIPE_NO_UPDATE_CHECK": "1"}
     by_key = {s.key: s for s in settings_with_origin(env, Config(update_check=True))}
@@ -102,6 +114,7 @@ def test_render_show_is_aligned_and_ends_with_file_path() -> None:
         ("concurrency", "4", "(default)"),
         ("output", "auto", "(default)"),
         ("cache", "off", "(default)"),
+        ("batching", "on", "(default)"),
         ("update-check", "on", "(default)"),
         ("media-previews", "on", "(default)"),
     ]

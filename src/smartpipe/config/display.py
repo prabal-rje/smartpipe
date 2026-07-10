@@ -33,6 +33,7 @@ _DEFAULTS = {
     "concurrency": "4",
     "output": "auto",
     "cache": "off",
+    "batching": "on",
     "update-check": "on",
     "media-previews": "on",
 }
@@ -61,6 +62,7 @@ def settings_with_origin(env: Mapping[str, str], config: Config) -> tuple[Settin
         _resolve("concurrency", env.get("SMARTPIPE_CONCURRENCY"), config.concurrency),
         _resolve("output", env.get("SMARTPIPE_OUTPUT"), config.output),
         _cache_setting(env, config),
+        _batching_setting(env, config),
         _update_check_setting(env, config),
         _resolve("media-previews", None, config.media_previews),
     )
@@ -120,6 +122,19 @@ def _cache_setting(env: Mapping[str, str], config: Config) -> Setting:
     if flag in _CACHE_OFF:
         return Setting("cache", "off", "env")
     return _resolve("cache", None, config.cache)
+
+
+def _batching_setting(env: Mapping[str, str], config: Config) -> Setting:
+    """Mirrors the container's ``_batching_enabled`` exactly: a valid
+    SMARTPIPE_BATCH flag wins, junk falls through, unset defaults ON (item 62)."""
+    flag = env.get("SMARTPIPE_BATCH", "").strip().lower()
+    if flag in _CACHE_ON:
+        return Setting("batching", "on", "env")
+    if flag in _CACHE_OFF:
+        return Setting("batching", "off", "env")
+    if config.batching is None:
+        return Setting("batching", "on", "default")
+    return _resolve("batching", None, config.batching)
 
 
 def _update_check_setting(env: Mapping[str, str], config: Config) -> Setting:
