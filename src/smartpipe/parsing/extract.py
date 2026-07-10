@@ -569,8 +569,13 @@ def transcribe_audio(audio: AudioData) -> str:
 
 
 def _via_markitdown(path: Path, *, extra: str, noun: str) -> str:
+    from smartpipe.parsing.envfence import environ_fence
+
     try:
-        from markitdown import MarkItDown
+        # magika (markitdown's sniffer) load_dotenv()'s the working tree on
+        # import — fence it so a .env on disk never enters our process env.
+        with environ_fence():
+            from markitdown import MarkItDown
     except ImportError as exc:
         import sys
 

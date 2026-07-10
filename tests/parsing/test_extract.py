@@ -111,6 +111,51 @@ def test_missing_markitdown_raises_missing_extra(
     assert "unavailable" in excinfo.value.guidance  # core on <=3.13; wheel-gap wording on 3.14
 
 
+# --- the environment fence (item 78: magika load_dotenv's the cwd's .env) ------
+
+
+def test_environ_fence_reverts_additions_and_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from smartpipe.parsing.envfence import environ_fence
+
+    monkeypatch.setenv("SMARTPIPE_FENCE_KEEP", "original")
+    monkeypatch.delenv("SMARTPIPE_FENCE_ADDED", raising=False)
+    with environ_fence():
+        os.environ["SMARTPIPE_FENCE_ADDED"] = "sneaky"
+        os.environ["SMARTPIPE_FENCE_KEEP"] = "clobbered"
+    assert "SMARTPIPE_FENCE_ADDED" not in os.environ
+    assert os.environ["SMARTPIPE_FENCE_KEEP"] == "original"
+
+
+@pytest.mark.skipif(find_spec("markitdown") is None, reason="no markitdown wheel (3.14)")
+def test_real_import_never_ingests_a_dotenv_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """markitdown's import chain (magika) calls load_dotenv(find_dotenv()) —
+    a .env in the working tree must never leak into smartpipe's process env
+    (env-always-wins is a CONSENTED precedence; a file on disk is not consent).
+    Root cause of the item-78 auth-list flake."""
+    import contextlib
+    import os
+
+    (tmp_path / ".env").write_text("SMARTPIPE_PLANTED_DOTENV_KEY=leaked\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("SMARTPIPE_PLANTED_DOTENV_KEY", raising=False)
+    # purge the cached modules so the import side effect genuinely re-runs
+    for name in [n for n in sys.modules if n == "magika" or n.startswith("magika.")]:
+        monkeypatch.delitem(sys.modules, name)
+    for name in [n for n in sys.modules if n == "markitdown" or n.startswith("markitdown.")]:
+        monkeypatch.delitem(sys.modules, name)
+    junk = tmp_path / "junk.pdf"
+    junk.write_bytes(b"%PDF-not-really")
+    with contextlib.suppress(ItemError):  # parse outcome is irrelevant; the import matters
+        extract(junk, FileKind.PDF)
+    assert "SMARTPIPE_PLANTED_DOTENV_KEY" not in os.environ
+
+
 def test_audio_names_the_audio_extra(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setitem(sys.modules, "markitdown", None)
     f = tmp_path / "clip.mp3"

@@ -41,6 +41,17 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # simply HAVE no config; this pin makes local runs match CI)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("APPDATA", str(tmp_path / "config"))  # the windows twin (D09)
+    # …and no ambient provider credentials (item 78, live-caught 2026-07-10:
+    # magika - markitdown's sniffer - load_dotenv()'d the repo's .env into the
+    # process mid-suite, and the auth-list tests started seeing real keys on
+    # whichever xdist worker ran a document test first; the product-side
+    # environ_fence fixes the ingestion, this pin makes key-sensitive tests
+    # deterministic under ANY ambient environment, exported keys included)
+    from smartpipe.config.credentials import KEY_ENVS
+
+    for env_vars in KEY_ENVS.values():
+        for name in env_vars:
+            monkeypatch.delenv(name, raising=False)
     metering.reset()
 
 
