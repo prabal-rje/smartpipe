@@ -34,7 +34,7 @@ def test_die_usage_fault_exits_64(capsys: pytest.CaptureFixture[str]) -> None:
 def test_die_setup_fault_prints_screen_verbatim_and_exits_2(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    screen = "error: no model configured, and no local Ollama found\n\n  Local (free, private):"
+    screen = "error: no model configured, and no local Ollama found\n\n  Cloud (paid):"
     with pytest.raises(SystemExit) as excinfo:
         diagnostics.die(SetupFault(screen))
     assert _exit_code(excinfo) == 2

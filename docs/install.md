@@ -90,5 +90,5 @@ per-shell lines live in [troubleshooting](troubleshooting.md#installing-tab-comp
 ## Next
 
 You have smartpipe; now it needs a model to talk to. The
-[quickstart](quickstart.md) walks you through that in a minute, whether you want a
-free local model or a cloud one.
+[quickstart](quickstart.md) walks you through that in a minute - a ChatGPT
+login, a cloud API key, or a free local model.

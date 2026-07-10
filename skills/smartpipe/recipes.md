@@ -14,6 +14,7 @@ smartpipe map "Extract {vendor string, invoice_number string, total number, date
 # folder-to-folder translation, per line, provenance-reassembled, no bash loop
 smartpipe map "Translate to French" docs/*.txt --as lines \
 | smartpipe write 'fr/{name}'
+# {name} = the source file's name, carried by __source - docs/a.txt becomes fr/a.txt (NOT a record field)
 
 # video/audio library search: embed once (flat file); each later query costs one query embedding
 smartpipe embed 'sessions/**/*.mp4' > lib.embeddings

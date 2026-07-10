@@ -22,7 +22,7 @@ to `stderr`.
 | Verb | Purpose | Page |
 |---|---|---|
 | [`map`](../verbs/map.md) | transform each item with a prompt | one item in, one out |
-| `write` | route items to files (the egress door; `TEMPLATE` with `{name}` `{stem}` `{ext}` `{path}` `{index}` + record fields; `--field`, `--keep-meta`, `--as file\|lines`) | free |
+| `write` | route items to files (the egress door; `TEMPLATE` with `{name}` `{stem}` `{ext}` `{path}` `{index}` from `__source` provenance + record fields for fan-out; `--field`, `--keep-meta`, `--as file\|lines`) | free |
 | [`readable`](../verbs/readable.md) | render records as blocks for eyes (`--full`, `--bare`); media previews at a color terminal | free |
 | [`filter`](../verbs/filter.md) | keep items matching a condition | semantic grep |
 | [`embed`](../verbs/embed.md) | items → vectors (JSONL) | plumbing for `top_k` |
@@ -111,8 +111,9 @@ Bare `smartpipe config` runs three stages in order - the text model, the
 embedding model (the auto-pair suggestion preselected), then an optional OCR
 model (one keypress skips it). Every provider appears with a connected badge;
 picking an unconnected one drops into the `auth login` connect flow inline
-and continues. Re-runs preselect your current choices and restamp only
-changes; Ctrl-C anywhere leaves the config untouched. At the end it offers to
+and continues. Every stage has a `back` row (typing `back` or `b` works too),
+re-runs preselect your current choices and restamp only changes, and Ctrl-C
+anywhere leaves the config untouched. At the end it offers to
 verify what the chosen models can actually do (~5 tiny requests, consent
 first; a failed text control reports a setup fault and concludes nothing).
 Menu rows carry capability chips (`text · image · audio`) sourced probed >

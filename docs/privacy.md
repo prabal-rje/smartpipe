@@ -114,7 +114,7 @@ your input files. Output goes to `stdout`; where it lands is up to your shell.
 
 ## See also
 
-- [Models & providers](concepts/models-and-providers.md) - local vs cloud in detail
+- [Models & providers](concepts/models-and-providers.md) - cloud vs local in detail
 
 
 ## The result cache

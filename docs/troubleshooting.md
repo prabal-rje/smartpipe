@@ -11,12 +11,14 @@ Each of these also prints as a screen on `stderr` when the error occurs; this pa
 
 ## "no model configured" (exit 2)
 
-smartpipe has nothing to talk to. Either:
+smartpipe has nothing to talk to. Pick one:
 
+- **Log in with ChatGPT:** `smartpipe auth login` (a Plus/Pro plan, no API
+  key), then `smartpipe config model gpt-5.4`.
+- **Use a cloud API key:** `export OPENAI_API_KEY=…` (or `ANTHROPIC_API_KEY`) and pass
+  `--model gpt-5.4-mini` (or set a default with `smartpipe config model …`).
 - **Run a local model (free):** install [Ollama](https://ollama.com), then
   `ollama pull qwen3:8b`. smartpipe finds it automatically.
-- **Use a cloud model:** `export OPENAI_API_KEY=…` (or `ANTHROPIC_API_KEY`) and pass
-  `--model gpt-5.4-mini` (or set a default with `smartpipe config model …`).
 
 See the [quickstart](quickstart.md) for the one-minute version.
 
@@ -46,7 +48,9 @@ The refresh token was revoked (password change, session cleanup). Run
 
 ## "ANTHROPIC_API_KEY isn't set" (exit 2)
 
-A cloud model needs a key, and smartpipe reads it from the environment (never a file):
+A cloud model needs a key. Export it, or store one with
+`smartpipe auth login anthropic` (masked prompt, live check, owner-only
+file) - an exported variable always wins over a stored key:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-…
@@ -190,8 +194,8 @@ general route.
 
 ## "model can't read images" - my image was skipped
 
-The chat model you're using has no vision. Pick one that does:
-`--model ollama/qwen3-vl` locally, or a cloud vision model.
+The chat model you're using has no vision. Pick one that does: a cloud vision
+model (`--model gpt-5.4-mini`), or `--model ollama/qwen3-vl` locally.
 
 ## An internal error / "BUG" screen (exit 70)
 

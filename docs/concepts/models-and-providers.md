@@ -3,18 +3,18 @@
 ## What's a "model"?
 
 A model is the AI that reads your instruction and produces the answer. smartpipe
-doesn't contain one - it sends your text to a model running either **locally** (on
-your machine, via Ollama) or in the **cloud** (OpenAI, Anthropic, or any
-compatible service). You choose which; smartpipe just talks to it.
+doesn't contain one - it sends your text to a model running either in the
+**cloud** (OpenAI, Anthropic, or any compatible service) or **locally** (on
+your machine, via Ollama). You choose which; smartpipe just talks to it.
 
-## Local vs. cloud
+## Cloud vs. local
 
-| | Local (Ollama) | Cloud |
+| | Cloud | Local (Ollama) |
 |---|---|---|
-| Cost | Free | Small charge per use |
-| Privacy | Nothing leaves your machine when Ollama is local | Text and supported media go to the provider |
-| Setup | Install Ollama, pull a model | Get an API key |
-| Speed / quality | Depends on your hardware | Usually faster and stronger |
+| Cost | Small charge per use | Free |
+| Privacy | Text and supported media go to the provider | Nothing leaves your machine when Ollama is local |
+| Setup | Log in with ChatGPT, or get an API key | Install Ollama, pull a model |
+| Speed / quality | Usually faster and stronger | Depends on your hardware |
 
 With no configured chat model, smartpipe tries local Ollama first. If it finds a
 non-embedding model, it uses that model and prints the exact `ollama/...` name.
@@ -174,7 +174,7 @@ both. Profiles never hold API keys.
 ## Setting a default
 
 ```bash
-smartpipe config model ollama/qwen3:8b     # save a default
+smartpipe config model gpt-5.4-mini        # save a default (any provider: ollama/qwen3:8b works the same)
 smartpipe config show                       # see the effective settings + where each comes from
 ```
 

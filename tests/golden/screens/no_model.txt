@@ -1,12 +1,13 @@
 error: no model configured, and no local Ollama found
 
+  Cloud (paid):
+    smartpipe auth login                      (use your ChatGPT Plus/Pro plan)
+    smartpipe config model claude-opus-4-8    then: export ANTHROPIC_API_KEY=sk-ant-...
+    smartpipe config model gpt-5.4-mini        then: export OPENAI_API_KEY=sk-...
+
   Local (free, private):
     1. Install Ollama              https://ollama.com
     2. ollama pull qwen3:8b
     3. smartpipe config model ollama/qwen3:8b
-
-  Cloud (paid):
-    smartpipe config model claude-opus-4-8    then: export ANTHROPIC_API_KEY=sk-ant-...
-    smartpipe config model gpt-5.4-mini        then: export OPENAI_API_KEY=sk-...
 
   Then rerun your command. 'smartpipe config' walks you through this interactively.

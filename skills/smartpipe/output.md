@@ -35,7 +35,10 @@ Parent: [SKILL.md](../../SKILL.md) · Sibling: [ingestion](ingestion.md)
 
 ## write (egress mirrors ingress)
 
-- Template vars: `{name}` `{stem}` `{ext}` `{path}` `{index}` + ANY record field - `write 'by-lang/{lang}.jsonl'` fans out by content.
+- Template vars come from two places:
+  - `{name}` `{stem}` `{ext}` `{path}` `{index}` fill from the item's PROVENANCE (the `__source` spine: the file the item was cut from and its position) - they are reserved and always win.
+  - Any OTHER `{field}` word fills from the record's own data - `write 'by-lang/{lang}.jsonl'` fans out by content.
+  - WRONG: expecting `{name}` to read a `name` field from the record. RIGHT: `{name}` is the source file's basename (`notes/a.txt` → `a.txt`); route on your own `name` data by renaming the field.
 - Items cut as whole files → one file each (same-path collision = error). Items cut as lines/rows → append into their source group, ORIGINAL order (that's `__source` at work - don't edit it).
 - Text-only records write as plain text; records as JSONL.
 - `--field NAME` writes one field's value as the raw file content.
