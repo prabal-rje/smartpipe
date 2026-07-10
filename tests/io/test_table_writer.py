@@ -69,8 +69,21 @@ def test_scalar_rendering() -> None:
 
 def test_score_column_sorts_last() -> None:
     writer, out = _csv()
-    writer.write_record({"_score": 0.9, "name": "Ada"})  # _score given first
-    assert out.getvalue().splitlines()[0] == "name,_score"  # but header puts it last
+    writer.write_record({"__score": 0.9, "name": "Ada"})  # __score given first
+    assert out.getvalue().splitlines()[0] == "name,__score"  # but header puts it last
+
+
+def test_rank_and_distance_columns_sort_last() -> None:
+    writer, out = _csv()
+    writer.write_record({"__distance": 0.7, "__rank": 1, "text": "x"})
+    assert out.getvalue().splitlines()[0] == "text,__rank,__distance"
+
+
+def test_pre_migration_score_spellings_still_sort_last() -> None:
+    # dual-read (item 76): pre-1.4 top_k wrote _score/_rank — one release of grace
+    writer, out = _csv()
+    writer.write_record({"_score": 0.9, "_rank": 1, "name": "Ada"})
+    assert out.getvalue().splitlines()[0] == "name,_score,_rank"
 
 
 def test_fields_pins_columns_and_order() -> None:

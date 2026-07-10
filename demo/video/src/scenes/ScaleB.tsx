@@ -15,10 +15,10 @@ const LINES: readonly TerminalLine[] = [
   },
   { kind: "ord", at: sec(3.2), text: "#1" },
   { kind: "field", at: sec(3.3), k: "text", v: "Checkout 502 bug …" },
-  { kind: "field", at: sec(3.4), k: "_score", v: "0.93" },
+  { kind: "field", at: sec(3.4), k: "__score", v: "0.93" },
   { kind: "ord", at: sec(3.9), text: "#2", gap: true },
   { kind: "field", at: sec(4.0), k: "text", v: "Pay page hangs …" },
-  { kind: "field", at: sec(4.1), k: "_score", v: "0.88" },
+  { kind: "field", at: sec(4.1), k: "__score", v: "0.88" },
 ];
 
 /** Scene 6 — scale B: search the index by meaning. */

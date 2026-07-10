@@ -135,6 +135,14 @@ async def run_cluster(
         WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=None), stdout
     )
     if request.explode == "members":
+        collisions = sum(
+            1 for item in clustered_items if item.data is not None and "cluster" in item.data
+        )
+        if collisions:  # the field name stays (it's the requested data) — the silence dies
+            rows = "row" if collisions == 1 else "rows"
+            diagnostics.warn(
+                f"cluster --explode overwrites an existing 'cluster' field on {collisions} {rows}"
+            )
         member_label: dict[int, str] = {}
         for members, label in zip(clusters, labels, strict=True):
             for member in members:

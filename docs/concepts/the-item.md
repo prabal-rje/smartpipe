@@ -89,7 +89,10 @@ spine an item travels on:
 - `__source` - how the item was cut: `{"path": …, "as": "lines", "line": 12}`
   (plus a human label like `report.pdf §3/12` when a stage created it).
 - `__media` - media transport: `{"kind": "image", "mime": …, "data_b64": …}`.
-- `__score` - join's per-pair similarity.
+- `__score` - a similarity: `top_k`'s per-result score, `join`'s per-pair score.
+- `__rank` / `__snapshot` - `top_k --stream`'s leaderboard position and
+  snapshot marker.
+- `__distance` - `outliers`' weirdness score.
 - `__invalid` / `__error` / `__raw` - the `--keep-invalid` failure markers.
 
 Known spine fields round-trip through any number of stages. Unknown `__`

@@ -66,7 +66,7 @@ Pipe that into a bar chart with [youplot](https://github.com/red-data-tools/YouP
 
 ## A ranked table you can read
 
-`top_k` output is JSONL with `_score`; [visidata](https://visidata.org) turns
+`top_k` output is JSONL with `__score`; [visidata](https://visidata.org) turns
 it into an interactive table:
 
 ```bash
@@ -78,7 +78,7 @@ Plain terminal version, no extra tools:
 
 ```bash
 … \
-| jq -r '[(._score|tostring), .text[:70]] | @tsv' \
+| jq -r '[(.__score|tostring), .text[:70]] | @tsv' \
 | column -t -s $'\t'
 ```
 

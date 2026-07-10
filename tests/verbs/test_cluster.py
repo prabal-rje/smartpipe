@@ -116,10 +116,58 @@ async def test_top_folds_the_tail_honestly() -> None:
 
 
 async def test_explode_members_labels_every_input_row() -> None:
-    _code, rows, _err = await _run(NamesClusters(), explode="members")
+    _code, rows, err = await _run(NamesClusters(), explode="members")
     assert len(rows) == 5
     assert rows[0] == {"text": "payment dies on iphone", "cluster": "checkout failures"}
     assert rows[3]["cluster"] == "dark mode praise"
+    assert "overwrites" not in err  # no input row carried a cluster field — stay silent
+
+
+class SubstringEmbedding:
+    """Looks vectors up by substring, so raw-JSON item text still resolves."""
+
+    def __init__(self) -> None:
+        self.ref = ModelRef("ollama", "fake-embed")
+
+    async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+        def lookup(text: str) -> tuple[float, ...]:
+            for key, vector in VECTORS.items():
+                if key in text:
+                    return vector
+            raise KeyError(text)
+
+        return tuple(lookup(text) for text in texts)
+
+
+class RecordContext(FakeContext):
+    async def embedding_model(self, flag: str | None = None) -> SubstringEmbedding:  # type: ignore[override]
+        return SubstringEmbedding()
+
+
+async def test_explode_warns_once_when_input_rows_already_carry_cluster() -> None:
+    """Item 76: the field name stays (it IS the requested data) — the silence dies."""
+    import contextlib
+
+    rows_in = [
+        {"text": "payment dies on iphone", "cluster": "stale"},
+        {"text": "cart dies at checkout", "cluster": "stale"},
+        {"text": "love the dark mode"},
+    ]
+    stdin = "\n".join(json.dumps(row) for row in rows_in) + "\n"
+    out = io.StringIO()
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        code = await run_cluster(
+            ClusterRequest(explode="members"),
+            RecordContext(NamesClusters()),
+            stdin=io.StringIO(stdin),
+            stdout=out,
+        )
+    assert code is ExitCode.OK
+    rows = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert all(row["cluster"] != "stale" for row in rows)  # overwritten with the label
+    stderr = err.getvalue()
+    assert stderr.count("cluster --explode overwrites an existing 'cluster' field on 2 rows") == 1
 
 
 async def test_without_chat_clusters_are_numbered_and_noted() -> None:

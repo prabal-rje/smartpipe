@@ -47,6 +47,13 @@ async def test_spine_shows_by_default_and_bare_drops_it() -> None:
     assert bare == "result: hola\n\n"
 
 
+async def test_ranking_stamps_render_dimmed_in_the_spine() -> None:
+    # item 76: a top_k __score is tool metadata — readable dims it at the block's bottom
+    row = json.dumps({"__score": 0.91, "text": "hit"})
+    _code, out = await _run(row + "\n", color=True)
+    assert out == "\x1b[2mtext:\x1b[0m hit\n\x1b[2m\x1b[2m__score:\x1b[0m 0.91\x1b[0m\n\n"
+
+
 async def test_full_disables_truncation() -> None:
     row = json.dumps({"body": "x" * 450})
     _code, clipped = await _run(row + "\n")

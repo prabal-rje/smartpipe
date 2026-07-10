@@ -61,8 +61,8 @@ tail -f tickets.jsonl \
 ```
 
 At a terminal, the top-5 block repaints in place as better matches arrive. In a
-pipe, each change emits a JSONL *snapshot*: a `{"_snapshot": N}` marker line
-followed by the K records in rank order, each with `_score` and `_rank` - split on
+pipe, each change emits a JSONL *snapshot*: a `{"__snapshot": N}` marker line
+followed by the K records in rank order, each with `__score` and `__rank` - split on
 the markers to consume programmatically. No change, no output.
 
 ## The on-call tail, end to end

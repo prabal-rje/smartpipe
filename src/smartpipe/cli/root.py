@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-import signal
 import sys
 from typing import TYPE_CHECKING
 
@@ -98,8 +97,23 @@ class _StyledContext(click.Context):
     formatter_class = _StyledHelpFormatter
 
 
+class _PipeClosedError(RuntimeError):
+    """A ``BrokenPipeError`` smuggled past click (item 75): click's own EPIPE
+    handler turns any ``OSError(EPIPE)`` into ``sys.exit(1)`` — even in
+    non-standalone mode — before ``main`` could map it to the pinned 141.
+    ``_RootGroup.invoke`` re-raises it as this non-OSError instead."""
+
+
 class _RootGroup(click.Group):
     """Print the welcome screen when invoked bare (plan/ux.md, spec §14)."""
+
+    def invoke(self, ctx: click.Context) -> object:
+        try:
+            return super().invoke(ctx)
+        except BrokenPipeError as exc:
+            # downstream closed mid-verb (| head) — shield the EPIPE from
+            # click's exit-1 trap; main() maps it to the quiet 141
+            raise _PipeClosedError from exc
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         if not args:
@@ -253,27 +267,21 @@ def _stylize(command: click.Command) -> None:
 _stylize(cli)
 
 
-def _stdout_is_real() -> bool:
-    """True when stdout is an OS-level stream (tty or pipe), not a capture."""
-    try:
-        return sys.stdout.fileno() >= 0
-    except (OSError, ValueError):  # capture objects raise UnsupportedOperation (a ValueError)
-        return False
-
-
 def main() -> None:
     # standalone_mode=False so *we* own exit codes. In this mode click does not
     # sys.exit(): a ctx.exit(n) / --version / --help comes back as a plain int
     # return value (verified against click 8.4), and UsageError is raised.
     # --debug becomes a real global flag with the first verb (stage 3); until then
     # the env var keeps tracebacks reachable for development.
-    if hasattr(signal, "SIGPIPE") and _stdout_is_real():
-        # POSIX: when downstream closes, die exactly like grep. Guarded to
-        # REAL stdout streams — under a test harness's capture there is no
-        # pipe to honor, and SIG_DFL process-wide lets any stray SIGPIPE
-        # (worker threads, GC'd pipes) kill the harness itself (seen only
-        # on the GitHub runner: exit 141 at a moving test).
-        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    #
+    # SIGPIPE stays IGNORED (Python's default) on purpose — never SIG_DFL
+    # (item 75). Process-wide SIG_DFL turned every stray EPIPE into raw
+    # signal death (-13): a provider socket, or the event loop's self-pipe
+    # when the stdin pump's call_soon_threadsafe races loop teardown (the
+    # rc3 1-in-12 streaming flake; measured 5% locally on a flowing stdin).
+    # With SIG_IGN a closed downstream pipe surfaces as BrokenPipeError,
+    # converted below to the pinned quiet exit 141 — and the run's finally
+    # blocks (usage ledger, receipts, spool cleanup) still get to run.
     debug = "SMARTPIPE_DEBUG" in os.environ
     # notify-next-run (npm-style): a daemon thread refreshes the release cache
     # while the command works; the note prints from the CACHED answer at the
@@ -291,7 +299,7 @@ def main() -> None:
             # "we expand our own globs" contract (D43-era; caught by CI round 10)
             windows_expand_args=False,
         )
-    except BrokenPipeError:  # Windows / buffered-flush edge; POSIX rarely reaches here
+    except (BrokenPipeError, _PipeClosedError):  # downstream closed (| head): grep-like quiet 141
         with contextlib.suppress(OSError, ValueError):  # silence the shutdown flush
             os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         raise SystemExit(int(ExitCode.PIPE_CLOSED)) from None

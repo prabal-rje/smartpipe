@@ -112,7 +112,7 @@ async def run_outliers(
             record = {key: value for key, value in item.data.items() if key != "vector"}
         else:
             record = {"text": item.raw}
-        record["_distance"] = round(distances[index], 4)
+        record["__distance"] = round(distances[index], 4)
         record.setdefault("source", describe_source(item.source))
         writer.write_record(record)
     writer.flush()

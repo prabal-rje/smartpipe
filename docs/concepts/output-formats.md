@@ -76,8 +76,14 @@ The rules that make it a real table:
 - **CSV is RFC 4180** (proper quoting, CRLF line endings); **TSV** uses tabs, and
   replaces any tab or newline inside a value with a space (a tab inside a TSV cell
   would corrupt the columns).
-- **`top_k` scores land last.** A `_score` column sorts to the right of your data,
+- **`top_k` scores land last.** A `__score` column sorts to the right of your data,
   where a spreadsheet reader expects it.
+
+> **Migrating from pre-1.4:** `top_k` and `outliers` used to write `_score`
+> (and `_rank`/`_snapshot`/`_distance`) with a single underscore. Those stamps
+> now live in the reserved `__` namespace - update your `jq`/`sort --by`
+> references to `__score` etc. The old spellings are still read for one
+> release (they keep sorting last in CSV/TSV), but are no longer written.
 
 CSV and TSV need **structured** output - there have to be named columns. Ask for
 fields with braces or `--schema`; a plain-text prompt with `--output csv` is a

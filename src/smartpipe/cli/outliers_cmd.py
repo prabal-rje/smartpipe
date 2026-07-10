@@ -55,7 +55,7 @@ def outliers_command(
       cat train.jsonl | smartpipe outliers 20     # label noise and template glitches
 
     top_k's mirror: farthest from everything instead of nearest to a query.
-    Embeddings only — no chat calls. Each row carries _distance, and the
+    Embeddings only — no chat calls. Each row carries __distance, and the
     stderr line anchors it ("median neighbor distance 0.21 — these are
     3.1x-3.9x out") so the score means something.
     """
