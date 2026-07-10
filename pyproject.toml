@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "smartpipe-cli"
-version = "1.4.0rc3"
+version = "1.4.0rc4"
 description = "Semantic pipes and queries for your terminal - PDFs, images, audio, video, and text through Unix verbs that understand."
 readme = "README.md"
 license = "Apache-2.0"

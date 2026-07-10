@@ -2924,7 +2924,7 @@ wheels = [
 
 [[package]]
 name = "smartpipe-cli"
-version = "1.4.0rc3"
+version = "1.4.0rc4"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
