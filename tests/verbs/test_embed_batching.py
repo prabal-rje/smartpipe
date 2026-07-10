@@ -113,6 +113,37 @@ async def test_130_items_take_exactly_three_calls(tmp_path: Path) -> None:
     assert emitted == texts  # order preserved across chunk seams
 
 
+async def test_ocr_corpus_still_batches_via_the_two_pass_count(tmp_path: Path) -> None:
+    """Item 49(b): total is unknown pre-parse, but a files-only OCR corpus is
+    finite — parse first, then batch, instead of one embed call per item."""
+    from tests.io.test_ocr_ingest import FakeParser
+
+    parser = FakeParser(pages=3)
+
+    class OcrContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> FakeParser:  # type: ignore[override]
+            return parser
+
+    (tmp_path / "scan.pdf").write_bytes(b"%PDF-1.4 tiny")
+    (tmp_path / "note.txt").write_text("plain text", encoding="utf-8")
+    model = BatchFake()
+    out = io.StringIO()
+    code = await run_embed(
+        EmbedRequest(
+            model_flag=None,
+            concurrency_flag=None,
+            input=InputSpec(patterns=(str(tmp_path / "*"),), from_files=False),
+        ),
+        OcrContext(model),
+        stdin=_TtyStdin(),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert [len(call) for call in model.calls] == [4]  # 3 pages + 1 text, ONE call
+    emitted = [json.loads(line)["text"] for line in out.getvalue().splitlines()]
+    assert emitted == ["plain text", "page 1 md", "page 2 md", "page 3 md"]
+
+
 async def test_streamed_stdin_stays_per_item() -> None:
     # a live stream must not buffer 64 lines for throughput — latency wins
     model = BatchFake()

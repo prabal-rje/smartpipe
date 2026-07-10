@@ -58,6 +58,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
@@ -108,3 +111,52 @@ async def test_all_includes_shared_themes(tmp_path: Path) -> None:
 async def test_empty_side_is_a_usage_fault(tmp_path: Path) -> None:
     with pytest.raises(UsageFault, match="BOTH sides"):
         await _run("", RIGHT, tmp_path)
+
+
+# --- the ocr-model role at ingestion (item 48) ---------------------------------------
+
+
+async def test_right_pdf_parses_through_the_configured_role(tmp_path: Path) -> None:
+    import contextlib
+
+    from smartpipe.models.ocr import OcrPage
+
+    class DiskParser:
+        ref = ModelRef("mistral", "mistral-ocr-latest")
+
+        def __init__(self) -> None:
+            self.pdf_calls: list[object] = []
+
+        async def parse_pdf(self, path: object) -> tuple[OcrPage, ...]:
+            self.pdf_calls.append(path)
+            return (
+                OcrPage(0, "disk full on node-3"),
+                OcrPage(1, "disk usage warning node-3"),
+            )
+
+        async def parse_image(self, image: object) -> str:
+            raise AssertionError("a PDF right side never reaches the image wire")
+
+    parser = DiskParser()
+
+    class OcrContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> DiskParser:  # type: ignore[override]
+            return parser
+
+    right = tmp_path / "before.pdf"
+    right.write_bytes(b"%PDF-1.4 tiny")
+    out = io.StringIO()
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        code = await run_diff(
+            DiffRequest(right=right),
+            OcrContext(),
+            stdin=io.StringIO(LEFT),
+            stdout=out,
+        )
+    assert code is ExitCode.OK
+    assert parser.pdf_calls  # the right side parsed through the role
+    rows = [json.loads(line) for line in out.getvalue().splitlines()]
+    by_side = {row["side"]: row for row in rows}
+    assert by_side["right"]["theme"] == "disk pressure"  # pages became right items
+    assert "parsed by mistral/mistral-ocr-latest" in err.getvalue()

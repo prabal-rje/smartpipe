@@ -14,6 +14,7 @@ from smartpipe.cli.input_options import (
     fields_option,
     input_options,
     input_spec,
+    ocr_model_option,
     positional_paths,
     resolve_prompt,
 )
@@ -128,6 +129,7 @@ __all__ = ["join_command"]
     is_flag=True,
     help="Never chunk-judge oversized sides: judge whole or skip with an error.",
 )
+@ocr_model_option
 @input_options
 def join_command(
     predicate: str | None,
@@ -148,6 +150,7 @@ def join_command(
     max_calls: int | None,
     allow_captions: bool,
     whole: bool,
+    ocr_model_flag: str | None,
     fields: tuple[str, ...] | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
@@ -187,6 +190,7 @@ def join_command(
         bare=bare,
         full=full,
         whole=whole,
+        ocr_model_flag=ocr_model_flag,
         embed_model_flag=embed_model_flag,
         concurrency_flag=concurrency_flag,
         output=OutputFormat(output),

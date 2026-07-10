@@ -85,6 +85,9 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic transcripts
 
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
@@ -661,6 +664,9 @@ class _NoModels:
     async def embedding_model(self, flag: str | None = None) -> object:
         raise AssertionError("--on alone never resolves an embedding model")
 
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
@@ -756,3 +762,47 @@ def replace_dataclass(request: JoinRequest, **kw: object) -> JoinRequest:
     from dataclasses import replace as _replace
 
     return _replace(request, **kw)  # type: ignore[arg-type]
+
+
+# --- the ocr-model role (item 48): the --right input --------------------------------
+
+
+async def test_right_pdf_parses_through_the_configured_role(tmp_path: Path) -> None:
+    from smartpipe.models.ocr import OcrPage
+
+    class CatalogParser:
+        ref = ModelRef("mistral", "mistral-ocr-latest")
+
+        def __init__(self) -> None:
+            self.pdf_calls: list[object] = []
+
+        async def parse_pdf(self, path: object) -> tuple[OcrPage, ...]:
+            self.pdf_calls.append(path)
+            return (OcrPage(0, "LaserJet 9"), OcrPage(1, "Espresso One"))
+
+        async def parse_image(self, image: object) -> str:
+            raise AssertionError("a PDF right side never reaches the image wire")
+
+    parser = CatalogParser()
+
+    class OcrContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> CatalogParser:  # type: ignore[override]
+            return parser
+
+    right = tmp_path / "catalog.pdf"
+    right.write_bytes(b"%PDF-1.4 tiny")
+    embed = FakeEmbed(TABLE)
+    judge = FakeJudge(matches=[("printer smoking", "LaserJet 9")])
+    out = io.StringIO()
+    code = await run_join(
+        _request(right, predicate="ticket {left.text} concerns {right.text}"),
+        OcrContext(embed, judge),
+        stdin=io.StringIO("printer smoking\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert parser.pdf_calls  # the right side parsed through the role
+    rows = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["left"] == {"text": "printer smoking"}
+    assert rows[0]["right"] == {"text": "LaserJet 9"}  # a parsed PAGE is the right item

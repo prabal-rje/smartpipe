@@ -41,6 +41,7 @@ class OutliersRequest:
     concurrency_flag: int | None = None
     allow_captions: bool = False
     input: InputSpec = STDIN
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 48)
 
 
 async def run_outliers(
@@ -54,18 +55,21 @@ async def run_outliers(
     if request.count < 1:
         raise UsageFault("outliers needs a positive count")
     model = await context.embedding_model(request.model_flag)
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     items = [item async for item in items_iter]
     if len(items) < 3:
         raise UsageFault("outliers needs at least 3 items to know what normal looks like")
 
-    log = diagnostics.DegradationLog()
     converter_chat = await optional_chat(context)
     converter = make_converter(
         converter_chat,
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
+        ocr=parser,
     )
     scored_items: list[Item] = []
     vectors: list[tuple[float, ...]] = []

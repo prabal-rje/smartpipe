@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from typing import TextIO
 
     from smartpipe.io.items import Item
+    from smartpipe.io.readers import OcrIngest
 
 __all__ = ["DiffRequest", "run_diff"]
 
@@ -46,6 +47,7 @@ class DiffRequest:
     embed_flag: str | None = None
     concurrency_flag: int | None = None
     allow_captions: bool = False
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 48)
 
 
 async def run_diff(
@@ -57,9 +59,12 @@ async def run_diff(
     stop: asyncio.Event | None = None,
 ) -> ExitCode:
     model = await context.embedding_model(request.embed_flag)
-    left_iter, _total = readers.resolve_items(STDIN, stdin, stop=stop)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    left_iter, _total = readers.resolve_items(STDIN, stdin, stop=stop, ocr=ocr)
     left = [item async for item in left_iter]
-    right = _read_right(request.right)
+    right = await _right_items(request.right, ocr)
     if not left or not right:
         raise UsageFault("diff needs items on BOTH sides — left is stdin, right is --right FILE")
     boundary = len(left)
@@ -69,13 +74,13 @@ async def run_diff(
         "the lopsided themes"
     )
 
-    log = diagnostics.DegradationLog()
     converter_chat = await optional_chat(context)
     converter = make_converter(
         converter_chat,
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
+        ocr=parser,
     )
     union_items: list[Item] = []
     vectors: list[tuple[float, ...]] = []
@@ -199,6 +204,17 @@ def _examples(
     centroid = mean_pool([vectors[member] for member in pool])
     nearest = sorted(pool, key=lambda member: -cosine(vectors[member], centroid))
     return [items[member].text[:160] for member in nearest[:_EXAMPLES]]
+
+
+async def _right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
+    """The right side under the ocr-model role (item 48): a parseable
+    PDF/image parses to page items; everything else — and an unset role —
+    reads exactly as before (JSONL or plain lines)."""
+    if ocr is not None and path.exists():
+        parsed = await readers.ocr_parse_file(path, 0, ocr)
+        if parsed:
+            return parsed
+    return _read_right(path)
 
 
 def _read_right(path: Path) -> list[Item]:

@@ -60,8 +60,10 @@ if TYPE_CHECKING:
     from smartpipe.engine.prompts import Token
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
+    from smartpipe.io.readers import OcrIngest
     from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import RemoteTranscriber
 
 __all__ = ["JoinContext", "JoinRequest", "PairBook", "run_join"]
@@ -89,6 +91,7 @@ class JoinRequest:
     on: tuple[str, ...] = ()  # --on 'left.F == right.F' (repeatable, AND-ed) — item 21
     full: bool = False  # --full: disable the TTY preview's truncation (item 19)
     whole: bool = False  # --whole: refuse oversized sides instead of chunk-judging (D26 v2)
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 48)
 
 
 class JoinContext(Protocol):
@@ -96,6 +99,7 @@ class JoinContext(Protocol):
 
     """The first verb that needs BOTH models — the container already has both."""
 
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
     async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
@@ -162,15 +166,17 @@ async def run_join(
         )
     if request.k < 1:
         raise UsageFault(f"--k must be >= 1, got {request.k}")
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
     if request.predicate is None:
         assert on_pairs is not None
         return await _run_key_join(
-            request, on_pairs, context, stdin=stdin, stdout=stdout, stop=stop
+            request, on_pairs, context, stdin=stdin, stdout=stdout, stop=stop, ocr=ocr
         )
     tokens = parse_join_predicate(request.predicate)  # UsageFault on bad grammar
-    right_items = _load_right(request.right)
+    right_items = await _load_right_items(request.right, ocr)
     embed_model = await context.embedding_model(request.embed_model_flag)
-    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     kept_right, index, right_chunks = await _index_right(
         embed_model, right_items, request.right.name, log, whole=request.whole
     )
@@ -194,11 +200,15 @@ async def run_join(
         bare=request.bare,
         full=request.full,
     )
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
+    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     preview_cost(total, request.k, len(index))
 
     converter = make_converter(
-        chat, allow_paid=request.allow_captions, log=log, stt=context.remote_transcriber(chat.ref)
+        chat,
+        allow_paid=request.allow_captions,
+        log=log,
+        stt=context.remote_transcriber(chat.ref),
+        ocr=parser,
     )
     book = PairBook(policy=FailurePolicy(), right_name=request.right.name)
     right_blocks = _right_blocks(kept_right, on_pairs)
@@ -486,10 +496,12 @@ async def _run_key_join(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None,
+    ocr: OcrIngest | None = None,
 ) -> ExitCode:
     """--on alone (item 21): a deterministic key-equality join — zero model
-    calls, works with --kind inner/leftouter/anti and --unmatched."""
-    right_items = _load_right(request.right)
+    calls (a configured ocr-model at ingestion is the one exception, item 48),
+    works with --kind inner/leftouter/anti and --unmatched."""
+    right_items = await _load_right_items(request.right, ocr)
     blocks = _right_blocks(right_items, on_pairs)
     assert blocks is not None
     spinner = make_stderr_spinner()
@@ -500,7 +512,7 @@ async def _run_key_join(
         fields=request.fields,
         bare=request.bare,
     )
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
+    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     spinner.start(total=total)
     left_fields = tuple(left for left, _right in on_pairs)
     done = 0
@@ -540,6 +552,8 @@ async def _run_key_join(
     finally:
         spinner.finish()
         writer.flush()
+        if ocr is not None:
+            ocr.log.finish()  # the OCR disclosures' rollup (item 48)
         if unmatched_sink is not None:
             unmatched_sink.close()
     if request.unmatched is not None:
@@ -575,6 +589,18 @@ async def _judge(chat: ChatModel, tokens: tuple[Token, ...], left: Item, right: 
         repair = build_repair_request(request, bad_reply=reply, error=str(first_error))
         verdict = validate_and_coerce(await chat.complete(repair), JUDGE_SCHEMA)
     return verdict.get("match") is True
+
+
+async def _load_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
+    """The right side under the ocr-model role (item 48): a parseable
+    PDF/image --right parses to page items (disclosed per page, the belt
+    applies); anything else — and an unset role — reads exactly as before
+    (JSONL or plain lines)."""
+    if ocr is not None and str(path) != "-" and path.exists():
+        parsed = await readers.ocr_parse_file(path, 0, ocr)
+        if parsed:
+            return parsed
+    return _load_right(path)
 
 
 def _load_right(path: Path) -> list[Item]:

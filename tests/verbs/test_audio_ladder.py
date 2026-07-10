@@ -109,10 +109,10 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 1
 
-    def remote_transcriber(self, chat_ref: object | None = None) -> None:
+    def document_parser(self, flag: str | None = None) -> None:
         return None
 
-    def document_parser(self, flag: str | None = None) -> None:
+    def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
 
     def writer(

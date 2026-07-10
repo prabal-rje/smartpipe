@@ -1,4 +1,5 @@
-"""``smartpipe split`` — break oversized items into chunk items. No model calls."""
+"""``smartpipe split`` — break oversized items into chunk items. No model calls
+(a configured ocr-model at ingestion is the one exception - item 48)."""
 
 from __future__ import annotations
 
@@ -8,8 +9,13 @@ import sys
 
 import click
 
-from smartpipe.cli.input_options import input_options, input_spec, positional_paths
-from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.input_options import (
+    input_options,
+    input_spec,
+    ocr_model_option,
+    positional_paths,
+)
+from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.split import SplitRequest, run_split
 
@@ -36,18 +42,29 @@ __all__ = ["split_command"]
     type=int,
     help="Shorthand for --by tokens:N (default 2000).",
 )
+@ocr_model_option
+@click.option(
+    "--max-calls",
+    "max_calls",
+    type=int,
+    help="Stop after N model calls (cost cap; only ocr-model parsing ever calls one).",
+)
 @input_options
 def split_command(
     by_flag: str | None,
     media: bool,
     max_tokens: int | None,
+    ocr_model_flag: str | None,
+    max_calls: int | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
     strict_rows: bool,
     paths: tuple[str, ...],
 ) -> None:
-    """Break oversized items into budget-sized chunks. Free — no model calls.
+    """Break oversized items into budget-sized chunks. Free — no model calls
+    UNLESS an ocr-model is configured (then PDFs and images parse through it,
+    disclosed per row; --max-calls caps that spend).
 
     \b
     Examples:
@@ -63,6 +80,7 @@ def split_command(
         max_tokens_flag=max_tokens,
         by_flag=by_flag,
         media=media,
+        ocr_model_flag=ocr_model_flag,
         input=input_spec(
             positional_paths(paths, in_patterns),
             from_files=from_files,
@@ -70,16 +88,17 @@ def split_command(
             strict_rows=strict_rows,
         ),
     )
-    code = asyncio.run(_run(request))
+    code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: SplitRequest) -> ExitCode:
+async def _run(request: SplitRequest, max_calls: int | None) -> ExitCode:
     from smartpipe.container import build_container
 
     async with (
         graceful_interrupts() as stop,
-        build_container(os.environ) as container,
+        build_container(os.environ, max_calls=max_calls, stop=stop) as container,
     ):
-        return await run_split(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
+        code = await run_split(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
+        return settle_budget(container.budget, code)

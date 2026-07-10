@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 
 from smartpipe.cli.completions import complete_chat_models, complete_embed_models
+from smartpipe.cli.input_options import ocr_model_option
 from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.diff import DiffRequest, run_diff
@@ -47,6 +48,7 @@ __all__ = ["diff_command"]
     is_flag=True,
     help="Let a CLOUD model convert images/audio to text (paid; local models do it free).",
 )
+@ocr_model_option
 def diff_command(
     right: Path,
     top: int | None,
@@ -56,6 +58,7 @@ def diff_command(
     concurrency_flag: int | None,
     max_calls: int | None,
     allow_captions: bool,
+    ocr_model_flag: str | None,
 ) -> None:
     """Semantic diff of two item SETS — not a line diff.
 
@@ -79,6 +82,7 @@ def diff_command(
         embed_flag=embed_flag,
         concurrency_flag=concurrency_flag,
         allow_captions=allow_captions,
+        ocr_model_flag=ocr_model_flag,
     )
     code = asyncio.run(_run(request, max_calls))
     if code is not ExitCode.OK:

@@ -28,7 +28,9 @@ if TYPE_CHECKING:
 
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
+    from smartpipe.io.readers import OcrIngest
     from smartpipe.io.writers import OutputFormat, ResultWriter
+    from smartpipe.models.ocr import DocumentParser
 
 __all__ = ["SplitContext", "SplitRequest", "run_split"]
 
@@ -43,11 +45,14 @@ class SplitRequest:
     by_flag: str | None = None  # --by UNIT[:N] (D26 rich units)
     media: bool = False  # --media: embedded images become items (D29)
     input: InputSpec = STDIN
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 48)
 
 
 class SplitContext(Protocol):
-    """The slice of the container ``split`` needs (no model — just the writer)."""
+    """The slice of the container ``split`` needs: the writer, plus the
+    ocr-model role (item 48) — the ONE way split ever calls a model."""
 
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     def writer(
         self,
         output_flag: OutputFormat,
@@ -243,6 +248,26 @@ async def _run_media(request: SplitRequest, context: SplitContext, *, stdout: Te
     return outcome_exit_code(done=produced, skipped=skipped)
 
 
+async def _pdf_pages(path: PathType, ocr: OcrIngest | None) -> list[str]:
+    """Page texts for --by pages: the configured ocr-model parses when set
+    (item 48; each page disclosed, exactly like ingestion); a failed parse
+    falls back to the local page extraction — never a hard stop."""
+    from smartpipe.parsing.extract import pdf_page_texts
+
+    if ocr is not None:
+        try:
+            parsed = await ocr.parser.parse_pdf(path)
+        except ItemError as exc:
+            diagnostics.warn(f"ocr failed: {path.name} ({exc}) — falling back to local extraction")
+        else:
+            detail = f"parsed by {ocr.parser.ref}"
+            for page in parsed:
+                marker = path.name if len(parsed) == 1 else f"{path.name} p.{page.index + 1}"
+                ocr.log.note(marker, "document → markdown", detail)
+            return [page.markdown for page in parsed]
+    return await asyncio.to_thread(pdf_page_texts, path)
+
+
 async def _run_pages(
     request: SplitRequest,
     context: SplitContext,
@@ -250,6 +275,7 @@ async def _run_pages(
     by: SplitBy,
     stdout: TextIO,
     media: bool = False,
+    ocr: OcrIngest | None = None,
 ) -> ExitCode:
     """--by pages reads PDF FILES directly (page structure dies in extraction);
     with --media, each page item carries that page's figures too (D32)."""
@@ -258,7 +284,6 @@ async def _run_pages(
 
     from smartpipe.io.inputs import expand_globs
     from smartpipe.io.writers import OutputFormat
-    from smartpipe.parsing.extract import pdf_page_texts
 
     if not request.input.patterns:
         raise UsageFault(
@@ -278,7 +303,7 @@ async def _run_pages(
                 skipped += 1
                 continue
             try:
-                pages = pdf_page_texts(Path(path))
+                pages = await _pdf_pages(Path(path), ocr)
             except ItemError as exc:
                 diagnostics.warn(f"skipped: {name} ({exc})")
                 skipped += 1
@@ -323,24 +348,30 @@ async def run_split(
     from smartpipe.io.writers import OutputFormat
 
     by = _resolve_by(request)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
     if request.media and by.unit != "pages":
         if request.by_flag is not None or request.max_tokens_flag is not None:
             raise UsageFault(
                 "--media combines with --by pages (fused page items) or stands alone — "
                 "not with token/duration units"
             )
+        # --media extracts embedded IMAGES — there is no text to parse, so the
+        # ocr-model role never applies here (and never spends)
         return await _run_media(request, context, stdout=stdout)
     if by.unit == "pages":
-        return await _run_pages(request, context, by=by, stdout=stdout, media=request.media)
+        code = await _run_pages(
+            request, context, by=by, stdout=stdout, media=request.media, ocr=ocr
+        )
+        log.finish()
+        return code
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
-    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
+    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     produced = 0
     skipped = 0
     try:
         async for item in items_iter:
-            if stop is not None and stop.is_set():
-                break
             duration_slicing = by.unit in ("minutes", "seconds")
             has_clip = any(isinstance(part, AudioData | VideoData) for part in item.media)
             if not (duration_slicing and has_clip):
@@ -357,6 +388,8 @@ async def run_split(
                 skipped += 1
                 continue
             produced += 1
+            if stop is not None and stop.is_set():
+                break  # in-hand work drained; intake stops (Ctrl-C and the belt alike)
     finally:
         writer.flush()
         log.finish()

@@ -12,6 +12,7 @@ from smartpipe.verbs.cluster import ClusterRequest, run_cluster
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
 
 VECTORS: dict[str, tuple[float, ...]] = {
     "payment dies on iphone": (1.0, 0.0),
@@ -55,6 +56,9 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 2
+
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
 
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
@@ -212,3 +216,41 @@ async def test_explode_rows_keep_their_carried_spine() -> None:
     rows = [json.loads(row) for row in out.getvalue().splitlines()]
     assert rows[0]["__source"] == spine  # carried, not duplicated
     assert "__source" not in rows[1]  # a plain line has no spine to carry
+
+
+# --- the ocr-model role at ingestion (item 48) ---------------------------------------
+
+
+async def test_ocr_role_parses_pattern_scans_at_ingestion(tmp_path: Path) -> None:
+    import contextlib
+
+    from smartpipe.io.inputs import InputSpec
+    from tests.io.test_ocr_ingest import FakeParser
+
+    parser = FakeParser(image_text="love the dark mode")
+
+    class OcrContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> FakeParser:  # type: ignore[override]
+            return parser
+
+    class _Tty(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    (tmp_path / "scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    out = io.StringIO()
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        code = await run_cluster(
+            ClusterRequest(
+                input=InputSpec(patterns=(str(tmp_path / "scan.png"),), from_files=False)
+            ),
+            OcrContext(NamesClusters()),
+            stdin=_Tty(),
+            stdout=out,
+        )
+    assert code is ExitCode.OK
+    assert len(parser.image_calls) == 1  # the scan parsed through the role
+    rows = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert rows[0]["examples"] == ["love the dark mode"]
+    assert "parsed by mistral/mistral-ocr-latest" in err.getvalue()  # disclosed per row

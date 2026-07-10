@@ -11,6 +11,7 @@ import pytest
 from smartpipe.core.errors import ExitCode
 from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
 from smartpipe.verbs.split import SplitRequest, run_split
+from tests.io.test_ocr_ingest import FakeParser
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -18,6 +19,9 @@ if TYPE_CHECKING:
 
 
 class FakeContext:
+    def document_parser(self, flag: str | None = None) -> None:
+        return None
+
     def writer(
         self,
         output_flag: OutputFormat,
@@ -405,3 +409,83 @@ async def test_doc_items_carry_figures_by_default(
     figures = [part for part in items[0].media if isinstance(part, ImageData)]
     assert len(figures) == 1 and figures[0].data == real  # D32: attached by default
     assert "deck.docx: 1 figure attached" in capsys.readouterr().err
+
+
+# --- the ocr-model role (item 48): token path, --by pages, and the fallback -----------
+
+
+class _OcrContext(FakeContext):
+    def __init__(self, parser: FakeParser) -> None:
+        self.parser = parser
+
+    def document_parser(self, flag: str | None = None) -> FakeParser:  # type: ignore[override]
+        return self.parser
+
+
+async def test_ocr_role_parses_scans_on_the_token_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.io.inputs import InputSpec
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    parser = FakeParser(image_text="SCANNED MD")
+    out = io.StringIO()
+    code = await run_split(
+        SplitRequest(input=InputSpec(patterns=("*.png",), from_files=False)),
+        _OcrContext(parser),
+        stdin=_TtyStdin(),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert len(parser.image_calls) == 1
+    records = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert records[0]["text"] == "SCANNED MD"
+    assert "parsed by mistral/mistral-ocr-latest" in capsys.readouterr().err
+
+
+async def test_by_pages_parses_through_the_role_and_keeps_the_grouping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.io.inputs import InputSpec
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "r.pdf").write_bytes(b"%PDF-1.4 tiny")  # the parser reads it, not pypdf
+    parser = FakeParser(pages=3)
+    out = io.StringIO()
+    code = await run_split(
+        SplitRequest(by_flag="pages:2", input=InputSpec(patterns=("*.pdf",), from_files=False)),
+        _OcrContext(parser),
+        stdin=_TtyStdin(),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    assert len(parser.pdf_calls) == 1
+    records = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert [r["__source"]["label"] for r in records] == ["r.pdf p.1-2", "r.pdf p.3"]
+    assert [r["__source"]["page"] for r in records] == [1, 3]
+    assert records[0]["text"] == "page 1 md\n\npage 2 md"  # cut exactly like local pages
+    assert records[1]["text"] == "page 3 md"
+    err = capsys.readouterr().err
+    assert "degraded: r.pdf p.1 document → markdown" in err  # disclosed per page
+
+
+async def test_by_pages_falls_back_to_local_extraction_when_the_parse_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.io.inputs import InputSpec
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "r.pdf").write_bytes(_minimal_pdf(["alpha page", "beta page"]))
+    out = io.StringIO()
+    code = await run_split(
+        SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),
+        _OcrContext(FakeParser(fail=True)),
+        stdin=_TtyStdin(),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    records = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert "alpha page" in records[0]["text"]  # the local ladder took over
+    err = capsys.readouterr().err
+    assert "ocr failed: r.pdf" in err and "falling back" in err

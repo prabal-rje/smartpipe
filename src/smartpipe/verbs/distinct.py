@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import RemoteTranscriber
 
 __all__ = ["DistinctRequest", "run_distinct"]
@@ -45,10 +46,12 @@ class DistinctRequest:
     concurrency_flag: int | None = None
     allow_captions: bool = False
     input: InputSpec = STDIN
+    ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 48)
 
 
 class DistinctContext(Protocol):
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+    def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
     def concurrency(self, flag: int | None = None) -> int: ...
@@ -64,7 +67,10 @@ async def run_distinct(
 ) -> ExitCode:
     if not 0.0 < request.threshold <= 1.0:
         raise UsageFault("--threshold is a cosine similarity: between 0 and 1")
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
+    log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
+    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     items = [item async for item in items_iter]
     if not items:
         return ExitCode.OK
@@ -90,6 +96,7 @@ async def run_distinct(
         # --exact (item 22): the hash rung IS the answer — no embedding model
         # is even resolved, no fuzzy anything
         kept_exact = set(unique_positions)
+        log.finish()  # OCR parses (if any) still roll up before the receipt
         _receipt(kept=len(kept_exact), total=len(items), exact=exact_folded, near=0)
         return _emit(
             request,
@@ -101,13 +108,13 @@ async def run_distinct(
         )
 
     model = await context.embedding_model(request.model_flag)
-    log = diagnostics.DegradationLog()
     converter_chat = await optional_chat(context)
     converter = make_converter(
         converter_chat,
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
+        ocr=parser,
     )
     vectors: dict[int, tuple[float, ...]] = {}  # original position → vector
     unexamined: list[int] = []  # embed-skipped: kept, disclosed
