@@ -102,6 +102,7 @@ into ordinary Unix tools. Every verb is documented at
 | [`distinct`][distinct] | fold near-duplicates; `--exact` is free | `sort -u`, by meaning |
 | [`diff`][diff] | what distinguishes two sets | the post-incident answer |
 | [`outliers`][outliers] | the items least like the rest | novelty, surfaced |
+| [`graph`][graph] | corpus → entity/relationship graph; `--fast` is free | the case wall, with citations |
 
 **Free verbs** never call a model. Run them first to cut the corpus before any
 paid stage:
@@ -117,9 +118,10 @@ paid stage:
 | [`chart`][cli] | terminal bars, SVG, facets, time series | quick plots |
 
 Some semantic verbs have a **conditionally free mode**: `join --on` (key
-equality, no prompt), `distinct --exact` (hash-only folding), `map`/`extend`
-`--dry-run` (compose without sending), and `smartpipe schema` with a
-braces/DSL expression. Each stays at zero model calls by construction.
+equality, no prompt), `distinct --exact` (hash-only folding), `graph --fast`
+(local NER, on-device), `map`/`extend` `--dry-run` (compose without sending),
+and `smartpipe schema` with a braces/DSL expression. Each stays at zero model
+calls by construction.
 
 ## A one-minute tour
 
@@ -155,6 +157,9 @@ smartpipe map "Extract {vendor string, invoice_number string, total number}" 'in
 # 8. video RAG, no vector database: index a folder of recordings once, ask any day
 smartpipe embed 'sessions/**/*.mp4' > sessions.embeddings
 smartpipe top_k 3 --near "user gives up after the coupon fails" < sessions.embeddings
+
+# 9. the corpus as a knowledge graph - $0: local NER, zero model calls
+smartpipe graph --fast 'case-files/*.md' --save case.html
 ```
 
 A `.txt` on a pipe arrives one item per line; `--as file` treats the whole
@@ -169,6 +174,18 @@ Numbers 7 and 8 are full recipes -
 New to this? The [Learn track][quickstart] starts at zero and assumes nothing, including
 what a "model" is.
 
+### Highlight: the knowledge graph
+
+Number 9 is new: `graph --fast` turns a folder of mixed files into an
+interactive, **cited** knowledge graph without a single model call - a local
+NER model finds the entities you name, co-occurrence weights the edges, and
+hovering any edge shows the files behind it. A focus prompt upgrades the
+strongest edges to model-read relations. Full story:
+[the `graph` page](https://prabal-rje.github.io/smartpipe/verbs/graph/) and
+[the cookbook recipe](docs/cookbook/knowledge-graph.md).
+
+![smartpipe graph --save case.html: an interactive knowledge graph with per-edge source citations](docs/assets/graph-hero.png)
+
 ## Try it on real files
 
 No corpus handy? [smartpipe-playground][playground] ships 26 MB of CC0 /
@@ -176,8 +193,8 @@ public-domain practice files - invoices, reports, photos, recordings, screen
 sessions, and JSONL data:
 
 ```bash
-curl -L https://github.com/prabal-rje/smartpipe-playground/archive/refs/tags/v1.tar.gz | tar xz
-cd smartpipe-playground-1
+curl -L https://github.com/prabal-rje/smartpipe-playground/releases/download/v1/smartpipe-playground-v1.tar.gz | tar xz
+cd smartpipe-playground
 
 smartpipe map "Extract {vendor, invoice_number, total number}" 'invoices/*.pdf'
 smartpipe filter "the customer sounds frustrated" 'recordings/*.mp3'
@@ -266,6 +283,7 @@ lives in [`qa/`](qa/README.md). The CLI surface is a SemVer contract.
 [distinct]: https://prabal-rje.github.io/smartpipe/verbs/distinct/
 [diff]: https://prabal-rje.github.io/smartpipe/verbs/diff/
 [outliers]: https://prabal-rje.github.io/smartpipe/verbs/outliers/
+[graph]: https://prabal-rje.github.io/smartpipe/verbs/graph/
 [where]: https://prabal-rje.github.io/smartpipe/verbs/where/
 [summarize]: https://prabal-rje.github.io/smartpipe/verbs/summarize/
 [sort]: https://prabal-rje.github.io/smartpipe/verbs/sort/

@@ -10,6 +10,7 @@ with the Unix tools you already use (or don't yet - the
 | [Invoice reconciliation](invoice-reconciliation.md) | Scanned invoices become rows; an anti-join finds what never hit the ledger |
 | [Training-data prep](training-data-prep.md) | The curator's loop: dedupe, gate, label at scale, decontaminate |
 | [Video Q&A and scene digests](video-qa.md) | Ask questions of video - and video RAG over a folder of recordings |
+| [Knowledge graph](knowledge-graph.md) | Who and what connects across a mixed corpus - free NER first, cited edges always |
 | [Meeting digests](meeting-digest.md) | A week of call recordings into one digest that cites recording and minute |
 | [Customer feedback](customer-feedback.md) | Detractor themes, week-over-week drift, deck-ready charts |
 | [`.sem` stage files](../reference/sem-files.md) | Save a pipe stage as an executable script |
@@ -26,8 +27,8 @@ ships 26 MB of CC0 / public-domain invoices, reports, photos, recordings,
 screen sessions, and JSONL data:
 
 ```bash
-curl -L https://github.com/prabal-rje/smartpipe-playground/archive/refs/tags/v1.tar.gz | tar xz
-cd smartpipe-playground-1
+curl -L https://github.com/prabal-rje/smartpipe-playground/releases/download/v1/smartpipe-playground-v1.tar.gz | tar xz
+cd smartpipe-playground
 
 smartpipe map "Extract {vendor, invoice_number, total number}" 'invoices/*.pdf'
 smartpipe embed 'sessions/*.mp4' > sessions.embeddings

@@ -118,6 +118,7 @@ _VERBS: tuple[tuple[str, str], ...] = (
     ("diff", "What distinguishes two sets of items"),
     ("distinct", "Fold near-duplicate items (embeddings only)"),
     ("outliers", "Rank the items least like the rest (embeddings only)"),
+    ("graph", "Corpus → knowledge graph (--fast is free)"),
 )
 
 _UTILITIES: tuple[tuple[str, str], ...] = (

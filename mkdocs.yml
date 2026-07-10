@@ -67,6 +67,8 @@ nav:
           - diff: verbs/diff.md
           - outliers: verbs/outliers.md
           - embed: verbs/embed.md
+      - Knowledge graph:
+          - graph: verbs/graph.md
       - Free utilities:
           - where: verbs/where.md
           - summarize: verbs/summarize.md
@@ -89,6 +91,7 @@ nav:
       - Invoice reconciliation: cookbook/invoice-reconciliation.md
       - Training-data prep: cookbook/training-data-prep.md
       - Video Q&A: cookbook/video-qa.md
+      - Knowledge graph: cookbook/knowledge-graph.md
       - Meeting digests: cookbook/meeting-digest.md
       - Customer feedback: cookbook/customer-feedback.md
       - Log triage: cookbook/log-triage.md
@@ -107,7 +110,11 @@ nav:
 
 markdown_extensions:
   - admonition
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight
   - toc:
       permalink: true
