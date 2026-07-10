@@ -74,6 +74,7 @@ nav:
           - summarize: verbs/summarize.md
           - sort: verbs/sort.md
           - sample: verbs/sample.md
+          - agree: verbs/agree.md
           - getschema: verbs/getschema.md
           - split: verbs/split.md
           - readable: verbs/readable.md
@@ -100,6 +101,7 @@ nav:
       - Live monitoring: cookbook/live-monitoring.md
       - Stream enrichment: cookbook/stream-enrichment.md
       - Visualizing results: cookbook/visualizing-results.md
+      - Research methods: cookbook/research-methods.md
   - Reference:
       - CLI reference: reference/cli.md
       - Custom verbs: reference/custom-verbs.md

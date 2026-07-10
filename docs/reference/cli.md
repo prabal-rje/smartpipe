@@ -40,7 +40,8 @@ to `stderr`.
 | [`graph`](../verbs/graph.md) | entity/relationship graph with cited edges | `--fast` = free local NER |
 | [`where`](../verbs/where.md) | keep rows matching a deterministic predicate | free - no model calls |
 | [`summarize`](../verbs/summarize.md) | count/avg/percentiles by field | free - no model calls |
-| [`sample`](../verbs/sample.md) | keep N random rows, seeded + reproducible | free - no model calls |
+| [`sample`](../verbs/sample.md) | keep N random rows, seeded + reproducible; `--by FIELD` stratifies | free - no model calls |
+| [`agree`](../verbs/agree.md) | inter-rater agreement between two label files: observed, kappa, alpha, confusion matrix | free - no model calls |
 | [`getschema`](../verbs/getschema.md) | report the stream's fields, types, coverage | free - no model calls |
 | [`sort`](../verbs/sort.md) | order records by a field | free - no model calls |
 | [`split`](../verbs/split.md) | break oversized items into chunk items | free - no model calls |
@@ -73,6 +74,8 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `--allow-captions` | Let a CLOUD model convert images/audio/video to text for embedding/text verbs (paid; local models convert free; a cloud `smartpipe use` pick sets this by default). |
 | `@file` / `--prompt-file FILE` | Read the prompt from a file (`map`, `extend`, `filter`, `reduce`, `join`). Missing file = loud exit 64; `@@` escapes a literal leading `@`. |
 | `--max-calls N` | Hard ceiling on model calls (cost cap). Per-item verbs stop intake and drain; whole-set `top_k`/`reduce` treat exhaustion as fatal (nothing usable from a partial collection). A capped run never exits 0. |
+| `--manifest PATH` | Write a JSON run manifest at run end (all model verbs): smartpipe version, verb + raw argv, resolved model roles, prompt text + sha256, compiled schema, temperature, item counts, token/conversion receipt, UTC start/end, exit status. Atomic; a second run overwrites - it records THIS run. The citable methods-section artifact ([recipe](../cookbook/research-methods.md)). |
+| `--local-only` (before the verb) | Hard privacy fence: `smartpipe --local-only map ...` refuses every cloud wire at model-resolution time (exit 2, before any spend, naming the local alternative) and makes **no network calls at all** - the update ping and catalog fetches included. A remote `OLLAMA_HOST` is refused too: sending items there IS data leaving. Env form: `SMARTPIPE_LOCAL_ONLY=1`. |
 
 ## Verb-specific options
 
@@ -92,7 +95,8 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `graph` | `--fast` (free), `--entities "a, b"`, `--relations "pays, owns"`, `--name-top N` (hybrid), `--window {sentence,chunk,document}`, `--min-weight N`, `--save PATH` (`.graphml`/`.dot`/`.mmd`/`.csv`/`.html` or `directory/` = Obsidian vault), `--top N` (display cap), `--ocr-model` |
 | `where` | `'PREDICATE'` (has, contains, matches /re/, == != > >= < <=, and/or/not) |
 | `summarize` | `'AGG[, AGG…] [by FIELD,…]'` (count/sum/avg/min/max/p50-p99/dcount) |
-| `sample` | `N`, `--seed K` (default 0 - reproducible by default) |
+| `sample` | `N`, `--seed K` (default 0 - reproducible by default), `--by FIELD` (stratified: proportional per value, largest-remainder rounding; missing field = a null stratum) |
+| `agree` | `A B` (two JSONL label files), `--on FIELD` (align by key; default row order, equal counts required), `--label FIELD` (default `label`), `--output` |
 | `getschema` | `--all` (scan past the first 10,000 rows) |
 | *(custom)* | [your own verbs](custom-verbs.md): `~/.config/smartpipe/verbs/*.sem` or entry points |
 | `usage` | model usage over hour/day/week/month/lifetime; `usage reset` remembers when |
@@ -274,6 +278,7 @@ per shell in [Installing smartpipe → Tab completion](../install.md#tab-complet
 | `SMARTPIPE_WHISPER_MODEL` | Local transcription size: `tiny` (default), `base`, `small`, `medium`, `large-v3`. |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY` / `JINA_API_KEY` | Cloud credentials - the environment always wins over a key stored by `auth login`. |
 | `OLLAMA_HOST` | Ollama endpoint (default `http://localhost:11434`). |
+| `SMARTPIPE_LOCAL_ONLY` | The `--local-only` fence as an env var: refuse cloud wires, make no network calls at all. Any value other than `0`/`false`/`off`/`no` arms it (fail closed). |
 | `NO_COLOR` | Disable color. |
 
 ## Exit codes
