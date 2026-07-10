@@ -125,17 +125,19 @@ async def run_top_k(
     log.finish()
     _check_dimensions(query_vector, vectors)
 
-    entries = sorted(vectors.items())  # (item_index, vector), stable by index for ties
+    entries = sorted(vectors.items())  # (ordinal, vector), stable by input order for ties
     ranked = rank(query_vector, [vector for _, vector in entries])
     scored = tuple((entries[position][0], score) for position, score in ranked)
     chosen = select(scored, k=request.k, threshold=request.threshold)
 
-    by_index = {item.source.index: item for item in items}
+    # keyed by run-scoped ordinal, never source.index — two page-cut inputs
+    # can share positions, and a collision emits the wrong item (item 47)
+    by_ordinal = dict(enumerate(items))
     writer = make_writer(
         WriterConfig(mode=RenderMode.TEXT, color=False, width=80, fields=request.fields), stdout
     )
-    for item_index, score in chosen:
-        _emit(writer, by_index[item_index], score)
+    for ordinal, score in chosen:
+        _emit(writer, by_ordinal[ordinal], score)
     writer.flush()
 
     if skipped == 0:
@@ -345,37 +347,45 @@ async def _collect_vectors(
 ) -> tuple[dict[int, tuple[float, ...]], int]:
     """Embed everything that needs embedding — chunked (≤64/call, DEFER-3),
     run_ordered bypassed on purpose: batching ≠ per-item workers (order comes
-    from sequential chunks, isolation from the per-item poison fallback)."""
+    from sequential chunks, isolation from the per-item poison fallback).
+
+    The returned dict is keyed by run-scoped ordinal (enumerate order), never
+    ``source.index`` — two page-cut inputs can share positions (item 47)."""
     vectors: dict[int, tuple[float, ...]] = {}
-    to_embed: list[Item] = []
-    for item in items:
+    to_embed: list[tuple[int, Item]] = []
+    for ordinal, item in enumerate(items):
         precomputed = _precomputed_vector(item)
         if precomputed is not None:
             if stamps is not None:
                 stamps.check(item)
-            vectors[item.source.index] = precomputed
+            vectors[ordinal] = precomputed
         else:
-            to_embed.append(project_content(item))
+            to_embed.append((ordinal, project_content(item)))
 
     spinner = make_stderr_spinner()
     spinner.start(total=len(to_embed))
     skipped = 0
     outcomes = embed_in_batches(
         model,
-        to_embed,
+        [entry for _, entry in to_embed],
         failure_policy=FailurePolicy(),
         log=log,
         converter=converter,
         media_model=media_model,
     )
+    # one outcome per input, in input order (embed_in_batches' contract) — the
+    # position maps each outcome back to its ordinal; outcome.index would be
+    # the colliding source.index
+    position = 0
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):
                 _item, vector = outcome.value
-                vectors[outcome.index] = vector
+                vectors[to_embed[position][0]] = vector
             else:  # Skipped
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
                 skipped += 1
+            position += 1
             spinner.advance()
     finally:
         spinner.finish()

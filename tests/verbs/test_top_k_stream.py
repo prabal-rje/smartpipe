@@ -180,6 +180,19 @@ async def test_dimension_mismatch_skips_and_continues() -> None:
     assert texts == ["good"]
 
 
+async def test_stream_duplicate_source_indexes_keep_their_own_items() -> None:
+    """Item 47's stream twin: the board keys on arrival order (run-scoped),
+    so records sharing a ``__source`` position never collide."""
+    row_a = json.dumps({"text": "best", "__source": {"path": "a.pdf", "as": "pages", "page": 1}})
+    row_b = json.dumps({"text": "better", "__source": {"path": "b.pdf", "as": "pages", "page": 1}})
+    table = {"q": (1.0, 0.0), "best": (1.0, 0.0), "better": (0.8, 0.2)}
+    code, records = await _run(_request(), f"{row_a}\n{row_b}\n", table)
+    assert code == ExitCode.OK
+    final = records[-2:]
+    assert [r["text"] for r in final] == ["best", "better"]
+    assert [r["__rank"] for r in final] == [1, 2]
+
+
 async def test_tty_mode_paints_the_board_instead_of_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

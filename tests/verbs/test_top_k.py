@@ -159,6 +159,36 @@ async def test_reader_fed_record_embeds_its_text_not_the_wrapper() -> None:
     assert json.loads(out.strip())["text"] == "kubernetes"
 
 
+async def test_duplicate_source_indexes_keep_their_own_scores() -> None:
+    """Item 47: two page-cut records from different PDFs share page numbers —
+    ranking must key on a run-scoped ordinal, never ``source.index``."""
+    row_a = json.dumps({"text": "alpha", "__source": {"path": "a.pdf", "as": "pages", "page": 1}})
+    row_b = json.dumps({"text": "beta", "__source": {"path": "b.pdf", "as": "pages", "page": 1}})
+    table = {"q": (1.0, 0.0), "alpha": (1.0, 0.0), "beta": (0.0, 1.0)}
+    code, out = await _run(_request("q", k=2), f"{row_a}\n{row_b}\n", table)
+    assert code == ExitCode.OK
+    records = [json.loads(line) for line in out.splitlines()]
+    assert [r["text"] for r in records] == ["alpha", "beta"]  # each score emits ITS item
+    assert records[0]["__score"] > records[1]["__score"]
+
+
+async def test_duplicate_source_indexes_with_precomputed_vectors() -> None:
+    """The precomputed-vector path shares the ranking dict — same collision."""
+
+    def row(text: str, vector: list[float], path: str) -> str:
+        return json.dumps(
+            {"text": text, "vector": vector, "__source": {"path": path, "as": "pages", "page": 1}}
+        )
+
+    row_a = row("close", [1.0, 0.0], "a.pdf")
+    row_b = row("far", [0.0, 1.0], "b.pdf")
+    code, out = await _run(_request("q", k=2), f"{row_a}\n{row_b}\n", {"q": (1.0, 0.0)})
+    assert code == ExitCode.OK
+    records = [json.loads(line) for line in out.splitlines()]
+    assert [r["text"] for r in records] == ["close", "far"]
+    assert records[0]["__score"] > records[1]["__score"]
+
+
 async def test_dimension_mismatch_is_setup_fault() -> None:
     # query is 2-D, the corpus vector is 3-D → different embedding models
     stdin = '{"text": "doc", "vector": [1.0, 0.0, 0.0]}\n'
