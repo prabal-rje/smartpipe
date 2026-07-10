@@ -121,7 +121,11 @@ def fields_option(command: _Command) -> _Command:
 
 
 def parse_fields(raw: str) -> tuple[str, ...]:
-    """``" a , b "`` → ``("a", "b")``; empty or duplicate names are usage errors."""
+    """``" a , b "`` → ``("a", "b")``; empty or duplicate names are usage errors.
+    A name may be a field path (item 63) — malformed path text is loud here,
+    at argv time, before anything could cost money."""
+    from smartpipe.engine.fieldpath import validate_field
+
     names = tuple(name.strip() for name in raw.split(","))
     if any(not name for name in names):
         raise UsageFault(f"--fields got an empty field name\n{_FIELDS_HINT}")
@@ -130,6 +134,7 @@ def parse_fields(raw: str) -> tuple[str, ...]:
         if name in seen:
             raise UsageFault(f"--fields names {name!r} more than once\n{_FIELDS_HINT}")
         seen.add(name)
+        validate_field(name)
     return names
 
 

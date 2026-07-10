@@ -40,6 +40,10 @@ cat tickets.txt \
 # → tally: bug 14 · feature 7 · question 3
 ```
 
+Nested records tally too - `--tally` (like `chart`) takes a
+[field path](../concepts/structured-output.md#field-paths-reading-nested-data):
+`--tally user.plan`.
+
 Or compose it the Unix way (works for any field):
 
 ```bash

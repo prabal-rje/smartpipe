@@ -113,6 +113,64 @@ def test_present_fields_never_warn(capsys: pytest.CaptureFixture[str]) -> None:
     assert capsys.readouterr().err == ""
 
 
+# --- field paths (item 63): projection reads nested data --------------------------
+
+NESTED = {
+    "user": {"plan": "pro", "name": "Ada"},
+    "items": [{"sku": "A1"}, {"sku": "B2"}],
+}
+
+
+def test_path_projects_nested_values_in_ndjson() -> None:
+    stream, writer = _writer(RenderMode.NDJSON, ("user.plan", "items[0].sku"))
+    writer.write_record(NESTED)
+    assert stream.getvalue() == '{"user.plan":"pro","items[0].sku":"A1"}\n'
+
+
+def test_path_projects_nested_values_in_csv() -> None:
+    stream, writer = _writer(RenderMode.CSV, ("user.plan", "items[-1].sku"))
+    writer.write_record(NESTED)
+    assert stream.getvalue() == "user.plan,items[-1].sku\r\npro,B2\r\n"
+
+
+def test_exact_flat_key_wins_over_traversal() -> None:
+    # THE COMPAT RULE: a literal column named "user.plan" beats the nested path
+    stream, writer = _writer(RenderMode.NDJSON, ("user.plan",))
+    writer.write_record({"user.plan": "the column", "user": {"plan": "nested"}})
+    assert stream.getvalue() == '{"user.plan":"the column"}\n'
+
+
+def test_join_left_right_columns_keep_working() -> None:
+    # join emits nested left/right objects — traversal reaches them, and a
+    # producer with literal "left.id" flat columns wins by the compat rule
+    stream, writer = _writer(RenderMode.NDJSON, ("left.id", "right.name"))
+    writer.write_record({"left": {"id": 7}, "right": {"name": "bolt"}, "__score": 0.9})
+    writer.write_record({"left.id": 8, "right.name": "nut", "left": {"id": 0}})
+    assert stream.getvalue() == (
+        '{"left.id":7,"right.name":"bolt"}\n{"left.id":8,"right.name":"nut"}\n'
+    )
+
+
+def test_missing_path_is_null_and_warned_once_verbatim(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stream, writer = _writer(RenderMode.NDJSON, ("user.zip",))
+    writer.write_record(NESTED)
+    writer.write_record(NESTED)
+    assert stream.getvalue() == '{"user.zip":null}\n{"user.zip":null}\n'
+    err = capsys.readouterr().err
+    assert err.count("no field 'user.zip' in the results; emitting null") == 1
+
+
+def test_malformed_path_is_a_usage_fault_at_flag_parse_time() -> None:
+    with pytest.raises(UsageFault, match=r"a\.b\[x\] - index must be a number"):
+        parse_fields("a.b[x]")
+
+
+def test_parse_fields_accepts_path_names() -> None:
+    assert parse_fields("user.plan,items[0].sku") == ("user.plan", "items[0].sku")
+
+
 # --- the unstructured guard (resolve_format) ------------------------------------
 
 

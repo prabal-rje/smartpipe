@@ -13,18 +13,21 @@ continue. Zero model calls.
 from __future__ import annotations
 
 import json
+import string
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.engine.fieldpath import MISSING, lookup, validate_field
 from smartpipe.io import readers
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source
 
 if TYPE_CHECKING:
     import asyncio
-    from typing import TextIO
+    from collections.abc import Mapping, Sequence
+    from typing import Any, TextIO
 
     from smartpipe.io.items import Item
 
@@ -53,6 +56,9 @@ async def run_write(
             f"write --as takes file or lines, got {request.as_mode!r}\n"
             "  file = one file per item; lines = append rows into each target."
         )
+    for var in _template_fields(request.template):
+        if var not in _RESERVED_VARS:
+            validate_field(var)  # loud path-grammar errors before the first item (item 63)
     items_iter, _total = readers.resolve_items(STDIN, stdin, stop=stop)
     order: dict[str, None] = {}  # emit order: first touch wins
     singles: set[str] = set()  # one-file-per-item targets (collision guard)
@@ -104,33 +110,70 @@ def _one_file_per_item(item: Item, as_mode: str | None) -> bool:
     return item.source.cut == "file" or bool(item.media)
 
 
-def _render_target(template: str, item: Item) -> str:
-    values = _template_vars(item)
+def _template_fields(template: str) -> tuple[str, ...]:
+    """Every var the template names — parsed once, loudly, before the first item."""
     try:
-        return template.format_map(values)
-    except KeyError as exc:
-        available = ", ".join(sorted(str(key) for key in values))
-        raise UsageFault(
-            f"write: {describe_source(item.source)} has no {exc.args[0]!r} for the template\n"
-            f"  This row's template vars: {available}"
-        ) from None
+        parsed = tuple(string.Formatter().parse(template))
+    except ValueError as exc:
+        raise UsageFault(f"write: bad template {template!r} ({exc})") from None
+    names = tuple(name for _literal, name, _spec, _conversion in parsed if name is not None)
+    for name in names:
+        if not name or name.isdigit():
+            raise UsageFault(
+                "write: template vars are named — {} and {0} mean nothing here\n"
+                "  Reserved: {path} {name} {stem} {ext} {index}; any record field "
+                "(field paths included) fills the rest."
+            )
+    return names
 
 
-def _template_vars(item: Item) -> dict[str, object]:
+def _render_target(template: str, item: Item) -> str:
+    return _TemplateFormatter(item).vformat(template, (), {})
+
+
+class _TemplateFormatter(string.Formatter):
+    """``str.format``'s engine with ONE change: the whole field name is a single
+    var — a reserved word from the spine first (reserved ALWAYS wins), then the
+    record via the shared field-path lookup (exact flat key first, item 63)."""
+
+    def __init__(self, item: Item) -> None:
+        super().__init__()
+        self.item = item
+
+    def get_field(
+        self, field_name: str, args: Sequence[Any], kwargs: Mapping[str, Any]
+    ) -> tuple[object, str]:
+        del args, kwargs  # positional/keyword args aren't this formatter's vocabulary
+        return _template_value(field_name, self.item), field_name
+
+
+def _template_value(field_name: str, item: Item) -> object:
     origin = item.source.path or item.source.name
     pure = PurePath(origin)
+    match field_name:  # the reserved vars win — {name} is always the origin's basename
+        case "path":
+            return origin
+        case "name":
+            return pure.name
+        case "stem":
+            return pure.stem
+        case "ext":
+            return pure.suffix.lstrip(".")
+        case "index":
+            return item.source.index + 1
+        case _:
+            pass
     fields: dict[str, object] = {}
     if item.data is not None:
         fields = {key: value for key, value in item.data.items() if not key.startswith("__")}
-    # the reserved vars win — {name} is always the origin's basename
-    fields.update(
-        path=origin,
-        name=pure.name,
-        stem=pure.stem,
-        ext=pure.suffix.lstrip("."),
-        index=item.source.index + 1,
-    )
-    return fields
+    found = lookup(fields, field_name)
+    if found is MISSING:
+        available = ", ".join(sorted((*fields, *_RESERVED_VARS)))
+        raise UsageFault(
+            f"write: {describe_source(item.source)} has no {field_name!r} for the template\n"
+            f"  This row's template vars: {available}"
+        )
+    return found
 
 
 def _content(item: Item, request: WriteRequest) -> bytes | str:

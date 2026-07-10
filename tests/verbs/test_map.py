@@ -232,6 +232,31 @@ async def test_keep_invalid_requires_structured_output() -> None:
     assert context.model.calls == []  # fails before any model call
 
 
+async def test_malformed_explode_path_faults_before_any_call() -> None:
+    # item 63: --explode takes a field path; grammar errors are loud pre-spend
+    from dataclasses import replace
+
+    from smartpipe.core.errors import UsageFault
+
+    context = FakeContext(model=FakeChat(replies=['{"a": 1}']))
+    request = replace(_request("Extract {a}"), explode_field="a.b[x]")
+    with pytest.raises(UsageFault, match=r"a\.b\[x\] - index must be a number"):
+        await run_map(request, context, stdin=io.StringIO("x\n"), stdout=io.StringIO())
+    assert context.model.calls == []
+
+
+async def test_malformed_tally_path_faults_before_any_call() -> None:
+    from dataclasses import replace
+
+    from smartpipe.core.errors import UsageFault
+
+    context = FakeContext(model=FakeChat(replies=['{"a": 1}']))
+    request = replace(_request("Extract {a}"), tally_field="user.plan[")
+    with pytest.raises(UsageFault, match=r"user\.plan\[ - unclosed '\['"):
+        await run_map(request, context, stdin=io.StringIO("x\n"), stdout=io.StringIO())
+    assert context.model.calls == []
+
+
 # --- --dry-run ------------------------------------------------------------------
 
 

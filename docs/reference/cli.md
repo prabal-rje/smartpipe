@@ -25,7 +25,7 @@ to `stderr`.
 | Verb | Purpose | Page |
 |---|---|---|
 | [`map`](../verbs/map.md) | transform each item with a prompt | one item in, one out |
-| `write` | route items to files (the egress door; `TEMPLATE` with `{name}` `{stem}` `{ext}` `{path}` `{index}` from `__source` provenance + record fields for fan-out; `--field`, `--keep-meta`, `--as file\|lines`) | free |
+| `write` | route items to files (the egress door; `TEMPLATE` with `{name}` `{stem}` `{ext}` `{path}` `{index}` from `__source` provenance + record fields for fan-out - field paths included, `{user.plan}`; reserved vars always win; `--field`, `--keep-meta`, `--as file\|lines`) | free |
 | [`readable`](../verbs/readable.md) | render records as blocks for eyes (`--full`, `--bare`); media previews at a color terminal | free |
 | [`filter`](../verbs/filter.md) | keep items matching a condition | semantic grep |
 | [`embed`](../verbs/embed.md) | items → vectors (JSONL) | plumbing for `top_k` |
@@ -83,7 +83,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `filter` | `--not` (invert, like `grep -v`) |
 | `top_k` | `K` (positional), `--near TEXT` (required), `--threshold FLOAT`, `--stream` (live leaderboard) |
 | `reduce` | `--schema FILE`, `--schema-from DSL`, `--group-by FIELD`, `--verbose`, `--window N [--every M]` (stream mode) |
-| `join` | `--right FILE` (required), `--on 'left.F == right.F'` (repeatable; alone = free key join, with a prompt = blocking), `--k N` (default 5), `--threshold FLOAT`, `--kind inner|leftouter|anti`, `--unmatched FILE`, `--embed-model` |
+| `join` | `--right FILE` (required), `--on 'left.F == right.F'` (repeatable; alone = free key join, with a prompt = blocking; `F` is a field path - `left.order.sku`), `--k N` (default 5), `--threshold FLOAT`, `--kind inner|leftouter|anti`, `--unmatched FILE`, `--embed-model` |
 | `extend` | map's flags (braces/--schema/--schema-from/--tally/--explode/--fields/--keep-invalid/--dry-run) |
 | `map`/`extend` video | `--frame-every SECONDS` (density guarantee), `--max-frames N` (budget; smaller wins) |
 | `distinct` | `--show-groups`, `--threshold F` (cosine, default 0.90), `--exact` (hash rung only - free), `--embed-model` |

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
 from smartpipe.engine.chunking import is_context_overflow
+from smartpipe.engine.fieldpath import validate_field
 from smartpipe.engine.prompts import parse_prompt, plan_map, to_instruction
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import load_schema
@@ -120,7 +121,10 @@ async def run_extend(
     if request.tally_field is not None:
         from smartpipe.engine.tally import Tally
 
-        tally = Tally(request.tally_field)
+        # item 63: --tally takes a field path; grammar errors are loud pre-spend
+        tally = Tally(validate_field(request.tally_field))
+    if request.explode_field is not None:
+        validate_field(request.explode_field)  # item 63: paths, validated pre-spend
 
     spinner.start(total=total)
 

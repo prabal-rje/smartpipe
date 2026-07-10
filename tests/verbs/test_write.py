@@ -171,3 +171,93 @@ async def test_keep_meta_forces_jsonl_even_for_text_only_records(
     await _run("out/{name}", row + "\n", keep_meta=True)
     written = json.loads((tmp_path / "out" / "n.txt").read_text())
     assert written["__source"]["line"] == 1  # meta can't ride plain text
+
+
+# --- template vars take field paths (item 63) --------------------------------------
+
+
+async def test_template_var_takes_a_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    rows = [
+        json.dumps({"user": {"plan": "pro"}, "text": "a"}),
+        json.dumps({"user": {"plan": "free"}, "text": "b"}),
+    ]
+    code, out = await _run("by-plan/{user.plan}.jsonl", "\n".join(rows) + "\n")
+    assert code is ExitCode.OK
+    assert (tmp_path / "by-plan" / "pro.jsonl").exists()
+    assert (tmp_path / "by-plan" / "free.jsonl").exists()
+    assert sorted(out.splitlines()) == ["by-plan/free.jsonl", "by-plan/pro.jsonl"]
+
+
+async def test_template_var_takes_an_index_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    row = json.dumps({"items": [{"sku": "A1"}, {"sku": "B2"}], "text": "x"})
+    code, _out = await _run("sku/{items[0].sku}.jsonl", row + "\n")
+    assert code is ExitCode.OK
+    assert (tmp_path / "sku" / "A1.jsonl").exists()
+
+
+async def test_exact_flat_dotted_key_wins_over_traversal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # THE COMPAT RULE: a literal column named "user.plan" beats the nested path
+    monkeypatch.chdir(tmp_path)
+    row = json.dumps({"user.plan": "flat", "user": {"plan": "nested"}, "text": "x"})
+    code, _out = await _run("{user.plan}.jsonl", row + "\n")
+    assert code is ExitCode.OK
+    assert (tmp_path / "flat.jsonl").exists()
+
+
+async def test_reserved_word_wins_over_a_same_named_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # {name} is ALWAYS the origin's basename, even when the record has a "name"
+    monkeypatch.chdir(tmp_path)
+    row = json.dumps(
+        {"name": "field-value", "__source": {"path": "notes.txt", "as": "lines", "line": 1}}
+    )
+    code, _out = await _run("out/{name}", row + "\n")
+    assert code is ExitCode.OK
+    assert (tmp_path / "out" / "notes.txt").exists()
+
+
+async def test_missing_template_path_is_loud_and_verbatim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(UsageFault, match=r"has no 'user\.zip'"):
+        await _run("by-{user.zip}.txt", json.dumps({"user": {"plan": "pro"}}) + "\n")
+
+
+async def test_malformed_template_path_faults_before_any_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(UsageFault, match=r"a\.b\[x\] - index must be a number"):
+        await _run("out/{a.b[x]}.txt", json.dumps({"text": "x"}) + "\n")
+    assert list(tmp_path.iterdir()) == []  # loud BEFORE the first write
+
+
+async def test_positional_template_var_is_a_usage_fault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(UsageFault, match="template vars are named"):
+        await _run("out/{}.txt", "line\n")
+
+
+async def test_unbalanced_template_brace_is_a_usage_fault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(UsageFault, match="bad template"):
+        await _run("out/{stem.txt", "line\n")
+
+
+async def test_format_specs_keep_working(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    code, _out = await _run("rows/{index:03d}.txt", "uno\n", as_mode="file")
+    assert code is ExitCode.OK
+    assert (tmp_path / "rows" / "001.txt").read_text() == "uno\n"
