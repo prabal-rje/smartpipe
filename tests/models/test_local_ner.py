@@ -229,7 +229,11 @@ def test_unknown_precision_is_loud() -> None:
 
 
 def _weights_cached() -> bool:
-    from huggingface_hub import try_to_load_from_cache
+    try:
+        # absent on 3.14 (rides the fastembed marker) - collection must survive
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return False
 
     return all(
         isinstance(try_to_load_from_cache(NER_REPO, filename), str)

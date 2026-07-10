@@ -281,13 +281,13 @@ def _load_engine(  # pragma: no cover — the live wire; CI never downloads mode
 ) -> NerEngine:
     try:
         import onnxruntime
+        from huggingface_hub import hf_hub_download
         from tokenizers import Tokenizer
     except ImportError as exc:
         raise SetupFault(
             "error: graph --fast needs the local NER stack (onnxruntime + tokenizers)\n"
             "  Those wheels haven't landed for this Python yet — run smartpipe on 3.11-3.13."
         ) from exc
-    from huggingface_hub import hf_hub_download
 
     model_path = hf_hub_download(NER_REPO, _MODEL_FILES[precision][0])
     tokenizer_path = hf_hub_download(NER_REPO, _TOKENIZER_FILE)
