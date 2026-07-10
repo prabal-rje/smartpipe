@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/prabal-rje/smartpipe/actions/workflows/ci.yml/badge.svg)](https://github.com/prabal-rje/smartpipe/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/smartpipe-cli)](https://pypi.org/project/smartpipe-cli/)
-[![Python](https://img.shields.io/badge/python-3.11%E2%80%933.13-blue)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.11%E2%80%933.14-blue)](pyproject.toml)
 [![Docs](https://img.shields.io/badge/docs-prabal--rje.github.io%2Fsmartpipe-blue)](https://prabal-rje.github.io/smartpipe/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
@@ -251,7 +251,7 @@ If smartpipe is useful in your research, cite it (or run `smartpipe cite`):
   author = {Gupta, Prabal},
   title = {smartpipe: semantic pipes for your terminal},
   year = {2026},
-  version = {1.4.0rc1},
+  version = {1.4.0},
   license = {Apache-2.0},
   url = {https://github.com/prabal-rje/smartpipe}
 }
