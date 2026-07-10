@@ -20,7 +20,7 @@ def sort_command(by: str, descending: bool) -> None:
 
     \b
     Examples:
-      cat scored.ndjson | smartpipe sort --by _score --desc | head -5
+      cat scored.ndjson | smartpipe sort --by __score --desc | head -5
       smartpipe map "…{confidence number}" 'docs/*.pdf' | smartpipe sort --by confidence --desc
 
     Numbers sort numerically, strings lexically (numbers first when mixed);

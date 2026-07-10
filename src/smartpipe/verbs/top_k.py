@@ -2,7 +2,7 @@
 
 Embeds the query and every item (reusing a precomputed ``vector`` field from an
 ``embed`` record when present), ranks by cosine, and keeps the top K and/or
-everything above a threshold — reordered, each with a ``_score``. Unlike the
+everything above a threshold — reordered, each with a ``__score``. Unlike the
 per-item verbs, ``top_k`` inherently buffers: it must see all scores to rank.
 """
 
@@ -153,7 +153,7 @@ async def _run_stream(
 ) -> ExitCode:
     """The rolling leaderboard (stage-08 §4.3): maintain the top K as items arrive.
 
-    Pipe mode emits an JSONL snapshot (a ``{"_snapshot": seq}`` marker line, then
+    Pipe mode emits an JSONL snapshot (a ``{"__snapshot": seq}`` marker line, then
     the K records, rank order) whenever membership/order changes; TTY mode repaints
     the block in place. A vector whose dimensions don't match the query is skipped
     (a stream shouldn't die wholesale on one bad record — unlike batch, where a
@@ -273,7 +273,7 @@ def _emit_snapshot(
     board: tuple[tuple[float, int], ...],
     by_arrival: dict[int, Item],
 ) -> None:
-    writer.write_record({"_snapshot": seq})
+    writer.write_record({"__snapshot": seq})
     for position, (score, arrival) in enumerate(board, start=1):
         item = by_arrival[arrival]
         record: dict[str, object]
@@ -281,8 +281,8 @@ def _emit_snapshot(
             record = {key: value for key, value in item.data.items() if key != "vector"}
         else:
             record = {"text": item.raw}
-        record["_score"] = round(score, 4)
-        record["_rank"] = position
+        record["__score"] = round(score, 4)
+        record["__rank"] = position
         writer.write_record(record)
 
 
@@ -409,7 +409,7 @@ def _emit(writer: ResultWriter, item: Item, score: float) -> None:
         writer.write_text(f"{item.source.name}\t{rounded}")
     elif item.data is not None:
         record = {key: value for key, value in item.data.items() if key != "vector"}
-        record["_score"] = rounded
+        record["__score"] = rounded
         writer.write_record(record)
     else:
         writer.write_text(f"{item.raw}\t{rounded}")

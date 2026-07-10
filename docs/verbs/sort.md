@@ -6,7 +6,7 @@ pipeline. **Free - never calls a model.** Reads the whole input
 
 ```bash
 cat scored.ndjson \
-| smartpipe sort --by _score --desc \
+| smartpipe sort --by __score --desc \
 | head -5
 … \
 | smartpipe sort --by confidence --desc

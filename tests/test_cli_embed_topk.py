@@ -72,7 +72,7 @@ def test_top_k_over_embed_pipeline(run_cli: RunCli, respx_mock: respx.MockRouter
     assert code == 0
     record = json.loads(out.strip())
     assert record["text"] == "close"
-    assert record["_score"] == 1.0
+    assert record["__score"] == 1.0
 
 
 def test_top_k_alias_top_dash_k(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:

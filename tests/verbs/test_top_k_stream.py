@@ -141,13 +141,13 @@ async def test_snapshot_transcript_is_pinned() -> None:
     }
     code, records = await _run(_request(), "mid\nbest\nworst\nbetter\n", table)
     assert code == ExitCode.OK
-    snapshots = [r["_snapshot"] for r in records if "_snapshot" in r]
+    snapshots = [r["__snapshot"] for r in records if "__snapshot" in r]
     assert snapshots == [1, 2, 3]  # "worst" produced no snapshot — no change, no output
     # the final snapshot is best-first with ranks
     final = records[-2:]
-    assert final[0]["text"] == "best" and final[0]["_rank"] == 1
-    assert final[1]["text"] == "better" and final[1]["_rank"] == 2
-    scores = [r["_score"] for r in final]
+    assert final[0]["text"] == "best" and final[0]["__rank"] == 1
+    assert final[1]["text"] == "better" and final[1]["__rank"] == 2
+    scores = [r["__score"] for r in final]
     assert all(isinstance(s, float) and 0 <= s <= 1 for s in scores)
 
 
@@ -193,7 +193,7 @@ async def test_tty_mode_paints_the_board_instead_of_snapshots(
     assert code == ExitCode.OK
     painted = out.getvalue()
     assert "hot" in painted and "1.00" in painted  # the board block, not NDJSON
-    assert "_snapshot" not in painted
+    assert "__snapshot" not in painted
 
 
 async def test_interrupted_stream_reports_and_exits_130(

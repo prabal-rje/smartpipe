@@ -34,7 +34,7 @@ similarity. Give it a number (K), a `--threshold`, or both:
 - `top_k --near Q --threshold 0.8` - everything scoring ≥ 0.8.
 - `top_k 5 --near Q --threshold 0.8` - up to 5 items that also score ≥ 0.8.
 
-Each result gains a **`_score`** from 0 to 1 (higher is closer): a JSON field for
+Each result gains a **`__score`** from 0 to 1 (higher is closer): a JSON field for
 JSON items, or a trailing tab-separated column for plain text.
 
 ## Reusing embeddings
@@ -53,7 +53,7 @@ cat corpus.embeddings \
 ```
 
 The `vector` field is an internal field, so `top_k` drops it from the output and keeps the
-rest of the record plus `_score`.
+rest of the record plus `__score`.
 
 Embed rows also carry an **`__embedder`** stamp - the model that produced the
 vector. `top_k` refuses a corpus whose stamp differs from the model this run
@@ -72,8 +72,8 @@ tail -f tickets.jsonl \
 
 At a terminal the K-line board repaints in place as better matches arrive. In a
 pipe, every membership/order change emits a JSONL **snapshot**: a
-`{"_snapshot": N}` marker line, then the K records in rank order, each with
-`_score` and `_rank` - split on the markers to consume programmatically; no
+`{"__snapshot": N}` marker line, then the K records in rank order, each with
+`__score` and `__rank` - split on the markers to consume programmatically; no
 change means no output. `--stream` needs `K`, reads `stdin` only, and skips (rather
 than fails on) a record whose embedding dimensions don't match the query.
 
@@ -89,7 +89,7 @@ than fails on) a record whose embedding dimensions don't match the query.
 | `--media-embed-model TEXT` | A JOINT text+image embedder for media items - a text query then ranks an image corpus in its space ([the role](../concepts/models-and-providers.md#the-media-embed-model-role)) |
 | `--ocr-model TEXT` | Parse ingested PDFs/images with a document parsing model ([the role](../concepts/models-and-providers.md#the-ocr-model-role)) |
 | `--concurrency N` | Max parallel model calls |
-| `--fields A,B` | Select + order columns of JSON results (incl. `_score`) ([details](../concepts/output-formats.md)) |
+| `--fields A,B` | Select + order columns of JSON results (incl. `__score`) ([details](../concepts/output-formats.md)) |
 
 *(Spellings `top-k` and `topk` also work.)*
 
@@ -113,4 +113,4 @@ alone. `--stream` stays one item per call - streaming processes one item at a ti
 ## See also
 
 - [`embed`](embed.md) - produce the vectors `top_k` ranks
-- [Structured output](../concepts/structured-output.md) - the `_score` field in JSON mode
+- [Structured output](../concepts/structured-output.md) - the `__score` field in JSON mode

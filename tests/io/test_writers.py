@@ -291,6 +291,16 @@ def test_bare_strips_meta_from_jsonl_records() -> None:
     assert stream.getvalue() == '{"result":"hola"}\n'
 
 
+def test_bare_strips_the_ranking_stamps() -> None:
+    # item 76: __score/__rank/__distance live in the __ namespace — --bare drops them
+    stream = io.StringIO()
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, bare=True), stream
+    )
+    writer.write_record({"text": "hit", "__score": 0.91, "__rank": 1, "__distance": 0.7})
+    assert stream.getvalue() == '{"text":"hit"}\n'
+
+
 def test_bare_never_guts_an_invalid_marker_row() -> None:
     stream = io.StringIO()
     writer = make_writer(

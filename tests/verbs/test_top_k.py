@@ -109,7 +109,7 @@ async def test_json_items_gain_a_score_field() -> None:
     assert code == ExitCode.OK
     record = json.loads(out.strip())
     assert record["name"] == "alice"
-    assert record["_score"] == 1.0
+    assert record["__score"] == 1.0
 
 
 async def test_precomputed_vector_skips_reembedding() -> None:
@@ -120,7 +120,7 @@ async def test_precomputed_vector_skips_reembedding() -> None:
     assert code == ExitCode.OK
     record = json.loads(out.strip())
     assert record["text"] == "doc a"
-    assert record["_score"] == 1.0
+    assert record["__score"] == 1.0
     assert "vector" not in record  # the plumbing vector is dropped from output
 
 
@@ -174,7 +174,7 @@ async def test_empty_input_is_ok() -> None:
 
 def test_emit_jsonl_cut_file_rows_stay_records() -> None:
     """Same leak as filter's: a row cut from a file (--as jsonl data.jsonl)
-    must emit the record with _score, not 'data.jsonl<TAB>score' per row."""
+    must emit the record with __score, not 'data.jsonl<TAB>score' per row."""
     import io as _io
 
     from smartpipe.io.items import Item, ItemSource
@@ -191,7 +191,7 @@ def test_emit_jsonl_cut_file_rows_stay_records() -> None:
     )
     top_k_module._emit(writer, item, 0.8765)  # pyright: ignore[reportPrivateUsage] — emission under test
     writer.flush()
-    assert out.getvalue() == '{"id":1,"text":"login bug","_score":0.8765}\n'
+    assert out.getvalue() == '{"id":1,"text":"login bug","__score":0.8765}\n'
 
 
 def test_emit_whole_file_still_returns_the_path() -> None:

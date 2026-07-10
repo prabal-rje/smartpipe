@@ -19,8 +19,8 @@ smartpipe map "Translate to French" docs/*.txt --as lines \
 smartpipe embed 'sessions/**/*.mp4' > lib.embeddings
 smartpipe top_k 3 --near "user hits the checkout bug" < lib.embeddings
 # --threshold 0.8 keeps everything ABOVE a similarity bar instead of a fixed K (combine: "3 --threshold 0.8" = at most 3, all >= 0.8)
-# each row: {"text":"...","_score":0.8756,"__embedder":"...","__source":{...}} - rank by _score
-# each result row gains "_score" (0-1, higher = closer)
+# each row: {"text":"...","__score":0.8756,"__embedder":"...","__source":{...}} - rank by __score
+# each result row gains "__score" (0-1, higher = closer)
 
 # dataset cleaning ritual: free dedupe → judge → gate (belted + tallied)
 smartpipe distinct --exact --as jsonl corpus.jsonl \
@@ -30,7 +30,7 @@ smartpipe distinct --exact --as jsonl corpus.jsonl \
 # alert storm → named causes + the one weird thing (where reads stdin ONLY - use <, not a file argument)
 smartpipe where 'status has "firing"' < alerts.jsonl | smartpipe cluster --top 5
 smartpipe where 'status has "firing"' < alerts.jsonl | smartpipe outliers 3
-# cluster rows: {"cluster": "...", "size": N, "share": ..., "examples": [...]} · outliers rows gain "_distance"
+# cluster rows: {"cluster": "...", "size": N, "share": ..., "examples": [...]} · outliers rows gain "__distance"
 
 # live tail triage (streaming; the free cut keeps the judge affordable)
 tail -f app.log \

@@ -73,7 +73,7 @@ async def test_planted_outlier_ranks_first_with_anchored_score() -> None:
     code, rows, err = await _run(stdin_text, count=2)
     assert code is ExitCode.OK
     assert rows[0]["text"] == "kernel: watchdog: soft lockup"
-    first, second = rows[0]["_distance"], rows[1]["_distance"]
+    first, second = rows[0]["__distance"], rows[1]["__distance"]
     assert isinstance(first, float) and isinstance(second, float) and first > second
     assert rows[0]["source"] == "line 4"
     assert "median neighbor distance" in err and "x out" in err
@@ -92,7 +92,7 @@ async def test_record_shape_mirrors_top_k_for_json_rows() -> None:
     )
     _code, rows, _err = await _run(stdin_text, count=1)
     assert rows[0]["msg"] == "kernel: watchdog: soft lockup"  # original fields survive
-    assert "_distance" in rows[0]
+    assert "__distance" in rows[0]
 
 
 async def test_tiny_corpus_is_a_usage_fault() -> None:

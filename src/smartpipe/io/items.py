@@ -38,7 +38,18 @@ _BOM = "﻿"
 # warn once per name and carry through untouched — user data owns at most one
 # leading underscore, so a stray `__x` is worth a heads-up, never a hard error.
 KNOWN_META = frozenset(
-    {"__source", "__media", "__score", "__invalid", "__error", "__raw", "__embedder"}
+    {
+        "__source",
+        "__media",
+        "__score",
+        "__rank",
+        "__snapshot",
+        "__distance",
+        "__invalid",
+        "__error",
+        "__raw",
+        "__embedder",
+    }
 )
 
 _warned_meta: set[str] = set()  # once per field name per process, like the degradation cap

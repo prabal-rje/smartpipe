@@ -25,7 +25,9 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.io.render import MediaLines
 
-_TRAILING_COLUMNS = ("_score", "_rank", "__score")  # ranking metadata sorts right of the sheet
+# Ranking metadata sorts right of the sheet. The single-underscore spellings are
+# dual-read for one release (item 76): pre-1.4 top_k/outliers output still sorts.
+_TRAILING_COLUMNS = ("__score", "__rank", "__distance", "_score", "_rank")
 
 __all__ = [
     "OutputFormat",

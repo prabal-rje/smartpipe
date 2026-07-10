@@ -156,6 +156,7 @@ def test_known_meta_fields_never_warn(capsys: pytest.CaptureFixture[str]) -> Non
 
     items_module._warned_meta.clear()  # pyright: ignore[reportPrivateUsage] — test isolation
     item_from_line('{"__score": 0.5, "__invalid": true, "__error": "e", "__raw": "r"}\n', 0)
+    item_from_line('{"__rank": 1, "__snapshot": 2, "__distance": 0.7}\n', 1)  # item 76 stamps
     assert capsys.readouterr().err == ""
 
 

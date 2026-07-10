@@ -74,7 +74,7 @@ def top_k_command(
       cat corpus.embeddings | smartpipe top_k 10 --near "Q3 revenue strategy"
       cat articles.jsonl | smartpipe top_k --near "climate policy" --threshold 0.8
 
-    Give a number (K), a --threshold, or both. Each result gains a _score (0-1).
+    Give a number (K), a --threshold, or both. Each result gains a __score (0-1).
     In file mode, each result is a filename and its score.
     """
     request = TopKRequest(
