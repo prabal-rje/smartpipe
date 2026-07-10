@@ -77,6 +77,16 @@ pipe, every membership/order change emits a JSONL **snapshot**: a
 change means no output. `--stream` needs `K`, reads `stdin` only, and skips (rather
 than fails on) a record whose embedding dimensions don't match the query.
 
+One honest edge: `--stream` with a `media-embed-model` that stands apart from
+`embed-model`. The query has to embed before the stream's composition is
+knowable, so it embeds in the text space - and the first image item that then
+arrives would land in the joint space, so the run stops with the
+one-run-one-vector-space error rather than mix two geometries. Batch mode
+doesn't have this problem: it sees the whole corpus before embedding the
+query, so a media-bearing corpus ranks your text query in the joint space
+automatically. For a live board over media, set `embed-model` to the joint
+model so both roles agree - or keep the stream text-only.
+
 ## Options
 
 | Option | Meaning |
