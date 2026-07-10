@@ -19,7 +19,7 @@ const LINES: readonly TerminalLine[] = [
   {
     kind: "cmd",
     at: sec(0.4),
-    text: "smartpipe graph --fast 'case/*' --entities \"person, company, account\"",
+    text: "smartpipe graph --fast 'project/*'",
   },
   { kind: "note", at: sec(2.9), text: "note: 2 entity names folded into 1 node" },
   {
@@ -32,12 +32,14 @@ const LINES: readonly TerminalLine[] = [
 /** A named entity node: position is its center, `at` is when it pops in. */
 type GraphNode = { label: string; x: number; y: number; at: number };
 
+/** Default entity set (person, organization, location) — every label is a
+ *  person, a company, or a place a stranger parses instantly. */
 const NODES: readonly GraphNode[] = [
-  { label: "Anatolia Star", x: 960, y: 480, at: sec(4.0) },
+  { label: "Priya Sharma", x: 960, y: 480, at: sec(4.0) },
   { label: "Elena Vasquez", x: 565, y: 600, at: sec(4.4) },
-  { label: "Corvus Holdings", x: 1355, y: 610, at: sec(4.8) },
+  { label: "Northwind Ltd", x: 1355, y: 610, at: sec(4.8) },
   { label: "Marcus Webb", x: 740, y: 810, at: sec(5.2) },
-  { label: "account 7741-0092", x: 1195, y: 830, at: sec(5.6) },
+  { label: "Berlin office", x: 1195, y: 830, at: sec(5.6) },
 ];
 
 /** The unnamed remainder of the 11 entities — small, dim, background dots. */
@@ -80,21 +82,21 @@ const toDot = (a: GraphNode, d: GraphDot, at: number): GraphEdge => ({
   bold: false,
 });
 
-const [ANATOLIA, ELENA, CORVUS, MARCUS, ACCOUNT] = NODES;
+const [PRIYA, ELENA, NORTHWIND, MARCUS, BERLIN] = NODES;
 
 const EDGES: readonly GraphEdge[] = [
-  between(ANATOLIA, ELENA, sec(4.9)),
-  between(ANATOLIA, CORVUS, sec(5.3)),
+  between(PRIYA, ELENA, sec(4.9)),
+  between(PRIYA, NORTHWIND, sec(5.3)),
   between(ELENA, MARCUS, sec(5.7)),
-  between(MARCUS, ACCOUNT, sec(6.1)),
-  between(CORVUS, ACCOUNT, sec(6.4)),
-  between(ELENA, CORVUS, sec(6.7)),
-  toDot(ANATOLIA, DOTS[1], sec(6.9)),
-  toDot(ANATOLIA, DOTS[3], sec(7.0)),
+  between(MARCUS, BERLIN, sec(6.1)),
+  between(NORTHWIND, BERLIN, sec(6.4)),
+  between(ELENA, NORTHWIND, sec(6.7)),
+  toDot(PRIYA, DOTS[1], sec(6.9)),
+  toDot(PRIYA, DOTS[3], sec(7.0)),
   toDot(ELENA, DOTS[0], sec(7.1)),
   toDot(MARCUS, DOTS[2], sec(7.2)),
-  toDot(CORVUS, DOTS[4], sec(7.3)),
-  toDot(ACCOUNT, DOTS[5], sec(7.4)),
+  toDot(NORTHWIND, DOTS[4], sec(7.3)),
+  toDot(BERLIN, DOTS[5], sec(7.4)),
 ];
 
 /** One thin edge, drawn tip-to-tail once both endpoints exist. */
@@ -201,7 +203,7 @@ export const Graph: React.FC = () => {
       <AbsoluteFill style={{ alignItems: "center" }}>
         <div style={{ marginTop: 100 }}>
           <Terminal
-            title="~/case — smartpipe"
+            title="~/project — smartpipe"
             lines={LINES}
             width={1660}
             height={250}
@@ -225,7 +227,10 @@ export const Graph: React.FC = () => {
           <NodeChip key={n.label} node={n} />
         ))}
       </AbsoluteFill>
-      <Caption at={sec(10.6)} text="A knowledge graph from any folder. Zero model calls." />
+      <Caption
+        at={sec(10.6)}
+        text="A knowledge graph from your documents, audio, and video."
+      />
     </SceneFrame>
   );
 };

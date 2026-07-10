@@ -56,43 +56,23 @@ const Pop: React.FC<{ at: number; children: React.ReactNode }> = ({
   );
 };
 
-const VerbChip: React.FC<{ verb: string; tag: "free" | "paid" }> = ({
-  verb,
-  tag,
-}) => {
-  const tagColor = tag === "free" ? COLORS.green : COLORS.yellow;
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 14,
-        padding: "16px 24px",
-        borderRadius: 11,
-        border: `1px solid ${COLORS.panelBorder}`,
-        backgroundColor: "rgba(17,20,28,0.92)",
-        fontFamily: MONO,
-      }}
-    >
-      <span style={{ color: COLORS.cyan, fontSize: 30, fontWeight: 700 }}>
-        {verb}
-      </span>
-      <span
-        style={{
-          color: tagColor,
-          border: `1px solid ${tagColor}`,
-          borderRadius: 6,
-          padding: "3px 10px",
-          fontSize: 18,
-          letterSpacing: 1.5,
-          opacity: 0.9,
-        }}
-      >
-        {tag.toUpperCase()}
-      </span>
-    </div>
-  );
-};
+/** A step chip: just the command name — no taxonomy tags (owner ruling:
+ *  no "verb"/"free" jargon on screen; the receipt tells the cost story). */
+const StepChip: React.FC<{ step: string }> = ({ step }) => (
+  <div
+    style={{
+      padding: "16px 24px",
+      borderRadius: 11,
+      border: `1px solid ${COLORS.panelBorder}`,
+      backgroundColor: "rgba(17,20,28,0.92)",
+      fontFamily: MONO,
+    }}
+  >
+    <span style={{ color: COLORS.cyan, fontSize: 30, fontWeight: 700 }}>
+      {step}
+    </span>
+  </div>
+);
 
 const RollingCount: React.FC<{
   from: number;
@@ -128,7 +108,7 @@ const Arrow: React.FC = () => (
   <div style={{ fontFamily: MONO, fontSize: 42, color: COLORS.faint }}>→</div>
 );
 
-/** Scene 4 — cost honesty: cut for free, pay for judgement, read the receipt. */
+/** Scene 4 — cost honesty: cut the pile first, then read the receipt. */
 export const CostHonesty: React.FC = () => {
   return (
     <SceneFrame duration={SCENE.cost}>
@@ -165,7 +145,7 @@ export const CostHonesty: React.FC = () => {
             <Arrow />
           </Pop>
           <Pop at={sec(4.1)}>
-            <VerbChip verb="where" tag="free" />
+            <StepChip step="where" />
           </Pop>
           <Pop at={sec(4.6)}>
             <Arrow />
@@ -183,7 +163,7 @@ export const CostHonesty: React.FC = () => {
             <Arrow />
           </Pop>
           <Pop at={sec(6.7)}>
-            <VerbChip verb="filter" tag="paid" />
+            <StepChip step="filter" />
           </Pop>
           <Pop at={sec(7.2)}>
             <Arrow />
@@ -201,7 +181,7 @@ export const CostHonesty: React.FC = () => {
       </AbsoluteFill>
       <Caption
         at={sec(10.8)}
-        text="Free verbs cut first. Every call is on the receipt. Reruns are cached."
+        text="Cut the pile down first. The model only reads what's left."
       />
     </SceneFrame>
   );

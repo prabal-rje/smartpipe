@@ -19,11 +19,19 @@ const TRAVEL = sec(1.5);
 type FlowFile = { kind: FileKind; source: string; startY: number; delay: number };
 
 const FILES: readonly FlowFile[] = [
-  { kind: "pdf", source: "report-06.pdf", startY: 66, delay: sec(0.4) },
-  { kind: "png", source: "scan-114.png", startY: 172, delay: sec(0.9) },
-  { kind: "mp3", source: "call-03.mp3", startY: 278, delay: sec(1.4) },
-  { kind: "mp4", source: "demo-clip.mp4", startY: 384, delay: sec(1.9) },
+  { kind: "pdf", source: "report-06.pdf", startY: 66, delay: sec(1.2) },
+  { kind: "png", source: "scan-114.png", startY: 172, delay: sec(1.7) },
+  { kind: "mp3", source: "call-03.mp3", startY: 278, delay: sec(2.2) },
+  { kind: "mp4", source: "demo-clip.mp4", startY: 384, delay: sec(2.7) },
 ];
+
+/** Right side, per file: a small modality visual + one plain answer line. */
+const ANSWERS: Readonly<Record<FileKind, string>> = {
+  pdf: "audit due by March 31",
+  png: "net-30 terms, signed",
+  mp3: "promised a refund by Friday",
+  mp4: "demo re-shoot promised Monday",
+};
 
 const arrival = (f: FlowFile): number => f.delay + TRAVEL;
 
@@ -54,7 +62,118 @@ const FlowingFile: React.FC<{ file: FlowFile }> = ({ file }) => {
   );
 };
 
-const RecordChip: React.FC<{ file: FlowFile; index: number }> = ({
+/** A plausible pixel-block thumbnail (io/preview.py's plotext half-block
+ *  look), drawn from a fixed pattern in the OG palette. */
+const THUMB_PATTERN: readonly (readonly number[])[] = [
+  [0, 1, 1, 2, 2, 1, 0, 0, 1, 1],
+  [1, 2, 3, 3, 2, 2, 1, 1, 2, 1],
+  [1, 3, 3, 2, 3, 3, 2, 2, 2, 0],
+  [0, 2, 3, 3, 3, 2, 3, 3, 1, 0],
+  [0, 1, 2, 2, 1, 1, 2, 1, 1, 0],
+];
+
+const THUMB_SHADES: readonly string[] = [
+  "rgba(30,36,48,0.9)",
+  "rgba(34,211,238,0.22)",
+  "rgba(52,211,153,0.30)",
+  "rgba(103,232,249,0.45)",
+];
+
+const Thumb: React.FC<{ play?: boolean }> = ({ play = false }) => (
+  <div style={{ position: "relative" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+        padding: 4,
+        borderRadius: 5,
+        border: `1px solid ${COLORS.panelBorder}`,
+        backgroundColor: "rgba(12,14,18,0.9)",
+      }}
+    >
+      {THUMB_PATTERN.map((row, r) => (
+        <div key={r} style={{ display: "flex", gap: 2 }}>
+          {row.map((cell, c) => (
+            <div
+              key={c}
+              style={{
+                width: 9,
+                height: 8,
+                borderRadius: 1,
+                backgroundColor: THUMB_SHADES[cell],
+              }}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+    {play ? (
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: COLORS.text,
+          fontSize: 22,
+          textShadow: "0 0 8px rgba(0,0,0,0.9)",
+        }}
+      >
+        ▶
+      </div>
+    ) : null}
+  </div>
+);
+
+/** The audio modality visual: a small peak-envelope row. */
+const Waveform: React.FC = () => (
+  <div
+    style={{
+      fontFamily: MONO,
+      fontSize: 19,
+      color: COLORS.cyanDim,
+      opacity: 0.7,
+    }}
+  >
+    ▁▂▅▇▅▃▆▇▄▂
+  </div>
+);
+
+/** The text/pdf visual: a few dim scribble lines suggesting a paragraph. */
+const Scribble: React.FC = () => (
+  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+    {[74, 58, 66].map((w) => (
+      <div
+        key={w}
+        style={{
+          width: w,
+          height: 4,
+          borderRadius: 2,
+          backgroundColor: COLORS.faint,
+          opacity: 0.55,
+        }}
+      />
+    ))}
+  </div>
+);
+
+const Visual: React.FC<{ kind: FileKind }> = ({ kind }) => {
+  switch (kind) {
+    case "pdf":
+      return <Scribble />;
+    case "png":
+      return <Thumb />;
+    case "mp3":
+      return <Waveform />;
+    case "mp4":
+      return <Thumb play />;
+  }
+};
+
+/** One answer card: the modality visual + the one extracted answer line. */
+const AnswerCard: React.FC<{ file: FlowFile; index: number }> = ({
   file,
   index,
 }) => {
@@ -67,8 +186,8 @@ const RecordChip: React.FC<{ file: FlowFile; index: number }> = ({
   if (frame < at) {
     return null;
   }
-  const x = interpolate(t, [0, 1], [PIPE_X + 40, PIPE_X + 190]);
-  const y = 96 + index * 78;
+  const x = interpolate(t, [0, 1], [PIPE_X + 40, PIPE_X + 170]);
+  const y = 62 + index * 96;
   return (
     <div
       style={{
@@ -76,26 +195,23 @@ const RecordChip: React.FC<{ file: FlowFile; index: number }> = ({
         left: x,
         top: y,
         opacity: t,
-        fontFamily: MONO,
-        fontSize: 20,
-        padding: "10px 18px",
-        borderRadius: 9,
+        display: "flex",
+        alignItems: "center",
+        gap: 20,
+        padding: "12px 20px",
+        borderRadius: 10,
         border: `1px solid ${COLORS.panelBorder}`,
         backgroundColor: "rgba(17,20,28,0.92)",
+        fontFamily: MONO,
         whiteSpace: "pre",
       }}
     >
-      <span style={{ color: COLORS.faint }}>{'{'}</span>
-      <span style={{ color: COLORS.ghost }}>{'"__source"'}</span>
-      <span style={{ color: COLORS.faint }}>{':{'}</span>
-      <span style={{ color: COLORS.cyanDim }}>{'"path"'}</span>
-      <span style={{ color: COLORS.faint }}>:</span>
-      <span style={{ color: COLORS.greenDim }}>{`"${file.source}"`}</span>
-      <span style={{ color: COLORS.faint }}>,</span>
-      <span style={{ color: COLORS.cyanDim }}>{'"as"'}</span>
-      <span style={{ color: COLORS.faint }}>:</span>
-      <span style={{ color: COLORS.greenDim }}>{'"file"'}</span>
-      <span style={{ color: COLORS.faint }}>{'}}'}</span>
+      <div style={{ width: 118, display: "flex", justifyContent: "center" }}>
+        <Visual kind={file.kind} />
+      </div>
+      <div style={{ fontSize: 23, color: COLORS.text }}>
+        {ANSWERS[file.kind]}
+      </div>
     </div>
   );
 };
@@ -127,26 +243,23 @@ const PipeGlyph: React.FC = () => {
   );
 };
 
+/** The terminal that drives it: the typed command and the verbatim receipt. */
 const LINES: readonly TerminalLine[] = [
   {
     kind: "cmd",
-    at: sec(5.2),
-    text: "smartpipe split --by minutes:5 'recordings/*.mp3' | smartpipe map \"List every commitment made\"",
+    at: sec(0.3),
+    text: "smartpipe map \"List every commitment made\" 'inbox/*'",
   },
   {
-    kind: "out",
-    at: sec(8.2),
-    text: '{"result":"Dana: revised SOW to the client by Friday","__source":{"path":"call-03.mp3","as":"minutes","segment":2}}',
-  },
-  {
-    kind: "out",
+    kind: "note",
     at: sec(8.6),
-    text: '{"result":"Sam: escalate the refund to finance today","__source":{"path":"call-03.mp3","as":"minutes","segment":3}}',
+    text: "note: run: ↑18.3k ↓612 tok · 2.1 MB images (1) · 8.4 MB video (1) · 4.1 MB audio (1) · 12m04s",
+    gap: true,
   },
-  { kind: "note", at: sec(9.6), text: "note: run: ↑18.3k ↓412 tok · 4.1 MB audio (3) · 12m04s" },
 ];
 
-/** Scene 3 — multimodal: files flow into the pipe and come out as records. */
+/** Scene 3 — multimodal: files flow into the pipe; per-modality visuals and
+ *  one plain answer per file come out the other side. */
 export const Multimodal: React.FC = () => {
   return (
     <SceneFrame duration={SCENE.multimodal}>
@@ -167,17 +280,17 @@ export const Multimodal: React.FC = () => {
           <FlowingFile key={f.kind} file={f} />
         ))}
         {FILES.map((f, i) => (
-          <RecordChip key={f.kind} file={f} index={i} />
+          <AnswerCard key={f.kind} file={f} index={i} />
         ))}
       </AbsoluteFill>
       {/* terminal, lower half */}
       <AbsoluteFill style={{ alignItems: "center", justifyContent: "flex-end" }}>
         <div style={{ marginBottom: 190 }}>
           <Terminal
-            title="~/recordings — smartpipe"
+            title="~/inbox — smartpipe"
             lines={LINES}
             width={1660}
-            height={290}
+            height={220}
             fontSize={22}
           />
         </div>

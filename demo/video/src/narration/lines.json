@@ -1,13 +1,13 @@
 [
-  { "id": "h1", "at": 180, "text": "This is smartpipe. Point it at a folder of invoices. Ask in English." },
-  { "id": "h2", "at": 372, "text": "Structured rows come back, stamped with their source. Every run ends with a receipt." },
-  { "id": "m1", "at": 600, "text": "It's not just text. PDFs, images, audio, and video are native inputs." },
-  { "id": "m2", "at": 810, "text": "Split a call into five-minute segments. Ask what was promised." },
-  { "id": "c1", "at": 1026, "text": "Free verbs cut the pile first. The model only sees what survives." },
-  { "id": "c2", "at": 1245, "text": "Every call lands on the receipt. Reruns come from cache." },
-  { "id": "s1", "at": 1446, "text": "Embed a folder once. It runs locally, on your CPU." },
-  { "id": "s2", "at": 1635, "text": "Then search by meaning. No database." },
-  { "id": "g1", "at": 1806, "text": "One command turns a folder of case files into a knowledge graph." },
-  { "id": "g2", "at": 1986, "text": "Entities found on-device. Duplicates folded. Zero model calls." },
-  { "id": "x1", "at": 2190, "text": "One brew install away. Semantic pipes, for your terminal." }
+  { "id": "h1", "at": 168, "text": "This is smartpipe. You point it at a folder of invoices, ask a question in plain English, and get structured data back." },
+  { "id": "h2", "at": 444, "text": "Each answer stays linked to the file it came from." },
+  { "id": "m1", "at": 600, "text": "And it isn't just text. It reads PDFs and images, and listens to audio and video natively." },
+  { "id": "m2", "at": 810, "text": "Here it reads a mixed folder and pulls one plain answer out of every file." },
+  { "id": "c1", "at": 1026, "text": "It cuts the pile down first, so the model only reads what's left." },
+  { "id": "c2", "at": 1236, "text": "Every call shows up on the receipt, and reruns come straight from the cache." },
+  { "id": "s1", "at": 1434, "text": "You can embed a whole folder once, right on your own machine." },
+  { "id": "s2", "at": 1704, "text": "Then you can search the whole folder by meaning, just by describing what you're looking for." },
+  { "id": "g1", "at": 1980, "text": "One command turns your documents, audio, and video into a knowledge graph." },
+  { "id": "g2", "at": 2148, "text": "It finds the people, companies, and places in your files, and connects them." },
+  { "id": "x1", "at": 2364, "text": "And it's one brew install away: smartpipe, semantic pipes for your terminal." }
 ]

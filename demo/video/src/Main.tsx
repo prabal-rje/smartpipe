@@ -8,7 +8,8 @@ import { CostHonesty } from "./scenes/CostHonesty";
 import { Graph } from "./scenes/Graph";
 import { Hook } from "./scenes/Hook";
 import { Multimodal } from "./scenes/Multimodal";
-import { Scale } from "./scenes/Scale";
+import { ScaleA } from "./scenes/ScaleA";
+import { ScaleB } from "./scenes/ScaleB";
 import { duckFactor, Narration } from "./Narration";
 
 /** Music bed base gain. Owner order (2026-07-09): "lower BG volume much
@@ -17,13 +18,13 @@ const MUSIC_BASE = 0.14;
 
 export type MainProps = { narrated?: boolean };
 
-/** The full 80s cut: one persistent background, seven scenes in series.
+/** The full 86s cut: one persistent background, eight scenes in series.
  *  With `narrated`, the Rime voiceover plays on top, a subtitle band shows
  *  the spoken words, and the music ducks a further few dB under speech. */
 export const Main: React.FC<MainProps> = ({ narrated = false }) => {
   return (
     <AbsoluteFill>
-      {/* Music bed: Silicon Prism Waltz (60s, looped to cover the 80s cut).
+      {/* Music bed: Silicon Prism Waltz (60s, looped to cover the 86s cut).
           Volume envelope: quick fade-in, steady bed, fade-out over the close.
           A fully synthesized fallback lives at scripts/make-music.mjs. */}
       <Audio
@@ -54,8 +55,11 @@ export const Main: React.FC<MainProps> = ({ narrated = false }) => {
         <Series.Sequence durationInFrames={SCENE.cost}>
           <CostHonesty />
         </Series.Sequence>
-        <Series.Sequence durationInFrames={SCENE.scale}>
-          <Scale />
+        <Series.Sequence durationInFrames={SCENE.scaleA}>
+          <ScaleA />
+        </Series.Sequence>
+        <Series.Sequence durationInFrames={SCENE.scaleB}>
+          <ScaleB />
         </Series.Sequence>
         <Series.Sequence durationInFrames={SCENE.graph}>
           <Graph />

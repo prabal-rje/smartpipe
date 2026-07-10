@@ -13,12 +13,13 @@ export const sec = (s: number): number => Math.round(s * FPS);
 /** Scene durations, in frames. Order here is the order in the Main timeline. */
 export const SCENE = {
   coldOpen: sec(5), // 1 — static brand card: one fast fade, ~4s hold, exit
-  hook: sec(14), // 2 — map over invoices/*.pdf
-  multimodal: sec(14), // 3 — files → pipe → records; audio commitments
-  cost: sec(14), // 4 — where (free) → filter (paid) funnel + receipt
-  scale: sec(12), // 5 — embed a folder of tickets, top_k by meaning
-  graph: sec(13), // 6 — graph --fast: entities + edges, zero model calls
-  close: sec(8), // 7 — wordmark, install line, URL, fade
+  hook: sec(14), // 2 — map over invoices/*.pdf, human blocks out
+  multimodal: sec(14), // 3 — files → pipe → modality visuals + plain answers
+  cost: sec(14), // 4 — where → filter funnel + receipt + cache line
+  scaleA: sec(9), // 5 — make the index: embed a folder, on-device
+  scaleB: sec(9), // 6 — search it: top_k by meaning
+  graph: sec(13), // 7 — graph --fast: entities + edges; receipt says 0 tok
+  close: sec(8), // 8 — wordmark, install line, URL, fade
 } as const;
 
 export const TOTAL_FRAMES =
@@ -26,7 +27,8 @@ export const TOTAL_FRAMES =
   SCENE.hook +
   SCENE.multimodal +
   SCENE.cost +
-  SCENE.scale +
+  SCENE.scaleA +
+  SCENE.scaleB +
   SCENE.graph +
   SCENE.close;
 

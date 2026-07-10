@@ -8,14 +8,24 @@ import { MONO } from "../font";
  *
  * Lines are declared with a `kind` and a start frame (`at`, relative to the
  * enclosing <Sequence>):
- *   - "cmd"  → typed character-by-character behind a block caret
- *   - "out"  → stdout rows that cascade in with a small spring
- *   - "note" → dimmed stderr diagnostics in yellow (receipts, run notes)
+ *   - "cmd"   → typed character-by-character behind a block caret
+ *   - "out"   → stdout rows that cascade in with a small spring
+ *   - "note"  → dimmed stderr diagnostics in yellow (receipts, run notes)
+ *   - "ord"   → the cyan `#N` ordinal above a human block (io/writers.py)
+ *   - "field" → one `key: value` block line — key dim, value normal; with
+ *               `dim` the whole line is the dimmed `__` spine treatment
+ *   - "wave"  → a small audio peak-envelope garnish (io/preview.py's look)
+ *   - "pair"  → a text snippet plus a dim trailing glyph (embed-row picture)
+ * `gap` renders the blank-line separation between blocks.
  */
 export type TerminalLine =
   | { kind: "cmd"; text: string; at: number; cps?: number }
   | { kind: "out"; text: string; at: number }
-  | { kind: "note"; text: string; at: number };
+  | { kind: "note"; text: string; at: number; gap?: boolean }
+  | { kind: "ord"; text: string; at: number; gap?: boolean }
+  | { kind: "field"; k: string; v: string; at: number; dim?: boolean }
+  | { kind: "wave"; text: string; at: number }
+  | { kind: "pair"; left: string; right: string; at: number };
 
 type Span = { text: string; color: string; weight?: number };
 
@@ -238,12 +248,15 @@ export const Terminal: React.FC<TerminalProps> = ({
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
           });
+          const gap =
+            (line.kind === "ord" || line.kind === "note") && line.gap === true;
           const style: React.CSSProperties = {
             fontSize,
             lineHeight: `${lineHeight}px`,
             transform: `translateY(${(1 - p) * 15}px)`,
             opacity,
             whiteSpace: "pre",
+            marginTop: gap ? Math.round(lineHeight * 0.5) : 0,
           };
           if (line.kind === "note") {
             return (
@@ -251,6 +264,58 @@ export const Terminal: React.FC<TerminalProps> = ({
                 key={i}
                 style={{ ...style, color: COLORS.yellow, opacity: opacity * 0.78 }}
               >
+                {line.text}
+              </div>
+            );
+          }
+          if (line.kind === "ord") {
+            return (
+              <div
+                key={i}
+                style={{ ...style, color: COLORS.cyan, fontWeight: 700 }}
+              >
+                {line.text}
+              </div>
+            );
+          }
+          if (line.kind === "field") {
+            // io/render.py `_line`: the key label dim, the value normal; a
+            // `dim` line is the `__` spine — dimmed whole, metadata-quiet.
+            return (
+              <div key={i} style={style}>
+                <span style={{ color: line.dim ? COLORS.ghost : COLORS.dim }}>
+                  {line.k}:{" "}
+                </span>
+                <span style={{ color: line.dim ? COLORS.faint : COLORS.text }}>
+                  {line.v}
+                </span>
+              </div>
+            );
+          }
+          if (line.kind === "pair") {
+            return (
+              <div key={i} style={style}>
+                <span style={{ color: COLORS.text }}>{line.left}</span>
+                <span style={{ color: COLORS.faint, opacity: 0.8 }}>
+                  {"   "}
+                  {line.right}
+                </span>
+              </div>
+            );
+          }
+          if (line.kind === "wave") {
+            // io/preview.py's audio garnish: a peak envelope, nested + quiet.
+            return (
+              <div
+                key={i}
+                style={{
+                  ...style,
+                  color: COLORS.cyanDim,
+                  opacity: opacity * 0.55,
+                  letterSpacing: 1,
+                }}
+              >
+                {"  "}
                 {line.text}
               </div>
             );

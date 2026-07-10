@@ -9,7 +9,8 @@ import { CostHonesty } from "./scenes/CostHonesty";
 import { Graph } from "./scenes/Graph";
 import { Hook } from "./scenes/Hook";
 import { Multimodal } from "./scenes/Multimodal";
-import { Scale } from "./scenes/Scale";
+import { ScaleA } from "./scenes/ScaleA";
+import { ScaleB } from "./scenes/ScaleB";
 
 /** Standalone scene = background + scene, so each renders on its own. */
 const standalone = (Scene: React.FC): React.FC => {
@@ -27,7 +28,8 @@ const SCENES: readonly { id: string; component: React.FC; duration: number }[] =
   { id: "Hook", component: standalone(Hook), duration: SCENE.hook },
   { id: "Multimodal", component: standalone(Multimodal), duration: SCENE.multimodal },
   { id: "CostHonesty", component: standalone(CostHonesty), duration: SCENE.cost },
-  { id: "Scale", component: standalone(Scale), duration: SCENE.scale },
+  { id: "ScaleA", component: standalone(ScaleA), duration: SCENE.scaleA },
+  { id: "ScaleB", component: standalone(ScaleB), duration: SCENE.scaleB },
   { id: "Graph", component: standalone(Graph), duration: SCENE.graph },
   { id: "Close", component: standalone(Close), duration: SCENE.close },
 ];
