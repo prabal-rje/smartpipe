@@ -35,6 +35,12 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # resolves the data-dir auth.json inside its own tmp_path.
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "data"))  # the windows twin
+    # …nor the developer's real config.toml (live-caught 2026-07-10: the
+    # owner's test-drive stamped ocr-model and 7 embed/top_k tests started
+    # resolving a Mistral parser locally while CI stayed green - CI runners
+    # simply HAVE no config; this pin makes local runs match CI)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "config"))  # the windows twin (D09)
     metering.reset()
 
 

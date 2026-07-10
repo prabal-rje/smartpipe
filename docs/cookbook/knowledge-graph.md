@@ -85,12 +85,17 @@ smartpipe graph "who invoices whom, and for what" 'invoices/*.pdf' 'reports/*.pd
 
 ## Pay a capped amount to name the strongest links
 
-The hybrid form keeps the free graph and spends exactly one call per edge on
+The hybrid form keeps the free graph and spends one naming call per edge on
 only the N heaviest:
 
 ```bash
-smartpipe graph "who works on which program" --name-top 5 'reports/*.pdf' --entities "aircraft, organization, person" --max-calls 5
+smartpipe graph "who works on which program" --name-top 5 'reports/*.pdf' --entities "aircraft, organization, person" --max-calls 12
 ```
+
+`--max-calls` caps the WHOLE run - the fold's embedding calls and any
+repair retries draw from the same budget as the naming calls, so give the
+belt headroom beyond N (here 12 for 5 names). A too-tight belt degrades
+gracefully: unnamed edges keep `co-occurs`, disclosed.
 
 Named edges trade `co-occurs` for a model-read relation:
 

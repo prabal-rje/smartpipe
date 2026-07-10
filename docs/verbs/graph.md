@@ -199,7 +199,7 @@ without re-reading the corpus.
 | `--fast` | the free mode: local NER + co-occurrence, zero model calls |
 | `--entities "a, b"` | entity types to find (default `"person, organization, location"`); with a focus prompt they become the subject/object type enum |
 | `--relations "pays, owns"` | closed relation vocabulary for the model-read modes (typed ontology) |
-| `--name-top N` | hybrid mode: free pass, then one call per edge names the N strongest relations |
+| `--name-top N` | hybrid mode: free pass, then one naming call per edge for the N strongest (repair retries and the fold's embedding calls also count against `--max-calls`) |
 | `--window sentence\|chunk\|document` | how close "together" is (default `chunk`) |
 | `--min-weight N` | drop edges co-occurring fewer than N times |
 | `--save PATH` | also write `.graphml`/`.dot`/`.mmd`/`.csv`/`.html`, or a `directory/` for an Obsidian vault |
