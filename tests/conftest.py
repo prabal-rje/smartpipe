@@ -52,6 +52,10 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for env_vars in KEY_ENVS.values():
         for name in env_vars:
             monkeypatch.delenv(name, raising=False)
+    # …nor an ambient --local-only fence (item 65d): the flag exports
+    # SMARTPIPE_LOCAL_ONLY into os.environ, so the delenv both isolates tests
+    # from the developer's shell and undoes any in-process export at teardown
+    monkeypatch.delenv("SMARTPIPE_LOCAL_ONLY", raising=False)
     metering.reset()
 
 

@@ -115,6 +115,7 @@ class AppContainer:
         if not raw:
             return None
         ref = parse_model_ref(raw)
+        self._fence(ref, "chat")  # a cloud fallback fails HERE, not at switch time
         if _looks_like_embedder(ref):
             raise UsageFault(
                 f"fallback-model works for chat models only — '{raw}' embeds\n"
@@ -173,6 +174,7 @@ class AppContainer:
         from smartpipe.models.base import supports_media_embedding
 
         media_ref = parse_model_ref(raw)
+        self._fence(media_ref, "media_embed")  # the media-role wording, before embed's
         manifest.record_model("media_embed", str(media_ref))
         model = self._build_embed(media_ref)
         probe: object = model  # narrow a VIEW, not the binding — the return stays typed
@@ -201,6 +203,7 @@ class AppContainer:
         if not raw:
             return None
         ref = parse_model_ref(raw)
+        self._fence(ref, "ocr")  # a vision rung re-checks via _build_chat; harmless
         manifest.record_model("ocr", str(ref))
         if ref.provider == "mistral":
             from smartpipe.models.budget import budgeted_parser
@@ -236,6 +239,7 @@ class AppContainer:
             else:
                 return None
         ref = parse_model_ref(raw)
+        self._fence(ref, "stt")
         if ref.provider != "openai":
             raise SetupFault(
                 f"error: no STT wire for {ref.provider!r} yet\n"
@@ -360,7 +364,15 @@ class AppContainer:
             retry=self.retry,
         )
 
+    def _fence(self, ref: ModelRef, role: str) -> None:
+        """--local-only (item 65d): refuse any wire that would leave this
+        machine - HERE, at build time, before any spend or network."""
+        from smartpipe.core.fence import ensure_local_wire
+
+        ensure_local_wire(ref, self.env, role=role, ollama_host=resolve_host(self.env))
+
     def _build_chat(self, ref: ModelRef) -> ChatModel:
+        self._fence(ref, "chat")
         match ref.provider:
             case "ollama":
                 return OllamaChatModel(
@@ -417,6 +429,7 @@ class AppContainer:
         )
 
     def _build_embed(self, ref: ModelRef) -> EmbeddingModel:
+        self._fence(ref, "embed")
         match ref.provider:
             case "local":  # D44: the on-device default — no server, no key
                 from smartpipe.models.local_embed import LocalEmbeddingModel
@@ -463,7 +476,10 @@ class AppContainer:
                 assert_never(unreachable)
 
     async def probe_ollama(self) -> tuple[str, ...] | None:
-        """Installed ollama model names, or None if nothing is listening."""
+        """Installed ollama model names, or None if nothing is listening.
+        Under --local-only a remote OLLAMA_HOST refuses BEFORE the probe -
+        even a tags request is a network call the fence forbids."""
+        self._fence(ModelRef(provider="ollama", name="(autodetect)"), "chat")
         return await ollama_model_names(self.http_client, resolve_host(self.env))
 
 
