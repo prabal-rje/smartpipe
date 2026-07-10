@@ -304,7 +304,7 @@ def update_unknown_channel(version: str) -> str:
 
 
 DEMO_CONFIRM = "~26 MB download to ./smartpipe-playground - continue?"
-# click.confirm(default=True) renders the pinned prompt:
+# confirm_on_stderr(default=True) renders the pinned prompt:
 #   ~26 MB download to ./smartpipe-playground - continue? [Y/n]:
 
 _DEMO_NEXT_STEPS = """\

@@ -101,8 +101,9 @@ def fetch_playground() -> bytes:
 
 def _confirm(question: str) -> bool:
     """Enter continues (yes is the default); Ctrl+C/EOF at the prompt declines.
-    The prompt rides stderr - stdout carries nothing but the result."""
-    try:
-        return click.confirm(question, default=True, err=True)
-    except click.Abort:
-        return False
+    The prompt rides stderr - stdout carries nothing but the result (the
+    stderr-only helper exists because click.confirm leaks its separator to
+    stdout on Windows; matrix-caught 2026-07-10)."""
+    from smartpipe.cli.confirm import confirm_on_stderr
+
+    return confirm_on_stderr(question, default=True)

@@ -22,7 +22,7 @@ __all__ = ["RESCUE_PROMPT", "SAVED_RERUN", "die_with_rescue", "rescue_capable"]
 
 _CI_VARS = ("CI", "GITHUB_ACTIONS")  # the update check's fence, reused
 _QUESTION = "run setup now?"
-RESCUE_PROMPT = f"{_QUESTION} [Y/n]"  # how click.confirm(default=True) renders it
+RESCUE_PROMPT = f"{_QUESTION} [Y/n]"  # how confirm_on_stderr(default=True) renders it
 SAVED_RERUN = "saved - rerun your command"
 
 
@@ -74,9 +74,9 @@ def _real_capable() -> bool:  # pragma: no cover — process state; the gate its
 
 
 def _real_confirm() -> bool:  # pragma: no cover — terminal wiring
-    import click
+    from smartpipe.cli.confirm import confirm_on_stderr
 
-    return bool(click.confirm(_QUESTION, default=True, err=True))
+    return confirm_on_stderr(_QUESTION, default=True)
 
 
 def _real_setup() -> bool:  # pragma: no cover — terminal + network wiring
