@@ -48,6 +48,26 @@ smartpipe split --by pages:10 big.pdf \
 smartpipe split --by minutes:10 recordings/*.mp3 \
 | smartpipe extend "Add {decisions string[], action_items string[]}" \
 | smartpipe reduce "Weekly digest: decisions and action items by owner, cite source recording and time"
+
+# knowledge graph, FREE: local NER + co-occurrence - zero model calls, offline-safe
+smartpipe graph --fast 'notes/*.md' --entities "person, organization, account" --save graph.html
+# each edge: {"source":"Anatolia Star","relation":"co-occurs","target":"account 7741-0092","weight":4,"sources":[{"path":"01-intake-memo.md","as":"file"},...]}
+# edges sort heaviest first; exit 1 = some files had no free text (images/scans - stderr censuses them)
+
+# knowledge graph, hybrid: free pass first, then ONE call per edge names the N strongest relations
+smartpipe graph "who pays whom" --name-top 50 'notes/*.md' --max-calls 50
+# spend = N calls, capped; a belt shortfall DEGRADES, never lies: unnamed edges keep "co-occurs",
+# stderr says "named 40 of 50 (belt); 10 strongest remain co-occurs", exit 1
+
+# knowledge graph, full extraction: ~1 call per 2k-token chunk (+1 per embedded figure)
+smartpipe graph "who pays whom" 'filings/*.pdf' --max-calls 500
+# the cost plan prints BEFORE any spend; a belt below the plan → disclosed partial graph, exit 1
+# (rerun with a higher --max-calls: cached extractions are free)
+
+# adopt your own edges (free): fold + serialize rows you built with extend/jq - no extraction
+cat edges.jsonl | smartpipe graph --save deals.graphml
+# accepts {"source","target"} (graph's own shape) or {"subject","relation","object"} rows;
+# --save by extension: .graphml/.dot/.mmd/.csv/.html, or a trailing-slash dir/ = Obsidian vault
 ```
 
 Reminders that keep these safe:

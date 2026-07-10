@@ -40,8 +40,8 @@ ships 26 MB of CC0 / public-domain practice files - invoices, reports, photos,
 recordings, screen sessions, and JSONL data:
 
 ```bash
-curl -L https://github.com/prabal-rje/smartpipe-playground/archive/refs/tags/v1.tar.gz | tar xz
-cd smartpipe-playground-1
+curl -L https://github.com/prabal-rje/smartpipe-playground/releases/download/v1/smartpipe-playground-v1.tar.gz | tar xz
+cd smartpipe-playground
 
 smartpipe map "Extract {vendor, invoice_number, total number}" 'invoices/*.pdf'
 smartpipe filter "the customer sounds frustrated" 'recordings/*.mp3'
@@ -66,6 +66,7 @@ and writes `stdout`, so verbs pipe into each other and into ordinary Unix tools.
 | [`distinct`](verbs/distinct.md) | fold near-duplicates; `--exact` is free | `sort -u`, by meaning |
 | [`diff`](verbs/diff.md) | what distinguishes two sets | the post-incident answer |
 | [`outliers`](verbs/outliers.md) | the items least like the rest | novelty, surfaced |
+| [`graph`](verbs/graph.md) | corpus → entity/relationship graph; `--fast` is free | the case wall, with citations |
 
 **Free verbs** never call a model. Run them first to cut the corpus before any
 paid stage:
@@ -81,9 +82,10 @@ paid stage:
 | [`chart`](reference/cli.md) | terminal bars, SVG/PNG, facets, time series | quick plots |
 
 Some semantic verbs have a **conditionally free mode**: `join --on` (key
-equality, no prompt), `distinct --exact` (hash-only folding), `map`/`extend`
-`--dry-run` (compose without sending), and `smartpipe schema` with a
-braces/DSL expression. Each stays at zero model calls by construction.
+equality, no prompt), `distinct --exact` (hash-only folding), `graph --fast`
+(local NER, on-device), `map`/`extend` `--dry-run` (compose without sending),
+and `smartpipe schema` with a braces/DSL expression. Each stays at zero model
+calls by construction.
 
 ## Concepts
 

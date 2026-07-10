@@ -18,6 +18,7 @@ Verbs (call a model):
   diff       What distinguishes two sets of items
   distinct   Fold near-duplicate items (embeddings only)
   outliers   Rank the items least like the rest (embeddings only)
+  graph      Corpus → knowledge graph (--fast is free)
 
 Utilities (free — no model calls):
   where      Keep rows matching a deterministic predicate

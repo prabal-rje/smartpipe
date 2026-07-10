@@ -34,6 +34,7 @@ to `stderr`.
 | [`outliers`](../verbs/outliers.md) | rank the N items least like the rest | embeddings only |
 | [`cluster`](../verbs/cluster.md) | group items by meaning; label each group | embeddings + 1 call per cluster |
 | [`diff`](../verbs/diff.md) | themes that distinguish stdin from --right FILE | embeddings + labels |
+| [`graph`](../verbs/graph.md) | entity/relationship graph with cited edges | `--fast` = free local NER |
 | [`where`](../verbs/where.md) | keep rows matching a deterministic predicate | free - no model calls |
 | [`summarize`](../verbs/summarize.md) | count/avg/percentiles by field | free - no model calls |
 | [`sample`](../verbs/sample.md) | keep N random rows, seeded + reproducible | free - no model calls |
@@ -83,6 +84,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `outliers` | `N` (default 5), `--embed-model` |
 | `cluster` | `--k N`, `--top N`, `--explode members`, `--model` (labels), `--embed-model` |
 | `diff` | `--right FILE` (required), `--top N`, `--all`, `--model`, `--embed-model` |
+| `graph` | `--fast` (free), `--entities "a, b"`, `--relations "pays, owns"`, `--name-top N` (hybrid), `--window {sentence,chunk,document}`, `--min-weight N`, `--save PATH` (`.graphml`/`.dot`/`.mmd`/`.csv`/`.html` or `directory/` = Obsidian vault), `--top N` (display cap), `--ocr-model` |
 | `where` | `'PREDICATE'` (has, contains, matches /re/, == != > >= < <=, and/or/not) |
 | `summarize` | `'AGG[, AGG…] [by FIELD,…]'` (count/sum/avg/min/max/p50-p99/dcount) |
 | `sample` | `N`, `--seed K` (default 0 - reproducible by default) |

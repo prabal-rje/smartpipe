@@ -20,6 +20,7 @@ description: "Use when a shell task needs semantic operations over data or files
 | Read files/folders/stdin/CSV into the pipe | `smartpipe FILE…` or positional files on any verb; `--as file\|lines\|jsonl\|csv` | [ingestion](skills/smartpipe/ingestion.md) |
 | Extract typed fields (incl. dates) | `map`/`extend` with `{braces}`; rehearse free with `smartpipe schema` | [extraction](skills/smartpipe/extraction.md) |
 | Filter / dedupe / cluster / join / rank by meaning | `filter`, `distinct`, `cluster`, `join`, `top_k` | [recipes](skills/smartpipe/recipes.md) |
+| Map who/what connects across a corpus (entities + cited relationships) | `graph --fast` (free); a focus prompt or `--name-top N` for model-read relations | [recipes](skills/smartpipe/recipes.md) |
 | Cut cheaply before paying | `where`, `sample`, `join --on`, `distinct --exact` (all free) | [cost-and-reliability](skills/smartpipe/cost-and-reliability.md) |
 | Get results out (machines, files, humans) | JSONL stdout, `write`, `readable` | [output](skills/smartpipe/output.md) |
 | Multi-step jobs, ready-made pipelines | composable one-liners per job | [recipes](skills/smartpipe/recipes.md) |
