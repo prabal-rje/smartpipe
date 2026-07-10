@@ -52,6 +52,12 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for env_vars in KEY_ENVS.values():
         for name in env_vars:
             monkeypatch.delenv(name, raising=False)
+    # Batching (item 62) ships ON, but the CLI tests script per-item wire
+    # replies — a packed call would eat the script out of order. The solo wire
+    # stays pinned here; batching-on has dedicated coverage (tests/verbs/
+    # test_batching.py, tests/models/test_coalesce.py, test_cli_map.py's
+    # batching test, which re-enables it explicitly).
+    monkeypatch.setenv("SMARTPIPE_BATCH", "off")
     metering.reset()
 
 

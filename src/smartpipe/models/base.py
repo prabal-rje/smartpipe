@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AudioData",
+    "BatchHint",
     "ChatModel",
     "CompletionRequest",
     "EmbeddingModel",
@@ -91,6 +92,17 @@ class ModelRef:
 
 
 @dataclass(frozen=True, slots=True)
+class BatchHint:
+    """The coalescer's view of a request (item 62): the per-item instruction and
+    the ``render_input`` payload block, kept SEPARATE so eligible requests can be
+    packed into one labeled call. Inert everywhere else — adapters never read it,
+    and the result cache does not key on it (same solo request = same reply)."""
+
+    instruction: str
+    payload: str  # render_input output: "" or "<input>\n…\n</input>"
+
+
+@dataclass(frozen=True, slots=True)
 class CompletionRequest:
     system: str | None
     user: str
@@ -100,6 +112,7 @@ class CompletionRequest:
     presence_penalty: float | None = None  # anti-rambling; prose-only (D35)
     frequency_penalty: float | None = None  # never on schema calls — penalties corrupt JSON
     media: tuple[MediaData, ...] = ()  # vision/audio (bytes + mime; D20 union)
+    batch: BatchHint | None = None  # request coalescing opt-in (item 62); None = solo
 
 
 class ChatModel(Protocol):

@@ -23,6 +23,7 @@ Parent: [SKILL.md](../../SKILL.md)
 - `--model NAME` on any paid verb overrides the model for THAT run only - the cheapest cost control after not calling at all. Example: `smartpipe filter "spam" --model ollama/qwen3:0.6b --max-calls 20 < posts.txt` judges locally for free. Check what's available first: `smartpipe using`.
 - The result cache is OFF by default. Turn it on once: `smartpipe config cache on`. After that, identical reruns are ~free and cache hits do NOT count against `--max-calls`. The cache keys on everything reply-affecting, including the model - switching models = cold cache.
 - Receipt on stderr at run end (`note: run: ↑114 ↓56 tok`): real tokens/media spent. Trust it over estimates.
+- Batching is ON by default: small `map`/`extend`/`filter` items coalesce (~75 ms window, up to 12) into ONE call each way, disclosed once per run (`note: batched 500 items into 42 calls`). `--max-calls` counts the batched calls, so the cap stretches ~12x on small-item runs. Media/oversized items and repairs never batch; a missing/invalid per-item answer retries solo automatically. Kill switch: `smartpipe config batching off` or `SMARTPIPE_BATCH=off`.
 - `smartpipe usage` - free meter of model spend over time (hour/day/week/month/lifetime).
 
 ## Failure semantics

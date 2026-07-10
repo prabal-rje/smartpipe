@@ -16,6 +16,33 @@ flight; a capped run never exits 0, so scripts notice. The cache keys on
 model + request, so a rerun after a crash (or a prompt that didn't change)
 replays answers without paying twice.
 
+## Batching: small items share one call
+
+Small items don't each deserve their own HTTP call. By default, `map`,
+`extend`, and `filter` collect items for a moment (about 75 ms, or until 12
+are waiting) and send them as ONE request - each item in its own labeled
+`<input id="r1">` block, answered by one JSON object keyed per item. You do
+nothing; the run just costs less, and one stderr note discloses it:
+
+```text
+note: batched 500 items into 42 calls
+```
+
+What never batches: items carrying media (images, audio, video), oversized
+items that need chunking, repair retries, and every other verb - those take
+the same solo path as before. If an answer comes back missing or invalid for
+some item, that item alone is retried as a normal solo call (with the usual
+repair ladder); the rest of the batch keeps its answers.
+
+Accounting stays honest: `--max-calls` counts real calls, so a batch of 12
+items is 1 call - the cap stretches further. The cache still works per item:
+cached items never enter a batch, and batched answers are cached individually
+for later runs.
+
+Turn it off with `smartpipe config batching off` (or per run:
+`SMARTPIPE_BATCH=off`). `SMARTPIPE_BATCH_SIZE` and `SMARTPIPE_BATCH_WINDOW_MS`
+tune the group size and the wait.
+
 ## Failures are rows, not mysteries
 
 One bad item skips with a warning; the run continues; exit 1 says "partial".

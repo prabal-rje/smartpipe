@@ -58,6 +58,7 @@ class Config:
     cache: bool | None = None  # result caching (D38/15) — account-level posture
     cache_days: int | None = None  # sweep TTL (D39/02); default 30
     cache_max_mb: int | None = None  # LRU size cap (D39/02); default 500
+    batching: bool | None = None  # request coalescing (item 62); unset = on
     update_check: bool | None = None  # daily PyPI release check + notice; default on
     media_previews: bool | None = None  # TTY media previews kill switch; unset = on
     # declared capability chips for the configured model — self-hosted endpoints the
@@ -91,6 +92,7 @@ def load_config(path: Path, *, warn: Callable[[str], None] | None = None) -> Con
         cache=_boolean(data, "cache", path),
         cache_days=_positive_int(data, "cache-days", path),
         cache_max_mb=_positive_int(data, "cache-max-mb", path),
+        batching=_boolean(data, "batching", path),
         update_check=_boolean(data, "update-check", path),
         media_previews=_boolean(data, "media-previews", path),
         model_capabilities=_capability_list(data, "model-capabilities", path),
@@ -117,6 +119,7 @@ def save_config(path: Path, config: Config, *, stamped_by: str | None = None) ->
         "cache": config.cache,
         "cache-days": config.cache_days,
         "cache-max-mb": config.cache_max_mb,
+        "batching": config.batching,
         "update-check": config.update_check,
         "media-previews": config.media_previews,
         "model-capabilities": (

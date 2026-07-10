@@ -43,6 +43,21 @@ def test_media_previews_on_turns_it_back(run_cli: RunCli, config_home: Path) -> 
     assert load_config(config_home).media_previews is True
 
 
+def test_batching_off_persists_the_kill_switch(run_cli: RunCli, config_home: Path) -> None:
+    code, out, _err = run_cli(["config", "batching", "off"])
+    assert code == 0
+    assert "batching off" in out
+    assert load_config(config_home).batching is False
+
+
+def test_batching_on_turns_it_back(run_cli: RunCli, config_home: Path) -> None:
+    run_cli(["config", "batching", "off"])
+    code, out, _err = run_cli(["config", "batching", "on"])
+    assert code == 0
+    assert "batching on" in out
+    assert load_config(config_home).batching is True
+
+
 def test_posture_toggle_stamps_the_config_door_receipt(run_cli: RunCli, config_home: Path) -> None:
     run_cli(["config", "cache", "off"])
     first = config_home.read_text(encoding="utf-8").splitlines()[0]

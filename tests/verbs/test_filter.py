@@ -16,6 +16,7 @@ from smartpipe.verbs.filter import FilterRequest, run_filter
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel
 
@@ -54,6 +55,9 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic order for assertions
+
+    def batching(self) -> BatchSettings | None:
+        return None  # batching off: these tests pin the solo path byte-for-byte
 
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None

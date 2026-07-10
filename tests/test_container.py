@@ -30,6 +30,14 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         yield instance
 
 
+def _wire(model: object) -> object:
+    """The provider adapter under the default-on coalescer (item 62) — these
+    construction tests assert the WIRE; the batching tests assert the wrapper."""
+    from smartpipe.models.coalesce import CoalescingChatModel
+
+    return model.inner if isinstance(model, CoalescingChatModel) else model
+
+
 def _container(
     client: httpx.AsyncClient, env: Mapping[str, str] | None = None, config: Config | None = None
 ) -> AppContainer:
@@ -49,7 +57,7 @@ def _container(
 
 async def test_builds_ollama_chat_from_config(client: httpx.AsyncClient) -> None:
     container = _container(client, config=Config(model="ollama/qwen3:8b"))
-    model = await container.chat_model()
+    model = _wire(await container.chat_model())
     assert isinstance(model, OllamaChatModel)
     assert model.client is client  # injected, not reconstructed
 
@@ -58,7 +66,7 @@ async def test_builds_openai_chat_with_key(client: httpx.AsyncClient) -> None:
     container = _container(
         client, env={"OPENAI_API_KEY": "sk-x"}, config=Config(model="gpt-4o-mini")
     )
-    model = await container.chat_model()
+    model = _wire(await container.chat_model())
     assert isinstance(model, OpenAIChatModel)
     assert model.api_key == "sk-x"
 
@@ -74,13 +82,13 @@ async def test_builds_anthropic_chat(
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
     container = _container(client, config=Config(model="claude-opus-4-8"))
-    model = await container.chat_model()
+    model = _wire(await container.chat_model())
     assert isinstance(model, AnthropicChatModel)
 
 
 async def test_flag_overrides_config(client: httpx.AsyncClient) -> None:
     container = _container(client, config=Config(model="ollama/qwen3:8b"))
-    model = await container.chat_model("ollama/other")
+    model = _wire(await container.chat_model("ollama/other"))
     assert isinstance(model, OllamaChatModel)
     assert model.ref.name == "other"
 
@@ -92,7 +100,7 @@ async def test_autodetect_emits_note_to_stderr(
         return_value=httpx.Response(200, json={"models": [{"name": "qwen3:8b"}]})
     )
     container = _container(client)
-    model = await container.chat_model()
+    model = _wire(await container.chat_model())
     assert isinstance(model, OllamaChatModel)
     assert model.ref.name == "qwen3:8b"
     assert "no model configured" in capsys.readouterr().err
@@ -260,7 +268,7 @@ async def test_build_container_overlays_stored_keys(tmp_path: Path) -> None:
     save_api_key(keys_path(env), "mistral", "mk-stored")
     async with build_container(env) as container:
         assert container.env["MISTRAL_API_KEY"] == "mk-stored"  # the store fills the gap
-        model = await container.chat_model("mistral-small-latest")
+        model = _wire(await container.chat_model("mistral-small-latest"))
         assert isinstance(model, OpenAIChatModel)
         assert model.api_key == "mk-stored"  # …all the way to the wire
     async with build_container({**env, "MISTRAL_API_KEY": "mk-env"}) as container:
@@ -281,7 +289,7 @@ async def test_builds_mistral_chat_with_key(client: httpx.AsyncClient) -> None:
     container = _container(
         client, env={"MISTRAL_API_KEY": "mk-x"}, config=Config(model="mistral-large-latest")
     )
-    model = await container.chat_model()
+    model = _wire(await container.chat_model())
     assert isinstance(model, OpenAIChatModel)  # same wire, parametrized
     assert model.api_key == "mk-x"
     assert model.base_url == "https://api.mistral.ai"
@@ -309,7 +317,7 @@ async def test_mistral_base_url_override(client: httpx.AsyncClient) -> None:
         env={"MISTRAL_API_KEY": "mk-x", "SMARTPIPE_MISTRAL_BASE_URL": "http://proxy:9999/"},
         config=Config(model="mistral-small-latest"),
     )
-    model = await container.chat_model()
+    model = _wire(await container.chat_model())
     assert isinstance(model, OpenAIChatModel)
     assert model.base_url == "http://proxy:9999"
 
@@ -320,7 +328,7 @@ async def test_builds_gemini_chat_on_the_native_wire(client: httpx.AsyncClient) 
     container = _container(
         client, env={"GEMINI_API_KEY": "g-x"}, config=Config(model="gemini-2.5-flash")
     )
-    model = await container.chat_model()
+    model = _wire(await container.chat_model())
     assert isinstance(model, GeminiNativeChatModel)  # D34: the wire that watches video
     assert model.base_url == "https://generativelanguage.googleapis.com/v1beta"
 
@@ -337,7 +345,7 @@ async def test_builds_openrouter_chat_with_slashed_name(client: httpx.AsyncClien
         env={"OPENROUTER_API_KEY": "or-x"},
         config=Config(model="openrouter/deepseek/deepseek-chat"),
     )
-    model = await container.chat_model()
+    model = _wire(await container.chat_model())
     assert isinstance(model, OpenAIChatModel)
     assert model.ref.name == "deepseek/deepseek-chat"  # the slashed name survives whole
     assert model.base_url == "https://openrouter.ai/api"
@@ -438,7 +446,7 @@ async def test_fallback_chat_model_builds_the_normal_wire(client: httpx.AsyncCli
     container = _container(client, env={"OPENAI_API_KEY": "sk-test"})
     ref = container.fallback_ref("gpt-4o-mini")
     assert ref is not None
-    model = await container.fallback_chat_model(ref)
+    model = _wire(await container.fallback_chat_model(ref))
     assert isinstance(model, OpenAIChatModel)
 
 
@@ -555,3 +563,93 @@ def test_ocr_role_refuses_an_embedding_ref(client: httpx.AsyncClient) -> None:
     container = _container(client, config=Config(ocr_model="jina/jina-clip-v2"))
     with pytest.raises(SetupFault, match="embedding model"):
         container.document_parser()
+
+
+# --- request batching (item 62): posture, wiring order, the disclosure note --------
+
+
+def test_batching_defaults_on(client: httpx.AsyncClient) -> None:
+    settings = _container(client).batching()
+    assert settings is not None
+    assert settings.size == 12
+    assert settings.window_seconds == pytest.approx(0.075)
+
+
+def test_batching_env_kill_switch(client: httpx.AsyncClient) -> None:
+    assert _container(client, env={"SMARTPIPE_BATCH": "off"}).batching() is None
+    assert _container(client, env={"SMARTPIPE_BATCH": "0"}).batching() is None
+
+
+def test_batching_config_off_env_on_wins(client: httpx.AsyncClient) -> None:
+    container = _container(client, env={"SMARTPIPE_BATCH": "on"}, config=Config(batching=False))
+    assert container.batching() is not None
+
+
+def test_batching_config_off_disables(client: httpx.AsyncClient) -> None:
+    assert _container(client, config=Config(batching=False)).batching() is None
+
+
+def test_batching_size_and_window_env_overrides(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client, env={"SMARTPIPE_BATCH_SIZE": "6", "SMARTPIPE_BATCH_WINDOW_MS": "50"}
+    )
+    settings = container.batching()
+    assert settings is not None
+    assert settings.size == 6
+    assert settings.window_seconds == pytest.approx(0.05)
+
+
+def test_batching_size_env_is_validated_loudly(client: httpx.AsyncClient) -> None:
+    from smartpipe.core.errors import UsageFault
+
+    with pytest.raises(UsageFault, match="SMARTPIPE_BATCH_SIZE"):
+        _container(client, env={"SMARTPIPE_BATCH_SIZE": "1"}).batching()
+    with pytest.raises(UsageFault, match="SMARTPIPE_BATCH_WINDOW_MS"):
+        _container(client, env={"SMARTPIPE_BATCH_WINDOW_MS": "soon"}).batching()
+
+
+async def test_coalescer_sits_inside_the_cache(client: httpx.AsyncClient) -> None:
+    # cache → coalescer → wire: hits never enqueue; fan-out replies are cached
+    # per item in the same shape the solo path caches (item 62 §5)
+    from smartpipe.models.cache import CachingChatModel
+    from smartpipe.models.coalesce import CoalescingChatModel
+
+    container = _container(
+        client,
+        env={"SMARTPIPE_CACHE": "on", "XDG_CACHE_HOME": "/nonexistent-smartpipe-tests"},
+        config=Config(model="ollama/qwen3:8b"),
+    )
+    model = await container.chat_model()
+    assert isinstance(model, CachingChatModel)
+    assert isinstance(model.inner, CoalescingChatModel)
+    assert isinstance(model.inner.inner, OllamaChatModel)
+    assert container.coalescers == [model.inner]
+
+
+async def test_coalescer_absent_when_batching_off(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client, env={"SMARTPIPE_BATCH": "off"}, config=Config(model="ollama/qwen3:8b")
+    )
+    model = await container.chat_model()
+    assert isinstance(model, OllamaChatModel)  # byte-identical wiring to today
+    assert container.coalescers == []
+
+
+async def test_batch_receipt_notes_once_per_run(capsys: pytest.CaptureFixture[str]) -> None:
+    from smartpipe.engine.coalesce import BatchSettings
+    from smartpipe.models.coalesce import CoalescingChatModel
+
+    async with build_container({"OPENAI_API_KEY": "sk-x"}) as container:
+        model = await container.chat_model("ollama/qwen3:8b")
+        assert isinstance(model, CoalescingChatModel)
+        model.packed_calls = 42
+        model.batched_items = 500
+        assert isinstance(model.settings, BatchSettings)
+    stderr = capsys.readouterr().err
+    assert "note: batched 500 items into 42 calls" in stderr
+
+
+async def test_no_batch_note_when_nothing_batched(capsys: pytest.CaptureFixture[str]) -> None:
+    async with build_container({"OPENAI_API_KEY": "sk-x"}) as container:
+        await container.chat_model("ollama/qwen3:8b")  # built, but nothing flew packed
+    assert "batched" not in capsys.readouterr().err
