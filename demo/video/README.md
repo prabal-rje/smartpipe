@@ -21,3 +21,9 @@ no-strings-attached replacement, `node scripts/make-music.mjs` (ffmpeg
 required) synthesizes an original ambient track from scratch into
 `public/music.m4a` - royalty-free by construction - and you can point the
 `<Audio>` element in `src/Main.tsx` at it.
+
+The README teaser GIF is cut from the rendered mp4 by [`./teaser.sh`](teaser.sh)
+(12.5 fps, 960 px wide, two-pass palette; the pinned logo-first and
+segments-end-settled rules are commented in the script). Release ritual: a
+re-rendered teaser ships under a NEW asset name (`smartpipe-teaser-v6.gif`, ...) -
+GitHub's image cache keeps serving the old bytes for a reused name.
