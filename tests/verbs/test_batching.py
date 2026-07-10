@@ -64,7 +64,18 @@ class PackedCapable:
 
 
 class BatchContext:
-    """A MapContext/FilterContext with batching ON (tiny window for tests)."""
+    """A MapContext/FilterContext with batching ON.
+
+    Every test here fills its groups exactly (item count divides by ``size``),
+    so dispatch is always the synchronous size-cap path and never the window
+    timer. The window is a belt that must never fire first: on Windows <= 3.12
+    the event-loop clock ticks at ~15.6 ms, so any sub-tick window is treated
+    as already due and flushes stragglers as SOLO flights mid-enqueue - the
+    2026-07-10 matrix hang (a solo-only run never sets ``seen_packed``) and
+    seven call-count failures. Window semantics are covered in
+    ``tests/models/test_coalesce.py``, where enqueues share one ready-queue
+    burst and no timer can interleave.
+    """
 
     def __init__(
         self,
@@ -78,7 +89,7 @@ class BatchContext:
         self.model = model
         self.concurrency_value = concurrency
         self.settings = (
-            settings if settings is not None else BatchSettings(size=size, window_seconds=0.005)
+            settings if settings is not None else BatchSettings(size=size, window_seconds=60.0)
         )
         self.enabled = enabled
 
@@ -164,9 +175,11 @@ async def _run_map(
 
 async def test_map_structured_nine_items_fly_in_three_calls() -> None:
     stdin = "".join(f"row{n}\n" for n in range(9))
-    code, batched_out, inner = await _run_map("Extract {shout}", stdin, _extract, enabled=True)
+    code, batched_out, inner = await _run_map(
+        "Extract {shout}", stdin, _extract, enabled=True, size=3
+    )
     assert code == ExitCode.OK
-    # ceil(8/4)=2 packed calls for the full groups + the final straggler solo
+    # 9/3 = three full groups, each dispatched by the size cap - no timer in play
     assert len(inner.calls) == 3
     _off_code, solo_out, solo_inner = await _run_map(
         "Extract {shout}", stdin, _extract, enabled=False
