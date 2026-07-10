@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-07-10
+
 ### Fixed
 - **The published 1.4.0 introduced itself as 1.4.0rc1.** `__version__` was
   never bumped past rc1, so `--version`, `cite`, and the update-check

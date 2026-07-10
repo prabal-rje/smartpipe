@@ -82,7 +82,7 @@ rerun overwrites it. A typo'd `--manifest` directory faults before any spend.
 ```json
 {
   "manifest_version": 1,
-  "smartpipe_version": "1.4.0",
+  "smartpipe_version": "1.5.0",
   "verb": "extend",
   "argv": ["extend", "Classify: {label enum(bug, feature, question)}",
            "--manifest", "run-manifest.json"],
