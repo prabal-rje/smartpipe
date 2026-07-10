@@ -6,7 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 
-## [1.4.0] — 2026-07-08
+## [1.4.0] — 2026-07-10
 
 The identity release.
 
