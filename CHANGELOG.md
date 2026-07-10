@@ -134,6 +134,22 @@ The identity release.
   `where`/`summarize` report rows that had no fields; `--strict-rows` turns
   the notes into errors. Multi-line plain output into a pipe warns that
   line framing is ambiguous (use `--output json`).
+- **`.sem` files are strict about their rows now.** A saved pipeline is a
+  program, and a stray plain line in a record stream is a bug, not a
+  shrug: `.sem` runs default to `--strict-rows` and fail at ingestion
+  naming the exact line, before any spend. Opt out with
+  `strict-rows = false` (top-level or per-stage); ad-hoc terminal runs
+  keep the permissive census. Eleven verbs that accepted `--strict-rows`
+  without actually enforcing it now do, and a text-only `where` predicate
+  over a log no longer trips strict mode over "missing fields". A new
+  docs page explains the granularity ladder (file → split → lines/rows)
+  and when mixing happens.
+- **Synthesized records tell you what they summarize.** join pairs carry
+  `__sources` (both parents' refs); reduce windows stamp
+  `{"as": "window", "span": [1, 100], "count": 100}`, groups
+  `{"as": "group", "group": …, "count": N}`; cluster and diff summary
+  rows carry `{"as": "cluster"|"diff", "count": N}`. An audit trail for
+  every row that speaks for other rows - and `--bare` strips all of it.
 
 ### Judgment you can gate, retry, and keep
 - **`--keep-invalid`** (map/extend): after the repair retry fails, keep the
@@ -143,6 +159,13 @@ The identity release.
   `--check FILE` validates rows (exit 0/1), `--example` prints a validating
   instance, bare stdin mode is a REPL. **`--dry-run`** (map/extend) prints
   the composed first request and exits before any model resolution.
+- **`schema --check` stopped failing your own pipelines.** The check is
+  open-world now: rows from the documented extend workflow (original
+  fields kept, spine aboard) pass instead of tripping "additional
+  properties are not allowed" on every row, and `?`-marked fields may be
+  absent, not just null. Extras earn one dim hint; `--strict` restores
+  the closed world for contract enforcement. The schema sent to models
+  at extraction time is unchanged.
 - **Nullability is declared.** `?` on any type (`string?`, `number[]?`, bare
   `field?`) compiles to a null union; bare fields mean scalar-or-scalar-list
   and never admit null (D48, shipped earlier in this cycle).
@@ -272,15 +295,24 @@ The identity release.
 
 ### Documents parse where they enter, vectors stay honest
 - **The `ocr-model` role: a document parser at ingestion.** Set
-  `smartpipe config ocr-model mistral/mistral-ocr-latest` (or
-  `SMARTPIPE_OCR_MODEL`, or `--ocr-model` per run) and ingested PDFs and
-  images parse through it - one item per page on the `pages` cut,
-  markdown as the text, disclosed per row and metered as a paid
-  conversion. Mistral refs ride the dedicated `/v1/ocr` wire
-  (live-verified, whole PDFs in one call); any other model ref works as
-  chat-vision with extract-the-text framing, so `ollama/llava` is a free
-  local OCR. Parse failures fall back to the local extraction ladder,
-  disclosed, never fatal. Unset = exactly the old behavior.
+  `ocr-model = "mistral/mistral-ocr-latest"` in config.toml (the setup
+  flow's OCR stage stamps it; `SMARTPIPE_OCR_MODEL` and `--ocr-model`
+  override per run) and ingested PDFs and images parse through it - one
+  item per page on the `pages` cut, markdown as the text, disclosed per
+  row and metered as a paid conversion. Mistral refs ride the dedicated
+  `/v1/ocr` wire (live-verified, whole PDFs in one call); any other
+  model ref works as chat-vision with extract-the-text framing, so
+  `ollama/llava` is a free local OCR. Parse failures fall back to the
+  local extraction ladder, disclosed, never fatal. Unset = exactly the
+  old behavior.
+- **Reader mode does what you configured.** `smartpipe scan.pdf` used to
+  be pinned "zero model calls" even when you had set an ocr-model - the
+  reader now honors the role with the same per-row disclosure, local
+  fallback, and `--max-calls` belt as the verbs (plus a preflight note
+  when more than 20 files will parse). No ocr-model configured = the
+  same free path as always, pinned by a zero-HTTP-calls test. Found en
+  route: the mistral OCR wire was never counted by `--max-calls`
+  anywhere - it is belted now.
 - **The `media-embed-model` role: one joint space for pixels and prose.**
   Text keeps `embed-model`; media routes to the joint-space model
   (jina-clip-v2 and friends). If a run would mix two vector spaces, the
