@@ -5,22 +5,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
-### Changed
-
-- **Rich now backs `config show` and `doctor`.** It is a deliberate core
-  dependency under the no-extras policy, imported only while those human-facing
-  screens render so `--help`, pipes, and `NO_COLOR` keep their existing contracts.
-- **The interactive config wizard can go backward.** Model, embedding, OCR, and
-  final review screens expose explicit Back rows; returning to a stage restores
-  its pre-stage checkpoint, and typed model prompts accept `back`, `b`, `no`, or
-  `n` instead of accidentally saving `ollama/n`.
-
-### Fixed
-
-- **Discarding config is terminal and interruption is ordinary.** Choosing
-  discard no longer opens the shell-completion prompt after saying "Not saved";
-  Ctrl-C or EOF at any Click prompt exits 130 instead of showing the internal-bug
-  screen.
 
 ## [1.4.0] — 2026-07-08
 
@@ -281,6 +265,20 @@ The identity release.
   media-embedding capability.
 
 ### Setup that reads the room
+- **Rich now backs `config show` and `doctor`.** It is a deliberate core
+  dependency under the no-extras policy, imported only while those human-facing
+  screens render so `--help`, pipes, and `NO_COLOR` keep their existing contracts.
+- **The interactive config wizard can go backward.** Model, embedding, OCR, and
+  final review screens expose explicit Back rows; returning to a stage restores
+  its pre-stage checkpoint, and typed model prompts accept `back`, `b`, `no`, or
+  `n` instead of accidentally saving `ollama/n`.
+
+
+- **Discarding config is terminal and interruption is ordinary.** Choosing
+  discard no longer opens the shell-completion prompt after saying "Not saved";
+  Ctrl-C or EOF at any Click prompt exits 130 instead of showing the internal-bug
+  screen.
+
 - **`auth login` now connects every provider, not just ChatGPT.** Pick
   from the full list - OpenAI appears twice because it really is two
   wires (API key vs ChatGPT login, and the login wire has no
