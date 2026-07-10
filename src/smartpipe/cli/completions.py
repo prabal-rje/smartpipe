@@ -18,7 +18,12 @@ if TYPE_CHECKING:
     import click
     from click.shell_completion import CompletionItem
 
-__all__ = ["complete_chat_models", "complete_embed_models", "suggest_models"]
+__all__ = [
+    "complete_chat_models",
+    "complete_embed_models",
+    "complete_use_targets",
+    "suggest_models",
+]
 
 _PROBE_TIMEOUT_SECONDS = 0.15  # a <TAB> must feel instant; a slow probe is a missing probe
 
@@ -67,6 +72,23 @@ def _ollama_names(env: Mapping[str, str]) -> tuple[str, ...]:
     records = (as_record(entry) for entry in entries)
     names = (record.get("name") for record in records if record is not None)
     return tuple(name for name in names if isinstance(name, str))
+
+
+def complete_use_targets(
+    ctx: click.Context, param: click.Parameter, incomplete: str
+) -> list[CompletionItem]:
+    """``smartpipe use <TAB>``: the provider doors first, then live model names."""
+    del ctx, param
+    import os
+
+    from click.shell_completion import CompletionItem
+
+    from smartpipe.config.bundles import PROVIDERS
+
+    names = dict.fromkeys(
+        (*PROVIDERS, *suggest_models(incomplete, os.environ, embed=False))
+    )  # dedupe, providers first
+    return [CompletionItem(name) for name in names if name.startswith(incomplete)]
 
 
 def complete_chat_models(

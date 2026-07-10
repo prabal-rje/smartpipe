@@ -25,29 +25,7 @@ def config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path / "smartpipe" / "config.toml"
 
 
-# --- config model / embed-model -----------------------------------------------
-
-
-def test_set_model_writes_canonical_and_confirms(run_cli: RunCli, config_home: Path) -> None:
-    code, out, _err = run_cli(["config", "model", "gpt-5.4-mini"])
-    assert code == 0
-    assert out.strip() == "model set to openai/gpt-5.4-mini"
-    assert load_config(config_home).model == "openai/gpt-5.4-mini"
-
-
-def test_set_embed_model(run_cli: RunCli, config_home: Path) -> None:
-    code, out, _err = run_cli(["config", "embed-model", "nomic-embed-text"])
-    assert code == 0
-    assert out.strip() == "embed-model set to ollama/nomic-embed-text"
-    assert load_config(config_home).embed_model == "ollama/nomic-embed-text"
-
-
-def test_set_model_preserves_other_fields(run_cli: RunCli, config_home: Path) -> None:
-    run_cli(["config", "embed-model", "nomic-embed-text"])
-    run_cli(["config", "model", "ollama/qwen3:8b"])
-    config = load_config(config_home)
-    assert config.model == "ollama/qwen3:8b"
-    assert config.embed_model == "ollama/nomic-embed-text"
+# --- the posture toggles (the setters that survive item 30) ------------------------
 
 
 def test_media_previews_off_persists_the_kill_switch(run_cli: RunCli, config_home: Path) -> None:
@@ -65,10 +43,10 @@ def test_media_previews_on_turns_it_back(run_cli: RunCli, config_home: Path) -> 
     assert load_config(config_home).media_previews is True
 
 
-def test_set_bad_model_is_a_usage_error(run_cli: RunCli, config_home: Path) -> None:
-    code, _out, err = run_cli(["config", "model", "   "])
-    assert code == 64
-    assert "no model given" in err
+def test_posture_toggle_stamps_the_config_door_receipt(run_cli: RunCli, config_home: Path) -> None:
+    run_cli(["config", "cache", "off"])
+    first = config_home.read_text(encoding="utf-8").splitlines()[0]
+    assert first.startswith("# stamped by: smartpipe config (")
 
 
 # --- config show --------------------------------------------------------------
@@ -85,7 +63,9 @@ def test_show_reports_defaults(run_cli: RunCli, config_home: Path) -> None:
 
 
 def test_show_reflects_a_saved_model(run_cli: RunCli, config_home: Path) -> None:
-    run_cli(["config", "model", "ollama/qwen3:8b"])
+    from smartpipe.config.store import save_config
+
+    save_config(config_home, Config(model="ollama/qwen3:8b"))
     _code, out, _err = run_cli(["config", "show"])
     model_line = out.splitlines()[0]
     assert "ollama/qwen3:8b" in model_line
@@ -106,8 +86,8 @@ def test_show_env_origin(
 def test_bare_config_without_tty_is_setup_fault(run_cli: RunCli, config_home: Path) -> None:
     code, _out, err = run_cli(["config"], stdin="")
     assert code == 2
-    assert "interactive and needs a terminal" in err
-    assert "smartpipe config model ollama/qwen3:8b" in err
+    assert "'smartpipe config' is interactive and needs a terminal" in err
+    assert "smartpipe use ollama" in err  # the no-prompt path is in the screen
 
 
 # --- the three-stage flow (unit, injected I/O) ------------------------------------
@@ -869,37 +849,6 @@ async def test_flow_verify_hook_still_offered_on_a_no_change_rerun() -> None:
     assert result == current
 
 
-def test_set_embed_model_mistral(run_cli: RunCli, config_home: Path) -> None:
-    code, out, _err = run_cli(["config", "embed-model", "mistral-embed"])
-    assert code == 0
-    assert out.strip() == "embed-model set to mistral/mistral-embed"
-    assert load_config(config_home).embed_model == "mistral/mistral-embed"
-
-
-def test_profile_switch_and_list(
-    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setenv("APPDATA", str(tmp_path))  # the windows config root (D09)
-    code, _out, err = run_cli(["config", "profile", "local"])
-    assert code == 0
-    assert "profile 'local' active — model: ollama/gemma-4-e2b" in err
-    code, out, _err = run_cli(["config", "profile"])
-    assert code == 0
-    assert "* local" in out
-    assert "  openai" in out
-
-
-def test_profile_unknown_name_lists_known(
-    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setenv("APPDATA", str(tmp_path))  # the windows config root (D09)
-    code, _out, err = run_cli(["config", "profile", "yolo"])
-    assert code == 2
-    assert "profile 'yolo' doesn't exist" in err
-
-
 # --- the wizard's completions offer ----------------------------------------------
 
 
@@ -985,17 +934,3 @@ def test_update_check_junk_value_is_usage_error(run_cli: RunCli, config_home: Pa
     code, _out, err = run_cli(["config", "update-check", "maybe"])
     assert code == 64
     assert "on" in err and "off" in err
-
-
-def test_set_ocr_model(run_cli: RunCli, config_home: Path) -> None:
-    code, out, _err = run_cli(["config", "ocr-model", "mistral-ocr-latest"])
-    assert code == 0
-    assert "ocr-model set to mistral/mistral-ocr-latest" in out
-    assert load_config(config_home).ocr_model == "mistral/mistral-ocr-latest"
-
-
-def test_set_media_embed_model(run_cli: RunCli, config_home: Path) -> None:
-    code, out, _err = run_cli(["config", "media-embed-model", "jina/jina-clip-v2"])
-    assert code == 0
-    assert "media-embed-model set to jina/jina-clip-v2" in out
-    assert load_config(config_home).media_embed_model == "jina/jina-clip-v2"

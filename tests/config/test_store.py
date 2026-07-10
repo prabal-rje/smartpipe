@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from pathlib import Path
 
@@ -232,6 +233,89 @@ def test_role_keys_wrong_type_is_loud(tmp_path: Path) -> None:
     path.write_text("ocr-model = 3\n", encoding="utf-8")
     with pytest.raises(SetupFault, match="ocr-model"):
         load_config(path)
+
+
+# --- profiles are retired (item 30): ignored on read, warned once, stripped on save -------
+
+
+def test_profile_keys_are_ignored_with_one_warn(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        'profile = "openai"\nmodel = "gpt-4o"\n\n[profiles.work]\nmodel = "x"\n',
+        encoding="utf-8",
+    )
+    warned: list[str] = []
+    config = load_config(path, warn=warned.append)
+    assert config.model == "gpt-4o"  # flat keys still load
+    assert warned == ["profiles were removed - run smartpipe use"]
+
+
+def test_profile_keys_stay_silent_without_a_warn_channel(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('profile = "yolo"\n', encoding="utf-8")
+    assert load_config(path) == Config()  # never a crash, even for unknown names
+
+
+def test_profile_tables_with_foreign_keys_never_crash(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[profiles.work]\napi-key = "sk-nope"\n', encoding="utf-8")
+    assert load_config(path) == Config()
+
+
+def test_clean_files_never_warn(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('model = "gpt-4o"\n', encoding="utf-8")
+    warned: list[str] = []
+    assert load_config(path, warn=warned.append).model == "gpt-4o"
+    assert warned == []
+
+
+def test_save_strips_the_retired_profile_keys(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        'profile = "openai"\nmodel = "gpt-4o"\n\n[profiles.work]\nmodel = "x"\n',
+        encoding="utf-8",
+    )
+    save_config(path, load_config(path))
+    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    assert "profile" not in raw and "profiles" not in raw  # the rewrite is the cure
+
+
+# --- the receipt (item 30): every save documents which door wrote the file ---------------
+
+_HEADER = re.compile(r"^# stamped by: (smartpipe [a-z ]+) \(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\)$")
+
+
+def test_stamped_save_writes_the_provenance_header(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    save_config(path, Config(model="gpt-4o"), stamped_by="smartpipe use")
+    first = path.read_text(encoding="utf-8").splitlines()[0]
+    matched = _HEADER.match(first)
+    assert matched is not None and matched.group(1) == "smartpipe use"
+    assert load_config(path).model == "gpt-4o"  # the header never breaks parsing
+
+
+def test_unstamped_rewrite_preserves_the_existing_header(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    save_config(path, Config(model="gpt-4o"), stamped_by="smartpipe use")
+    header = path.read_text(encoding="utf-8").splitlines()[0]
+    save_config(path, Config(model="gpt-4o", cache=False))  # e.g. a posture toggle
+    assert path.read_text(encoding="utf-8").splitlines()[0] == header
+
+
+def test_a_new_stamp_replaces_the_old_header(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    save_config(path, Config(model="gpt-4o"), stamped_by="smartpipe use")
+    save_config(path, Config(model="gpt-4o"), stamped_by="smartpipe config")
+    text = path.read_text(encoding="utf-8")
+    assert text.count("# stamped by:") == 1
+    assert "smartpipe config" in text.splitlines()[0]
+
+
+def test_loading_tolerates_a_hand_written_header(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('# stamped by: hand (yesterday)\nmodel = "gpt-4o"\n', encoding="utf-8")
+    assert load_config(path).model == "gpt-4o"
 
 
 # --- model-capabilities (declared chips for self-hosted models) --------------------------

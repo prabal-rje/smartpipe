@@ -152,7 +152,7 @@ def test_map_model_flag_completes_through_the_callback(
     assert values == ["ollama/qwen3:8b"]
 
 
-def test_config_model_argument_completes_through_the_callback(
+def test_use_target_completes_providers_then_live_models(
     respx_mock: respx.MockRouter,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -167,5 +167,25 @@ def test_config_model_argument_completes_through_the_callback(
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b"))
     completer = ShellComplete(cli, {}, "smartpipe", "_SMARTPIPE_COMPLETE")
-    values = [item.value for item in completer.get_completions(["config", "model"], "")]
-    assert values == ["ollama/qwen3:8b"]
+    values = [item.value for item in completer.get_completions(["use"], "")]
+    assert values[:6] == ["ollama", "openai", "gemini", "anthropic", "mistral", "openrouter"]
+    assert "ollama/qwen3:8b" in values
+
+
+def test_use_target_completion_narrows_on_the_prefix(
+    respx_mock: respx.MockRouter,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from click.shell_completion import ShellComplete
+
+    from smartpipe.cli.root import cli
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path))  # the windows config root (D09)
+    monkeypatch.delenv("SMARTPIPE_MODEL", raising=False)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b"))
+    completer = ShellComplete(cli, {}, "smartpipe", "_SMARTPIPE_COMPLETE")
+    values = [item.value for item in completer.get_completions(["use"], "ollama")]
+    assert values == ["ollama", "ollama/qwen3:8b"]

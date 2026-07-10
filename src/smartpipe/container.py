@@ -176,7 +176,7 @@ class AppContainer:
                 f"'{raw}' reads text only\n"
                 "  Media items embed as pixels only in a joint space "
                 "(e.g. jina/jina-clip-v2).\n"
-                "  Set one: smartpipe config media-embed-model jina/jina-clip-v2 — "
+                '  Set one in config.toml: media-embed-model = "jina/jina-clip-v2" — '
                 "or unset the role."
             )
         return model if self.budget is None else budgeted_embed(model, self.budget)
@@ -228,8 +228,8 @@ class AppContainer:
         if ref.provider != "openai":
             raise SetupFault(
                 f"error: no STT wire for {ref.provider!r} yet\n"
-                "  Remote transcription supports openai models: "
-                "smartpipe config stt-model openai/whisper-1"
+                "  Remote transcription supports openai models — in config.toml: "
+                'stt-model = "openai/whisper-1"'
             )
         key = self.env.get("OPENAI_API_KEY", "").strip()
         if not key:
@@ -366,7 +366,7 @@ class AppContainer:
             case "jina" | "local":
                 raise SetupFault(
                     f"error: '{ref.name}' is an embedding model, not a chat model\n"
-                    "  Pick a chat model instead: smartpipe config model …"
+                    "  Pick a chat model instead: smartpipe use …"
                 )
             case "gemini":  # D34: chat rides the NATIVE wire — the one that watches video
                 from smartpipe.models.gemini_native import GeminiNativeChatModel, native_base_url
@@ -423,7 +423,7 @@ class AppContainer:
                 raise SetupFault(
                     f"error: '{ref.name}' is a chat model, not an embedding model\n"
                     "  Claude models don't provide embeddings. Use a local one:\n"
-                    "  smartpipe config embed-model nomic-embed-text"
+                    "  unset embed-model (the built-in local embedder takes over)"
                 )
             case "mistral":  # mistral-embed rides the same /v1/embeddings wire
                 return self._wire_embed(ref, MISTRAL_WIRE)
@@ -504,7 +504,7 @@ async def build_container(
     intake through it. Whole-set verbs pass no stop — exhaustion there is fatal.
     """
     limit = _resolve_max_calls(environ, max_calls)
-    config = load_config(config_path(environ), environ)
+    config = load_config(config_path(environ), warn=diagnostics.warn)
     client = make_client()
     from smartpipe.config.credentials import keys_path, overlay_stored_keys, stored_api_keys
     from smartpipe.engine.schema import reset_deterministic_repairs

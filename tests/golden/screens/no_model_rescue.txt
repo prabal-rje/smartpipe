@@ -11,3 +11,5 @@ error: no model configured, and no local Ollama found
     3. smartpipe use ollama/qwen3:8b
 
   Then rerun your command. 'smartpipe use' walks you through this interactively.
+
+run setup now? [Y/n]

@@ -257,7 +257,7 @@ def ocr_stage_rows(current: str | None, chat_model: str | None) -> tuple[tuple[s
 # they are affordable frontier models, and penalizing them while suggesting
 # openai/ would be incoherent (owner ruling).
 _PREFERRED_FAMILIES = ("llava", "gemma", "qwen", "llama", "mistral", "phi", "kimi", "glm")
-_OLLAMA_DEFAULT_EMBED = "embeddinggemma"  # the 'local' profile's pivot anchor
+_OLLAMA_DEFAULT_EMBED = "embeddinggemma"  # the shipped local pivot anchor
 
 
 def ollama_chat_tags(names: tuple[str, ...]) -> tuple[str, ...]:

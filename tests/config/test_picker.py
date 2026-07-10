@@ -271,7 +271,7 @@ def test_paired_embed_ollama_prefers_a_detected_tag() -> None:
     assert paired_embed("ollama", ("llava", "nomic-embed-text")) == "ollama/nomic-embed-text"
 
 
-def test_paired_embed_ollama_falls_back_to_the_profile_default() -> None:
+def test_paired_embed_ollama_falls_back_to_the_shipped_default() -> None:
     assert paired_embed("ollama", ("llava",)) == "ollama/embeddinggemma"
     assert paired_embed("ollama", None) == "ollama/embeddinggemma"
 

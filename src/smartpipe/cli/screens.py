@@ -37,7 +37,7 @@ EMBEDDINGS_NEED_KEY = """\
 error: embeddings aren't available through ChatGPT login
   The ChatGPT plan wire serves chat models only.
   Fix: export OPENAI_API_KEY=sk-...
-   or use a local model: smartpipe config embed-model nomic-embed-text"""
+   or pick a local embedder: smartpipe use    (the embeddings stage)"""
 
 
 def openai_needs_key_or_login(model: str) -> str:
@@ -131,7 +131,8 @@ _UTILITIES: tuple[tuple[str, str], ...] = (
     ("write", "Route items to files (the egress door)"),
     ("readable", "Render records as blocks for human eyes"),
     ("chart", "Draw a bar chart of results (--save writes SVG/PNG)"),
-    ("config", "Configure models and settings"),
+    ("use", "Set up models (interactive, or: use gemini)"),
+    ("config", "Show settings and toggle postures"),
     ("update", "Upgrade smartpipe with the tool that installed it"),
 )
 
@@ -143,7 +144,7 @@ def _rows(entries: tuple[tuple[str, str], ...]) -> str:
 
 
 _GET_STARTED = (
-    f"  smartpipe config{' ' * 37}{_c('# one-minute interactive setup', '2')}\n"
+    f"  smartpipe use{' ' * 40}{_c('# one-minute interactive setup', '2')}\n"
     f'  echo "hello" | smartpipe map "translate to Spanish"'
 )
 
@@ -172,16 +173,16 @@ NO_MODEL = """\
 error: no model configured, and no local Ollama found
 
   Cloud (paid):
-    smartpipe auth login                      (use your ChatGPT Plus/Pro plan)
-    smartpipe config model claude-opus-4-8    then: export ANTHROPIC_API_KEY=sk-ant-...
-    smartpipe config model gpt-5.4-mini        then: export OPENAI_API_KEY=sk-...
+    smartpipe auth login               (use your ChatGPT Plus/Pro plan)
+    smartpipe use claude-opus-4-8      then: export ANTHROPIC_API_KEY=sk-ant-...
+    smartpipe use gpt-5.4-mini         then: export OPENAI_API_KEY=sk-...
 
   Local (free, private):
     1. Install Ollama              https://ollama.com
     2. ollama pull qwen3:8b
-    3. smartpipe config model ollama/qwen3:8b
+    3. smartpipe use ollama/qwen3:8b
 
-  Then rerun your command. 'smartpipe config' walks you through this interactively."""
+  Then rerun your command. 'smartpipe use' walks you through this interactively."""
 
 
 def ollama_unreachable(host: str, model: str, reason: str) -> str:
@@ -220,7 +221,7 @@ def cloud_model_missing(model: str, host: str) -> str:
         f"error: the endpoint doesn't know the model '{model}'\n"
         f"  {host} answered 404 — every item would fail identically, "
         "so smartpipe stopped at the first.\n"
-        "  Fix: check the name, or set one that exists: smartpipe config model gpt-5.4-mini"
+        "  Fix: check the name, or set one that exists: smartpipe use gpt-5.4-mini"
     )
 
 

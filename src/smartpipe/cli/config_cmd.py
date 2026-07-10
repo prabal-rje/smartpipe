@@ -1,12 +1,16 @@
-"""The ``config`` verb: show settings, set values, or run the three-stage flow.
+"""``use``, ``using``, and ``config``: the setup layer (item 30).
 
-Bare ``smartpipe config`` is a SEQUENTIAL three-stage flow (owner-ruled):
-TEXT → EMBED → OCR. Each stage arrow-picks a provider from ALL providers
-(connected ones badged; picking an unconnected one drops inline into the
-``auth login`` connect flow and continues seamlessly), then that category's
-model from the live catalog. Re-runs preselect the existing choices and
-restamp only changes; every stage is skippable; Ctrl-C anywhere leaves the
-prior config untouched (one atomic save at the very end).
+``smartpipe use`` is THE door. Bare, it runs the SEQUENTIAL three-stage flow
+(owner-ruled): TEXT → EMBED → OCR. Each stage arrow-picks a provider from ALL
+providers (connected ones badged; picking an unconnected one drops inline into
+the ``auth login`` connect flow and continues seamlessly), then that
+category's model from the live catalog. Re-runs preselect the existing
+choices and restamp only changes; every stage is skippable; Ctrl-C anywhere
+leaves the prior config untouched (one atomic save at the very end).
+``use TARGET`` stamps a complete bundle non-interactively (``config/bundles``
+holds the pure rules). ``smartpipe using`` shows the effective setup with
+origins; ``config`` keeps the posture toggles and opens the same staged flow
+as a back-compat door. Every save writes the receipt header naming its door.
 All I/O arrives as injected callables (choose/ask/confirm/say/save/connect)
 so the whole flow is unit-testable without a terminal — the click wiring
 supplies the real prompts. This is the first-class-function DI the design
@@ -23,7 +27,7 @@ from typing import TYPE_CHECKING, assert_never
 
 import click
 
-from smartpipe.cli.completions import complete_chat_models, complete_embed_models
+from smartpipe.cli.completions import complete_use_targets
 from smartpipe.config.display import render_show, settings_with_origin
 from smartpipe.config.paths import config_path, human_path
 from smartpipe.config.store import Config, load_config, save_config
@@ -35,18 +39,32 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
     from pathlib import Path
 
+    from smartpipe.config.bundles import Bundle
     from smartpipe.config.picker import ChipSources, StageEntry
 
-__all__ = ["config_command", "offer_shell_completions", "run_config_flow"]
+__all__ = [
+    "config_command",
+    "offer_shell_completions",
+    "open_setup_flow",
+    "run_config_flow",
+    "use_command",
+    "using_command",
+]
 
 _TRY_IT = 'echo "hello world" | smartpipe map "translate to Spanish"'
-_NON_TTY = (
-    "error: 'smartpipe config' is interactive and needs a terminal\n"
-    "  Set a model without prompts:\n"
-    "    smartpipe config model ollama/qwen3:8b        (local, free)\n"
-    "    smartpipe config model gpt-5.4-mini            (cloud)"
-)
-_NOT_SAVED = "\n  Not saved. Set a model any time with: smartpipe config model <name>"
+_NOT_SAVED = "\n  Not saved. Set a model any time with: smartpipe use <provider-or-model>"
+
+
+def _non_tty(door: str) -> str:
+    return (
+        f"error: 'smartpipe {door}' is interactive and needs a terminal\n"
+        "  Stamp a setup without prompts:\n"
+        "    smartpipe use ollama            (local, free)\n"
+        "    smartpipe use gemini            (cloud - any provider name works)\n"
+        "    smartpipe use gpt-5.4-mini      (or any model ref)"
+    )
+
+
 _TYPE_IT = "type a model name instead…"
 _BACK_ANSWERS = frozenset(("back", "b", "no", "n"))
 
@@ -70,65 +88,62 @@ _EMBED_EXAMPLES: dict[str, tuple[str, str]] = {
 }
 
 
+@click.command(name="use")
+@click.argument("target", required=False, shell_complete=complete_use_targets)
+def use_command(target: str | None) -> None:
+    """Set up models: bare = interactive; a provider or model stamps a bundle.
+
+    \b
+      smartpipe use                 interactive setup (text, embeddings, OCR)
+      smartpipe use gemini          stamp gemini chat + its paired embedder
+      smartpipe use ollama          stamp the best installed local model
+      smartpipe use gpt-5.4-mini    stamp one model + its provider's pairing
+
+    Re-running refreshes the whole bundle. A cloud pick consents to paid
+    media conversions (each use is disclosed per row).
+    """
+    if target is not None:
+        asyncio.run(_use_one_shot(target))
+        return
+    import sys
+
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise SetupFault(_non_tty("use"))
+    asyncio.run(open_setup_flow(stamped_by="smartpipe use"))
+
+
+@click.command(name="using")
+def using_command() -> None:
+    """Show the effective setup and where each value comes from."""
+    _echo_effective()
+
+
 @click.group(name="config", invoke_without_command=True)
 @click.pass_context
 def config_command(ctx: click.Context) -> None:
-    """Configure models and settings."""
+    """Show settings and toggle postures ('smartpipe use' sets models)."""
     if ctx.invoked_subcommand is not None:
         return
     import sys
 
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        raise SetupFault(_NON_TTY)
-    asyncio.run(_picker_entry())
+        raise SetupFault(_non_tty("config"))
+    from smartpipe.cli.screens import tint
 
-
-@config_command.command(name="profile")
-@click.argument("name", required=False)
-@click.option("--unset", is_flag=True, help="Clear the active profile.")
-def config_profile(name: str | None, unset: bool) -> None:
-    """Show, switch, or clear the active profile.
-
-    \b
-      smartpipe config profile           list profiles (the active one marked)
-      smartpipe config profile local     switch — local runs ollama/gemma-4-e2b
-      SMARTPIPE_PROFILE=gemini smartpipe … one-off, no file change
-    """
-    from smartpipe.config.store import profile_names, set_active_profile
-
-    path = config_path(os.environ)
-    if unset:
-        set_active_profile(path, None)
-        diagnostics.note("profile cleared — flat config keys stand alone")
-        return
-    if name is None:
-        config = load_config(path, os.environ)
-        for known in profile_names(path):
-            marker = "* " if known == config.profile else "  "
-            click.echo(f"{marker}{known}")
-        return
-    known = profile_names(path)
-    if name not in known:
-        raise SetupFault(
-            f"error: profile {name!r} doesn't exist\n  Known profiles: {', '.join(known)}\n"
-            f"  Define [profiles.{name}] in {human_path(path)} to create it."
-        )
-    set_active_profile(path, name)
-    effective = load_config(path)
-    summary = ", ".join(
-        f"{label} {value}"
-        for label, value in (("model:", effective.model), ("embed:", effective.embed_model))
-        if value is not None
-    )
-    diagnostics.note(f"profile '{name}' active — {summary}")
+    click.echo(tint("  'smartpipe use' is the door now — opening the same setup…", "2"))
+    asyncio.run(open_setup_flow(stamped_by="smartpipe config"))
 
 
 @config_command.command(name="show")
 def config_show() -> None:
-    """Show the effective settings and where each comes from."""
+    """Show the effective settings (alias of 'smartpipe using')."""
+    _echo_effective()
+
+
+def _echo_effective() -> None:
     env = os.environ
     path = config_path(env)
-    config = load_config(path, env)
+    config = load_config(path, warn=diagnostics.warn)
     click.echo(
         render_show(
             settings_with_origin(env, config),
@@ -138,49 +153,74 @@ def config_show() -> None:
     )
 
 
-@config_command.command(name="model")
-@click.argument("model_string", shell_complete=complete_chat_models)
-def config_set_model(model_string: str) -> None:
-    """Set the default chat model (e.g. ollama/qwen3:8b, gpt-5.4-mini)."""
-    ref = parse_model_ref(model_string)
-    _update(lambda c: replace(c, model=str(ref)))
-    click.echo(f"model set to {ref}")
+async def _use_one_shot(target: str) -> None:
+    """``use TARGET``: resolve the complete bundle, stamp it, or refuse loudly."""
+    from smartpipe.config.bundles import Bundle, Refusal, resolve_bundle, target_provider
+    from smartpipe.config.credentials import (
+        credentials_path,
+        keys_path,
+        load_oauth,
+        overlay_stored_keys,
+        stored_api_keys,
+    )
+
+    env = overlay_stored_keys(os.environ, stored_api_keys(keys_path(os.environ)))
+    tags: tuple[str, ...] | None = None
+    if target_provider(target) == "ollama":
+        tags = await _live_ollama_tags()
+    resolved = resolve_bundle(
+        target,
+        env=env,
+        login=load_oauth(credentials_path(os.environ), "openai") is not None,
+        ollama_tags=tags,
+    )
+    match resolved:
+        case Refusal(screen=screen):
+            raise SetupFault(screen)
+        case Bundle() as bundle:
+            _stamp_bundle(bundle)
+        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+            assert_never(unreachable)
 
 
-@config_command.command(name="embed-model")
-@click.argument("model_string", shell_complete=complete_embed_models)
-def config_set_embed_model(model_string: str) -> None:
-    """Set the embedding model used by embed and top_k."""
-    ref = parse_model_ref(model_string)
-    _update(lambda c: replace(c, embed_model=str(ref)))
-    click.echo(f"embed-model set to {ref}")
+async def _live_ollama_tags() -> tuple[str, ...] | None:
+    from smartpipe.models.http_support import make_client
+    from smartpipe.models.ollama import ollama_model_names, resolve_host
+
+    async with make_client() as client:
+        return await ollama_model_names(client, resolve_host(os.environ))
 
 
-@config_command.command(name="stt-model")
-@click.argument("model_string")
-def config_set_stt(model_string: str) -> None:
-    """Set the remote transcription model (e.g. openai/whisper-1) — verbatim STT."""
-    ref = parse_model_ref(model_string)
-    _update(lambda c: replace(c, stt_model=str(ref)))
-    click.echo(f"stt-model set to {ref} (runs first in the audio ladder; consent rules apply)")
+def _stamp_bundle(bundle: Bundle) -> None:
+    """One atomic save (never partial), then the disclosed ✓ lines."""
+    from smartpipe.cli.screens import good, tint
 
-
-@config_command.command(name="ocr-model")
-@click.argument("model_string")
-def config_set_ocr(model_string: str) -> None:
-    """Set the document parsing model (e.g. mistral-ocr-latest) for PDFs and images."""
-    ref = parse_model_ref(model_string)
-    _update(lambda c: replace(c, ocr_model=str(ref)))
-    click.echo(f"ocr-model set to {ref} (parses ingested PDFs/images; each use is disclosed)")
-
-
-@config_command.command(name="media-embed-model")
-@click.argument("model_string")
-def config_set_media_embed(model_string: str) -> None:
-    """Set the joint text+image embedder (e.g. jina/jina-clip-v2) for media items."""
-    ref = parse_model_ref(model_string)
-    _update(lambda c: replace(c, media_embed_model=str(ref)))
-    click.echo(f"media-embed-model set to {ref} (media items embed as pixels in its space)")
+    path = config_path(os.environ)
+    updated = replace(load_config(path), model=bundle.model)
+    if bundle.embed_model is not None:
+        updated = replace(updated, embed_model=bundle.embed_model)
+    if bundle.allow_captions:
+        updated = replace(updated, allow_captions=True)
+    save_config(path, updated, stamped_by="smartpipe use")
+    click.echo("  " + good("✓") + f" model {bundle.model}")
+    if bundle.embed_model is not None:
+        click.echo(
+            "  "
+            + good("✓")
+            + f" embed-model {bundle.embed_model}"
+            + tint(f"  (paired with {bundle.provider})", "2")
+        )
+    if bundle.allow_captions:
+        click.echo(
+            "  "
+            + good("✓")
+            + " allow-captions on"
+            + tint("  (cloud pick = consent for paid media conversions; disclosed per row)", "2")
+        )
+    for note in bundle.notes:
+        click.echo(tint(f"  {note}", "2"))
+    click.echo("\n  " + good("Saved.") + " Try it:")
+    click.echo("    " + tint(_TRY_IT, "36"))
 
 
 @config_command.command(name="cache")
@@ -220,13 +260,15 @@ def config_set_media_previews(state: str) -> None:
 
 def _update(change: Callable[[Config], Config]) -> None:
     path = config_path(os.environ)
-    save_config(path, change(load_config(path)))
+    save_config(path, change(load_config(path)), stamped_by="smartpipe config")
 
 
-# --- the three-stage flow (bare `smartpipe config`) ---------------------------------------
+# --- the three-stage flow (bare `smartpipe use`; `config` is the back-compat door) --------
 
 
-async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the flow is tested
+async def open_setup_flow(
+    *, stamped_by: str
+) -> bool:  # pragma: no cover — terminal wiring; the flow is tested
     import sys
     import time
     from functools import partial
@@ -328,7 +370,7 @@ async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the 
                 say=click.echo,
             )
 
-        await run_config_flow(
+        result = await run_config_flow(
             current=container.config,
             env=session_env,
             probe=container.probe_ollama,
@@ -341,7 +383,7 @@ async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the 
             ask=ask,
             confirm=lambda question, default: click.confirm(question, default=default),
             say=click.echo,
-            save=partial(save_config, path),
+            save=partial(save_config, path, stamped_by=stamped_by),
             connect=connect,
             local_embed_available=find_spec("fastembed") is not None,
             run_verify=verify,
@@ -352,6 +394,7 @@ async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the 
                 say=click.echo,
             ),
         )
+        return result != container.config  # True = a save happened (the rescue wants to know)
 
 
 async def _verify_live(
@@ -405,7 +448,7 @@ async def _connect_inline(
 ) -> bool:  # pragma: no cover — terminal + network wiring; the flow logic is tested
     """Deliverable-1's connect flow, dropped inline into a stage menu."""
     if entry.wire == "local":
-        say("  install from https://ollama.com, then: ollama serve — and rerun smartpipe config")
+        say("  install from https://ollama.com, then: ollama serve — and rerun smartpipe use")
         return False
     if entry.wire == "oauth":
         from smartpipe.cli.auth_cmd import login_dispatch

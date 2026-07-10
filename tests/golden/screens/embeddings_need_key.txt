@@ -1,4 +1,4 @@
 error: embeddings aren't available through ChatGPT login
   The ChatGPT plan wire serves chat models only.
   Fix: export OPENAI_API_KEY=sk-...
-   or use a local model: smartpipe config embed-model nomic-embed-text
+   or pick a local embedder: smartpipe use    (the embeddings stage)

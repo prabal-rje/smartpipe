@@ -43,7 +43,7 @@ VIDEO_TO_TEXT_SYSTEM = (
 
 IMAGE_NEEDS_CAPTION = (
     "image needs a description to embed — a local vision model does it free "
-    "(profile 'local'), or opt into paid captions: --allow-captions"
+    "(smartpipe use ollama), or opt into paid captions: --allow-captions"
 )
 
 _CONVERT_MAX_TOKENS = 512

@@ -54,8 +54,7 @@ async def resolve_chat_ref(
     if chosen is None:
         raise SetupFault(screens.NO_MODEL)
     notice = (
-        f"using ollama/{chosen} (no model configured — "
-        f"pin one with: smartpipe config model ollama/{chosen})"
+        f"using ollama/{chosen} (no model configured — pin one with: smartpipe use ollama/{chosen})"
     )
     return Resolved(ModelRef(provider="ollama", name=chosen), notice=notice)
 
