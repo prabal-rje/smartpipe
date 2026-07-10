@@ -49,10 +49,11 @@ def test_filter_streams_and_shuts_down_cleanly() -> None:
         assert proc.stdin is not None and proc.stdout is not None
         stdout = proc.stdout  # narrowed for the closure (pyright)
         lines: queue.Queue[str] = queue.Queue()
-        threading.Thread(
+        reader = threading.Thread(
             target=lambda: [lines.put(ln) for ln in iter(stdout.readline, "")],
             daemon=True,
-        ).start()
+        )
+        reader.start()
 
         proc.stdin.write("first\n")
         proc.stdin.flush()
@@ -63,7 +64,13 @@ def test_filter_streams_and_shuts_down_cleanly() -> None:
         assert lines.get(timeout=15) == "second\n"
 
         proc.send_signal(signal.SIGINT)  # reader is parked on the open pipe right now
-        _out, err = proc.communicate(timeout=10)  # ≪ drain cap: nothing in flight
+        # Deterministic shutdown sequence (item 75): the drain exits on its own,
+        # with stdin STILL OPEN — that is guarantee (3). Waiting BEFORE touching
+        # any pipe means the SIGINT drain can never race a stdin EOF the test
+        # itself caused (communicate() closes stdin first thing).
+        proc.wait(timeout=10)  # ≪ drain cap: nothing in flight
+        reader.join(timeout=10)  # stdout is at EOF once the child exited
+        _out, err = proc.communicate(timeout=10)  # collect buffered stderr
         assert proc.returncode == 0
         assert "done: interrupted — 2 processed · 0 skipped" in err
         assert "Traceback" not in err

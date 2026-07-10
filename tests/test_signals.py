@@ -22,6 +22,34 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal se
 SEMPIPE = f"{sys.executable} -m smartpipe"
 
 
+def test_main_keeps_sigpipe_ignored() -> None:
+    """Item 75: main() must NEVER re-arm SIG_DFL for SIGPIPE. Process-wide
+    SIG_DFL turned stray EPIPEs — a provider socket, the event loop's
+    self-pipe when the stdin pump's call_soon_threadsafe races loop teardown —
+    into raw -13 deaths with NO downstream close (the rc3 1-in-12 flake).
+    Python's default SIG_IGN stays: a closed stdout surfaces as
+    BrokenPipeError, which main() converts to the pinned quiet 141."""
+    probe = (
+        "import signal, sys\n"
+        "from smartpipe.cli import root\n"
+        "sys.argv = ['smartpipe', 'echo']\n"
+        "try:\n"
+        "    root.main()\n"
+        "except SystemExit:\n"
+        "    pass\n"
+        "handler = signal.getsignal(signal.SIGPIPE)\n"
+        "print('DFL' if handler is signal.SIG_DFL else 'IGN', file=sys.stderr)\n"
+    )
+    proc = subprocess.run(  # stdout is a real pipe — the exact armed state
+        [sys.executable, "-c", probe],
+        input="x\n",
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.stderr.strip().endswith("IGN"), proc.stderr
+
+
 def test_downstream_close_is_silent_141() -> None:
     # seq floods far past the 64 KiB pipe buffer; head exits after one line, so
     # smartpipe's next flushed write hits a closed pipe → it must die like grep: 141,
