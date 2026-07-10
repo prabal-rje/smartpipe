@@ -62,11 +62,12 @@ def load_catalog(path: Path) -> tuple[str, ...] | None:
 
 
 def store_catalog(path: Path, names: tuple[str, ...]) -> None:
-    """Write today's catalog and sweep the provider's stale days. Best-effort."""
+    """Write today's catalog and sweep the provider's stale days. Best-effort.
+    The glob pins the date shape so ``openai-*`` can never eat ``openai-embed-*``."""
     provider = path.name.rsplit("-", 3)[0]  # {provider}-YYYY-MM-DD.json
     try:
         _write_json(path, {"names": list(names)})
-        for stale in path.parent.glob(f"{provider}-*.json"):
+        for stale in path.parent.glob(f"{provider}-????-??-??.json"):
             if stale.name != path.name:
                 with contextlib.suppress(OSError):
                     stale.unlink()

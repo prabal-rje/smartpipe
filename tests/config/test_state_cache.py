@@ -99,3 +99,19 @@ def test_record_probe_never_raises(tmp_path: Path) -> None:
     blocker = tmp_path / "smartpipe"
     blocker.write_text("a file where the dir should be", encoding="utf-8")
     record_probe(blocker / "probe.json", "x/y", sees=True, hears=True, now=1.0)  # swallowed
+
+
+def test_store_catalog_sweep_spares_the_embed_twin(tmp_path: Path) -> None:
+    from smartpipe.config.state_cache import catalog_path
+
+    env = {"XDG_STATE_HOME": str(tmp_path)}
+    embed_twin = catalog_path(env, "openai-embed", "2026-07-09")
+    store_catalog(embed_twin, ("text-embedding-3-small",))
+    chat = catalog_path(env, "openai", "2026-07-09")
+    store_catalog(chat, ("gpt-5.4-mini",))  # must not eat openai-embed-2026-07-09.json
+    assert load_catalog(embed_twin) == ("text-embedding-3-small",)
+    stale_embed = catalog_path(env, "openai-embed", "2026-07-01")
+    store_catalog(stale_embed, ("old",))
+    store_catalog(catalog_path(env, "openai-embed", "2026-07-09"), ("new",))
+    assert load_catalog(stale_embed) is None  # its own stale days still sweep
+    assert load_catalog(chat) == ("gpt-5.4-mini",)

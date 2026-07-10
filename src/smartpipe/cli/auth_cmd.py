@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from smartpipe.config.authflow import AuthEntry
 
-__all__ = ["auth_command", "login_dispatch"]
+__all__ = ["auth_command", "login_dispatch", "secret_prompt"]
 
 _ENTRY_IDS = "openai-api, openai (ChatGPT), anthropic, gemini, mistral, openrouter, jina"
 
@@ -192,7 +192,7 @@ async def login_dispatch(
     if entry.kind == "oauth":
         await _login(headless=headless)
         return
-    await _key_login(entry, secret=secret or _secret_prompt)
+    await _key_login(entry, secret=secret or secret_prompt)
 
 
 async def _key_login(entry: AuthEntry, *, secret: Callable[[str], str]) -> None:
@@ -218,7 +218,7 @@ async def _key_login(entry: AuthEntry, *, secret: Callable[[str], str]) -> None:
         )
 
 
-def _secret_prompt(question: str) -> str:  # pragma: no cover - real terminal input
+def secret_prompt(question: str) -> str:  # pragma: no cover - real terminal input
     return str(click.prompt(question, hide_input=True, default="", show_default=False))
 
 

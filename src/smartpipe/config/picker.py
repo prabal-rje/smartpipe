@@ -19,25 +19,37 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
 __all__ = [
+    "JINA_EMBED_MODELS",
+    "LOCAL_EMBED_MODELS",
     "MENU_CAP",
     "ProbeChip",
     "ProviderStatus",
+    "StageEntry",
     "cache_day",
     "capped_catalog",
     "chip_text",
     "detect_providers",
     "embed_pair_allowed",
+    "embed_stage_entries",
     "first_embed_tag",
     "has_jina_key",
+    "key_stage_entry",
     "model_labels",
+    "ocr_stage_rows",
     "ollama_chat_tags",
+    "ollama_embed_tags",
     "paired_embed",
     "parse_anthropic_catalog",
     "parse_gemini_catalog",
+    "parse_gemini_embed_catalog",
     "parse_mistral_catalog",
+    "parse_mistral_embed_catalog",
     "parse_openai_catalog",
+    "parse_openai_embed_catalog",
     "parse_openrouter_catalog",
     "preferred_index",
+    "stage_labels",
+    "text_stage_entries",
 ]
 
 MENU_CAP = 30  # a menu taller than the terminal helps nobody — typed input covers the rest
@@ -122,6 +134,116 @@ def detect_providers(
 
 def has_jina_key(env: Mapping[str, str]) -> bool:
     return bool(env.get("JINA_API_KEY", "").strip())
+
+
+# --- the three-stage flow's provider menus (TEXT → EMBED → OCR) --------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class StageEntry:
+    """One provider row in a stage menu: openai splits into its two wires."""
+
+    provider: str  # what catalogs/refs use ("openai", "ollama", …)
+    wire: str  # "api" | "oauth" | "local" - which door connects it
+    label: str  # "openai (API key)"
+    connected: bool
+    badge: str  # "✓ key" / "✓ ChatGPT" / "✓ local" / "needs key"
+
+
+def _has_key(env: Mapping[str, str], provider: str) -> bool:
+    from smartpipe.config.credentials import KEY_ENVS
+
+    return any(env.get(var, "").strip() for var in KEY_ENVS.get(provider, ()))
+
+
+def key_stage_entry(env: Mapping[str, str], provider: str, label: str | None = None) -> StageEntry:
+    connected = _has_key(env, provider)
+    return StageEntry(
+        provider=provider,
+        wire="api",
+        label=label or provider,
+        connected=connected,
+        badge="✓ key" if connected else "needs key",
+    )
+
+
+def text_stage_entries(
+    env: Mapping[str, str], *, ollama_up: bool, login: bool
+) -> tuple[StageEntry, ...]:
+    """Every chat-capable wire. The ChatGPT wire is its own row - different
+    transport, different capabilities (no embeddings, so it vanishes in EMBED)."""
+    return (
+        StageEntry(
+            "ollama",
+            "local",
+            "ollama",
+            ollama_up,
+            "✓ local" if ollama_up else "needs install (ollama.com)",
+        ),
+        key_stage_entry(env, "openai", "openai (API key)"),
+        StageEntry(
+            "openai",
+            "oauth",
+            "openai (ChatGPT login)",
+            login,
+            "✓ ChatGPT" if login else "needs login",
+        ),
+        key_stage_entry(env, "gemini"),
+        key_stage_entry(env, "anthropic"),
+        key_stage_entry(env, "mistral"),
+        key_stage_entry(env, "openrouter"),
+    )
+
+
+def embed_stage_entries(
+    env: Mapping[str, str], *, ollama_up: bool, local_available: bool
+) -> tuple[StageEntry, ...]:
+    """Embedding-capable wires only: no ChatGPT login (that wire has no
+    embeddings), no anthropic/openrouter (no embedding endpoints); jina
+    appears here and nowhere else."""
+    rows: list[StageEntry] = []
+    if local_available:
+        rows.append(StageEntry("local", "local", "local (built-in, on-device)", True, "✓ local"))
+    rows.append(
+        StageEntry(
+            "ollama",
+            "local",
+            "ollama",
+            ollama_up,
+            "✓ local" if ollama_up else "needs install (ollama.com)",
+        )
+    )
+    rows.extend(
+        (
+            key_stage_entry(env, "openai", "openai (API key)"),
+            key_stage_entry(env, "gemini"),
+            key_stage_entry(env, "mistral"),
+            key_stage_entry(env, "jina"),
+        )
+    )
+    return tuple(rows)
+
+
+def stage_labels(entries: tuple[StageEntry, ...]) -> tuple[str, ...]:
+    width = max(len(entry.label) for entry in entries) + 2
+    return tuple(f"{entry.label:<{width}}{entry.badge}" for entry in entries)
+
+
+def ocr_stage_rows(current: str | None, chat_model: str | None) -> tuple[tuple[str, str], ...]:
+    """The curated OCR menu as (action, label) rows - the first row is always
+    the one-keypress skip/keep, so Enter never changes anything."""
+    rows: list[tuple[str, str]] = [
+        ("keep", "skip - documents parse with the built-in local extraction")
+        if current is None
+        else ("keep", f"keep current: {current}"),
+        ("mistral", "mistral/mistral-ocr-latest - the dedicated OCR wire"),
+    ]
+    if chat_model is not None:
+        rows.append(("vision", f"{chat_model} - vision chat, extract-the-text framing"))
+    rows.append(("typed", "type a model name instead…"))
+    if current is not None:
+        rows.append(("unset", "unset - back to the built-in local extraction"))
+    return tuple(rows)
 
 
 # --- ollama tag decisions (the shipped wizard's rules, kept verbatim) ------------------
@@ -260,6 +382,43 @@ def parse_openrouter_catalog(payload: object) -> tuple[str, ...]:
         if name is not None and inputs is not None and "image" in inputs:
             names.append(name)
     return _deduped(names)
+
+
+# --- embedding catalogs (the EMBED stage's per-provider lists) ---------------------------
+
+JINA_EMBED_MODELS = ("jina-clip-v2", "jina-embeddings-v3")  # curated - no catalog endpoint
+LOCAL_EMBED_MODELS = ("nomic-embed-text-v1.5",)  # the on-device fastembed wire (D44)
+
+
+def ollama_embed_tags(names: tuple[str, ...]) -> tuple[str, ...]:
+    """Installed tags that embed - the complement of ``ollama_chat_tags``."""
+    return tuple(name for name in names if "embed" in name.lower())
+
+
+def parse_openai_embed_catalog(payload: object) -> tuple[str, ...]:
+    """The /v1/models ids that embed (text-embedding-*) - chat noise dropped."""
+    return tuple(name for name in _data_ids(payload) if "embedding" in name)
+
+
+def parse_gemini_embed_catalog(payload: object) -> tuple[str, ...]:
+    """``embedContent``-capable models - the API's own verdict, like chat."""
+    record = as_record(payload)
+    entries = as_items(record.get("models")) if record is not None else None
+    names: list[str] = []
+    for item in entries or ():
+        entry = as_record(item)
+        if entry is None:
+            continue
+        name = as_str(entry.get("name"))
+        methods = as_items(entry.get("supportedGenerationMethods")) or ()
+        if name is not None and "embedContent" in methods:
+            names.append(name.removeprefix("models/"))
+    return _deduped(names)
+
+
+def parse_mistral_embed_catalog(payload: object) -> tuple[str, ...]:
+    """Mistral's list marks no embed capability - the name is the signal."""
+    return tuple(name for name in _data_ids(payload) if "embed" in name.lower())
 
 
 def _data_ids(payload: object) -> tuple[str, ...]:

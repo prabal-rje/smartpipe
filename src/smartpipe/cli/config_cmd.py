@@ -1,19 +1,23 @@
-"""The ``config`` verb: show settings, set values, or run the provider-first picker.
+"""The ``config`` verb: show settings, set values, or run the three-stage flow.
 
-Bare ``smartpipe config`` is an opencode-style three-phase picker: detect what's
-connected (env keys, ChatGPT login, a local Ollama), fetch the chosen provider's
-live catalog (cached for a day; failures degrade to typed input), then pick —
-arrow keys on a real terminal, the numbered/typed prompt everywhere else.
-All I/O arrives as injected callables (choose/ask/confirm/say/save) so the whole
-flow is unit-testable without a terminal — the click wiring supplies the real
-prompts. This is the first-class-function DI the design template favors.
+Bare ``smartpipe config`` is a SEQUENTIAL three-stage flow (owner-ruled):
+TEXT → EMBED → OCR. Each stage arrow-picks a provider from ALL providers
+(connected ones badged; picking an unconnected one drops inline into the
+``auth login`` connect flow and continues seamlessly), then that category's
+model from the live catalog. Re-runs preselect the existing choices and
+restamp only changes; every stage is skippable; Ctrl-C anywhere leaves the
+prior config untouched (one atomic save at the very end).
+All I/O arrives as injected callables (choose/ask/confirm/say/save/connect)
+so the whole flow is unit-testable without a terminal — the click wiring
+supplies the real prompts. This is the first-class-function DI the design
+template favors.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import click
@@ -30,9 +34,9 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
     from pathlib import Path
 
-    from smartpipe.config.picker import ProbeChip, ProviderStatus
+    from smartpipe.config.picker import ProbeChip, StageEntry
 
-__all__ = ["config_command", "offer_shell_completions", "run_provider_picker"]
+__all__ = ["config_command", "offer_shell_completions", "run_config_flow"]
 
 _TRY_IT = 'echo "hello world" | smartpipe map "translate to Spanish"'
 _NON_TTY = (
@@ -52,6 +56,15 @@ _EXAMPLES: dict[str, tuple[str, str]] = {
     "anthropic": ("anthropic/claude-opus-4-8", "needs ANTHROPIC_API_KEY"),
     "mistral": ("mistral/mistral-small-latest", "needs MISTRAL_API_KEY"),
     "openrouter": ("openrouter/anthropic/claude-sonnet-5", "needs OPENROUTER_API_KEY"),
+}
+
+_EMBED_EXAMPLES: dict[str, tuple[str, str]] = {
+    "local": ("local/nomic-embed-text-v1.5", "on-device, free"),
+    "ollama": ("ollama/embeddinggemma", "local; pull it first: ollama pull embeddinggemma"),
+    "openai": ("openai/text-embedding-3-small", "needs OPENAI_API_KEY"),
+    "gemini": ("gemini/gemini-embedding-001", "needs GEMINI_API_KEY"),
+    "mistral": ("mistral/mistral-embed", "needs MISTRAL_API_KEY"),
+    "jina": ("jina/jina-clip-v2", "embeds text AND images in one space"),
 }
 
 
@@ -205,12 +218,14 @@ def _update(change: Callable[[Config], Config]) -> None:
     save_config(path, change(load_config(path)))
 
 
-# --- the provider-first picker (bare `smartpipe config`) --------------------------------
+# --- the three-stage flow (bare `smartpipe config`) ---------------------------------------
 
 
-async def _picker_entry() -> None:
+async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the flow is tested
     import sys
     import time
+    from functools import partial
+    from importlib.util import find_spec
     from pathlib import Path
 
     from smartpipe.config.picker import cache_day
@@ -226,25 +241,37 @@ async def _picker_entry() -> None:
 
     async with build_container(os.environ) as container:
         path = config_path(os.environ)
-        env = container.env
+        session_env = dict(container.env)  # inline connects add keys here mid-flow
         now = time.time()
 
-        async def fetch(provider: str) -> tuple[str, ...] | None:
-            location = catalog_path(env, provider, cache_day(now))
+        async def cached_fetch(
+            kind: str,
+            fetcher: Callable[..., Awaitable[tuple[str, ...] | None]],
+            provider: str,
+        ) -> tuple[str, ...] | None:
+            location = catalog_path(session_env, f"{provider}{kind}", cache_day(now))
             cached = load_catalog(location)
             if cached is not None:
                 return cached  # today's file is fresh — skip the network
-            from smartpipe.models.catalogs import fetch_catalog
-
-            names = await fetch_catalog(provider, env, container.http_client)
+            names = await fetcher(provider, session_env, container.http_client)
             if names:
                 store_catalog(location, names)
             return names
 
+        async def fetch(provider: str) -> tuple[str, ...] | None:
+            from smartpipe.models.catalogs import fetch_catalog
+
+            return await cached_fetch("", fetch_catalog, provider)
+
+        async def fetch_embed(provider: str) -> tuple[str, ...] | None:
+            from smartpipe.models.catalogs import fetch_embed_catalog
+
+            return await cached_fetch("-embed", fetch_embed_catalog, provider)
+
         def login() -> bool:
             from smartpipe.config.credentials import credentials_path, load_oauth
 
-            return load_oauth(credentials_path(env), "openai") is not None
+            return load_oauth(credentials_path(session_env), "openai") is not None
 
         def ask(question: str, default: str) -> str:
             return str(click.prompt(question, default=default))
@@ -258,19 +285,25 @@ async def _picker_entry() -> None:
                 return arrow_choose(title, labels, sys.stdout, start=start)
             return numbered_choose(title, labels, start, ask=ask, say=click.echo)
 
-        await run_provider_picker(
+        async def connect(entry: StageEntry) -> bool:
+            return await _connect_inline(entry, session_env, choose=choose, say=click.echo)
+
+        await run_config_flow(
             current=container.config,
-            env=env,
+            env=session_env,
             probe=container.probe_ollama,
             login=login,
             fetch_catalog=fetch,
-            chips=load_probe_chips(probe_path(env)),
+            fetch_embed_catalog=fetch_embed,
+            chips=load_probe_chips(probe_path(session_env)),
             now=now,
             choose=choose,
             ask=ask,
             confirm=lambda question, default: click.confirm(question, default=default),
             say=click.echo,
-            save=lambda config: save_config(path, config),
+            save=partial(save_config, path),
+            connect=connect,
+            local_embed_available=find_spec("fastembed") is not None,
             offer_completions=lambda: offer_shell_completions(
                 env=os.environ,
                 home=Path.home(),
@@ -280,13 +313,68 @@ async def _picker_entry() -> None:
         )
 
 
-async def run_provider_picker(
+async def _connect_inline(
+    entry: StageEntry,
+    session_env: dict[str, str],
+    *,
+    choose: Callable[[str, tuple[str, ...], int], int | None],
+    say: Callable[[str], None],
+) -> bool:  # pragma: no cover — terminal + network wiring; the flow logic is tested
+    """Deliverable-1's connect flow, dropped inline into a stage menu."""
+    if entry.wire == "local":
+        say("  install from https://ollama.com, then: ollama serve — and rerun smartpipe config")
+        return False
+    if entry.wire == "oauth":
+        from smartpipe.cli.auth_cmd import login_dispatch
+        from smartpipe.config.credentials import credentials_path, load_oauth
+
+        await login_dispatch("openai", headless=False)
+        return load_oauth(credentials_path(session_env), "openai") is not None
+    from functools import partial
+
+    from smartpipe.cli.auth_cmd import secret_prompt
+    from smartpipe.config.authflow import auth_entry, connect_api_key
+    from smartpipe.config.credentials import (
+        keys_path,
+        overlay_stored_keys,
+        save_api_key,
+        stored_api_keys,
+    )
+    from smartpipe.models.http_support import make_client
+    from smartpipe.models.keycheck import check_api_key
+
+    door = auth_entry("openai-api" if entry.provider == "openai" else entry.provider)
+    assert door is not None, entry.provider
+    store_path = keys_path(session_env)
+    async with make_client() as client:
+        stored = await connect_api_key(
+            door,
+            secret=secret_prompt,
+            choose=choose,
+            say=say,
+            check=partial(check_api_key, door.provider, env=session_env, client=client),
+            store=partial(save_api_key, store_path, door.provider),
+            store_display=human_path(store_path),
+        )
+    if stored:  # pull the new key into this session without re-handling it
+        session_env.update(overlay_stored_keys(session_env, stored_api_keys(store_path)))
+    return stored
+
+
+@dataclass(frozen=True, slots=True)
+class _OcrChoice:
+    value: str | None  # the new setting; None + changed=True means "unset"
+    changed: bool
+
+
+async def run_config_flow(
     *,
     current: Config,
     env: Mapping[str, str],
     probe: Callable[[], Awaitable[tuple[str, ...] | None]],
     login: Callable[[], bool],
     fetch_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
+    fetch_embed_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
     chips: Mapping[str, ProbeChip],
     now: float,
     choose: Callable[[str, tuple[str, ...], int], int | None],
@@ -294,57 +382,43 @@ async def run_provider_picker(
     confirm: Callable[[str, bool], bool],
     say: Callable[[str], None],
     save: Callable[[Config], None],
+    connect: Callable[[StageEntry], Awaitable[bool]] | None = None,
+    local_embed_available: bool = True,
+    run_verify: Callable[[Config], Awaitable[None]] | None = None,
     offer_completions: Callable[[], None] | None = None,
 ) -> Config:
-    """Detect → catalog → pick, then the two smoothness dials (embed pairing,
-    the backup-model question) and one save at the end."""
-    from smartpipe.cli.screens import good, heading, tint
-    from smartpipe.config.picker import (
-        detect_providers,
-        embed_pair_allowed,
-        has_jina_key,
-        paired_embed,
-    )
+    """TEXT → EMBED → OCR, then one save, the exit probe, and the try-it screen.
 
-    say(heading("smartpipe setup") + tint(" — pick a provider, pick a model", "2") + "\n")
+    ``connect`` may mutate ``env`` (an inline key connect adds the provider's
+    variable) — the stages re-read it, so badges refresh mid-flow.
+    """
+    from smartpipe.cli.screens import good, heading, tint
+
+    say(heading("smartpipe setup") + tint(" - text model, then embeddings, then documents", "2"))
+    say("")
     tags = await probe()
-    statuses = detect_providers(env, ollama_tags=tags, openai_login=login())
-    detected = tuple(status for status in statuses if status.detected)
-    for line in _connect_block(statuses, jina=has_jina_key(env)):
-        say(line)
-    if not detected:
-        say("  Connect one, then rerun: smartpipe config")
-        return current
-    provider_labels = tuple(f"{status.provider:<12}{status.detail}" for status in detected)
-    index = choose("Pick a provider:", provider_labels, 0)
-    if index is None:
-        say(_NOT_SAVED)
-        return current
-    provider = detected[index].provider
-    model = await _pick_model(
-        provider,
-        question="Default model?",
+    updated = current
+    text_provider, text_model = await _stage_text(
+        current_model=current.model,
+        env=env,
         tags=tags,
+        login=login,
         fetch_catalog=fetch_catalog,
         chips=chips,
         now=now,
         choose=choose,
         ask=ask,
         say=say,
+        connect=connect,
     )
-    if model is None:
-        say(_NOT_SAVED)
-        return current
-    updated = replace(current, model=model)
-    paired = paired_embed(provider, tags)
-    pair_stamped = paired is not None and embed_pair_allowed(current.embed_model)
-    if pair_stamped:
-        updated = replace(updated, embed_model=paired)
-    if confirm("Add a backup model for provider outages?", False):
+    if text_model is not None:
+        updated = replace(updated, model=text_model)
+    # the backup-model question stays right after TEXT (owner-pinned position)
+    if updated.model is not None and confirm("Add a backup model for provider outages?", False):
         fallback = await _pick_fallback(
-            detected,
-            provider_labels,
+            env,
             tags=tags,
+            login=login,
             fetch_catalog=fetch_catalog,
             chips=chips,
             now=now,
@@ -354,6 +428,43 @@ async def run_provider_picker(
         )
         if fallback is not None:
             updated = replace(updated, fallback_model=fallback)
+    pair_provider = text_provider or _provider_of(updated.model)
+    embed_model, via_pair = await _stage_embed(
+        current_embed=current.embed_model,
+        text_provider=pair_provider,
+        env=env,
+        tags=tags,
+        local_available=local_embed_available,
+        fetch_embed_catalog=fetch_embed_catalog,
+        choose=choose,
+        ask=ask,
+        say=say,
+        connect=connect,
+    )
+    if embed_model is not None:
+        updated = replace(updated, embed_model=embed_model)
+    ocr = await _stage_ocr(
+        current_ocr=current.ocr_model,
+        chat_model=updated.model,
+        env=env,
+        choose=choose,
+        ask=ask,
+        say=say,
+        connect=connect,
+    )
+    if ocr.changed:
+        updated = replace(updated, ocr_model=ocr.value)
+
+    if updated == current:
+        say("")
+        say(tint("  nothing changed - config left as it was", "2"))
+        if run_verify is not None:
+            await run_verify(updated)
+        if offer_completions is not None:
+            offer_completions()
+        say("\n  Try it:")
+        say("    " + tint(_TRY_IT, "36"))
+        return updated
     if not confirm("Save to config?", True):
         say(_NOT_SAVED)
         if offer_completions is not None:
@@ -361,16 +472,30 @@ async def run_provider_picker(
         return updated
     save(updated)
     say("")
-    say("  " + good("✓") + f" model {updated.model}")
-    if pair_stamped:
-        say("  " + good("✓") + f" embed-model {paired}" + tint(f"  (paired with {provider})", "2"))
-    if updated.fallback_model is not None and updated.fallback_model != current.fallback_model:
+    if updated.model != current.model:
+        say("  " + good("✓") + f" model {updated.model}")
+    if updated.embed_model != current.embed_model:
+        aside = tint(f"  (paired with {pair_provider})", "2") if via_pair else ""
+        say("  " + good("✓") + f" embed-model {updated.embed_model}" + aside)
+    if updated.fallback_model != current.fallback_model:
         say(
             "  "
             + good("✓")
             + f" fallback-model {updated.fallback_model}"
             + tint("  (switches in when the provider looks down)", "2")
         )
+    if updated.ocr_model != current.ocr_model:
+        if updated.ocr_model is None:
+            say("  " + good("✓") + " ocr-model unset" + tint("  (built-in local extraction)", "2"))
+        else:
+            say(
+                "  "
+                + good("✓")
+                + f" ocr-model {updated.ocr_model}"
+                + tint("  (documents parse through it at ingestion)", "2")
+            )
+    if run_verify is not None:
+        await run_verify(updated)
     # completions BEFORE the try-it invitation: printing a paste-me command
     # while questions remain baits the paste into the next prompt (owner-hit)
     if offer_completions is not None:
@@ -380,29 +505,271 @@ async def run_provider_picker(
     return updated
 
 
-def _connect_block(statuses: tuple[ProviderStatus, ...], *, jina: bool) -> tuple[str, ...]:
-    """The detection screen around the menu: undetected providers listed dim with
-    HOW to connect (the export line to run — smartpipe never prompts for keys)."""
-    from smartpipe.cli.screens import heading, tint
+def _connect_hint(entry: StageEntry) -> str:
+    """The fix line when no inline connect is available - per wire."""
+    match entry.wire:
+        case "local":
+            return "install from https://ollama.com, then: ollama serve"
+        case "oauth":
+            return "log in first: smartpipe auth login"
+        case _:
+            return f"connect it first: smartpipe auth login {entry.provider}"
 
-    undetected = tuple(status for status in statuses if not status.detected)
-    lines: list[str] = []
-    if len(undetected) == len(statuses):
-        lines.append(heading("No providers connected yet") + tint(" — connect one:", "2"))
-        lines.extend(
-            tint(f"    {status.provider:<12}{status.connect_hint}", "2") for status in statuses
+
+def _provider_of(model: str | None) -> str | None:
+    if model is None:
+        return None
+    from smartpipe.core.errors import UsageFault
+
+    try:
+        return parse_model_ref(model).provider
+    except UsageFault:
+        return None
+
+
+async def _stage_text(
+    *,
+    current_model: str | None,
+    env: Mapping[str, str],
+    tags: tuple[str, ...] | None,
+    login: Callable[[], bool],
+    fetch_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
+    chips: Mapping[str, ProbeChip],
+    now: float,
+    choose: Callable[[str, tuple[str, ...], int], int | None],
+    ask: Callable[[str, str], str],
+    say: Callable[[str], None],
+    connect: Callable[[StageEntry], Awaitable[bool]] | None,
+) -> tuple[str | None, str | None]:
+    """Stage 1: (provider, model), or (None, None) when kept/skipped."""
+    from smartpipe.cli.screens import tint
+    from smartpipe.config.picker import stage_labels, text_stage_entries
+
+    while True:
+        entries = text_stage_entries(env, ollama_up=tags is not None, login=login())
+        rows = list(stage_labels(entries))
+        keep_at: int | None = None
+        if current_model is not None:
+            keep_at = len(rows)
+            rows.append(f"keep current: {current_model}")
+        skip_at = len(rows)
+        rows.append("skip - decide later")
+        start = (
+            keep_at
+            if keep_at is not None
+            else next((i for i, entry in enumerate(entries) if entry.connected), 0)
         )
-        return tuple(lines)
-    if undetected:
-        lines.append(tint("  not connected (how to connect):", "2"))
-        lines.extend(
-            tint(f"    {status.provider:<12}{status.connect_hint}", "2") for status in undetected
+        picked = choose("Text model - pick a provider:", tuple(rows), start)
+        if picked is None or picked in (skip_at, keep_at):
+            return None, None
+        entry = entries[picked]
+        if not entry.connected:
+            if connect is None:
+                say(tint(f"  {_connect_hint(entry)}", "2"))
+                return None, None
+            if not await connect(entry):
+                continue  # declined or failed — the menu returns with fresh badges
+        model = await _pick_model(
+            entry.provider,
+            question="Default model?",
+            tags=tags,
+            fetch_catalog=fetch_catalog,
+            chips=chips,
+            now=now,
+            choose=choose,
+            ask=ask,
+            say=say,
+            preselect=current_model,
         )
-    if jina:
-        lines.append(tint("    jina        JINA_API_KEY set — embeddings only (embed/top_k)", "2"))
-    if lines:
-        lines.append("")
-    return tuple(lines)
+        if model is None:
+            continue  # backed out of the model menu — provider menu again
+        return entry.provider, model
+
+
+async def _stage_embed(
+    *,
+    current_embed: str | None,
+    text_provider: str | None,
+    env: Mapping[str, str],
+    tags: tuple[str, ...] | None,
+    local_available: bool,
+    fetch_embed_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
+    choose: Callable[[str, tuple[str, ...], int], int | None],
+    ask: Callable[[str, str], str],
+    say: Callable[[str], None],
+    connect: Callable[[StageEntry], Awaitable[bool]] | None,
+) -> tuple[str | None, bool]:
+    """Stage 2: (embed model, via-the-pairing) — (None, False) = no change.
+
+    The auto-pair suggestion is the PRESELECTED first option; a deliberate
+    earlier choice suppresses it (``embed_pair_allowed``)."""
+    from smartpipe.config.picker import (
+        embed_pair_allowed,
+        embed_stage_entries,
+        paired_embed,
+        stage_labels,
+    )
+
+    pair = paired_embed(text_provider, tags) if text_provider is not None else None
+    if pair is not None and (pair == current_embed or not embed_pair_allowed(current_embed)):
+        pair = None  # already set, or a deliberate choice stands
+    while True:
+        entries = embed_stage_entries(
+            env, ollama_up=tags is not None, local_available=local_available
+        )
+        rows: list[str] = []
+        pair_at: int | None = None
+        if pair is not None:
+            pair_at = 0
+            rows.append(f"{pair} - paired with {text_provider}")
+        providers_at = len(rows)
+        rows.extend(stage_labels(entries))
+        keep_at: int | None = None
+        skip_at: int | None = None
+        if current_embed is not None:
+            keep_at = len(rows)
+            rows.append(f"keep current: {current_embed}")
+        else:
+            skip_at = len(rows)
+            rows.append("skip - keep the built-in default (local, free)")
+        fallback_start = keep_at if keep_at is not None else skip_at
+        start = pair_at if pair_at is not None else fallback_start
+        picked = choose(
+            "Embedding model - powers embed, top_k, cluster, distinct:",
+            tuple(rows),
+            start if start is not None else 0,
+        )
+        if picked is None or picked in (keep_at, skip_at):
+            return None, False
+        if pair_at is not None and picked == pair_at:
+            return pair, True
+        entry = entries[picked - providers_at]
+        if not entry.connected and (connect is None or not await connect(entry)):
+            if connect is None:
+                return None, False
+            continue
+        model = await _pick_embed_model(
+            entry.provider,
+            tags=tags,
+            fetch_embed_catalog=fetch_embed_catalog,
+            choose=choose,
+            ask=ask,
+            say=say,
+            preselect=current_embed,
+        )
+        if model is None:
+            continue
+        return model, False
+
+
+async def _pick_embed_model(
+    provider: str,
+    *,
+    tags: tuple[str, ...] | None,
+    fetch_embed_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
+    choose: Callable[[str, tuple[str, ...], int], int | None],
+    ask: Callable[[str, str], str],
+    say: Callable[[str], None],
+    preselect: str | None,
+) -> str | None:
+    """The EMBED stage's model menu: curated lists where no catalog wire exists."""
+    from smartpipe.config.picker import (
+        JINA_EMBED_MODELS,
+        LOCAL_EMBED_MODELS,
+        capped_catalog,
+        ollama_embed_tags,
+    )
+
+    match provider:
+        case "local":
+            names: tuple[str, ...] = LOCAL_EMBED_MODELS
+        case "jina":
+            names = JINA_EMBED_MODELS
+        case "ollama":
+            names = ollama_embed_tags(tags or ())
+        case _:
+            names = await fetch_embed_catalog(provider) or ()
+    if not names:
+        note = (
+            "no local embedder found - pull one, e.g.: ollama pull embeddinggemma"
+            if provider == "ollama"
+            else "couldn't fetch the embedding catalog - type the model name instead."
+        )
+        return _typed_embed(provider, ask=ask, say=say, note=note)
+    shown, hidden = capped_catalog(names)
+    type_it = _TYPE_IT if not hidden else f"{_TYPE_IT} ({hidden} more not shown)"
+    labels = (*(f"{provider}/{name}" for name in shown), type_it)
+    start = _preselect_index(provider, shown, preselect)
+    picked = choose(f"Pick an embedding model ({provider}):", labels, start)
+    if picked is None:
+        return None
+    if picked == len(labels) - 1:
+        return _typed_embed(provider, ask=ask, say=say, note=None)
+    return str(parse_model_ref(f"{provider}/{shown[picked]}"))
+
+
+def _typed_embed(
+    provider: str,
+    *,
+    ask: Callable[[str, str], str],
+    say: Callable[[str], None],
+    note: str | None,
+) -> str:
+    from smartpipe.cli.screens import good, tint
+
+    if note is not None:
+        say(tint(f"  {note}", "2"))
+    example, aside = _EMBED_EXAMPLES[provider]
+    say(tint("  Model names are provider/name:", "2"))
+    say("    " + good(example) + tint(f"  ({aside})", "2"))
+    answer = ask("Embedding model?", example)
+    return str(_parsed_or_reprompt(answer, ask, "Embedding model?"))
+
+
+async def _stage_ocr(
+    *,
+    current_ocr: str | None,
+    chat_model: str | None,
+    env: Mapping[str, str],
+    choose: Callable[[str, tuple[str, ...], int], int | None],
+    ask: Callable[[str, str], str],
+    say: Callable[[str], None],
+    connect: Callable[[StageEntry], Awaitable[bool]] | None,
+) -> _OcrChoice:
+    """Stage 3: curated and one-keypress-skippable (unset = the built-in ladders)."""
+    from smartpipe.cli.screens import tint
+    from smartpipe.config.picker import key_stage_entry, ocr_stage_rows
+
+    say(
+        tint(
+            "  changes document parsing at ingestion - PDFs/images read through the "
+            "model (configuring it is the consent; every use is disclosed)",
+            "2",
+        )
+    )
+    while True:
+        rows = ocr_stage_rows(current_ocr, chat_model)
+        labels = tuple(label for _action, label in rows)
+        picked = choose("Document OCR - optional:", labels, 0)
+        if picked is None:
+            return _OcrChoice(current_ocr, changed=False)
+        match rows[picked][0]:
+            case "keep":
+                return _OcrChoice(current_ocr, changed=False)
+            case "unset":
+                return _OcrChoice(None, changed=True)
+            case "vision":
+                return _OcrChoice(chat_model, changed=True)
+            case "mistral":
+                entry = key_stage_entry(env, "mistral")
+                if not entry.connected and (connect is None or not await connect(entry)):
+                    if connect is None:
+                        return _OcrChoice(current_ocr, changed=False)
+                    continue
+                return _OcrChoice("mistral/mistral-ocr-latest", changed=True)
+            case _:  # "typed"
+                answer = ask("OCR model?", "mistral-ocr-latest")
+                return _OcrChoice(str(_parsed_or_reprompt(answer, ask, "OCR model?")), changed=True)
 
 
 async def _pick_model(
@@ -416,8 +783,9 @@ async def _pick_model(
     choose: Callable[[str, tuple[str, ...], int], int | None],
     ask: Callable[[str, str], str],
     say: Callable[[str], None],
+    preselect: str | None = None,
 ) -> str | None:
-    """Phase 2 + 3 for one provider: live catalog (or local tags) → menu; any
+    """One provider's chat-model menu: live catalog (or local tags) → menu; any
     fetch failure degrades to the typed-input path. None = the user backed out."""
     from smartpipe.config.picker import (
         capped_catalog,
@@ -438,12 +806,22 @@ async def _pick_model(
     type_it = _TYPE_IT if not hidden else f"{_TYPE_IT} ({hidden} more not shown)"
     labels = (*model_labels(provider, shown, chips, now), type_it)
     start = preferred_index(shown) if provider == "ollama" else 0
-    picked = choose(f"Pick a model ({provider}):", labels, start)
+    preselected = _preselect_index(provider, shown, preselect, default=start)
+    picked = choose(f"Pick a model ({provider}):", labels, preselected)
     if picked is None:
         return None
     if picked == len(labels) - 1:
         return _typed_model(provider, question=question, ask=ask, say=say, note=None)
     return str(parse_model_ref(f"{provider}/{shown[picked]}"))
+
+
+def _preselect_index(
+    provider: str, shown: tuple[str, ...], preselect: str | None, default: int = 0
+) -> int:
+    """Idempotence: a re-run starts the cursor on the currently configured model."""
+    if preselect is None:
+        return default
+    return next((i for i, name in enumerate(shown) if f"{provider}/{name}" == preselect), default)
 
 
 def _typed_model(
@@ -469,10 +847,10 @@ def _typed_model(
 
 
 async def _pick_fallback(
-    detected: tuple[ProviderStatus, ...],
-    provider_labels: tuple[str, ...],
+    env: Mapping[str, str],
     *,
     tags: tuple[str, ...] | None,
+    login: Callable[[], bool],
     fetch_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
     chips: Mapping[str, ProbeChip],
     now: float,
@@ -480,12 +858,22 @@ async def _pick_fallback(
     ask: Callable[[str, str], str],
     say: Callable[[str], None],
 ) -> str | None:
-    """One more loop of the picker for the breaker-failover model (item 11)."""
-    index = choose("Pick a backup provider:", provider_labels, 0)
+    """One more loop of the picker for the breaker-failover model (item 11) —
+    connected providers only; a backup that needs connecting isn't a backup."""
+    from smartpipe.config.picker import stage_labels, text_stage_entries
+
+    entries = tuple(
+        entry
+        for entry in text_stage_entries(env, ollama_up=tags is not None, login=login())
+        if entry.connected
+    )
+    if not entries:
+        return None
+    index = choose("Pick a backup provider:", stage_labels(entries), 0)
     if index is None:
         return None
     fallback = await _pick_model(
-        detected[index].provider,
+        entries[index].provider,
         question="Backup model?",
         tags=tags,
         fetch_catalog=fetch_catalog,
