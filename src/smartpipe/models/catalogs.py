@@ -18,6 +18,7 @@ from smartpipe.config.picker import (
     parse_gemini_embed_catalog,
     parse_mistral_catalog,
     parse_mistral_embed_catalog,
+    parse_models_dev,
     parse_openai_catalog,
     parse_openai_embed_catalog,
     parse_openrouter_catalog,
@@ -31,9 +32,18 @@ from smartpipe.models.openai_compat import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-__all__ = ["CATALOG_TIMEOUT", "fetch_catalog", "fetch_embed_catalog"]
+    from smartpipe.config.picker import RegistryCaps
+
+__all__ = [
+    "CATALOG_TIMEOUT",
+    "REGISTRY_URL",
+    "fetch_catalog",
+    "fetch_embed_catalog",
+    "fetch_registry",
+]
 
 CATALOG_TIMEOUT = 4.0  # seconds — a slow catalog degrades to typed input, never blocks
+REGISTRY_URL = "https://models.dev/api.json"  # the public capability registry (no key)
 _ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 _ANTHROPIC_VERSION = "2023-06-01"
 
@@ -75,6 +85,16 @@ async def fetch_embed_catalog(
             return parse_mistral_embed_catalog(payload) if payload is not None else None
         case _:
             return None
+
+
+async def fetch_registry(
+    env: Mapping[str, str], client: httpx.AsyncClient
+) -> dict[str, RegistryCaps] | None:
+    """models.dev's public capability map — the chips' middle source. Graceful
+    absent: any wire trouble is a plain None (no registry = no registry chips)."""
+    del env  # the registry is public; the parameter keeps the fetcher family uniform
+    payload = await _get_json(client, REGISTRY_URL, headers={})
+    return parse_models_dev(payload) if payload is not None else None
 
 
 async def _openai(env: Mapping[str, str], client: httpx.AsyncClient) -> tuple[str, ...] | None:

@@ -10,7 +10,7 @@ Text model - pick a provider:
   7. openrouter              needs key
   8. skip - decide later
 Pick a model (ollama):
-  1. ollama/llava  (sees — probed 2d ago)
+  1. ollama/llava  (text · image - probed 2d ago)
   2. type a model name instead…
 Embedding model - powers embed, top_k, cluster, distinct:
   1. ollama/nomic-embed-text - paired with ollama

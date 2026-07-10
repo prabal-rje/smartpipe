@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
     from pathlib import Path
 
-    from smartpipe.config.picker import ProbeChip, StageEntry
+    from smartpipe.config.picker import ChipSources, StageEntry
 
 __all__ = ["config_command", "offer_shell_completions", "run_config_flow"]
 
@@ -228,13 +228,16 @@ async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the 
     from importlib.util import find_spec
     from pathlib import Path
 
-    from smartpipe.config.picker import cache_day
+    from smartpipe.config.picker import ChipSources, RegistryCaps, cache_day
     from smartpipe.config.state_cache import (
         catalog_path,
         load_catalog,
         load_probe_chips,
+        load_registry,
         probe_path,
+        registry_path,
         store_catalog,
+        store_registry,
     )
     from smartpipe.container import build_container
     from smartpipe.io.arrow_menu import arrow_choose, menu_capable, numbered_choose
@@ -243,6 +246,29 @@ async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the 
         path = config_path(os.environ)
         session_env = dict(container.env)  # inline connects add keys here mid-flow
         now = time.time()
+
+        async def capability_registry() -> dict[str, RegistryCaps]:
+            location = registry_path(session_env, cache_day(now))
+            cached = load_registry(location)
+            if cached is not None:
+                return cached  # today's snapshot is fresh — skip the network
+            from smartpipe.models.catalogs import fetch_registry
+
+            fetched = await fetch_registry(session_env, container.http_client)
+            if fetched:
+                store_registry(location, fetched)
+            return fetched or {}  # graceful absent: no registry = no registry chips
+
+        declared: dict[str, tuple[str, ...]] = {}
+        if container.config.model is not None and container.config.model_capabilities is not None:
+            declared[str(parse_model_ref(container.config.model))] = (
+                container.config.model_capabilities
+            )
+        sources = ChipSources(
+            probed=load_probe_chips(probe_path(session_env)),
+            registry=await capability_registry(),
+            declared=declared,
+        )
 
         async def cached_fetch(
             kind: str,
@@ -304,7 +330,7 @@ async def _picker_entry() -> None:  # pragma: no cover — terminal wiring; the 
             login=login,
             fetch_catalog=fetch,
             fetch_embed_catalog=fetch_embed,
-            chips=load_probe_chips(probe_path(session_env)),
+            chips=sources,
             now=now,
             choose=choose,
             ask=ask,
@@ -427,7 +453,7 @@ async def run_config_flow(
     login: Callable[[], bool],
     fetch_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
     fetch_embed_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
-    chips: Mapping[str, ProbeChip],
+    chips: ChipSources,
     now: float,
     choose: Callable[[str, tuple[str, ...], int], int | None],
     ask: Callable[[str, str], str],
@@ -586,7 +612,7 @@ async def _stage_text(
     tags: tuple[str, ...] | None,
     login: Callable[[], bool],
     fetch_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
-    chips: Mapping[str, ProbeChip],
+    chips: ChipSources,
     now: float,
     choose: Callable[[str, tuple[str, ...], int], int | None],
     ask: Callable[[str, str], str],
@@ -830,7 +856,7 @@ async def _pick_model(
     question: str,
     tags: tuple[str, ...] | None,
     fetch_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
-    chips: Mapping[str, ProbeChip],
+    chips: ChipSources,
     now: float,
     choose: Callable[[str, tuple[str, ...], int], int | None],
     ask: Callable[[str, str], str],
@@ -904,7 +930,7 @@ async def _pick_fallback(
     tags: tuple[str, ...] | None,
     login: Callable[[], bool],
     fetch_catalog: Callable[[str], Awaitable[tuple[str, ...] | None]],
-    chips: Mapping[str, ProbeChip],
+    chips: ChipSources,
     now: float,
     choose: Callable[[str, tuple[str, ...], int], int | None],
     ask: Callable[[str, str], str],

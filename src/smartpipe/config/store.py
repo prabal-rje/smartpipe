@@ -24,7 +24,7 @@ import tomli_w
 
 from smartpipe.config.paths import human_path
 from smartpipe.core.errors import SetupFault
-from smartpipe.core.jsontools import as_record
+from smartpipe.core.jsontools import as_items, as_record, as_str
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -57,6 +57,9 @@ class Config:
     cache_max_mb: int | None = None  # LRU size cap (D39/02); default 500
     update_check: bool | None = None  # daily PyPI release check + notice; default on
     media_previews: bool | None = None  # TTY media previews kill switch; unset = on
+    # declared capability chips for the configured model — self-hosted endpoints the
+    # registry can't know about (e.g. ["image"]); display only, runtime stays attempt-based
+    model_capabilities: tuple[str, ...] | None = None
 
 
 _EMPTY_PROFILE: Mapping[str, object] = {}
@@ -109,6 +112,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Config:
         cache_max_mb=_positive_int(merged, "cache-max-mb", path),
         update_check=_boolean(merged, "update-check", path),
         media_previews=_boolean(merged, "media-previews", path),
+        model_capabilities=_capability_list(merged, "model-capabilities", path),
     )
 
 
@@ -172,7 +176,7 @@ def _profile_values(data: Mapping[str, object], name: str, path: Path) -> Mappin
 
 def save_config(path: Path, config: Config) -> None:
     merged = dict(_read_raw(path))  # a corrupt file fails loudly before we overwrite evidence
-    ours: dict[str, str | int | None] = {
+    ours: dict[str, str | int | list[str] | None] = {
         "model": config.model,
         "fallback-model": config.fallback_model,
         "embed-model": config.embed_model,
@@ -188,6 +192,9 @@ def save_config(path: Path, config: Config) -> None:
         "cache-max-mb": config.cache_max_mb,
         "update-check": config.update_check,
         "media-previews": config.media_previews,
+        "model-capabilities": (
+            list(config.model_capabilities) if config.model_capabilities is not None else None
+        ),
     }
     for key, value in ours.items():
         if value is None:
@@ -236,6 +243,28 @@ def _boolean(data: Mapping[str, object], key: str, path: Path) -> bool | None:
     if not isinstance(value, bool):
         raise SetupFault(_wrong_type_screen(path, key, "true or false", value))
     return value
+
+
+_CAPABILITY_WORDS = ("text", "image", "audio")
+
+
+def _capability_list(data: Mapping[str, object], key: str, path: Path) -> tuple[str, ...] | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    items = as_items(value)
+    words = [as_str(item) for item in items] if items is not None else None
+    if words is None or any(word is None for word in words):
+        raise SetupFault(_wrong_type_screen(path, key, 'a list like ["image"]', value))
+    cleaned = tuple(word for word in words if word is not None)
+    unknown = [word for word in cleaned if word not in _CAPABILITY_WORDS]
+    if unknown:
+        raise SetupFault(
+            f"error: config value '{key}' has unknown capability {unknown[0]!r}\n"
+            f"  Known capabilities: {', '.join(_CAPABILITY_WORDS)}\n"
+            f"  Fix the line in {human_path(path)}"
+        )
+    return cleaned
 
 
 def _positive_int(data: Mapping[str, object], key: str, path: Path) -> int | None:

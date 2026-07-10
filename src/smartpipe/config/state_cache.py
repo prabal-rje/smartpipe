@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from smartpipe.config.picker import ProbeChip
+from smartpipe.config.picker import ProbeChip, RegistryCaps
 from smartpipe.core.jsontools import as_items, as_record, as_str
 
 if TYPE_CHECKING:
@@ -26,9 +26,12 @@ __all__ = [
     "catalog_path",
     "load_catalog",
     "load_probe_chips",
+    "load_registry",
     "probe_path",
     "record_probe",
+    "registry_path",
     "store_catalog",
+    "store_registry",
 ]
 
 
@@ -68,6 +71,49 @@ def store_catalog(path: Path, names: tuple[str, ...]) -> None:
     try:
         _write_json(path, {"names": list(names)})
         for stale in path.parent.glob(f"{provider}-????-??-??.json"):
+            if stale.name != path.name:
+                with contextlib.suppress(OSError):
+                    stale.unlink()
+    except OSError:
+        return
+
+
+# --- the models.dev registry cache (day-stamped, like catalogs) ------------------------
+
+
+def registry_path(env: Mapping[str, str], day: str) -> Path:
+    return _state_root(env) / "registry" / f"models-dev-{day}.json"
+
+
+def load_registry(path: Path) -> dict[str, RegistryCaps] | None:
+    """Today's cached capability map, or None (a miss — fetch live)."""
+    try:
+        parsed: object = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    record = as_record(parsed)
+    models = as_record(record.get("models")) if record is not None else None
+    if models is None:
+        return None
+    caps: dict[str, RegistryCaps] = {}
+    for ref, value in models.items():
+        entry = as_record(value)
+        if entry is None:
+            continue
+        image, audio = entry.get("image"), entry.get("audio")
+        if isinstance(image, bool) and isinstance(audio, bool):
+            caps[ref] = RegistryCaps(image=image, audio=audio)
+    return caps
+
+
+def store_registry(path: Path, caps: Mapping[str, RegistryCaps]) -> None:
+    """Write today's registry snapshot and sweep stale days. Best-effort."""
+    document: dict[str, object] = {
+        "models": {ref: {"image": c.image, "audio": c.audio} for ref, c in caps.items()}
+    }
+    try:
+        _write_json(path, document)
+        for stale in path.parent.glob("models-dev-????-??-??.json"):
             if stale.name != path.name:
                 with contextlib.suppress(OSError):
                     stale.unlink()

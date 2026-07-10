@@ -8,11 +8,14 @@ from smartpipe.config.picker import (
     JINA_EMBED_MODELS,
     LOCAL_EMBED_MODELS,
     MENU_CAP,
+    ChipSources,
     ProbeChip,
     ProviderStatus,
+    RegistryCaps,
     cache_day,
     capped_catalog,
-    chip_text,
+    chip_label,
+    chips_for,
     detect_providers,
     embed_pair_allowed,
     embed_stage_entries,
@@ -28,6 +31,7 @@ from smartpipe.config.picker import (
     parse_gemini_embed_catalog,
     parse_mistral_catalog,
     parse_mistral_embed_catalog,
+    parse_models_dev,
     parse_openai_catalog,
     parse_openai_embed_catalog,
     parse_openrouter_catalog,
@@ -292,28 +296,104 @@ def test_pairing_treats_an_unparseable_value_as_replaceable() -> None:
 # --- capability chips ---------------------------------------------------------------
 
 
-def test_chip_text_names_abilities_and_age() -> None:
+def test_chips_precedence_probed_beats_registry_beats_declared() -> None:
     now = 1_000_000.0
-    chip = ProbeChip(sees=True, hears=True, ts=now - 3 * 86_400)
-    assert chip_text(chip, now) == "sees, hears — probed 3d ago"
+    sources = ChipSources(
+        probed={"openai/gpt-5.4-mini": ProbeChip(sees=True, hears=False, ts=now - 3 * 86_400)},
+        registry={
+            "openai/gpt-5.4-mini": RegistryCaps(image=True, audio=True),
+            "openai/o4-mini": RegistryCaps(image=True, audio=False),
+        },
+        declared={
+            "openai/gpt-5.4-mini": ("image", "audio"),
+            "openai/o4-mini": ("audio",),
+            "ollama/selfhosted": ("image",),
+        },
+    )
+    probed = chips_for("openai/gpt-5.4-mini", sources, now)
+    assert probed is not None and probed.source == "probed"
+    assert probed.image and not probed.audio  # the probe's verdict, not the registry's
+    registry = chips_for("openai/o4-mini", sources, now)
+    assert registry is not None and registry.source == "registry"
+    declared = chips_for("ollama/selfhosted", sources, now)
+    assert declared is not None and declared.source == "declared"
+    assert chips_for("ollama/unknown", sources, now) is None  # no source = no claims
 
 
-def test_chip_text_sees_only_today() -> None:
+def test_chip_label_formats_by_source() -> None:
     now = 1_000_000.0
-    assert chip_text(ProbeChip(sees=True, hears=False, ts=now), now) == "sees — probed today"
+    probed = chips_for(
+        "m",
+        ChipSources(
+            probed={"m": ProbeChip(sees=True, hears=False, ts=now - 3 * 86_400)},
+            registry={},
+            declared={},
+        ),
+        now,
+    )
+    assert probed is not None
+    assert chip_label(probed) == "text · image - probed 3d ago"
+    fresh = chips_for(
+        "m",
+        ChipSources(
+            probed={"m": ProbeChip(sees=False, hears=False, ts=now)}, registry={}, declared={}
+        ),
+        now,
+    )
+    assert fresh is not None
+    assert chip_label(fresh) == "text - probed today"
+    registry = chips_for(
+        "m", ChipSources(probed={}, registry={"m": RegistryCaps(True, True)}, declared={}), now
+    )
+    assert registry is not None
+    assert chip_label(registry) == "text · image · audio"  # the ambient truth, unlabeled
+    declared = chips_for("m", ChipSources(probed={}, registry={}, declared={"m": ("image",)}), now)
+    assert declared is not None
+    assert chip_label(declared) == "text · image - declared"
 
 
-def test_chip_text_no_abilities_is_honest() -> None:
+def test_parse_models_dev_maps_providers_and_input_modalities() -> None:
+    payload: dict[str, object] = {
+        "openai": {
+            "models": {
+                "gpt-5.4-mini": {"modalities": {"input": ["text", "image"], "output": ["text"]}},
+                "o4-mini": {"modalities": {"input": ["text"]}},
+            }
+        },
+        "google": {
+            "models": {"gemini-3.1-flash": {"modalities": {"input": ["text", "image", "audio"]}}}
+        },
+        "unknown-provider": {"models": {"x": {"modalities": {"input": ["text"]}}}},
+        "anthropic": {"models": {"broken": {}}},
+    }
+    caps = parse_models_dev(payload)
+    assert caps["openai/gpt-5.4-mini"] == RegistryCaps(image=True, audio=False)
+    assert caps["openai/o4-mini"] == RegistryCaps(image=False, audio=False)
+    assert caps["gemini/gemini-3.1-flash"] == RegistryCaps(
+        image=True, audio=True
+    )  # google → gemini
+    assert not any(ref.startswith("unknown-provider") for ref in caps)
+    assert "anthropic/broken" not in caps  # malformed entries claim nothing
+
+
+def test_parse_models_dev_junk_is_empty() -> None:
+    assert parse_models_dev(None) == {}
+    assert parse_models_dev([1, 2]) == {}
+
+
+def test_model_labels_annotate_from_any_source() -> None:
     now = 1_000_000.0
-    chip = ProbeChip(sees=False, hears=False, ts=now - 86_400)
-    assert chip_text(chip, now) == "text only — probed 1d ago"
-
-
-def test_model_labels_annotate_only_probed_entries() -> None:
-    now = 1_000_000.0
-    chips = {"ollama/llava": ProbeChip(sees=True, hears=False, ts=now)}
-    labels = model_labels("ollama", ("llava", "qwen3:8b"), chips, now)
-    assert labels == ("ollama/llava  (sees — probed today)", "ollama/qwen3:8b")
+    sources = ChipSources(
+        probed={"ollama/llava": ProbeChip(sees=True, hears=False, ts=now)},
+        registry={},
+        declared={"ollama/qwen3:8b": ("image",)},
+    )
+    labels = model_labels("ollama", ("llava", "qwen3:8b", "phi4"), sources, now)
+    assert labels == (
+        "ollama/llava  (text · image - probed today)",
+        "ollama/qwen3:8b  (text · image - declared)",
+        "ollama/phi4",
+    )
 
 
 # --- cache staleness ------------------------------------------------------------------

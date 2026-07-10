@@ -232,3 +232,39 @@ def test_role_keys_wrong_type_is_loud(tmp_path: Path) -> None:
     path.write_text("ocr-model = 3\n", encoding="utf-8")
     with pytest.raises(SetupFault, match="ocr-model"):
         load_config(path)
+
+
+# --- model-capabilities (declared chips for self-hosted models) --------------------------
+
+
+def test_model_capabilities_roundtrip(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('model-capabilities = ["image", "audio"]\n', encoding="utf-8")
+    config = load_config(path)
+    assert config.model_capabilities == ("image", "audio")
+    save_config(path, config)
+    assert load_config(path).model_capabilities == ("image", "audio")
+
+
+def test_model_capabilities_unset_and_cleared(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    assert load_config(path).model_capabilities is None
+    path.write_text('model-capabilities = ["image"]\n', encoding="utf-8")
+    from dataclasses import replace as _replace
+
+    save_config(path, _replace(load_config(path), model_capabilities=None))
+    assert "model-capabilities" not in path.read_text(encoding="utf-8")  # None = unset
+
+
+def test_model_capabilities_wrong_type_is_loud(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('model-capabilities = "image"\n', encoding="utf-8")
+    with pytest.raises(SetupFault, match="model-capabilities"):
+        load_config(path)
+
+
+def test_model_capabilities_unknown_word_is_loud(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('model-capabilities = ["video"]\n', encoding="utf-8")
+    with pytest.raises(SetupFault, match="unknown capability"):
+        load_config(path)

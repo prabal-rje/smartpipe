@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     import respx
 
-__all__ = ["sent_form", "sent_header", "sent_json"]
+__all__ = ["sent_form", "sent_header", "sent_header_or_none", "sent_json"]
 
 
 def _request(route: respx.Route, index: int) -> Any:  # respx's Call.request is untyped
@@ -23,6 +23,12 @@ def sent_json(route: respx.Route, index: int = 0) -> object:
 def sent_header(route: respx.Route, name: str, index: int = 0) -> str:
     """A request header value from the index-th captured call, typed as str."""
     return str(_request(route, index).headers[name])
+
+
+def sent_header_or_none(route: respx.Route, name: str, index: int = 0) -> str | None:
+    """A request header value, or None when the request never carried it."""
+    value = _request(route, index).headers.get(name)
+    return None if value is None else str(value)
 
 
 def sent_form(route: respx.Route, index: int = 0) -> dict[str, str]:

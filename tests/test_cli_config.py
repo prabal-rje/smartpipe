@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.cli.config_cmd import run_config_flow
-from smartpipe.config.picker import ProbeChip
+from smartpipe.config.picker import ChipSources, ProbeChip, RegistryCaps
 from smartpipe.config.store import Config, load_config
 from tests.conftest import RunCli
 
@@ -150,6 +150,8 @@ async def _run_flow(
     catalogs: Mapping[str, tuple[str, ...] | None] | None = None,
     embed_catalogs: Mapping[str, tuple[str, ...] | None] | None = None,
     chips: Mapping[str, ProbeChip] | None = None,
+    registry: Mapping[str, RegistryCaps] | None = None,
+    declared: Mapping[str, tuple[str, ...]] | None = None,
     picks: list[int | None] | None = None,
     answers: dict[str, str] | None = None,
     confirms: dict[str, bool] | None = None,
@@ -192,7 +194,7 @@ async def _run_flow(
         login=lambda: login,
         fetch_catalog=fetch,
         fetch_embed_catalog=fetch_embed,
-        chips=chips or {},
+        chips=ChipSources(probed=chips or {}, registry=registry or {}, declared=declared or {}),
         now=_NOW,
         choose=menu,
         ask=ask,
@@ -388,7 +390,7 @@ async def test_flow_decline_save_stamps_nothing_but_still_offers_completions() -
         login=lambda: False,
         fetch_catalog=fetch,
         fetch_embed_catalog=fetch_embed,
-        chips={},
+        chips=ChipSources.none(),
         now=_NOW,
         choose=menu,
         ask=lambda _q, default: default,
@@ -423,7 +425,7 @@ async def test_flow_completions_come_before_the_try_it_bait() -> None:
         login=lambda: False,
         fetch_catalog=fetch,
         fetch_embed_catalog=fetch_embed,
-        chips={},
+        chips=ChipSources.none(),
         now=_NOW,
         choose=menu,
         ask=lambda _q, default: default,
@@ -459,8 +461,24 @@ async def test_flow_chips_annotate_probed_catalog_entries() -> None:
         picks=[1, 0, 0, 0],
     )
     model_labels_shown = menu.shown[1][1]
-    assert model_labels_shown[0] == "openai/gpt-5.4-mini  (sees — probed 3d ago)"
+    assert model_labels_shown[0] == "openai/gpt-5.4-mini  (text · image - probed 3d ago)"
     assert model_labels_shown[1] == "openai/o4-mini"  # no cache = no chips, no claims
+
+
+async def test_flow_chips_fall_back_to_registry_then_declared() -> None:
+    chips = {"openai/gpt-5.4-mini": ProbeChip(sees=True, hears=False, ts=_NOW)}
+    _result, _rec, menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini", "o4-mini", "gpt-oss")},
+        chips=chips,
+        registry={"openai/o4-mini": RegistryCaps(image=True, audio=True)},
+        declared={"openai/gpt-oss": ("image",)},
+        picks=[1, 0, 0, 0],
+    )
+    model_labels_shown = menu.shown[1][1]
+    assert model_labels_shown[0] == "openai/gpt-5.4-mini  (text · image - probed today)"
+    assert model_labels_shown[1] == "openai/o4-mini  (text · image · audio)"
+    assert model_labels_shown[2] == "openai/gpt-oss  (text · image - declared)"
 
 
 async def test_flow_openrouter_picks_canonicalize_nested_names() -> None:

@@ -115,3 +115,42 @@ def test_store_catalog_sweep_spares_the_embed_twin(tmp_path: Path) -> None:
     store_catalog(catalog_path(env, "openai-embed", "2026-07-09"), ("new",))
     assert load_catalog(stale_embed) is None  # its own stale days still sweep
     assert load_catalog(chat) == ("gpt-5.4-mini",)
+
+
+# --- the models.dev registry cache -------------------------------------------------------
+
+
+def test_registry_roundtrip_and_daily_sweep(tmp_path: Path) -> None:
+    from smartpipe.config.picker import RegistryCaps
+    from smartpipe.config.state_cache import load_registry, registry_path, store_registry
+
+    env = {"XDG_STATE_HOME": str(tmp_path)}
+    stale = registry_path(env, "2026-07-01")
+    store_registry(stale, {"openai/gpt-5.4-mini": RegistryCaps(image=True, audio=False)})
+    fresh = registry_path(env, "2026-07-09")
+    caps = {"gemini/gemini-3.1-flash": RegistryCaps(image=True, audio=True)}
+    store_registry(fresh, caps)
+    assert load_registry(fresh) == caps
+    assert load_registry(stale) is None  # yesterday's snapshot swept
+
+
+def test_registry_miss_and_junk_are_none(tmp_path: Path) -> None:
+    from smartpipe.config.state_cache import load_registry, registry_path
+
+    env = {"XDG_STATE_HOME": str(tmp_path)}
+    path = registry_path(env, "2026-07-09")
+    assert load_registry(path) is None  # no file
+    path.parent.mkdir(parents=True)
+    path.write_text("{ not json")
+    assert load_registry(path) is None
+    path.write_text('{"models": {"x": {"image": "yes", "audio": false}}}')
+    loaded = load_registry(path)
+    assert loaded == {}  # malformed entries claim nothing
+
+
+def test_store_registry_never_raises(tmp_path: Path) -> None:
+    from smartpipe.config.state_cache import store_registry
+
+    blocker = tmp_path / "flat"
+    blocker.write_text("a file where the directory should be")
+    store_registry(blocker / "registry" / "models-dev-2026-07-09.json", {})  # swallowed

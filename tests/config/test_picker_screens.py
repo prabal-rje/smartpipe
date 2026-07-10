@@ -9,7 +9,7 @@ answered by its default, and pins the full transcript. Refresh with
 from __future__ import annotations
 
 from smartpipe.cli.config_cmd import run_config_flow
-from smartpipe.config.picker import ProbeChip
+from smartpipe.config.picker import ChipSources, ProbeChip
 from smartpipe.config.store import Config
 from smartpipe.io.arrow_menu import numbered_choose
 from tests.helpers.golden import assert_golden
@@ -49,7 +49,7 @@ async def _transcript(
         login=lambda: False,
         fetch_catalog=fetch,
         fetch_embed_catalog=fetch_embed,
-        chips=chips or {},
+        chips=ChipSources(probed=chips or {}, registry={}, declared={}),
         now=_NOW,
         choose=choose,
         ask=ask,

@@ -228,3 +228,36 @@ async def test_embed_catalog_unfetchable_providers_are_none(client: httpx.AsyncC
 
     for provider in ("jina", "local", "ollama", "anthropic", "openrouter"):
         assert await fetch_embed_catalog(provider, {}, client) is None
+
+
+# --- the models.dev capability registry --------------------------------------------------
+
+
+async def test_fetch_registry_parses_and_is_keyless(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    from smartpipe.config.picker import RegistryCaps
+    from smartpipe.models.catalogs import fetch_registry
+
+    route = respx_mock.get("https://models.dev/api.json").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "openai": {"models": {"gpt-5.4-mini": {"modalities": {"input": ["text", "image"]}}}}
+            },
+        )
+    )
+    caps = await fetch_registry({}, client)
+    assert caps == {"openai/gpt-5.4-mini": RegistryCaps(image=True, audio=False)}
+    from tests.helpers.wire import sent_header_or_none
+
+    assert sent_header_or_none(route, "authorization") is None  # public, keyless
+
+
+async def test_fetch_registry_degrades_to_none(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    from smartpipe.models.catalogs import fetch_registry
+
+    respx_mock.get("https://models.dev/api.json").mock(side_effect=httpx.ConnectError("down"))
+    assert await fetch_registry({}, client) is None  # graceful absent
