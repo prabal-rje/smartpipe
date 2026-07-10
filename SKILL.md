@@ -36,6 +36,6 @@ description: "Use when a shell task needs semantic operations over data or files
 ## Setup
 
 - `smartpipe doctor` - free readiness check (config, models, keys present). Exit 0 = ready.
-- Set models with `smartpipe config model NAME` or `SMARTPIPE_MODEL=…`; API keys are env-only, never flags.
+- Set models with `smartpipe config model NAME` or `SMARTPIPE_MODEL=…`; API keys come from env vars or the `smartpipe auth login` store (env always wins) - never flags.
 - `smartpipe doctor --probe` - 4 tiny PAID calls that test what the configured models can actually see/hear/watch.
 - Install: `pip install smartpipe-cli`. Docs: https://prabal-rje.github.io/smartpipe

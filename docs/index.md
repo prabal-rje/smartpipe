@@ -3,9 +3,9 @@
 **Semantic pipes and queries for your terminal.**
 
 Run PDFs, images, audio, video, and text through Unix verbs that understand
-their input: `map`, `filter`, `top_k`, `reduce`, and more. Use Ollama for local
-models, or choose a cloud provider explicitly. Either way it stays ordinary
-`stdin`/`stdout` composition.
+their input: `map`, `filter`, `top_k`, `reduce`, and more. Log in with ChatGPT,
+bring a cloud API key, or use Ollama for local models. Either way it stays
+ordinary `stdin`/`stdout` composition.
 
 <video controls playsinline preload="metadata" poster="assets/demo-thumb.jpg" width="100%">
   <source src="demo/smartpipe-demo.mp4" type="video/mp4">
@@ -91,7 +91,7 @@ calls by construction.
 
 - [The item](concepts/the-item.md) - the five laws everything follows from
 - [Pipes & items](concepts/pipes-and-items.md) - the mental model (what is "one item"?)
-- [Models & providers](concepts/models-and-providers.md) - local vs cloud, model strings
+- [Models & providers](concepts/models-and-providers.md) - cloud vs local, model strings
 - [Structured output](concepts/structured-output.md) - braces and `--schema`
 - [Output formats](concepts/output-formats.md) - `auto`, `json`, `csv`, `tsv`
 - [File inputs](inputs/files.md) - point any verb at documents

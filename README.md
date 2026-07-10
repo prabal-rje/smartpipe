@@ -55,7 +55,7 @@ and runs that tool's own upgrade.
 smartpipe auth login
 ```
 
-No ChatGPT plan? Use local [Ollama][ollama] or a cloud API key - see
+No ChatGPT plan? Bring a cloud API key, or run local [Ollama][ollama] - see
 [Models & providers][models].
 
 ## Examples
@@ -239,7 +239,7 @@ Full docs: **[prabal-rje.github.io/smartpipe][docs]**.
 - [Install][install] - packages and platforms
 - [Working with files & media][files] - PDFs, scans, images, audio, video
 - [CLI reference][cli] - every flag, format, and exit code
-- [Models & providers][models] - local Ollama, cloud keys, ChatGPT login
+- [Models & providers][models] - ChatGPT login, cloud keys, local Ollama
 - [Privacy & security][privacy]
 
 ## How to cite

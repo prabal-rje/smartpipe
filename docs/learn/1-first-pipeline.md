@@ -27,10 +27,33 @@ Prefer an isolated install? The [install guide](../install.md) covers `pipx` and
 ## 2. Get a model
 
 A "model" is the AI that reads your instruction and produces the answer. smartpipe
-doesn't include one; it talks to a model running locally or in the cloud. Pick a
+doesn't include one; it talks to a model running in the cloud or locally. Pick a
 path:
 
-### Path A - local & free (recommended)
+### Path A - log in with ChatGPT
+
+Have a ChatGPT Plus/Pro plan? Log in and use it directly - no API key:
+
+```bash
+smartpipe auth login              # opens your browser
+smartpipe config model gpt-5.4
+```
+
+### Path B - a cloud API key
+
+If you have an API key (OpenAI, Anthropic, Mistral, Gemini, or OpenRouter), point smartpipe at a cloud model.
+Cloud models are typically faster and stronger, and cost a small amount per use.
+
+```bash
+smartpipe config model gpt-5.4-mini
+export OPENAI_API_KEY=sk-...           # the environment always wins; or store it with: smartpipe auth login
+```
+
+`smartpipe auth login` can also store a key for you (masked prompt, live
+check, owner-only file) - `smartpipe auth logout` removes it, and an exported
+variable always wins over a stored key.
+
+### Path C - local & free
 
 [Ollama](https://ollama.com) runs open models on your own machine - no account, no
 API key, and model requests stay on that machine.
@@ -43,18 +66,10 @@ ollama pull qwen3:8b
 smartpipe config model ollama/qwen3:8b
 ```
 
-### Path B - cloud
-
-If you have an API key (OpenAI, Anthropic, Mistral, Gemini, or OpenRouter), point smartpipe at a cloud model.
-Cloud models are typically faster and stronger, and cost a small amount per use.
-
-```bash
-smartpipe config model gpt-5.4-mini
-export OPENAI_API_KEY=sk-...           # smartpipe reads the key from this variable, not from a saved file
-```
-
-Either way, `smartpipe config` (with no arguments) walks you through this
-interactively if you'd rather answer a few questions.
+Whichever path you pick, `smartpipe config` (with no arguments) walks you
+through it interactively: the text model, then embeddings, then an optional
+OCR model - connecting any provider you pick inline (masked key prompt, live
+validation), with a `back` row at every stage.
 
 Not sure everything took? `smartpipe doctor` checks the whole setup in one
 screen - without spending a model call.
