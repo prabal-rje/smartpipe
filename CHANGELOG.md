@@ -10,6 +10,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 The identity release.
 
 ### Knowledge graphs (the highlight)
+- **The showcase**: a full verb page with the modality matrix and a
+  live-rendering Mermaid sample, a cookbook chapter written from real
+  runs against the downloadable playground corpus, the README highlight
+  with a screenshot of the case graph, agent SKILL recipes, and `graph`
+  on the welcome screen. Found en route: the playground download in the
+  docs pointed at the source tarball (no media inside) - all three
+  sites now fetch the actual 26 MB release asset.
+
 - **`smartpipe graph --fast` turns a corpus into a knowledge graph for
   exactly $0.** A local zero-shot NER model (GLiNER-small over ONNX -
   no new dependencies, no torch, a one-time ~190 MB download like the
