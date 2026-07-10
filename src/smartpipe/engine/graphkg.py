@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "FOLD_THRESHOLD",
+    "EdgeAssertion",
     "EntityFinder",
     "EntitySpan",
     "EntityWindow",
@@ -32,14 +33,18 @@ __all__ = [
     "SpineRef",
     "SurfaceCount",
     "Window",
+    "assertion_surface_counts",
     "build_nodes",
+    "fold_assertions",
     "fold_edges",
     "fold_stats",
     "fold_surfaces",
     "human_ref",
+    "name_edges",
     "parse_window",
     "prune_edges",
     "sentence_bounds",
+    "spine_from_record",
     "spine_record",
     "surface_counts",
     "windows",
@@ -333,6 +338,96 @@ def prune_edges(edges: Sequence[GraphEdge], min_weight: int) -> tuple[tuple[Grap
     return kept, len(edges) - len(kept)
 
 
+@dataclass(frozen=True, slots=True)
+class EdgeAssertion:
+    """One asserted directed edge (wave G2): a full-mode extraction triple —
+    (subject, relation, object) as (source, relation, target) — or an adopted
+    pipe-in edge record, with its provenance refs and an adoptable weight."""
+
+    refs: tuple[SpineRef, ...]
+    source: str
+    relation: str
+    target: str
+    source_label: str = "entity"
+    target_label: str = "entity"
+    weight: int = 1
+
+
+def assertion_surface_counts(assertions: Sequence[EdgeAssertion]) -> tuple[SurfaceCount, ...]:
+    """Distinct (name, label) pairs across both endpoints, weighted mention
+    counts, first-appearance order — the assertion twin of ``surface_counts``."""
+    counts: dict[tuple[str, str], int] = {}
+    for assertion in assertions:
+        for name, label in (
+            (assertion.source, assertion.source_label),
+            (assertion.target, assertion.target_label),
+        ):
+            key = (name, label)
+            counts[key] = counts.get(key, 0) + assertion.weight
+    return tuple(
+        SurfaceCount(name=name, label=label, count=count) for (name, label), count in counts.items()
+    )
+
+
+def fold_assertions(
+    assertions: Sequence[EdgeAssertion],
+    canonical: Mapping[str, str],
+    *,
+    cap: int = _SOURCE_CAP,
+) -> tuple[GraphEdge, ...]:
+    """Directed, relation-keyed edges: weights sum per canonical
+    (source, relation, target) fold key, provenance refs dedupe and cap,
+    heaviest first. A pair folding onto one node is a self-loop — dropped."""
+    weights: dict[tuple[str, str, str], int] = {}
+    kept_refs: dict[tuple[str, str, str], list[SpineRef]] = {}
+    seen_refs: dict[tuple[str, str, str], set[SpineRef]] = {}
+    hidden: dict[tuple[str, str, str], int] = {}
+    for assertion in assertions:
+        source = canonical.get(assertion.source, assertion.source)
+        target = canonical.get(assertion.target, assertion.target)
+        if source == target:
+            continue
+        key = (source, assertion.relation, target)
+        weights[key] = weights.get(key, 0) + assertion.weight
+        seen = seen_refs.setdefault(key, set())
+        for ref in assertion.refs:
+            if ref in seen:
+                continue
+            seen.add(ref)
+            kept = kept_refs.setdefault(key, [])
+            if len(kept) < cap:
+                kept.append(ref)
+            else:
+                hidden[key] = hidden.get(key, 0) + 1
+    edges = [
+        GraphEdge(
+            source=source,
+            target=target,
+            relation=relation,
+            weight=weight,
+            sources=tuple(kept_refs[source, relation, target]),
+            hidden_sources=hidden.get((source, relation, target), 0),
+        )
+        for (source, relation, target), weight in weights.items()
+    ]
+    return tuple(
+        sorted(edges, key=lambda edge: (-edge.weight, edge.source, edge.relation, edge.target))
+    )
+
+
+def name_edges(
+    edges: Sequence[GraphEdge], names: Mapping[tuple[str, str], str]
+) -> tuple[GraphEdge, ...]:
+    """Hybrid naming (wave G2): a named relation replaces its edge's label in
+    place — same fold key (source, target), same weight, same provenance."""
+    from dataclasses import replace
+
+    return tuple(
+        replace(edge, relation=names.get((edge.source, edge.target), edge.relation))
+        for edge in edges
+    )
+
+
 def human_ref(ref: SpineRef) -> str:
     """The ref as citation wording: an adopted label verbatim, else path+locator."""
     if ref.label is not None:
@@ -366,3 +461,24 @@ def spine_record(ref: SpineRef) -> dict[str, object]:
     if ref.label is not None:
         record["label"] = ref.label
     return record
+
+
+def spine_from_record(record: Mapping[str, object]) -> SpineRef | None:
+    """The reading half of ``spine_record`` (wave G2): an adopted edge row's
+    ``sources`` entries become refs again. Untrusted JSON — anything that
+    isn't ref-shaped is ``None``, never a guess."""
+    path = record.get("path")
+    if not isinstance(path, str) or not path:
+        return None
+    cut = record.get("as")
+    label = record.get("label")
+    position = next(
+        (value for key in ("line", "page", "segment") if isinstance(value := record.get(key), int)),
+        None,
+    )
+    return SpineRef(
+        path=path,
+        cut=cut if isinstance(cut, str) else "lines",
+        position=position,
+        label=label if isinstance(label, str) else None,
+    )

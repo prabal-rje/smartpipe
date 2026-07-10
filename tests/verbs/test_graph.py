@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
-    from smartpipe.models.base import ModelRef
+    from smartpipe.models.base import ChatModel, ModelRef
 
 
 class FakeFinder:
@@ -88,13 +88,19 @@ class FakeContext:
     def fold_embedder(self) -> FakeEmbedder:
         return self.embedder
 
-    async def chat_model(self, flag: str | None = None) -> object:
+    async def chat_model(self, flag: str | None = None) -> ChatModel:
         self.chat_calls += 1
         raise AssertionError("graph --fast constructed a chat model — the free pin is broken")
 
     async def embedding_model(self, flag: str | None = None) -> object:
         self.chat_calls += 1
         raise AssertionError("graph --fast resolved the configured embedder — must stay local")
+
+    def document_parser(self, flag: str | None = None) -> None:
+        return None  # the free modes never parse documents through a model
+
+    def concurrency(self, flag: int | None = None) -> int:
+        return 2
 
 
 def _context(

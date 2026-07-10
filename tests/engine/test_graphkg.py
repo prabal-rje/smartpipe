@@ -6,6 +6,7 @@ import pytest
 
 from smartpipe.core.errors import UsageFault
 from smartpipe.engine.graphkg import (
+    EdgeAssertion,
     EntitySpan,
     EntityWindow,
     GraphEdge,
@@ -13,14 +14,18 @@ from smartpipe.engine.graphkg import (
     SpineRef,
     SurfaceCount,
     Window,
+    assertion_surface_counts,
     build_nodes,
+    fold_assertions,
     fold_edges,
     fold_stats,
     fold_surfaces,
     human_ref,
+    name_edges,
     parse_window,
     prune_edges,
     sentence_bounds,
+    spine_from_record,
     spine_record,
     surface_counts,
     windows,
@@ -400,3 +405,163 @@ def test_spine_record_carries_the_adopted_label() -> None:
 
 def test_spine_record_without_position_omits_the_locator() -> None:
     assert spine_record(SpineRef(path="a.txt", cut="lines")) == {"path": "a.txt", "as": "lines"}
+
+
+# --- spine_from_record (wave G2: adopted pipe-in edges) ------------------------
+
+
+def test_spine_from_record_round_trips_spine_record() -> None:
+    for ref in (
+        SpineRef(path="a.txt", cut="lines", position=12),
+        SpineRef(path="r.pdf", cut="pages", position=3),
+        SpineRef(path="r.pdf", cut="file"),
+        SpineRef(path="c.wav", cut="minutes", position=2, label="c.wav §00:10-00:20"),
+    ):
+        assert spine_from_record(spine_record(ref)) == ref
+
+
+def test_spine_from_record_defaults_a_bare_path_to_lines() -> None:
+    assert spine_from_record({"path": "a.txt"}) == SpineRef(path="a.txt", cut="lines")
+
+
+def test_spine_from_record_refuses_shapes_that_are_not_refs() -> None:
+    assert spine_from_record({}) is None
+    assert spine_from_record({"path": 3}) is None
+    assert spine_from_record({"path": ""}) is None
+
+
+def test_spine_from_record_ignores_non_string_cut_and_label_and_bad_position() -> None:
+    ref = spine_from_record({"path": "a.txt", "as": 7, "label": 9, "line": "x"})
+    assert ref == SpineRef(path="a.txt", cut="lines", position=None, label=None)
+
+
+# --- edge assertions (wave G2: full-mode triples + adopted edges) ---------------
+
+
+def _assertion(
+    source: str,
+    relation: str,
+    target: str,
+    *,
+    line: int = 1,
+    weight: int = 1,
+    refs: tuple[SpineRef, ...] | None = None,
+) -> EdgeAssertion:
+    return EdgeAssertion(
+        refs=refs if refs is not None else (_ref(line=line),),
+        source=source,
+        relation=relation,
+        target=target,
+        weight=weight,
+    )
+
+
+def test_assertion_surface_counts_count_both_endpoints_weighted() -> None:
+    counted = assertion_surface_counts(
+        [
+            _assertion("Ann", "pays", "Bob"),
+            _assertion("Ann", "owns", "Acme", line=2, weight=3),
+        ]
+    )
+    assert counted == (
+        SurfaceCount(name="Ann", label="entity", count=4),
+        SurfaceCount(name="Bob", label="entity", count=1),
+        SurfaceCount(name="Acme", label="entity", count=3),
+    )
+
+
+def test_assertion_surface_counts_carry_the_typed_ontology_labels() -> None:
+    typed = EdgeAssertion(
+        refs=(_ref(),),
+        source="Ann",
+        relation="works at",
+        target="Acme",
+        source_label="person",
+        target_label="company",
+    )
+    assert assertion_surface_counts([typed]) == (
+        SurfaceCount(name="Ann", label="person", count=1),
+        SurfaceCount(name="Acme", label="company", count=1),
+    )
+
+
+def test_fold_assertions_weights_are_summed_per_directed_labeled_key() -> None:
+    edges = fold_assertions(
+        [
+            _assertion("Ann", "pays", "Bob", line=1),
+            _assertion("Ann", "pays", "Bob", line=2),
+            _assertion("Bob", "pays", "Ann", line=3),
+            _assertion("Ann", "owes", "Bob", line=4, weight=5),
+        ],
+        {},
+    )
+    assert [(e.source, e.relation, e.target, e.weight) for e in edges] == [
+        ("Ann", "owes", "Bob", 5),
+        ("Ann", "pays", "Bob", 2),
+        ("Bob", "pays", "Ann", 1),
+    ]
+
+
+def test_fold_assertions_canonicalizes_endpoints_and_drops_self_loops() -> None:
+    canonical = {"Acme Corp": "Acme", "Acme Corporation": "Acme"}
+    edges = fold_assertions(
+        [
+            _assertion("Acme Corp", "hired", "Ann", line=1),
+            _assertion("Acme Corporation", "hired", "Ann", line=2),
+            _assertion("Acme Corp", "renamed", "Acme Corporation", line=3),
+        ],
+        canonical,
+    )
+    assert [(e.source, e.relation, e.target, e.weight) for e in edges] == [
+        ("Acme", "hired", "Ann", 2)
+    ]
+    assert [ref.position for ref in edges[0].sources] == [1, 2]
+
+
+def test_fold_assertions_provenance_dedupes_and_caps_with_hidden_count() -> None:
+    repeated = [_assertion("Ann", "pays", "Bob", line=1) for _ in range(3)]
+    spread = [_assertion("Ann", "pays", "Bob", line=n) for n in range(2, 6)]
+    edges = fold_assertions([*repeated, *spread], {}, cap=2)
+    (edge,) = edges
+    assert edge.weight == 7  # every assertion counts, even ref-duplicates
+    assert [ref.position for ref in edge.sources] == [1, 2]
+    assert edge.hidden_sources == 3  # distinct refs 3, 4, 5 fell past the cap
+
+
+def test_fold_assertions_sort_heaviest_first_then_lexically() -> None:
+    edges = fold_assertions(
+        [
+            _assertion("Zed", "sees", "Ann", line=1),
+            _assertion("Ann", "sees", "Bob", line=2),
+            _assertion("Ann", "pays", "Bob", line=3),
+        ],
+        {},
+    )
+    assert [(e.source, e.relation, e.target) for e in edges] == [
+        ("Ann", "pays", "Bob"),
+        ("Ann", "sees", "Bob"),
+        ("Zed", "sees", "Ann"),
+    ]
+
+
+# --- name_edges (wave G2: hybrid naming replaces co-occurs in place) ------------
+
+
+def test_name_edges_replaces_relations_on_matching_fold_keys_only() -> None:
+    edges = (
+        GraphEdge(source="Ann", target="Bob", relation="co-occurs", weight=3, sources=(_ref(),)),
+        GraphEdge(source="Ann", target="Cid", relation="co-occurs", weight=1, sources=(_ref(),)),
+    )
+    named = name_edges(edges, {("Ann", "Bob"): "pays"})
+    assert [(e.source, e.relation, e.target, e.weight) for e in named] == [
+        ("Ann", "pays", "Bob", 3),
+        ("Ann", "co-occurs", "Cid", 1),
+    ]
+    assert named[0].sources == edges[0].sources  # provenance survives the rename
+
+
+def test_name_edges_with_no_names_is_identity() -> None:
+    edges = (
+        GraphEdge(source="Ann", target="Bob", relation="co-occurs", weight=1, sources=(_ref(),)),
+    )
+    assert name_edges(edges, {}) == edges
