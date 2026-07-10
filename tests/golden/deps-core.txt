@@ -41,9 +41,11 @@ loguru
 lxml
 magika
 mammoth
+markdown-it-py
 markdownify
 markitdown
 matplotlib
+mdurl
 mmh3
 mpmath
 numpy
@@ -60,6 +62,7 @@ py-rust-stemmers
 pycparser
 pydantic
 pydantic-core
+pygments
 pyparsing
 pypdf
 pypdfium2
@@ -70,6 +73,7 @@ python-pptx
 pyyaml
 referencing
 requests
+rich
 rpds-py
 setuptools
 six

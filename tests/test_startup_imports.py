@@ -10,7 +10,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
-BANNED = {"httpx", "jsonschema", "anthropic", "markitdown", "plotext", "matplotlib"}
+BANNED = {"httpx", "jsonschema", "anthropic", "markitdown", "plotext", "matplotlib", "rich"}
 
 
 def test_help_never_imports_the_heavy_stack() -> None:

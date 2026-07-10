@@ -9,7 +9,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Python ≥ 3.11 (uv can fetch one 
 
 ```console
 $ git clone https://github.com/prabal-rje/smartpipe && cd smartpipe
-$ uv sync --all-extras          # creates .venv with dev + optional deps
+$ uv sync --all-extras          # creates .venv with the project and dev tools
 $ uv run smartpipe                # welcome screen = working install
 ```
 
@@ -64,12 +64,13 @@ Reverting to built-in search is emptying the three values again.
 
 ## New dependencies
 
-Core install weight is a feature: the runtime dependency list is `click`, `httpx`,
-`jsonschema`, `tomli-w` — a snapshot test guards it. Anything heavier goes behind an
-optional extra, and heavy imports stay function-local (startup time is budgeted).
+Core install weight is a feature, but D46 deliberately ships the complete
+multimodal surface in core: there are no optional extras. The frozen dependency
+snapshot makes every direct or transitive addition an explicit review decision.
+Heavy imports stay function-local so startup remains budgeted.
 
 **New heavy import? Function-local or justify.** `--help` must never import
-`httpx`, `jsonschema`, `anthropic`, or `markitdown` —
+`httpx`, `jsonschema`, `anthropic`, `markitdown`, or `rich` —
 `tests/test_startup_imports.py` is the enforcement (it runs `-X importtime` and
 fails on any banned module). `make startup` gives an advisory wall-clock number;
 the import test is the deterministic gate.

@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from smartpipe.core.errors import ExitCode
-from smartpipe.io.text import display_width
+from smartpipe.io.richui import Cell, UiStyle, render_grid
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
 
 __all__ = ["CheckResult", "doctor_exit_code", "render_report"]
 
@@ -29,22 +29,28 @@ class CheckResult:
     detail: str  # the rest of the line, including any "— fix: …"
 
 
-def render_report(results: Sequence[CheckResult]) -> str:
+def render_report(results: Sequence[CheckResult], *, color: bool) -> str:
     """One line per check: padded section, mark, detail (the ux.md doctor screen)."""
-    from smartpipe.cli.screens import bad, good, tint
-
-    width = max(display_width(result.section) for result in results) + 2
-
-    def dim_mark(mark: str) -> str:
-        return tint(mark, "2")
-
-    paint: dict[str, Callable[[str], str]] = {"ok": good, "fail": bad, "skip": dim_mark}
-    lines = (
-        f"{tint(_pad(result.section, width), '2')}"
-        f"{paint[result.status](_MARKS[result.status])} {result.detail}"
+    section_width = max((len(result.section) for result in results), default=0) + 2
+    styles: dict[str, UiStyle] = {
+        "ok": UiStyle.GOOD,
+        "fail": UiStyle.BAD,
+        "skip": UiStyle.DIM,
+    }
+    rows = tuple(
+        (
+            Cell(result.section, UiStyle.DIM),
+            Cell(_MARKS[result.status], styles[result.status]),
+            Cell(f" {result.detail}"),
+        )
         for result in results
     )
-    return "\n".join(lines)
+    return render_grid(
+        rows,
+        color=color,
+        column_gap=0,
+        column_widths=(section_width, 1, None),
+    )
 
 
 def doctor_exit_code(results: Sequence[CheckResult]) -> ExitCode:
@@ -52,7 +58,3 @@ def doctor_exit_code(results: Sequence[CheckResult]) -> ExitCode:
     if any(result.status == "fail" for result in results):
         return ExitCode.PARTIAL
     return ExitCode.OK
-
-
-def _pad(text: str, width: int) -> str:
-    return text + " " * max(0, width - display_width(text))

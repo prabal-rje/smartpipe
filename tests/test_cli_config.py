@@ -116,6 +116,7 @@ def test_bare_config_without_tty_is_setup_fault(run_cli: RunCli, config_home: Pa
 class _Recorder:
     def __init__(self) -> None:
         self.saved: Config | None = None
+        self.save_calls = 0
         self.said: list[str] = []
 
     def say(self, message: str) -> None:
@@ -123,6 +124,7 @@ class _Recorder:
 
     def save(self, config: Config) -> None:
         self.saved = config
+        self.save_calls += 1
 
     def transcript(self) -> str:
         return "\n".join(self.said)
@@ -138,7 +140,7 @@ class _Menu:
 
     def __call__(self, title: str, labels: tuple[str, ...], start: int) -> int | None:
         self.shown.append((title, labels, start))
-        return start if self.picks is None else self.picks.pop(0)
+        return start if self.picks is None or not self.picks else self.picks.pop(0)
 
 
 async def _run_flow(
@@ -158,6 +160,7 @@ async def _run_flow(
     connect: object = None,
     local_embed: bool = True,
     verify: object = None,
+    offer: object = None,
 ) -> tuple[Config, _Recorder, _Menu]:
     from collections.abc import Awaitable, Callable
 
@@ -185,8 +188,10 @@ async def _run_flow(
 
     assert connect is None or callable(connect)
     assert verify is None or callable(verify)
+    assert offer is None or callable(offer)
     typed_connect: Callable[[StageEntry], Awaitable[bool]] | None = connect  # type: ignore[assignment]
     typed_verify: Callable[[Config], Awaitable[None]] | None = verify  # type: ignore[assignment]
+    typed_offer: Callable[[], None] | None = offer  # type: ignore[assignment]
     result = await run_config_flow(
         current=current if current is not None else Config(),
         env=env if env is not None else {},
@@ -204,6 +209,7 @@ async def _run_flow(
         connect=typed_connect,
         local_embed_available=local_embed,
         run_verify=typed_verify,
+        offer_completions=typed_offer,
     )
     return result, rec, menu
 
@@ -226,11 +232,13 @@ async def test_flow_ollama_pick_pairs_a_detected_local_embedder() -> None:
     assert text_title == "Text model - pick a provider:"
     assert text_labels[0].startswith("ollama")
     assert "✓ local" in text_labels[0]
-    assert text_labels[-1].startswith("skip")
+    assert text_labels[-2].startswith("skip")
+    assert text_labels[-1].startswith("cancel setup")
     model_title, model_labels_shown, model_start = menu.shown[1]
     assert model_title == "Pick a model (ollama):"
     assert model_labels_shown[0] == "ollama/llava"  # embedders never offered as chat
-    assert model_labels_shown[-1].startswith("type a model name instead")
+    assert model_labels_shown[-2].startswith("type a model name instead")
+    assert model_labels_shown[-1] == "back - provider list"
     assert model_start == 0  # llava is the family-preferred cursor start
     embed_title, embed_labels, embed_start = menu.shown[2]
     assert embed_title.startswith("Embedding model")
@@ -290,7 +298,7 @@ async def test_flow_catalog_failure_degrades_to_typed_input() -> None:
         picks=[1, 0, 0],
     )
     assert result.model == "openai/gpt-5.4-mini"  # the provider-prefixed example default
-    assert len(menu.shown) == 3  # no model menu — typed input took over
+    assert len(menu.shown) == 4  # no model menu: text · embed · ocr · review
     assert any("couldn't fetch the live catalog" in line for line in rec.said)
     assert any("openai/gpt-5.4-mini" in line and "OPENAI_API_KEY" in line for line in rec.said)
 
@@ -299,11 +307,11 @@ async def test_flow_type_it_entry_routes_to_typed_input() -> None:
     result, _rec, menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[1, 1, 0, 0],  # the model menu's last entry is "type a model name instead…"
+        picks=[1, 1, 0, 0],  # the type-it row stays before the new Back row
         answers={"Default model?": "o4-mini"},
     )
     assert result.model == "openai/o4-mini"
-    assert menu.shown[1][1][-1].startswith("type a model name instead")
+    assert menu.shown[1][1][-2].startswith("type a model name instead")
 
 
 async def test_flow_typed_junk_twice_is_a_usage_fault() -> None:
@@ -337,6 +345,20 @@ async def test_flow_backup_question_loops_the_picker_once() -> None:
     assert any("fallback-model gemini/gemini-3.1-flash-lite" in line for line in rec.said)
 
 
+async def test_flow_backup_model_back_returns_to_the_backup_provider_menu() -> None:
+    result, _rec, menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x", "GEMINI_API_KEY": "g-x"},
+        catalogs={
+            "openai": ("gpt-5.4-mini",),
+            "gemini": ("gemini-3.1-flash-lite",),
+        },
+        picks=[1, 0, 0, 2, 1, 0, 0, 0, 0],
+        confirms={"Add a backup model for provider outages?": True},
+    )
+    assert result.fallback_model == "gemini/gemini-3.1-flash-lite"
+    assert len([shown for shown in menu.shown if shown[0] == "Pick a backup provider:"]) == 2
+
+
 async def test_flow_backup_defaults_to_no() -> None:
     result, _rec, menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
@@ -344,7 +366,7 @@ async def test_flow_backup_defaults_to_no() -> None:
         picks=[1, 0, 0, 0],
     )
     assert result.fallback_model is None
-    assert len(menu.shown) == 4  # text · model · embed · ocr — the picker never looped
+    assert len(menu.shown) == 5  # text · model · embed · ocr · review — never looped
 
 
 async def test_flow_backup_refuses_an_embedder() -> None:
@@ -359,20 +381,21 @@ async def test_flow_backup_refuses_an_embedder() -> None:
     assert any("embeds" in line and "must chat" in line for line in rec.said)
 
 
-async def test_flow_cancel_everywhere_changes_nothing() -> None:
+async def test_flow_escape_at_text_cancels_setup() -> None:
     current = Config(model="ollama/qwen3:8b")
     result, rec, _menu = await _run_flow(
         current=current, env={"OPENAI_API_KEY": "sk-x"}, picks=[None, None, None]
     )
     assert result == current
     assert rec.saved is None
-    assert any("nothing changed" in line for line in rec.said)
+    assert any("Not saved" in line for line in rec.said)
 
 
-async def test_flow_decline_save_stamps_nothing_but_still_offers_completions() -> None:
+async def test_flow_discard_stops_without_any_later_effect_or_prompt() -> None:
     offered: list[bool] = []
+    verified: list[Config] = []
     rec = _Recorder()
-    menu = _Menu([1, 0, 0, 0])
+    menu = _Menu([1, 0, 0, 0, 2])
 
     async def probe() -> tuple[str, ...] | None:
         return None
@@ -382,6 +405,9 @@ async def test_flow_decline_save_stamps_nothing_but_still_offers_completions() -
 
     async def fetch_embed(_provider: str) -> tuple[str, ...] | None:
         return None
+
+    async def verify(config: Config) -> None:
+        verified.append(config)
 
     result = await run_config_flow(
         current=Config(),
@@ -394,15 +420,130 @@ async def test_flow_decline_save_stamps_nothing_but_still_offers_completions() -
         now=_NOW,
         choose=menu,
         ask=lambda _q, default: default,
-        confirm=lambda question, default: False if question == "Save to config?" else default,
+        confirm=lambda _question, default: default,
         say=rec.say,
         save=rec.save,
+        run_verify=verify,
         offer_completions=lambda: offered.append(True),
     )
-    assert result.model == "openai/gpt-5.4-mini"  # returned, but…
-    assert rec.saved is None  # …never written
+    assert result == Config()
+    assert rec.saved is None
     assert any("Not saved" in line for line in rec.said)
-    assert offered == [True]
+    assert verified == []
+    assert offered == []
+
+
+async def test_flow_text_cancel_is_terminal_and_unchanged() -> None:
+    offered: list[bool] = []
+    verified: list[Config] = []
+
+    async def verify(config: Config) -> None:
+        verified.append(config)
+
+    result, rec, menu = await _run_flow(
+        picks=[8],
+        verify=verify,
+        offer=lambda: offered.append(True),
+    )
+    assert result == Config()
+    assert rec.saved is None
+    assert verified == []
+    assert offered == []
+    assert menu.shown[0][1][-1] == "cancel setup - leave config unchanged"
+    assert any("Not saved" in line for line in rec.said)
+
+
+async def test_flow_embed_back_restores_the_pre_text_checkpoint() -> None:
+    result, rec, menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[1, 0, 8, 7, 6, 0, 0],
+    )
+    assert result == Config()
+    assert rec.saved is None
+    assert len([shown for shown in menu.shown if shown[0].startswith("Text model")]) == 2
+    embed_labels = next(shown[1] for shown in menu.shown if shown[0].startswith("Embedding"))
+    assert embed_labels[-1] == "back - text model"
+
+
+async def test_flow_embed_back_discards_a_draft_fallback_model() -> None:
+    result, rec, _menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x", "GEMINI_API_KEY": "g-x"},
+        catalogs={
+            "openai": ("gpt-5.4-mini",),
+            "gemini": ("gemini-3.1-flash-lite",),
+        },
+        picks=[1, 0, 1, 0, 8, 7, 6, 0, 0],
+        confirms={"Add a backup model for provider outages?": True},
+    )
+    assert result == Config()
+    assert result.fallback_model is None
+    assert rec.saved is None
+
+
+async def test_flow_ocr_back_restores_the_pre_embed_checkpoint() -> None:
+    result, rec, menu = await _run_flow(
+        picks=[7, 0, 0, 3, 6, 0, 0],
+    )
+    assert result == Config()
+    assert rec.saved is None
+    assert len([shown for shown in menu.shown if shown[0].startswith("Embedding")]) == 2
+    ocr_labels = next(shown[1] for shown in menu.shown if shown[0].startswith("Document OCR"))
+    assert ocr_labels[-1] == "back - embedding model"
+
+
+async def test_flow_review_back_discards_ocr_draft_then_saves_once() -> None:
+    result, rec, menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[1, 0, 0, 2, 1, 0, 0],
+    )
+    assert result.model == "openai/gpt-5.4-mini"
+    assert result.ocr_model is None
+    assert rec.saved == result
+    assert rec.save_calls == 1
+    assert len([shown for shown in menu.shown if shown[0].startswith("Document OCR")]) == 2
+    reviews = [shown for shown in menu.shown if shown[0] == "Review changes:"]
+    assert reviews[0][1] == ("save changes", "back - document OCR", "discard changes")
+
+
+@pytest.mark.parametrize("answer", ["back", "b", "no", "n"])
+async def test_flow_typed_back_alias_returns_to_the_model_menu(answer: str) -> None:
+    result, rec, menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[1, 1, 2, 8],
+        answers={"Default model?": answer},
+    )
+    assert result == Config()
+    assert rec.saved is None
+    assert len([shown for shown in menu.shown if shown[0].startswith("Pick a model")]) == 2
+    assert len([shown for shown in menu.shown if shown[0].startswith("Text model")]) == 2
+    assert not any("ollama/n" in line for line in rec.said)
+
+
+async def test_flow_typed_embed_back_returns_to_the_embed_model_menu() -> None:
+    result, rec, menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x"},
+        embed_catalogs={"openai": ("text-embedding-3-small",)},
+        picks=[7, 2, 1, 2, 7, 8],
+        answers={"Embedding model?": "n"},
+    )
+    assert result == Config()
+    assert rec.saved is None
+    assert len([shown for shown in menu.shown if shown[0].startswith("Pick an embedding")]) == 2
+    assert not any("ollama/n" in line for line in rec.said)
+
+
+async def test_flow_typed_ocr_no_returns_to_the_ocr_choices() -> None:
+    result, rec, menu = await _run_flow(
+        picks=[7, 6, 2, 0, 0],
+        answers={"OCR model?": "n"},
+    )
+    assert result == Config()
+    assert rec.saved is None
+    assert len([shown for shown in menu.shown if shown[0].startswith("Document OCR")]) == 2
+    assert not any("ollama/n" in line for line in rec.said)
 
 
 async def test_flow_completions_come_before_the_try_it_bait() -> None:
@@ -591,7 +732,7 @@ async def test_flow_embed_jina_pick_is_curated() -> None:
 
 
 async def test_flow_embed_local_row_vanishes_without_fastembed() -> None:
-    _result, _rec, menu = await _run_flow(env={}, picks=[7, None, 0], local_embed=False)
+    _result, _rec, menu = await _run_flow(env={}, picks=[7, 5, 0, 0], local_embed=False)
     embed_labels = menu.shown[1][1]
     assert not any("built-in, on-device" in label for label in embed_labels)
 

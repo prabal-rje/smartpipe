@@ -6,6 +6,7 @@ would blow up the test, which is the machine proof that doctor never spends mone
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 import httpx
@@ -32,13 +33,23 @@ def test_render_pads_sections_and_marks_statuses() -> None:
             CheckResult("config", "ok", "parses (model: ollama/qwen3:8b)"),
             CheckResult("keys", "skip", "OPENAI_API_KEY set"),
             CheckResult("terminal", "fail", "no completions — fix: see install docs"),
-        ]
+        ],
+        color=False,
     )
     assert report.splitlines() == [
         "config    ✓ parses (model: ollama/qwen3:8b)",
         "keys      – OPENAI_API_KEY set",  # noqa: RUF001 — pinned skip mark
         "terminal  ✗ no completions — fix: see install docs",
     ]
+
+
+def test_render_report_uses_rich_styles_only_when_color_is_enabled() -> None:
+    results = [CheckResult("config", "ok", "parses")]
+    plain = render_report(results, color=False)
+    colored = render_report(results, color=True)
+    assert "\x1b[" not in plain
+    assert "\x1b[" in colored
+    assert re.sub(r"\x1b\[[0-9;]*m", "", colored) == plain
 
 
 def test_exit_zero_when_green_or_skipped() -> None:

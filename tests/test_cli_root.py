@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import click
 import pytest
 
 from smartpipe import __version__
@@ -56,6 +57,18 @@ def test_keyboard_interrupt_exits_130(run_cli: RunCli, monkeypatch: pytest.Monke
     monkeypatch.setattr("smartpipe.cli.root.cli.main", _interrupt)
     code, _out, _err = run_cli(["--version"])
     assert code == 130
+
+
+def test_click_abort_exits_130_without_the_bug_screen(
+    run_cli: RunCli, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _abort(*_args: object, **_kwargs: object) -> None:
+        raise click.Abort
+
+    monkeypatch.setattr("smartpipe.cli.root.cli.main", _abort)
+    code, _out, err = run_cli(["--version"])
+    assert code == 130
+    assert "internal error" not in err
 
 
 # --- the update-check hooks (notify-next-run; plan/ux.md "update notice") -------

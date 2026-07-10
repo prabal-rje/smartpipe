@@ -17,6 +17,7 @@ import click
 from smartpipe.config.doctor import CheckResult, doctor_exit_code, render_report
 from smartpipe.config.paths import config_path, human_path
 from smartpipe.core.errors import ExitCode, SempipeError
+from smartpipe.io import tty
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -57,7 +58,7 @@ def doctor_command(probe: bool) -> None:
     --probe adds the modality matrix: real (tiny) calls, announced first.
     """
     results = asyncio.run(_gather(os.environ))
-    click.echo(render_report(results))
+    click.echo(render_report(results, color=tty.stdout_supports_color()))
     if not probe:
         click.secho(
             "\n⚠ these checks verify SETUP, not ABILITY — run `smartpipe doctor --probe`\n"

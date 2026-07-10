@@ -24,6 +24,7 @@ async def _transcript(
     catalogs: dict[str, tuple[str, ...] | None],
     embed_catalogs: dict[str, tuple[str, ...] | None] | None = None,
     chips: dict[str, ProbeChip] | None = None,
+    picks: list[int | None] | None = None,
 ) -> str:
     said: list[str] = []
 
@@ -39,8 +40,19 @@ async def _transcript(
     def ask(_question: str, default: str) -> str:
         return default  # Enter-Enter-Enter must work (ux.md walkthrough rule)
 
+    scripted = list(picks) if picks is not None else None
+
     def choose(title: str, labels: tuple[str, ...], start: int) -> int | None:
-        return numbered_choose(title, labels, start, ask=ask, say=said.append)
+        picked = start if scripted is None or not scripted else scripted.pop(0)
+        if picked is None:
+            return None
+        return numbered_choose(
+            title,
+            labels,
+            start,
+            ask=lambda _question, _default: str(picked + 1),
+            say=said.append,
+        )
 
     await run_config_flow(
         current=Config(),
@@ -82,3 +94,13 @@ async def test_flow_typed_fallback_screen_matches_golden() -> None:
         catalogs={"openai": None},  # the catalog fetch failed — typed input takes over
     )
     assert_golden("config_flow_typed_fallback", rendered)
+
+
+async def test_flow_back_navigation_screen_matches_golden() -> None:
+    rendered = await _transcript(
+        env={"OPENAI_API_KEY": "sk-x"},
+        tags=None,
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[1, 0, 8, 7, 6, 0, 0],
+    )
+    assert_golden("config_flow_back_navigation", rendered)

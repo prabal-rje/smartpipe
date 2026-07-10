@@ -18,7 +18,8 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from enum import Enum
+from typing import TYPE_CHECKING, assert_never
 
 import click
 
@@ -27,7 +28,7 @@ from smartpipe.config.display import render_show, settings_with_origin
 from smartpipe.config.paths import config_path, human_path
 from smartpipe.config.store import Config, load_config, save_config
 from smartpipe.core.errors import SetupFault
-from smartpipe.io import diagnostics
+from smartpipe.io import diagnostics, tty
 from smartpipe.models.base import ModelRef, parse_model_ref
 
 if TYPE_CHECKING:
@@ -47,6 +48,7 @@ _NON_TTY = (
 )
 _NOT_SAVED = "\n  Not saved. Set a model any time with: smartpipe config model <name>"
 _TYPE_IT = "type a model name instead…"
+_BACK_ANSWERS = frozenset(("back", "b", "no", "n"))
 
 # provider → (example ref, aside) — the typed-input path's paste bait
 _EXAMPLES: dict[str, tuple[str, str]] = {
@@ -127,10 +129,13 @@ def config_show() -> None:
     env = os.environ
     path = config_path(env)
     config = load_config(path, env)
-    if config.profile is not None:
-        origin = "SMARTPIPE_PROFILE" if env.get("SMARTPIPE_PROFILE", "").strip() else "config file"
-        click.echo(f"profile      {config.profile}  ({origin})")
-    click.echo(render_show(settings_with_origin(env, config), human_path(path)))
+    click.echo(
+        render_show(
+            settings_with_origin(env, config),
+            human_path(path),
+            color=tty.stdout_supports_color(),
+        )
+    )
 
 
 @config_command.command(name="model")
@@ -445,6 +450,45 @@ class _OcrChoice:
     changed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _TextChoice:
+    provider: str | None
+    model: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _EmbedChoice:
+    model: str | None
+    via_pair: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _Back:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class _Cancel:
+    pass
+
+
+_BACK = _Back()
+_CANCEL = _Cancel()
+
+
+class _FlowStep(Enum):
+    TEXT = "text"
+    EMBED = "embed"
+    OCR = "ocr"
+    REVIEW = "review"
+
+
+class _ReviewAction(Enum):
+    FINISH = "finish"
+    BACK = "back"
+    DISCARD = "discard"
+
+
 async def run_config_flow(
     *,
     current: Config,
@@ -475,63 +519,121 @@ async def run_config_flow(
     say(heading("smartpipe setup") + tint(" - text model, then embeddings, then documents", "2"))
     say("")
     tags = await probe()
-    updated = current
-    text_provider, text_model = await _stage_text(
-        current_model=current.model,
-        env=env,
-        tags=tags,
-        login=login,
-        fetch_catalog=fetch_catalog,
-        chips=chips,
-        now=now,
-        choose=choose,
-        ask=ask,
-        say=say,
-        connect=connect,
-    )
-    if text_model is not None:
-        updated = replace(updated, model=text_model)
-    # the backup-model question stays right after TEXT (owner-pinned position)
-    if updated.model is not None and confirm("Add a backup model for provider outages?", False):
-        fallback = await _pick_fallback(
-            env,
-            tags=tags,
-            login=login,
-            fetch_catalog=fetch_catalog,
-            chips=chips,
-            now=now,
-            choose=choose,
-            ask=ask,
-            say=say,
-        )
-        if fallback is not None:
-            updated = replace(updated, fallback_model=fallback)
-    pair_provider = text_provider or _provider_of(updated.model)
-    embed_model, via_pair = await _stage_embed(
-        current_embed=current.embed_model,
-        text_provider=pair_provider,
-        env=env,
-        tags=tags,
-        local_available=local_embed_available,
-        fetch_embed_catalog=fetch_embed_catalog,
-        choose=choose,
-        ask=ask,
-        say=say,
-        connect=connect,
-    )
-    if embed_model is not None:
-        updated = replace(updated, embed_model=embed_model)
-    ocr = await _stage_ocr(
-        current_ocr=current.ocr_model,
-        chat_model=updated.model,
-        env=env,
-        choose=choose,
-        ask=ask,
-        say=say,
-        connect=connect,
-    )
-    if ocr.changed:
-        updated = replace(updated, ocr_model=ocr.value)
+    updated: Config = current
+    embed_base: Config = current
+    ocr_base: Config = current
+    pair_provider = _provider_of(current.model)
+    via_pair = False
+    step = _FlowStep.TEXT
+    while True:
+        match step:
+            case _FlowStep.TEXT:
+                updated = current
+                text = await _stage_text(
+                    current_model=current.model,
+                    env=env,
+                    tags=tags,
+                    login=login,
+                    fetch_catalog=fetch_catalog,
+                    chips=chips,
+                    now=now,
+                    choose=choose,
+                    ask=ask,
+                    say=say,
+                    connect=connect,
+                )
+                match text:
+                    case _Cancel():
+                        say(_NOT_SAVED)
+                        return current
+                    case _TextChoice(provider=text_provider, model=text_model):
+                        if text_model is not None:
+                            updated = replace(updated, model=text_model)
+                    case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                        assert_never(unreachable)
+                # the backup-model question stays right after TEXT (owner-pinned position)
+                if updated.model is not None and confirm(
+                    "Add a backup model for provider outages?", False
+                ):
+                    fallback = await _pick_fallback(
+                        env,
+                        tags=tags,
+                        login=login,
+                        fetch_catalog=fetch_catalog,
+                        chips=chips,
+                        now=now,
+                        choose=choose,
+                        ask=ask,
+                        say=say,
+                    )
+                    if fallback is not None:
+                        updated = replace(updated, fallback_model=fallback)
+                pair_provider = text_provider or _provider_of(updated.model)
+                embed_base = updated
+                step = _FlowStep.EMBED
+            case _FlowStep.EMBED:
+                updated = embed_base
+                embed = await _stage_embed(
+                    current_embed=updated.embed_model,
+                    text_provider=pair_provider,
+                    env=env,
+                    tags=tags,
+                    local_available=local_embed_available,
+                    fetch_embed_catalog=fetch_embed_catalog,
+                    choose=choose,
+                    ask=ask,
+                    say=say,
+                    connect=connect,
+                )
+                match embed:
+                    case _Back():
+                        step = _FlowStep.TEXT
+                        continue
+                    case _EmbedChoice(model=embed_model, via_pair=paired):
+                        via_pair = paired
+                        if embed_model is not None:
+                            updated = replace(updated, embed_model=embed_model)
+                    case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                        assert_never(unreachable)
+                ocr_base = updated
+                step = _FlowStep.OCR
+            case _FlowStep.OCR:
+                updated = ocr_base
+                ocr = await _stage_ocr(
+                    current_ocr=updated.ocr_model,
+                    chat_model=updated.model,
+                    env=env,
+                    choose=choose,
+                    ask=ask,
+                    say=say,
+                    connect=connect,
+                )
+                match ocr:
+                    case _Back():
+                        step = _FlowStep.EMBED
+                        continue
+                    case _OcrChoice(value=value, changed=changed):
+                        if changed:
+                            updated = replace(updated, ocr_model=value)
+                    case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                        assert_never(unreachable)
+                step = _FlowStep.REVIEW
+            case _FlowStep.REVIEW:
+                action = _review_action(changed=updated != current, choose=choose)
+                match action:
+                    case _ReviewAction.BACK:
+                        step = _FlowStep.OCR
+                        continue
+                    case _ReviewAction.DISCARD:
+                        say(_NOT_SAVED)
+                        return current
+                    case _ReviewAction.FINISH:
+                        break
+                    case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                        assert_never(unreachable)
+                break
+            case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                assert_never(unreachable)
 
     if updated == current:
         say("")
@@ -542,11 +644,6 @@ async def run_config_flow(
             offer_completions()
         say("\n  Try it:")
         say("    " + tint(_TRY_IT, "36"))
-        return updated
-    if not confirm("Save to config?", True):
-        say(_NOT_SAVED)
-        if offer_completions is not None:
-            offer_completions()
         return updated
     save(updated)
     say("")
@@ -581,6 +678,24 @@ async def run_config_flow(
     say("\n  " + good("Saved.") + " Try it:")
     say("    " + tint(_TRY_IT, "36"))
     return updated
+
+
+def _review_action(
+    *,
+    changed: bool,
+    choose: Callable[[str, tuple[str, ...], int], int | None],
+) -> _ReviewAction:
+    if changed:
+        labels = ("save changes", "back - document OCR", "discard changes")
+        actions = (_ReviewAction.FINISH, _ReviewAction.BACK, _ReviewAction.DISCARD)
+        picked = choose("Review changes:", labels, 0)
+    else:
+        labels = ("finish - keep current config", "back - document OCR")
+        actions = (_ReviewAction.FINISH, _ReviewAction.BACK)
+        picked = choose("Review setup:", labels, 0)
+    if picked is None:
+        return _ReviewAction.DISCARD
+    return actions[picked]
 
 
 def _connect_hint(entry: StageEntry) -> str:
@@ -618,8 +733,8 @@ async def _stage_text(
     ask: Callable[[str, str], str],
     say: Callable[[str], None],
     connect: Callable[[StageEntry], Awaitable[bool]] | None,
-) -> tuple[str | None, str | None]:
-    """Stage 1: (provider, model), or (None, None) when kept/skipped."""
+) -> _TextChoice | _Cancel:
+    """Stage 1: a provider/model choice, or terminal setup cancellation."""
     from smartpipe.cli.screens import tint
     from smartpipe.config.picker import stage_labels, text_stage_entries
 
@@ -632,19 +747,23 @@ async def _stage_text(
             rows.append(f"keep current: {current_model}")
         skip_at = len(rows)
         rows.append("skip - decide later")
+        cancel_at = len(rows)
+        rows.append("cancel setup - leave config unchanged")
         start = (
             keep_at
             if keep_at is not None
             else next((i for i, entry in enumerate(entries) if entry.connected), 0)
         )
         picked = choose("Text model - pick a provider:", tuple(rows), start)
-        if picked is None or picked in (skip_at, keep_at):
-            return None, None
+        if picked is None or picked == cancel_at:
+            return _CANCEL
+        if picked in (skip_at, keep_at):
+            return _TextChoice(None, None)
         entry = entries[picked]
         if not entry.connected:
             if connect is None:
                 say(tint(f"  {_connect_hint(entry)}", "2"))
-                return None, None
+                return _TextChoice(None, None)
             if not await connect(entry):
                 continue  # declined or failed — the menu returns with fresh badges
         model = await _pick_model(
@@ -661,7 +780,7 @@ async def _stage_text(
         )
         if model is None:
             continue  # backed out of the model menu — provider menu again
-        return entry.provider, model
+        return _TextChoice(entry.provider, model)
 
 
 async def _stage_embed(
@@ -676,8 +795,8 @@ async def _stage_embed(
     ask: Callable[[str, str], str],
     say: Callable[[str], None],
     connect: Callable[[StageEntry], Awaitable[bool]] | None,
-) -> tuple[str | None, bool]:
-    """Stage 2: (embed model, via-the-pairing) — (None, False) = no change.
+) -> _EmbedChoice | _Back:
+    """Stage 2: an embed choice, or Back to the Text checkpoint.
 
     The auto-pair suggestion is the PRESELECTED first option; a deliberate
     earlier choice suppresses it (``embed_pair_allowed``)."""
@@ -710,6 +829,8 @@ async def _stage_embed(
         else:
             skip_at = len(rows)
             rows.append("skip - keep the built-in default (local, free)")
+        back_at = len(rows)
+        rows.append("back - text model")
         fallback_start = keep_at if keep_at is not None else skip_at
         start = pair_at if pair_at is not None else fallback_start
         picked = choose(
@@ -717,14 +838,16 @@ async def _stage_embed(
             tuple(rows),
             start if start is not None else 0,
         )
-        if picked is None or picked in (keep_at, skip_at):
-            return None, False
+        if picked is None or picked == back_at:
+            return _BACK
+        if picked in (keep_at, skip_at):
+            return _EmbedChoice(None, False)
         if pair_at is not None and picked == pair_at:
-            return pair, True
+            return _EmbedChoice(pair, True)
         entry = entries[picked - providers_at]
         if not entry.connected and (connect is None or not await connect(entry)):
             if connect is None:
-                return None, False
+                return _EmbedChoice(None, False)
             continue
         model = await _pick_embed_model(
             entry.provider,
@@ -737,7 +860,7 @@ async def _stage_embed(
         )
         if model is None:
             continue
-        return model, False
+        return _EmbedChoice(model, False)
 
 
 async def _pick_embed_model(
@@ -773,17 +896,34 @@ async def _pick_embed_model(
             if provider == "ollama"
             else "couldn't fetch the embedding catalog - type the model name instead."
         )
-        return _typed_embed(provider, ask=ask, say=say, note=note)
+        return _typed_embed(
+            provider,
+            ask=ask,
+            say=say,
+            note=note,
+            back_to="embedding provider list",
+        )
     shown, hidden = capped_catalog(names)
     type_it = _TYPE_IT if not hidden else f"{_TYPE_IT} ({hidden} more not shown)"
-    labels = (*(f"{provider}/{name}" for name in shown), type_it)
+    type_at = len(shown)
+    labels = (*(f"{provider}/{name}" for name in shown), type_it, "back - embedding provider list")
     start = _preselect_index(provider, shown, preselect)
-    picked = choose(f"Pick an embedding model ({provider}):", labels, start)
-    if picked is None:
-        return None
-    if picked == len(labels) - 1:
-        return _typed_embed(provider, ask=ask, say=say, note=None)
-    return str(parse_model_ref(f"{provider}/{shown[picked]}"))
+    while True:
+        picked = choose(f"Pick an embedding model ({provider}):", labels, start)
+        if picked is None or picked == len(labels) - 1:
+            return None
+        if picked == type_at:
+            typed = _typed_embed(
+                provider,
+                ask=ask,
+                say=say,
+                note=None,
+                back_to="model list",
+            )
+            if typed is None:
+                continue
+            return typed
+        return str(parse_model_ref(f"{provider}/{shown[picked]}"))
 
 
 def _typed_embed(
@@ -792,7 +932,8 @@ def _typed_embed(
     ask: Callable[[str, str], str],
     say: Callable[[str], None],
     note: str | None,
-) -> str:
+    back_to: str,
+) -> str | None:
     from smartpipe.cli.screens import good, tint
 
     if note is not None:
@@ -800,8 +941,10 @@ def _typed_embed(
     example, aside = _EMBED_EXAMPLES[provider]
     say(tint("  Model names are provider/name:", "2"))
     say("    " + good(example) + tint(f"  ({aside})", "2"))
+    say(tint(f"  Type 'back' to return to the {back_to}.", "2"))
     answer = ask("Embedding model?", example)
-    return str(_parsed_or_reprompt(answer, ask, "Embedding model?"))
+    parsed = _parsed_or_reprompt(answer, ask, "Embedding model?")
+    return None if parsed is None else str(parsed)
 
 
 async def _stage_ocr(
@@ -813,7 +956,7 @@ async def _stage_ocr(
     ask: Callable[[str, str], str],
     say: Callable[[str], None],
     connect: Callable[[StageEntry], Awaitable[bool]] | None,
-) -> _OcrChoice:
+) -> _OcrChoice | _Back:
     """Stage 3: curated and one-keypress-skippable (unset = the built-in ladders)."""
     from smartpipe.cli.screens import tint
     from smartpipe.config.picker import key_stage_entry, ocr_stage_rows
@@ -827,10 +970,11 @@ async def _stage_ocr(
     )
     while True:
         rows = ocr_stage_rows(current_ocr, chat_model)
-        labels = tuple(label for _action, label in rows)
+        back_at = len(rows)
+        labels = (*(label for _action, label in rows), "back - embedding model")
         picked = choose("Document OCR - optional:", labels, 0)
-        if picked is None:
-            return _OcrChoice(current_ocr, changed=False)
+        if picked is None or picked == back_at:
+            return _BACK
         match rows[picked][0]:
             case "keep":
                 return _OcrChoice(current_ocr, changed=False)
@@ -846,8 +990,12 @@ async def _stage_ocr(
                     continue
                 return _OcrChoice("mistral/mistral-ocr-latest", changed=True)
             case _:  # "typed"
+                say(tint("  Type 'back' to return to the OCR choices.", "2"))
                 answer = ask("OCR model?", "mistral-ocr-latest")
-                return _OcrChoice(str(_parsed_or_reprompt(answer, ask, "OCR model?")), changed=True)
+                parsed = _parsed_or_reprompt(answer, ask, "OCR model?")
+                if parsed is None:
+                    continue
+                return _OcrChoice(str(parsed), changed=True)
 
 
 async def _pick_model(
@@ -879,18 +1027,37 @@ async def _pick_model(
             if provider == "ollama"
             else "couldn't fetch the live catalog — type the model name instead."
         )
-        return _typed_model(provider, question=question, ask=ask, say=say, note=note)
+        return _typed_model(
+            provider,
+            question=question,
+            ask=ask,
+            say=say,
+            note=note,
+            back_to="provider list",
+        )
     shown, hidden = capped_catalog(names)
     type_it = _TYPE_IT if not hidden else f"{_TYPE_IT} ({hidden} more not shown)"
-    labels = (*model_labels(provider, shown, chips, now), type_it)
+    type_at = len(shown)
+    labels = (*model_labels(provider, shown, chips, now), type_it, "back - provider list")
     start = preferred_index(shown) if provider == "ollama" else 0
     preselected = _preselect_index(provider, shown, preselect, default=start)
-    picked = choose(f"Pick a model ({provider}):", labels, preselected)
-    if picked is None:
-        return None
-    if picked == len(labels) - 1:
-        return _typed_model(provider, question=question, ask=ask, say=say, note=None)
-    return str(parse_model_ref(f"{provider}/{shown[picked]}"))
+    while True:
+        picked = choose(f"Pick a model ({provider}):", labels, preselected)
+        if picked is None or picked == len(labels) - 1:
+            return None
+        if picked == type_at:
+            typed = _typed_model(
+                provider,
+                question=question,
+                ask=ask,
+                say=say,
+                note=None,
+                back_to="model list",
+            )
+            if typed is None:
+                continue
+            return typed
+        return str(parse_model_ref(f"{provider}/{shown[picked]}"))
 
 
 def _preselect_index(
@@ -909,7 +1076,8 @@ def _typed_model(
     ask: Callable[[str, str], str],
     say: Callable[[str], None],
     note: str | None,
-) -> str:
+    back_to: str,
+) -> str | None:
     """The typed-input path, with the provider-prefixed example the wizard shows."""
     from smartpipe.cli.screens import good, tint
 
@@ -920,8 +1088,10 @@ def _typed_model(
     say("    " + good(example) + tint(f"  ({aside})", "2"))
     say(tint("  Tip: pick one that can SEE images — smartpipe is multimodal;", "2"))
     say(tint("  text-only models refuse image rows.", "2"))
+    say(tint(f"  Type 'back' to return to the {back_to}.", "2"))
     answer = ask(question, example)
-    return str(_parsed_or_reprompt(answer, ask, question))
+    parsed = _parsed_or_reprompt(answer, ask, question)
+    return None if parsed is None else str(parsed)
 
 
 async def _pick_fallback(
@@ -947,26 +1117,27 @@ async def _pick_fallback(
     )
     if not entries:
         return None
-    index = choose("Pick a backup provider:", stage_labels(entries), 0)
-    if index is None:
-        return None
-    fallback = await _pick_model(
-        entries[index].provider,
-        question="Backup model?",
-        tags=tags,
-        fetch_catalog=fetch_catalog,
-        chips=chips,
-        now=now,
-        choose=choose,
-        ask=ask,
-        say=say,
-    )
-    if fallback is None:
-        return None
-    if _embeds(fallback):
-        say(f"  '{fallback}' embeds — a backup must chat; skipping the backup")
-        return None
-    return fallback
+    while True:
+        index = choose("Pick a backup provider:", stage_labels(entries), 0)
+        if index is None:
+            return None
+        fallback = await _pick_model(
+            entries[index].provider,
+            question="Backup model?",
+            tags=tags,
+            fetch_catalog=fetch_catalog,
+            chips=chips,
+            now=now,
+            choose=choose,
+            ask=ask,
+            say=say,
+        )
+        if fallback is None:
+            continue
+        if _embeds(fallback):
+            say(f"  '{fallback}' embeds — a backup must chat; skipping the backup")
+            return None
+        return fallback
 
 
 def _embeds(model: str) -> bool:
@@ -1013,13 +1184,17 @@ def offer_shell_completions(
     say(f"  ✓ added to {rc}: {line}")
 
 
-def _parsed_or_reprompt(answer: str, ask: Callable[[str, str], str], question: str) -> ModelRef:
+def _parsed_or_reprompt(
+    answer: str, ask: Callable[[str, str], str], question: str
+) -> ModelRef | None:
     """Validate a wizard answer NOW — a saved typo ('\\', stray paste) otherwise
     surfaces later as a confusing provider 400 (owner-hit). Two strikes, then
     UsageFault with the config-command escape hatch."""
     from smartpipe.core.errors import UsageFault
 
     for attempt in range(2):
+        if answer.strip().lower() in _BACK_ANSWERS:
+            return None
         try:
             return parse_model_ref(answer.strip())
         except UsageFault as fault:

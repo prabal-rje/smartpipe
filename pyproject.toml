@@ -31,6 +31,9 @@ dependencies = [
   "httpx>=0.27",
   "jsonschema>=4.23",
   "tomli-w>=1.0",
+  # Human-facing CLI screens use Rich, imported only inside render calls so
+  # ordinary pipeline startup keeps the <150 ms budget.
+  "rich>=13.9",
   # D44/D46 (owner): seamless beats slim - the ENTIRE multimodal surface
   # ships in the box: STT, local embeddings, documents, video, charts, and
   # every provider SDK. No extras, ever. Imports stay function-local so the

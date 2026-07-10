@@ -307,7 +307,7 @@ def main() -> None:
         raise SystemExit(int(ExitCode.USAGE)) from exc
     except SempipeError as exc:
         diagnostics.die(exc, debug=debug)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, click.Abort):
         raise SystemExit(int(ExitCode.INTERRUPTED)) from None
     except asyncio.CancelledError:  # the drain watchdog cancelled the run (ux.md §12)
         raise SystemExit(int(ExitCode.INTERRUPTED)) from None

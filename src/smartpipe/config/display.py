@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from smartpipe.io.text import display_width
+from smartpipe.io.richui import Cell, UiStyle, render_grid
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -36,7 +36,9 @@ class Setting:
 
 
 def settings_with_origin(env: Mapping[str, str], config: Config) -> tuple[Setting, ...]:
+    profile = _active_profile(env, config)
     return (
+        *((profile,) if profile is not None else ()),
         _resolve("model", env.get("SMARTPIPE_MODEL"), config.model),
         _resolve("fallback-model", env.get("SMARTPIPE_FALLBACK_MODEL"), config.fallback_model),
         _resolve("embed-model", env.get("SMARTPIPE_EMBED_MODEL"), config.embed_model),
@@ -45,23 +47,43 @@ def settings_with_origin(env: Mapping[str, str], config: Config) -> tuple[Settin
     )
 
 
-def render_show(settings: Sequence[Setting], config_file: str) -> str:
-    key_width = max(display_width(s.key) for s in (*settings, Setting("config file", "", ""))) + 2
-    value_width = max(display_width(s.value) for s in settings) + 2
-    from smartpipe.cli.screens import tint
+def render_show(
+    settings: Sequence[Setting],
+    config_file: str,
+    *,
+    color: bool,
+) -> str:
+    """Render the effective settings as a Rich grid with a stable plain form."""
+    key_width = max(len(setting.key) for setting in settings) if settings else len("config file")
+    key_width = max(key_width, len("config file"))
+    setting_rows = tuple(
+        (
+            Cell(setting.key, UiStyle.DIM),
+            Cell(setting.value),
+            Cell(f"({setting.origin})", UiStyle.DIM),
+        )
+        for setting in settings
+    )
+    rendered_settings = render_grid(
+        setting_rows,
+        color=color,
+        column_widths=(key_width, None, None),
+    )
+    rendered_path = render_grid(
+        ((Cell("config file", UiStyle.DIM), Cell(config_file)),),
+        color=color,
+        column_widths=(key_width, None),
+    )
+    return "\n".join(part for part in (rendered_settings, rendered_path) if part)
 
-    lines = [
-        f"{tint(_pad(s.key, key_width), '2')}{_pad(s.value, value_width)}"
-        f"{tint(f'({s.origin})', '2')}"
-        for s in settings
-    ]
-    lines.append(f"{tint(_pad('config file', key_width), '2')}{config_file}")
-    return "\n".join(lines)
 
-
-def _pad(text: str, width: int) -> str:
-    """Pad to ``width`` terminal cells (DEFER-2) — f-string ``<`` pads code points."""
-    return text + " " * max(0, width - display_width(text))
+def _active_profile(env: Mapping[str, str], config: Config) -> Setting | None:
+    env_value = env.get("SMARTPIPE_PROFILE", "").strip()
+    if env_value:
+        return Setting("profile", env_value, "env")
+    if config.profile is not None:
+        return Setting("profile", config.profile, "config file")
+    return None
 
 
 def _resolve(key: str, env_value: str | None, config_value: object) -> Setting:

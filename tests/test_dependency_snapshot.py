@@ -42,5 +42,5 @@ def test_core_dependency_tree_is_frozen() -> None:
         GOLDEN.write_text(snapshot, encoding="utf-8")
     assert snapshot == GOLDEN.read_text(encoding="utf-8"), (
         "Core dependency set changed. If intentional, refresh with UPDATE_GOLDEN=1 "
-        "(see this file's docstring); otherwise move the new dependency behind an extra."
+        "(see this file's docstring); otherwise remove or re-justify the addition."
     )
