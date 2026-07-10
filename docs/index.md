@@ -9,7 +9,7 @@ models, or choose a cloud provider explicitly. Either way it stays ordinary
 
 <video controls playsinline preload="metadata" poster="assets/demo-thumb.jpg" width="100%">
   <source src="demo/smartpipe-demo.mp4" type="video/mp4">
-  Your browser can't play the video here - <a href="demo/">watch the 70-second demo</a>.
+  Your browser can't play the video here - <a href="demo/">watch the 86-second demo</a>.
 </video>
 
 ```bash
