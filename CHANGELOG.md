@@ -25,6 +25,23 @@ The identity release.
   a self-contained interactive `.html` (search, weight slider, hover
   cards with clickable `file://` evidence links), or a trailing `/`
   for an Obsidian vault of wikilinked entity notes.
+- **A focus prompt buys named relations.** `smartpipe graph "people,
+  orgs, and money flows" case/**/*` extracts typed triples per chunk
+  through the full multimodal ladders - vision, OCR, native video -
+  with `--entities`/`--relations` compiling to enums when you want a
+  strict ontology. The cost plan prints BEFORE any spend (`~810
+  extraction calls; belt is 500 - the graph will be partial`), a
+  terminal decline exits clean at zero calls, and a belted run drains
+  to a valid partial graph at exit 1, never a fake success.
+- **The hybrid ladder: `--name-top 200`.** The free pass finds the
+  candidates; the model names only the strongest links - one call per
+  edge, and if the belt runs out the remainder keeps its honest
+  `co-occurs` label, disclosed. Free graph in seconds; name the top
+  edges for cents.
+- **Bring your own edges.** Records with `{source, target}` or
+  `{subject, relation, object}` on stdin skip extraction entirely -
+  canonicalize, fold, serialize. Your own `extend` pipeline is the
+  power path.
 
 ### The item — one law for everything in a pipe
 - **Dates are a type, and they come back ISO.** `{due date}` and
