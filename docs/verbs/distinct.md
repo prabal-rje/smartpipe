@@ -58,3 +58,10 @@ note says which path ran). Audio and video still pivot either way.
   `map`/`filter` stages downstream.
 - Items that fail to embed are **kept** and disclosed (`kept unexamined:`) -
   distinct never silently drops what it couldn't compare.
+
+## Scanned corpora
+
+With an [`ocr-model`](../concepts/models-and-providers.md#the-ocr-model-role) configured, ingested PDFs and images parse
+through it at ingestion - one item per page, disclosed per row, `--ocr-model`
+overrides per run. That includes `--exact`: the hash rung stays free, but the
+parse itself spends (cap it with `--max-calls`). Unset, nothing changes.

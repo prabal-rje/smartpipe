@@ -26,3 +26,10 @@ themes are omitted (a note counts them; `--all` shows them with
 Cost: embeddings on both sides plus one label call per lopsided theme.
 Without a chat model the themes come numbered; the shares and examples
 still tell the story.
+
+## Scanned corpora
+
+With an [`ocr-model`](../concepts/models-and-providers.md#the-ocr-model-role) configured, both sides honor it: a redirected
+PDF on stdin and a PDF/image `--right` file parse through the role (one item
+per page, disclosed per row; `--ocr-model` overrides per run). Unset, nothing
+changes.

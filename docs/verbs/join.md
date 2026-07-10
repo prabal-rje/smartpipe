@@ -42,7 +42,7 @@ Braces name a side's field - every brace must pick a side:
 
 | Option | Meaning |
 |---|---|
-| `--right FILE` | The finite side to index (JSONL or plain lines). Required; never `stdin` |
+| `--right FILE` | The finite side to index (JSONL or plain lines; with an `ocr-model` set, a PDF/image parses to page items). Required; never `stdin` |
 | `--k N` | Candidates judged per left item (default 5 - **the recall knob**, see below) |
 | `--threshold FLOAT` | Similarity floor (0-1) a candidate must clear before judging |
 | `--model TEXT` | Chat model for the judge calls |
@@ -50,6 +50,7 @@ Braces name a side's field - every brace must pick a side:
 | `--fields A,B` | Project output columns - dotted paths reach the sides: `--fields left.id,right.name,__score` |
 | `--output FORMAT` | `auto` · `json` · `csv` · `tsv` |
 | `--concurrency N` / `--max-calls N` | Parallel left items / hard cost ceiling |
+| `--ocr-model TEXT` | Parse ingested PDFs/images with a document parsing model - both sides, `--right` included ([the role](../concepts/models-and-providers.md#the-ocr-model-role)) |
 
 ## Output
 

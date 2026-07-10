@@ -35,3 +35,10 @@ cat snippets.txt \
 
 Without a chat model configured the clusters still form, just numbered
 (`cluster 1`, …) with a note - the clusters are still usable; only the labels are missing.
+
+## Scanned corpora
+
+With an [`ocr-model`](../concepts/models-and-providers.md#the-ocr-model-role) configured, ingested PDFs and images parse
+through it at ingestion - one item per page, disclosed per row, `--ocr-model`
+overrides per run, `--max-calls` caps the spend. Unset, nothing changes:
+scans ride the local extraction ladder.

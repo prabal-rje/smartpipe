@@ -26,3 +26,8 @@ with a warning (items that fail to embed can't be scored).
 Typical loops: `smartpipe where 'level has "error"' | smartpipe outliers 5`
 (triage novel failures), `smartpipe outliers 20 < train.jsonl` (hunt label
 noise before a training run).
+
+With an [`ocr-model`](../concepts/models-and-providers.md#the-ocr-model-role) configured, ingested PDFs and images parse
+through it at ingestion (one item per page, disclosed per row; `--ocr-model`
+overrides per run) - so a folder of scans can join the corpus as text.
+Unset, nothing changes.

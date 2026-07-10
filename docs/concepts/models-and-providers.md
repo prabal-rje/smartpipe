@@ -257,6 +257,14 @@ everywhere. If a parse fails, the item falls back to the local extraction
 ladder with a note - never a hard stop. `--ocr-model` (per run) >
 `SMARTPIPE_OCR_MODEL` > the config key. Unset: nothing changes.
 
+Every ingesting verb honors the role - the per-item verbs, the embedding
+verbs, `cluster`/`diff`/`distinct`/`outliers`, `split`, `join` (the `--right`
+file included), and reader mode - with the same disclosures, the same
+`--max-calls` belt, and a preflight note before a 20+-file folder starts
+parsing. The OCR stage of `smartpipe use` offers the dedicated mistral wire,
+your chat model, and the vision-capable catalog entries (capped at the menu
+height; typing a name covers the rest).
+
 ## The media-embed-model role
 
 The `media-embed-model` config key (e.g. `media-embed-model =
