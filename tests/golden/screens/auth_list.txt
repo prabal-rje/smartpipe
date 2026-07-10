@@ -1,0 +1,3 @@
+openai      API key        sk-...9f2         env OPENAI_API_KEY (stored key shadowed)
+openai      ChatGPT login  account acct-1    stored
+mistral     API key        mk-...3aa         stored

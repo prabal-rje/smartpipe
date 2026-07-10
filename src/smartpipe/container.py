@@ -506,13 +506,15 @@ async def build_container(
     limit = _resolve_max_calls(environ, max_calls)
     config = load_config(config_path(environ), environ)
     client = make_client()
+    from smartpipe.config.credentials import keys_path, overlay_stored_keys, stored_api_keys
     from smartpipe.engine.schema import reset_deterministic_repairs
     from smartpipe.io import metering
 
     metering.reset()  # a fresh run's meter (D40)
     reset_deterministic_repairs()  # rung 0's tally is run-scoped, like the meter (item 58)
     container = AppContainer(
-        env=dict(environ),
+        # env > stored key, per provider — `auth login`'s store fills only the gaps
+        env=overlay_stored_keys(environ, stored_api_keys(keys_path(environ))),
         config=config,
         http_client=client,
         color_mode=color_mode,

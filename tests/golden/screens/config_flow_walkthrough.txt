@@ -1,0 +1,35 @@
+smartpipe setup - text model, then embeddings, then documents
+
+Text model - pick a provider:
+  1. ollama                  ✓ local
+  2. openai (API key)        ✓ key
+  3. openai (ChatGPT login)  needs login
+  4. gemini                  needs key
+  5. anthropic               needs key
+  6. mistral                 needs key
+  7. openrouter              needs key
+  8. skip - decide later
+Pick a model (ollama):
+  1. ollama/llava  (text · image - probed 2d ago)
+  2. type a model name instead…
+Embedding model - powers embed, top_k, cluster, distinct:
+  1. ollama/nomic-embed-text - paired with ollama
+  2. local (built-in, on-device)  ✓ local
+  3. ollama                       ✓ local
+  4. openai (API key)             ✓ key
+  5. gemini                       needs key
+  6. mistral                      needs key
+  7. jina                         needs key
+  8. skip - keep the built-in default (local, free)
+  changes document parsing at ingestion - PDFs/images read through the model (configuring it is the consent; every use is disclosed)
+Document OCR - optional:
+  1. skip - documents parse with the built-in local extraction
+  2. mistral/mistral-ocr-latest - the dedicated OCR wire
+  3. ollama/llava - vision chat, extract-the-text framing
+  4. type a model name instead…
+
+  ✓ model ollama/llava
+  ✓ embed-model ollama/nomic-embed-text  (paired with ollama)
+
+  Saved. Try it:
+    echo "hello world" | smartpipe map "translate to Spanish"

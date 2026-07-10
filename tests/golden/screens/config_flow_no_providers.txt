@@ -1,0 +1,30 @@
+smartpipe setup - text model, then embeddings, then documents
+
+Text model - pick a provider:
+  1. ollama                  needs install (ollama.com)
+  2. openai (API key)        needs key
+  3. openai (ChatGPT login)  needs login
+  4. gemini                  needs key
+  5. anthropic               needs key
+  6. mistral                 needs key
+  7. openrouter              needs key
+  8. skip - decide later
+  install from https://ollama.com, then: ollama serve
+Embedding model - powers embed, top_k, cluster, distinct:
+  1. local (built-in, on-device)  ✓ local
+  2. ollama                       needs install (ollama.com)
+  3. openai (API key)             needs key
+  4. gemini                       needs key
+  5. mistral                      needs key
+  6. jina                         needs key
+  7. skip - keep the built-in default (local, free)
+  changes document parsing at ingestion - PDFs/images read through the model (configuring it is the consent; every use is disclosed)
+Document OCR - optional:
+  1. skip - documents parse with the built-in local extraction
+  2. mistral/mistral-ocr-latest - the dedicated OCR wire
+  3. type a model name instead…
+
+  nothing changed - config left as it was
+
+  Try it:
+    echo "hello world" | smartpipe map "translate to Spanish"
