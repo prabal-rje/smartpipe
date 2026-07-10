@@ -21,6 +21,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   is reverted. Exporting a variable is consent; a file on disk is not.
 
 ### Added
+- **Field paths reach everywhere.** The nested-path grammar (`a.b.c`,
+  `items[0]`, `a['weird key']`) now also works in `--fields`, `write`
+  templates (`smartpipe write 'out/{user.plan}/{stem}.txt'`),
+  `--explode`, `--tally`, and `join --on` - the same
+  exact-column-name-wins rule as everywhere else, and malformed paths
+  fault at the flag, before anything is spent. En route, `write`
+  templates with dotted vars or bare `{}` used to crash with a raw
+  traceback; they're clean usage errors now.
 - **`smartpipe demo` - a practice corpus in one command.** Downloads the
   26 MB playground (invoices, reports, photos, recordings, sessions,
   JSONL) into `./smartpipe-playground` - sha256-verified before unpack,
