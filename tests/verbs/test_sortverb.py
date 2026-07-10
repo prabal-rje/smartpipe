@@ -95,3 +95,42 @@ def test_mixed_temporal_and_plain_columns_keep_the_existing_bands() -> None:
     # one non-ISO value → the whole column falls back to number/string bands
     out, _ = _run("v", '{"v": "2026-01-15"}\n{"v": "soonish"}\n{"v": 7}\n')
     assert out.splitlines() == ['{"v": 7}', '{"v": "2026-01-15"}', '{"v": "soonish"}']
+
+
+# --- field paths (ledger item 63) ---------------------------------------------------
+
+
+def test_sort_by_a_nested_path() -> None:
+    out, _ = _run(
+        "user.score",
+        '{"user": {"score": 10}}\n{"user": {"score": 2}}\n{"user": {"score": 33}}\n',
+    )
+    assert out.splitlines() == [
+        '{"user": {"score": 2}}',
+        '{"user": {"score": 10}}',
+        '{"user": {"score": 33}}',
+    ]
+
+
+def test_sort_by_an_index_path_and_missing_lands_last() -> None:
+    out, err = _run(
+        "items[0].total",
+        '{"items": [{"total": 9}]}\n{"items": []}\n{"items": [{"total": 1}]}\n',
+    )
+    assert out.splitlines() == [
+        '{"items": [{"total": 1}]}',
+        '{"items": [{"total": 9}]}',
+        '{"items": []}',
+    ]
+    assert "1 rows missing 'items[0].total' placed last" in err
+
+
+def test_sort_dotted_literal_column_wins_over_the_path() -> None:
+    out, _ = _run(
+        "user.score",
+        '{"user.score": 1, "user": {"score": 99}}\n{"user.score": 0, "user": {"score": 5}}\n',
+    )
+    assert out.splitlines() == [
+        '{"user.score": 0, "user": {"score": 5}}',
+        '{"user.score": 1, "user": {"score": 99}}',
+    ]

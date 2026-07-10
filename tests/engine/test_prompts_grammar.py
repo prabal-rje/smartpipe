@@ -238,3 +238,30 @@ def test_unknown_inline_type_names_the_menu() -> None:
 def test_types_stay_invalid_outside_map() -> None:
     with pytest.raises(UsageFault, match="invalid field group"):
         parse_prompt("keep {price number}")  # filter/reduce/join: bare idents only
+
+
+# --- field paths (item 63): extraction field names stay flat -------------------------
+
+
+def test_extraction_into_a_path_is_the_flat_fields_error() -> None:
+    with pytest.raises(UsageFault) as excinfo:
+        parse_prompt("Extract {user.name}", allow_descriptions=True)
+    message = str(excinfo.value)
+    assert "can't extract into 'user.name'" in message
+    assert "flat" in message
+
+
+def test_typed_path_field_is_the_flat_fields_error() -> None:
+    with pytest.raises(UsageFault) as excinfo:
+        parse_prompt("Extract {user.name string}", allow_descriptions=True)
+    assert "can't extract into 'user.name'" in str(excinfo.value)
+
+
+def test_bracket_path_in_extraction_is_the_flat_fields_error() -> None:
+    with pytest.raises(UsageFault, match="can't extract into 'items\\[0\\]'"):
+        parse_prompt("Extract {items[0]}", allow_descriptions=True)
+
+
+def test_flat_extraction_fields_are_untouched_by_the_path_grammar() -> None:
+    tokens = parse_prompt("Extract {vendor, total}", allow_descriptions=True)
+    assert tokens == parse_prompt("Extract {vendor, total}")

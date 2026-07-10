@@ -96,7 +96,7 @@ async def run_filter(
     stdout: TextIO,
     stop: asyncio.Event | None = None,
 ) -> ExitCode:
-    tokens = parse_prompt(request.condition)  # UsageFault on bad grammar
+    tokens = parse_prompt(request.condition, allow_paths=True)  # UsageFault on bad grammar
     reject_comma_groups(tokens)  # UsageFault: comma-braces are map-only
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 40)

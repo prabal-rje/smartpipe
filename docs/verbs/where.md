@@ -25,7 +25,11 @@ filter-early habit is [Learn chapter 4](../learn/4-free-verbs.md).
 | `and` · `or` · `not` · `( )` | `not` binds tightest, then `and`, then `or` |
 
 `FIELD` is a record field name, or `text` for the whole line (on plain-text
-input, `text` is the only field there is). Booleans compare by their JSON
+input, `text` is the only field there is). It can also be a
+[field path](../concepts/structured-output.md#field-paths-reading-nested-data)
+into nested records - `where 'user.plan has "pro" and items[0].total >= 100'` -
+where a literal flat column named `user.plan` wins first and a path miss
+counts as an ordinary missing field. Booleans compare by their JSON
 spelling: `pass == true`. Temporal comparison (`due >= "2026-01-01"`) kicks
 in when both sides read as ISO dates/datetimes - a bare date counts as its
 midnight, so a `{due date}` field extracted upstream compares as time, not

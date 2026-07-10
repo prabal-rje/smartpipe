@@ -24,8 +24,9 @@ from smartpipe.engine.chart import (
     render_figure_timeseries,
     render_timeseries_tty,
 )
+from smartpipe.engine.fieldpath import MISSING, lookup
 from smartpipe.io import diagnostics
-from smartpipe.io.items import item_from_line
+from smartpipe.io.items import Item, item_from_line
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -76,6 +77,15 @@ class ChartContext(Protocol):
     """chart needs nothing from the container — the Protocol keeps the shape."""
 
 
+def _field_value(item: Item, field: str) -> object | None:
+    """The item's value at ``field`` — a flat column first, then a field path
+    (item 63); ``None`` for a miss, exactly like the old flat ``.get``."""
+    if item.data is None:
+        return None
+    found = lookup(item.data, field)
+    return None if found is MISSING else found
+
+
 def run_chart(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCode:
     if request.facets and request.field is not None:
         raise UsageFault("--facet replaces the FIELD argument — pass one or the other")
@@ -93,7 +103,7 @@ def run_chart(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCo
             continue
         item = item_from_line(line, index)
         if request.field is not None:
-            value = item.data.get(request.field) if item.data is not None else None
+            value = _field_value(item, request.field)
             counts["(missing)" if value is None else str(value)] += 1
         else:
             counts[item.text.strip()] += 1
@@ -118,7 +128,7 @@ def _run_facets(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> Exit
             continue
         item = item_from_line(line, index)
         for facet, counter in tallies.items():
-            value = item.data.get(facet) if item.data is not None else None
+            value = _field_value(item, facet)
             counter["(missing)" if value is None else str(value)] += 1
     limit = request.top or _DEFAULT_TOP
     panels: list[tuple[str, list[tuple[str, int]]]] = []
@@ -163,8 +173,7 @@ def _run_by_time(request: ChartRequest, *, stdin: TextIO, stdout: TextIO) -> Exi
         if not line.strip():
             continue
         item = item_from_line(line, index)
-        value = item.data.get(field) if item.data is not None else None
-        epoch = parse_timestamp(value)
+        epoch = parse_timestamp(_field_value(item, field))
         if epoch is None:
             unparseable += 1
             continue

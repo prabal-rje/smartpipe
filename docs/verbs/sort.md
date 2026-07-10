@@ -10,6 +10,9 @@ cat scored.ndjson \
 | head -5
 … \
 | smartpipe sort --by confidence --desc
+# nested records: --by takes a field path (a literal "user.score" column wins first)
+… \
+| smartpipe sort --by user.score --desc
 ```
 
 Semantics: numbers sort numerically and come before strings when a field

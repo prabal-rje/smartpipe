@@ -49,6 +49,19 @@ def test_plain_lines_count_fine() -> None:
     assert rows == [{"count": 3}]
 
 
+def test_field_paths_end_to_end_with_the_lacking_census() -> None:
+    ndjson = (
+        '{"user": {"plan": "pro"}, "metrics": {"score": 10}}\n'
+        '{"user": {"plan": "pro"}, "metrics": {"score": 30}}\n'
+        '{"other": 1}\n'
+    )
+    code, rows, err = _run("count(), avg(metrics.score) by user.plan", ndjson)
+    assert code is ExitCode.OK
+    assert rows[0] == {"user.plan": "pro", "count": 2, "avg_metrics.score": 20.0}
+    assert rows[1] == {"user.plan": None, "count": 1, "avg_metrics.score": None}
+    assert "1 rows lacked 'user.plan' — grouped as null" in err
+
+
 def test_rows_lacking_the_by_field_note_and_strict_errors(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

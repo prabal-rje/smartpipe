@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode
 from smartpipe.engine.aggregate import GroupState, finish, fold, group_key, parse_summarize
+from smartpipe.engine.fieldpath import MISSING, lookup
 from smartpipe.io import diagnostics
 from smartpipe.io.items import item_from_line
 from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
@@ -38,7 +39,8 @@ def run_summarize(request: SummarizeRequest, *, stdin: TextIO, stdout: TextIO) -
         item = item_from_line(line, index)
         record = item.data if item.data is not None else {"text": item.text}
         for name in plan.by_names:
-            if name not in record:
+            # item 63: a by-field may be a path — a miss at any hop is "lacking"
+            if lookup(record, name) is MISSING:
                 lacking[name] = lacking.get(name, 0) + 1
         key = group_key(plan, record)
         state = groups.get(key)

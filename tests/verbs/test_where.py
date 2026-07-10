@@ -57,6 +57,19 @@ def test_blank_lines_are_ignored_not_counted() -> None:
     assert "2 of 2 matched" in err
 
 
+def test_path_predicates_end_to_end_with_the_census() -> None:
+    lines = (
+        '{"user": {"plan": "pro"}, "items": [{"total": 240}]}\n'
+        '{"user": {"plan": "free"}}\n'
+        '{"other": 1}\n'
+    )
+    code, out, err = _run('user.plan == "pro" and items[0].total >= 100', lines)
+    assert code is ExitCode.OK
+    assert out == '{"user": {"plan": "pro"}, "items": [{"total": 240}]}\n'
+    assert "1 of 3 matched" in err
+    assert "field 'user.plan' missing on 1 rows" in err  # the path miss is censused
+
+
 def test_field_less_rows_note_and_strict_errors(capsys: pytest.CaptureFixture[str]) -> None:
     import io as _io
 

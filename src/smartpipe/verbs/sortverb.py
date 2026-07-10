@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode
+from smartpipe.engine.fieldpath import MISSING, lookup
 from smartpipe.engine.temporal import temporal_key
 from smartpipe.io import diagnostics
 from smartpipe.io.items import item_from_line
@@ -36,7 +37,9 @@ def run_sort(request: SortRequest, *, stdin: TextIO, stdout: TextIO) -> ExitCode
         if not line.strip():
             continue
         item = item_from_line(line, index)
-        value = item.data.get(request.by) if item.data is not None else None
+        # item 63: --by takes a field path; an exact flat column wins first
+        found = lookup(item.data, request.by) if item.data is not None else MISSING
+        value = None if found is MISSING else found
         if value is None:
             missing.append(item.raw)
             continue

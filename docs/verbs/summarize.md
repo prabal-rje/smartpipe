@@ -8,6 +8,11 @@ cat orders.jsonl \
 | smartpipe summarize 'count(), avg(total), p95(total) by region'
 # → {"region":"EU","count":812,"avg_total":74.2,"p95_total":189.0}
 # → {"region":"US","count":310,"avg_total":61.8,"p95_total":140.5}
+
+# nested records: by-fields and aggregation args take field paths
+cat events.jsonl \
+| smartpipe summarize 'count(), avg(metrics.score) by user.plan'
+# → {"user.plan":"pro","count":812,"avg_metrics.score":8.7}
 ```
 
 | Aggregation | Output name |

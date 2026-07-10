@@ -67,6 +67,55 @@ def test_braces_on_non_json_item_is_item_error() -> None:
         interpolate_fields(tokens, None)
 
 
+# --- field paths (ledger item 63): {a.b.c} reads nested input -------------------
+
+
+def test_path_group_parses_and_interpolates() -> None:
+    tokens = parse_prompt("plan is {user.plan}", allow_paths=True)
+    reject_comma_groups(tokens)  # a lone path is interpolation, not a comma group
+    assert interpolate_fields(tokens, {"user": {"plan": "pro"}}) == "plan is pro"
+
+
+def test_index_and_quoted_key_paths_interpolate() -> None:
+    tokens = parse_prompt("{items[0].name} / {a['weird key']}", allow_paths=True)
+    data = {"items": [{"name": "first"}], "a": {"weird key": 7}}
+    assert interpolate_fields(tokens, data) == "first / 7"
+
+
+def test_dotted_literal_column_wins_over_the_path() -> None:
+    # THE COMPAT RULE: an exact flat key (CSV headers make these) wins
+    tokens = parse_prompt("{user.plan}", allow_paths=True)
+    data = {"user.plan": "the column", "user": {"plan": "nested"}}
+    assert interpolate_fields(tokens, data) == "the column"
+
+
+def test_path_miss_is_item_error_naming_available_fields() -> None:
+    tokens = parse_prompt("{user.plan}", allow_paths=True)
+    with pytest.raises(ItemError) as excinfo:
+        interpolate_fields(tokens, {"id": 1, "user": {"name": "x"}})
+    message = str(excinfo.value)
+    assert "no field 'user.plan'" in message
+    assert "id, user" in message
+
+
+def test_malformed_path_is_loud_at_parse_time() -> None:
+    with pytest.raises(UsageFault, match=r"a\.b\. - trailing dot"):
+        parse_prompt("{a.b.}", allow_paths=True)
+    with pytest.raises(UsageFault, match=r"items\[x\] - index must be a number"):
+        parse_prompt("{items[x]}", allow_paths=True)
+
+
+def test_plain_names_stay_byte_identical_with_paths_enabled() -> None:
+    tokens = parse_prompt("{priority} for {title}", allow_paths=True)
+    assert tokens == parse_prompt("{priority} for {title}")
+
+
+def test_paths_stay_invalid_without_the_flag() -> None:
+    # join and other callers keep today's grammar untouched
+    with pytest.raises(UsageFault, match="invalid field group"):
+        parse_prompt("{user.plan.tier}")
+
+
 # --- request building ---------------------------------------------------------
 
 
