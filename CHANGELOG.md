@@ -21,6 +21,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   is reverted. Exporting a variable is consent; a file on disk is not.
 
 ### Added
+- **The research kit: manifest, agree, stratified sampling, and a hard
+  privacy fence.** `--manifest run.json` on any model verb writes the
+  citable methods-section artifact at run end - models, prompt and its
+  sha256, compiled schema, counts, token receipt, timestamps, exit
+  status - atomically, even on partial and interrupted runs.
+  `smartpipe agree gold.jsonl model.jsonl --on id` scores inter-rater
+  agreement (observed, Cohen's kappa, Krippendorff's alpha, confusion
+  matrix) with zero model calls - the math reproduces the published
+  worked examples to the printed digit. `sample 50 --by label` allocates
+  proportionally per stratum, integer-exact, still seeded and
+  reproducible. And `--local-only` is the IRB sentence made enforceable:
+  every cloud wire refused before any spend, remote OLLAMA_HOST
+  included, and the run makes no network calls at all - not even the
+  update ping. One cookbook page tells the whole story with real runs.
 - **The OCR role works everywhere now.** cluster, diff, distinct,
   outliers, split, and join (both sides, `--right` included) honor a
   configured ocr-model with the same per-row disclosure, local fallback,
