@@ -48,7 +48,7 @@ Mistral cloud model.
 
 ## Cloud credentials
 
-Keys are read from the environment and **never stored** in smartpipe's config:
+Keys never live in smartpipe's config file. They come from the environment:
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -56,7 +56,16 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export MISTRAL_API_KEY=...            # console.mistral.ai
 export GEMINI_API_KEY=...             # aistudio.google.com
 export OPENROUTER_API_KEY=sk-or-...   # openrouter.ai/keys
+export JINA_API_KEY=...               # jina.ai (embeddings only)
 ```
+
+...or from `smartpipe auth login PROVIDER`, which prompts for a key (masked),
+validates it with one catalog request (a failed check offers retry / store
+anyway / skip - the provider may just be having a bad minute), and stores it
+at `~/.local/share/smartpipe/auth.json` with owner-only permissions. An
+exported variable **always wins** over a stored key. `smartpipe auth list`
+shows what's connected with keys masked (`sk-...9f2`) and the live source;
+`smartpipe auth logout PROVIDER` removes an entry.
 
 The `anthropic` SDK ships with smartpipe - Claude models work out of the box.
 (smartpipe tells you if it's missing.) Mistral needs nothing extra - chat,
@@ -89,8 +98,13 @@ What to know:
   an explicit, billable choice. Unset it to use your plan.
 - **No embeddings:** `embed`/`top_k` need an API key or a local model.
 - **Where tokens live:** `~/.config/smartpipe/auth.json`, permissions `0600`,
-  refreshed automatically, removed with `smartpipe auth logout`. (API keys are still
-  never stored - this file holds only login tokens.)
+  refreshed automatically, removed with `smartpipe auth logout`. (This file holds
+  only login tokens; API keys stored via `auth login` live in a separate file,
+  `~/.local/share/smartpipe/auth.json`.)
+- **Two OpenAI entries on purpose:** `auth login` lists `openai (API key)` and
+  `openai (ChatGPT login)` separately - they are different wires with different
+  capabilities. `smartpipe auth login openai` keeps meaning the ChatGPT flow
+  (back-compat); the key wire is `smartpipe auth login openai-api`.
 - **Why no login for Anthropic/Mistral:** they don't offer one to third-party
   tools. OpenAI's login uses the same public OAuth client the Codex CLI and other
   open-source tools use, and smartpipe identifies itself (`originator:

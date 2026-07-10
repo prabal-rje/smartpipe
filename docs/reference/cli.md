@@ -97,7 +97,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 ## `config`
 
 ```bash
-smartpipe config                     # interactive first-run setup
+smartpipe config                     # interactive setup: text model, embeddings, OCR
 smartpipe config show                # effective settings + where each comes from
 smartpipe config model MODEL         # set the default chat model
 smartpipe config embed-model MODEL   # set the default embedding model
@@ -105,7 +105,21 @@ smartpipe config media-previews off  # terminal media previews (thumbnails,
                                      # waveforms, play links) - default on
 ```
 
-API keys are **never** stored - they're read from the environment.
+Bare `smartpipe config` runs three stages in order - the text model, the
+embedding model (the auto-pair suggestion preselected), then an optional OCR
+model (one keypress skips it). Every provider appears with a connected badge;
+picking an unconnected one drops into the `auth login` connect flow inline
+and continues. Re-runs preselect your current choices and restamp only
+changes; Ctrl-C anywhere leaves the config untouched. At the end it offers to
+verify what the chosen models can actually do (~5 tiny requests, consent
+first; a failed text control reports a setup fault and concludes nothing).
+Menu rows carry capability chips (`text · image · audio`) sourced probed >
+registry (models.dev, day-cached) > declared; a `model-capabilities =
+["image"]` config key declares chips for self-hosted models the registry
+can't know. Chips are display only - runtime stays attempt-based.
+
+API keys are read from the environment first, then from the `auth login`
+store - never from the config file.
 
 Edits via `smartpipe config` rewrite the file atomically; unknown keys are
 preserved, comments are not.
@@ -113,14 +127,23 @@ preserved, comments are not.
 ## `auth`
 
 ```bash
-smartpipe auth login             # log in with ChatGPT (browser)
-smartpipe auth login --headless  # device-code flow for remote machines
-smartpipe auth status            # logged in? which account?
-smartpipe auth logout            # remove the stored tokens
+smartpipe auth login             # pick a provider from the list (all of them)
+smartpipe auth login mistral     # store a Mistral API key (masked prompt, live check)
+smartpipe auth login openai      # log in with ChatGPT (browser) - back-compat
+smartpipe auth login openai-api  # store an OpenAI API key
+smartpipe auth login --headless  # ChatGPT device-code flow for remote machines
+smartpipe auth list              # provider · type · MASKED key · live source
+smartpipe auth status            # ChatGPT login state
+smartpipe auth logout [PROVIDER] # remove one credential (picker when omitted)
 ```
 
-With a login and no `OPENAI_API_KEY`, OpenAI models ride your ChatGPT plan
-(Codex-family models). An exported key always takes precedence.
+OpenAI appears twice in the list because its wires differ: the ChatGPT login
+serves Codex-family chat only (no embeddings), the API key serves everything.
+Keys store at `~/.local/share/smartpipe/auth.json` (owner-only, `0600`); the
+ChatGPT tokens keep living at `~/.config/smartpipe/auth.json`. A key entry is
+validated with one catalog request first - on failure you choose retry, store
+anyway (the provider may be down), or skip. An exported environment variable
+always wins over anything stored.
 
 ## `cite`
 
@@ -205,7 +228,7 @@ Tab completion for bash, zsh, and fish - including live model-name suggestions o
 | `SMARTPIPE_PROFILE` | One-off profile pick for this invocation ([profiles](../concepts/models-and-providers.md)). |
 | `SMARTPIPE_CONTEXT_TOKENS` | Assert your model's context window (beats the table and the probe; the fix for OpenAI/Anthropic deployments the table underestimates). |
 | `SMARTPIPE_WHISPER_MODEL` | Local transcription size: `tiny` (default), `base`, `small`, `medium`, `large-v3`. |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY` | Cloud credentials (read, never stored). |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY` / `JINA_API_KEY` | Cloud credentials - the environment always wins over a key stored by `auth login`. |
 | `OLLAMA_HOST` | Ollama endpoint (default `http://localhost:11434`). |
 | `NO_COLOR` | Disable color. |
 

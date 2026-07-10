@@ -31,17 +31,26 @@ If you pass `--model gpt-5.4-mini` or `claude-opus-4-8`, your item text goes to 
 or Anthropic (or whatever endpoint you configured). smartpipe makes this explicit
 rather than implicit. Use a local model for sensitive data.
 
-## API keys are never stored
+## API keys: the environment first, stored only when you ask
 
 API keys are read from environment variables (`OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`)
-at runtime and **never written** to the config file or logged
-(ChatGPT *login tokens* are the one disclosed exception below).
-`smartpipe config show` displays your model settings - never a key.
+`ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`,
+`JINA_API_KEY`) at runtime and **never written** to the config file or logged.
+`smartpipe auth login` (optional) can store a key at
+`~/.local/share/smartpipe/auth.json` with owner-only (`0600`) permissions.
+The rules that keep that safe:
 
-## One exception, disclosed: ChatGPT login tokens
+- **The environment always wins** over a stored key - resolution is
+  flag > env > stored key > nothing.
+- **Every display masks keys** (`sk-...9f2`) - `smartpipe auth list` shows the
+  provider, the masked key, and which source is live; `smartpipe config show`
+  shows model settings, never a key.
+- **Removal is one command**: `smartpipe auth logout PROVIDER` deletes the
+  entry. If you never run `auth login`, the file never exists.
 
-`smartpipe auth login` (optional) stores OAuth tokens - never API keys - in
+## ChatGPT login tokens, same posture
+
+`smartpipe auth login` for ChatGPT stores OAuth tokens - not API keys - in
 `~/.config/smartpipe/auth.json` with `0600` permissions, because a login that can't
 refresh itself is useless. Delete them any time with `smartpipe auth logout`. If you
 never log in, the file never exists.
@@ -69,6 +78,11 @@ the endpoint you configured.
 
 smartpipe makes **no network calls except to the model endpoint you configured** and
 one-time model asset downloads for local Whisper or local embeddings.
+
+Two interactive exceptions, both data-free: `smartpipe config` fetches model
+catalogs from providers you've connected and a public capability registry
+(`models.dev/api.json`) to label menu rows - day-cached, nothing about you or
+your data in the request, and any failure just means a plainer menu.
 
 There is no analytics, no phone-home, no update check. The test suite enforces this:
 it runs with strict HTTP mocking, so any unexpected outbound request fails the build.

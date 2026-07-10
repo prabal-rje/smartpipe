@@ -199,9 +199,11 @@ For chat, [Ollama][ollama] runs models on your machine. Any cloud model sends
 that run's data to its provider - `gpt-5.4-mini`, `claude-opus-4-8`,
 `gemini-3.1-flash-lite`, `mistral-large-latest`, `openrouter/…`.
 
-API keys come from environment variables and are never stored. ChatGPT
-subscribers can run `smartpipe auth login` instead. `smartpipe usage` keeps
-local run and token totals; see [Privacy & security][privacy] for the details.
+API keys come from environment variables, or `smartpipe auth login` stores
+one securely for you. ChatGPT subscribers can log in instead of using a key.
+`smartpipe usage` keeps local run and token totals; see
+[Privacy & security][privacy] for where credentials live and how to remove
+them.
 
 ## Unix behavior
 
