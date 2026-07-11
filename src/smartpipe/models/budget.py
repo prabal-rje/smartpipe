@@ -108,6 +108,12 @@ class CallBudget:
         — un-setting a drain already in motion is never safe)."""
         if pages < 1:
             raise ValueError(f"budget units must be >= 1, got {pages}")
+        # Internal invariant: release is only ever called once, for a reservation
+        # that itself succeeded (an over-belt reservation raised BEFORE charging).
+        # A double-release or an unmatched release would drive the counters
+        # negative and silently hand a later document phantom belt — assert it.
+        assert self.calls >= pages, "release_ocr_pages underflow: no matching reservation"
+        assert self.ocr_pages >= pages, "release_ocr_pages underflow: no matching reservation"
         self.calls -= pages
         self.ocr_pages -= pages
 
@@ -193,10 +199,10 @@ class _BudgetedParser:
         return self.inner.ref
 
     async def parse_image(self, image: ImageData) -> str:
-        self.budget.reserve_ocr_pages(1)
+        self.budget.reserve_ocr_pages(1)  # may raise before charging: no refund owed
         try:
             return await self.inner.parse_image(image)
-        except BaseException:  # the upload never converted the page — refund it
+        except BaseException:  # any failure incl. cancel — page unconverted, refund it
             self.budget.release_ocr_pages(1)
             raise
 
@@ -209,7 +215,7 @@ class _BudgetedParser:
         self.budget.reserve_ocr_pages(pages)  # may raise before charging: no refund owed
         try:
             return await self.inner.parse_pdf(path)
-        except BaseException:  # the upload failed — refund every reserved page
+        except BaseException:  # any failure incl. cancel — nothing converted, refund all
             self.budget.release_ocr_pages(pages)
             raise
 

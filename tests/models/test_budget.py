@@ -221,6 +221,66 @@ async def test_ocr_image_failure_releases_the_reserved_page() -> None:
     assert not budget.exhausted
 
 
+async def test_ocr_image_over_belt_reservation_is_never_refunded() -> None:
+    """The reserve for parse_image can trip the belt and raise BEFORE it charges;
+    that raise happens OUTSIDE the try, so no release runs. A refactor that moved
+    the reserve inside the try would double-refund and drive ``calls`` negative,
+    handing a later document phantom belt — this pins the "no refund owed" edge."""
+    from smartpipe.models.base import ImageData
+
+    class ProbeParser:
+        ref = ModelRef("mistral", "mistral-ocr-latest")
+
+        async def parse_image(self, image: object) -> str:
+            del image
+            raise AssertionError("an over-belt reservation must raise before the wire")
+
+        async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+            raise AssertionError("not a pdf test")
+
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    budget.charge()  # the belt is now exactly full: one unit of one
+    parser = budgeted_parser(ProbeParser(), budget)  # type: ignore[arg-type]
+
+    with pytest.raises(UnsentError, match="call budget"):
+        await parser.parse_image(ImageData(b"png", "image/png"))
+
+    assert budget.calls == 1  # the charge stands — no phantom refund below the floor
+    assert budget.ocr_pages == 0
+    assert budget.exhausted and stop.is_set()
+
+
+async def test_exact_fill_ocr_failure_refunds_but_keeps_the_drain_latched() -> None:
+    """A reservation that EXACTLY fills the belt latches ``exhausted`` + ``stop`` on
+    a SUCCESSFUL reserve; if that upload then fails, the refund lowers ``calls`` back
+    but the latch stands — un-setting a drain already in motion is never safe. Guards
+    a future "fix" that clears the latch on refund and un-freezes a drained run."""
+    from smartpipe.models.base import ImageData
+
+    class FailingParser:
+        ref = ModelRef("mistral", "mistral-ocr-latest")
+
+        async def parse_image(self, image: object) -> str:
+            del image
+            raise RetryableError("429 rate limited")
+
+        async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+            raise AssertionError("not a pdf test")
+
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)  # one page exactly fills it
+    parser = budgeted_parser(FailingParser(), budget)  # type: ignore[arg-type]
+
+    with pytest.raises(RetryableError, match="rate limited"):
+        await parser.parse_image(ImageData(b"png", "image/png"))
+
+    assert budget.calls == 0  # the failed page was refunded...
+    assert budget.ocr_pages == 0
+    assert budget.exhausted  # ...but the exhausted latch it tripped stands
+    assert stop.is_set()  # and the drain it set is never un-set
+
+
 async def test_ocr_pdf_charges_its_page_count_once(tmp_path: Path) -> None:
     pdf = tmp_path / "two.pdf"
     pdf.write_bytes(minimal_pdf(["one", "two"]))
