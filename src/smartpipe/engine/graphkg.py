@@ -19,7 +19,7 @@ from smartpipe.core.errors import UsageFault
 from smartpipe.engine.clustering import leader_clusters
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
 __all__ = [
     "FOLD_THRESHOLD",
@@ -225,6 +225,8 @@ def fold_surfaces(
     vectors: Mapping[str, tuple[float, ...]],
     *,
     threshold: float = FOLD_THRESHOLD,
+    should_stop: Callable[[], bool] | None = None,
+    progress: Callable[[], None] | None = None,
 ) -> dict[str, str]:
     """Surface name → canonical name, label-scoped, two rungs.
 
@@ -233,6 +235,11 @@ def fold_surfaces(
     representatives with a vector fold onto the most frequent member of their
     cluster. Names without a vector (or when ``vectors`` is empty — the
     embedder was unavailable) keep their own node.
+
+    ``should_stop``/``progress`` (B1) are injected effects the pure fold reports
+    through: on a stop request the remaining label groups are left unclustered —
+    each keeps its own node, the same graceful degradation an absent embedder
+    gives — so the returned map is always a clean partial, never a crash.
     """
     representative: dict[str, str] = {}
     representatives: list[SurfaceCount] = []
@@ -252,6 +259,8 @@ def fold_surfaces(
     for surface in representatives:
         by_label.setdefault(surface.label, []).append(surface)
     for members in by_label.values():
+        if should_stop is not None and should_stop():
+            break  # leave the rest unclustered — each keeps its own node (clean partial)
         embedded = sorted(
             (member for member in members if member.name in vectors),
             key=lambda member: -member.count,  # stable: ties keep first-appearance order
@@ -263,6 +272,8 @@ def fold_surfaces(
             leader = embedded[cluster[0]].name
             for position in cluster:
                 canonical[embedded[position].name] = leader
+        if progress is not None:
+            progress()
 
     return {surface: canonical.get(leader, leader) for surface, leader in representative.items()}
 
@@ -304,14 +315,24 @@ def fold_edges(
     *,
     relation: str = "co-occurs",
     cap: int = _SOURCE_CAP,
+    should_stop: Callable[[], bool] | None = None,
+    progress: Callable[[], None] | None = None,
 ) -> tuple[GraphEdge, ...]:
     """Undirected co-occurrence edges: canonical order-independent pairs,
-    weight = windows containing both, provenance deduped and capped."""
+    weight = windows containing both, provenance deduped and capped.
+
+    ``should_stop``/``progress`` (B1) are injected effects the pure fold reports
+    through: this trio is quadratic in the entities per window and can dominate a
+    large-corpus run, so it is checked once per window. A stop request breaks
+    cleanly and folds every edge seen so far into the result (the caller salvages,
+    mirroring A1)."""
     weights: dict[tuple[str, str], int] = {}
     kept_refs: dict[tuple[str, str], list[SpineRef]] = {}
     seen_refs: dict[tuple[str, str], set[SpineRef]] = {}
     hidden: dict[tuple[str, str], int] = {}
     for window in entity_windows:
+        if should_stop is not None and should_stop():
+            break  # salvage what folded so far — the caller writes the partial graph
         present = dict.fromkeys(canonical.get(name, name) for name in window.names)
         for pair in combinations(sorted(present), 2):
             weights[pair] = weights.get(pair, 0) + 1
@@ -324,6 +345,8 @@ def fold_edges(
                 kept.append(window.ref)
             else:
                 hidden[pair] = hidden.get(pair, 0) + 1
+        if progress is not None:
+            progress()
     edges = [
         GraphEdge(
             source=source,

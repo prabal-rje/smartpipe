@@ -17,7 +17,7 @@ from smartpipe.cli.input_options import (
     ocr_model_option,
     positional_paths,
 )
-from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.interrupts import graceful_interrupts, stop_requested
 from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.graph import GraphRequest, run_graph
@@ -202,6 +202,7 @@ async def _run(
                 stdin=sys.stdin,
                 stdout=sys.stdout,
                 stop=stop,
+                should_stop=stop_requested,  # B1: synchronous stop for the CPU-bound fold
                 budget=container.budget,
             ),
             None,  # graph settles its own belt inside run_graph

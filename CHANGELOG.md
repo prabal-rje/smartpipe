@@ -168,6 +168,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   stray item error would trigger. A pilot run degraded a whole scanned corpus to
   near-garbage local text under a sustained rate limit, and reported belt
   exhaustion mid-read as "ocr failed … falling back".
+- **Ctrl-C now works during `graph`'s heavy fold, and a stuck run can always be
+  killed.** Three coupled fixes to the interrupt path. (B1) The CPU-bound fold
+  phases (`fold_surfaces`/`fold_edges` and their assertion twins) ran ON the event
+  loop thread, so a large corpus — a pilot folded 627,520 edges from 302 files —
+  starved the loop for minutes: no signal callbacks, no bar redraws, Ctrl-C
+  ignored. They now run OFF the loop via `asyncio.to_thread`, drive a `fold`-stage
+  progress bar, and poll an injected `should_stop` per window so a drained Ctrl-C
+  salvages a clean partial graph (edges written, exit reflects partial), mirroring
+  the extraction-halt salvage. The projected-grind note now says "files" (the pass
+  iterates files) and names the fold as its own phase. (B2) The SIGINT handler was
+  a `loop.add_signal_handler` callback — unreachable exactly while the loop was
+  starved. It is now a raw `signal.signal` handler that runs between bytecodes on
+  the main thread, backed by a `threading.Event` any worker thread reads
+  synchronously; the first press writes a direct fd-2 acknowledgment
+  ("stopping — draining; press Ctrl-C again to exit now") and arms the drain
+  watchdog, the second hard-exits 130. A new watchdog escalation closes a latent
+  hang: after the cap cancels the run, `asyncio.run`'s teardown still JOINS running
+  executor threads, so a stuck to-thread (a mid-inference call, an uncooperative
+  fold) could hold the drain far past the cap — an off-loop daemon now takes the
+  hard-exit path itself after a short grace. Windows is no longer carved out
+  (`signal.signal` supports SIGINT there). (B6) Hard-exit paths (`os._exit`) skipped
+  the manifest's `abandon()`, leaking the 0-byte `*.manifest.tmp` the run reserved
+  eagerly; a hard-exit cleanup hook now unlinks it before exit. The drain grace has
+  its own `SMARTPIPE_DRAIN_GRACE_SECONDS` test seam alongside `SMARTPIPE_DRAIN_SECONDS`.
 
 ## [1.5.1] — 2026-07-10
 

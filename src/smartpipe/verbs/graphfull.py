@@ -199,6 +199,7 @@ async def run_full(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None,
+    should_stop: Callable[[], bool] | None = None,
     ask: Callable[[str], bool] | None,
     budget: CallBudget | None,
     concurrency: int,
@@ -348,13 +349,17 @@ async def run_full(
     # the fold wire itself fails here the resulting SetupFault is fatal for a clean
     # run too — it is orthogonal to A1's extraction-halt salvage, not a regression
     # of it (fold-path resilience is tracked separately as B1).
-    counts = assertion_surface_counts(assertions)
+    # B1: the fold trio runs OFF the event loop so a Ctrl-C during it is
+    # delivered and the bar redraws; fold_surfaces polls ``should_stop`` and
+    # degrades to a clean partial canonical map on a stop.
+    counts = await asyncio.to_thread(assertion_surface_counts, assertions)
     vectors = await fold_vectors(context, [surface.name for surface in counts])
-    canonical = fold_surfaces(counts, vectors)
+    canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
-    nodes = build_nodes(counts, canonical)
-    kept, _ = prune_edges(fold_assertions(assertions, canonical), request.min_weight)
+    nodes = await asyncio.to_thread(build_nodes, counts, canonical)
+    folded_edges = await asyncio.to_thread(fold_assertions, assertions, canonical)
+    kept, _ = prune_edges(folded_edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
         save_graph(request.save, nodes, kept, top=request.top)
@@ -582,6 +587,7 @@ async def run_hybrid(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None,
+    should_stop: Callable[[], bool] | None = None,
     transcriber: Callable[[AudioData], str],
     clock: Callable[[], float],
     budget: CallBudget | None,
@@ -590,7 +596,13 @@ async def run_hybrid(
     assert request.name_top is not None  # dispatched here on exactly that
     relations = parse_relations(request.relations)
     scan = await scan_corpus(
-        request, context, stdin=stdin, stop=stop, transcriber=transcriber, clock=clock
+        request,
+        context,
+        stdin=stdin,
+        stop=stop,
+        should_stop=should_stop,
+        transcriber=transcriber,
+        clock=clock,
     )
     if scan is None:
         return outcome_exit_code(done=0, skipped=0, failed=0)
@@ -764,6 +776,7 @@ async def run_adopt(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> ExitCode:
     """Edge records in, graph out — zero extraction calls: adopt each row's
     endpoints/relation/weight/provenance, canonicalize, fold, serialize."""
@@ -780,13 +793,16 @@ async def run_adopt(
     if not assertions:
         raise three_forms_fault()
 
-    counts = assertion_surface_counts(assertions)
+    # B1: the fold trio runs off the event loop (see run_full) so a Ctrl-C is
+    # delivered even on a large adopted corpus.
+    counts = await asyncio.to_thread(assertion_surface_counts, assertions)
     vectors = await fold_vectors(context, [surface.name for surface in counts])
-    canonical = fold_surfaces(counts, vectors)
+    canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
-    nodes = build_nodes(counts, canonical)
-    kept, pruned = prune_edges(fold_assertions(assertions, canonical), request.min_weight)
+    nodes = await asyncio.to_thread(build_nodes, counts, canonical)
+    folded_edges = await asyncio.to_thread(fold_assertions, assertions, canonical)
+    kept, pruned = prune_edges(folded_edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
         save_graph(request.save, nodes, kept, top=request.top)

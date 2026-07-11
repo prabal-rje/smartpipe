@@ -431,6 +431,89 @@ async def test_fast_never_touches_chat_or_the_configured_embedder() -> None:
     assert context.chat_calls == 0  # would have raised AssertionError if asked
 
 
+# --- B1: the CPU-bound fold honors a stop -------------------------------------------
+
+_THREE_PAIRS = "Ann met Bob\nCarol met Dave\nEve met Frank\n"
+_SIX_NAMES: dict[str, str] = dict.fromkeys(
+    ("Ann", "Bob", "Carol", "Dave", "Eve", "Frank"), "person"
+)
+
+
+async def test_should_stop_cuts_the_fold_and_salvages_without_crashing() -> None:
+    # B1: the synchronous stop predicate reaches the fold (through to_thread). A
+    # stop that fires immediately cuts every fold window, so the salvaged graph is
+    # empty — but the run still completes and writes it, never a crash.
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True),
+        _context(_SIX_NAMES),
+        stdin=io.StringIO(_THREE_PAIRS),
+        stdout=out,
+        should_stop=lambda: True,
+        clock=lambda: 0.0,
+    )
+    assert code is ExitCode.OK  # no drained async stop → normal exit on the partial
+    assert out.getvalue() == ""  # the fold was cut before a single edge folded
+    # control: the same corpus without the stop folds all three co-occurrence edges
+    control_code, control_out = await _run(
+        GraphRequest(fast=True), _context(_SIX_NAMES), _THREE_PAIRS
+    )
+    assert control_code is ExitCode.OK
+    assert len(control_out.splitlines()) == 3
+
+
+def test_fold_phase_note_names_the_fold_only_on_large_corpora(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # B1: the fold is a distinct phase that can dominate; past a threshold it is
+    # named so a user isn't left wondering why the run keeps going after entities.
+    from smartpipe.verbs import graph as graph_module
+
+    threshold: int = graph_module._FOLD_NOTE_WINDOWS  # pyright: ignore[reportPrivateUsage] — pin
+    graph_module._note_fold_phase(threshold - 1)  # pyright: ignore[reportPrivateUsage] — under test
+    assert "folding" not in capsys.readouterr().err  # small graphs stay quiet
+    graph_module._note_fold_phase(threshold)  # pyright: ignore[reportPrivateUsage] — under test
+    err = capsys.readouterr().err
+    assert f"entities done — folding {threshold:,} windows" in err
+    assert "this can dominate on large corpora" in err
+
+
+async def test_drained_stop_mid_scan_salvages_and_exits_interrupted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # B1: a drained Ctrl-C during the scan — the entities gathered before the stop
+    # are folded and written, and the exit reflects the partial (ux.md §12).
+    import asyncio
+
+    stop = asyncio.Event()
+    context = _context(_SIX_NAMES)
+    seen = 0
+    plain_find = context.finder.find
+
+    def find(text: str) -> tuple[EntitySpan, ...]:
+        nonlocal seen
+        spans = plain_find(text)
+        seen += 1
+        if seen == 2:  # after two items are read, the drain trips (no waiters: safe)
+            stop.set()
+        return spans
+
+    context.finder.find = find  # type: ignore[method-assign]
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True),
+        context,
+        stdin=io.StringIO(_THREE_PAIRS),
+        stdout=out,
+        stop=stop,
+        clock=lambda: 0.0,
+    )
+    assert code is ExitCode.PARTIAL  # two of three files done — an honest partial
+    assert "interrupted" in capsys.readouterr().err
+    edges = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert {(e["source"], e["target"]) for e in edges} == {("Ann", "Bob"), ("Carol", "Dave")}
+
+
 # --- projected-time honesty ----------------------------------------------------------
 
 
@@ -453,7 +536,7 @@ async def test_slow_pace_projection_drops_progress_clause_when_stderr_is_piped(
     )
     assert code is ExitCode.OK
     err = capsys.readouterr().err
-    assert "note: ~40 windows at this machine's pace — roughly 3 min" in err
+    assert "note: ~40 files at this machine's pace — roughly 3 min" in err
     assert "progress below" not in err  # no bar → no promise of one
 
 
@@ -478,7 +561,7 @@ async def test_slow_pace_projection_promises_progress_when_the_bar_is_on(
     assert code is ExitCode.OK
     err = capsys.readouterr().err
     assert (
-        "note: ~40 windows at this machine's pace — roughly 3 min (progress below; Ctrl-C is safe)"
+        "note: ~40 files at this machine's pace — roughly 3 min (progress below; Ctrl-C is safe)"
     ) in err
 
 

@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 __all__ = [
     "abandon",
     "begin",
+    "discard_reservation",
     "finish",
     "guard_manifest_alias",
     "guard_manifest_tree",
@@ -71,6 +72,16 @@ def reset() -> None:
 def abandon() -> None:
     """Disarm an explicitly cancelled run that produced no result."""
     reset()
+
+
+def discard_reservation() -> None:
+    """B6: unlink the reserved ``*.manifest.tmp`` before a hard exit skips the
+    normal abandon/finish unwind. The CLI registers this as a hard-exit cleanup
+    (``cli/interrupts.register_hard_exit_cleanup``) so ``os._exit`` on a second
+    Ctrl-C or the watchdog escalation leaves no 0-byte temp behind. Best-effort
+    and idempotent — a no-op once the run finished or abandoned cleanly."""
+    if _state is not None:
+        _discard_reservation(_state)
 
 
 def begin(path: Path, *, verb: str, argv: tuple[str, ...], prompt: str | None = None) -> None:

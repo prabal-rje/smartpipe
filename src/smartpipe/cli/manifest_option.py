@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from smartpipe.cli.interrupts import settle_budget
+from smartpipe.cli.interrupts import register_hard_exit_cleanup, settle_budget
 from smartpipe.core.errors import ExitCode, LateSetupFault, SourceCounts, TooManyFailures
 
 if TYPE_CHECKING:
@@ -42,6 +42,10 @@ def begin_manifest(path: Path | None, *, verb: str, prompt: str | None = None) -
     from smartpipe.io import manifest
 
     manifest.begin(path, verb=verb, argv=tuple(sys.argv[1:]), prompt=prompt)
+    # B6: a hard exit (second Ctrl-C / watchdog escalation) runs os._exit, which
+    # skips settled()'s abandon — register the temp unlink so no 0-byte
+    # *.manifest.tmp leaks. Idempotent once the run finishes normally.
+    register_hard_exit_cleanup(manifest.discard_reservation)
 
 
 async def settled(work: Awaitable[ExitCode], budget: CallBudget | None) -> ExitCode:

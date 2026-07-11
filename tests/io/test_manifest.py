@@ -111,6 +111,23 @@ def test_reset_discards_the_reserved_temp(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
+def test_discard_reservation_unlinks_the_reserved_temp(tmp_path: Path) -> None:
+    # B6: the hard-exit seam — os._exit skips the normal abandon/finish unwind,
+    # so this unlinks the 0-byte *.manifest.tmp the reservation held.
+    target = tmp_path / "run.json"
+    manifest.begin(target, verb="graph", argv=("graph",))
+    assert any(p.name.endswith(".manifest.tmp") for p in tmp_path.iterdir())
+
+    manifest.discard_reservation()
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_discard_reservation_is_a_noop_when_unarmed(tmp_path: Path) -> None:
+    manifest.discard_reservation()  # nothing armed — must not raise
+    assert list(tmp_path.iterdir()) == []
+
+
 def _alias_path(source: Path, tmp_path: Path, kind: str) -> Path:
     if kind == "canonical":
         nested = tmp_path / "nested"

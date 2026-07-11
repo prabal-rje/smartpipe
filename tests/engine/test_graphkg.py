@@ -326,6 +326,67 @@ def test_fold_edges_sorted_by_weight_then_names() -> None:
     ]
 
 
+# --- B1: cooperative stop + progress -----------------------------------------
+
+
+def test_fold_edges_progress_fires_once_per_window() -> None:
+    grouped = tuple(EntityWindow(ref=_ref(line=line), names=("A", "B")) for line in range(1, 4))
+    ticks: list[int] = []
+    fold_edges(grouped, {"A": "A", "B": "B"}, progress=lambda: ticks.append(1))
+    assert len(ticks) == 3  # one per window, whatever the pair fan-out
+
+
+def test_fold_edges_should_stop_returns_the_partial_folded_so_far() -> None:
+    grouped = tuple(EntityWindow(ref=_ref(line=line), names=("A", "B")) for line in range(1, 11))
+    seen = 0
+
+    def should_stop() -> bool:
+        nonlocal seen
+        seen += 1
+        return seen > 3  # let three windows fold, then ask to stop
+
+    edges = fold_edges(grouped, {"A": "A", "B": "B"}, should_stop=should_stop)
+    # the fold is checked at the top of each window, so exactly the first three
+    # windows are folded before the stop is honored — a clean partial, not a crash
+    assert edges == (
+        GraphEdge(
+            source="A",
+            target="B",
+            relation="co-occurs",
+            weight=3,
+            sources=(_ref(line=1), _ref(line=2), _ref(line=3)),
+        ),
+    )
+
+
+def test_fold_edges_should_stop_never_set_folds_everything() -> None:
+    grouped = tuple(EntityWindow(ref=_ref(line=line), names=("A", "B")) for line in range(1, 6))
+    edges = fold_edges(grouped, {"A": "A", "B": "B"}, should_stop=lambda: False)
+    assert edges[0].weight == 5
+
+
+def test_fold_surfaces_should_stop_leaves_unclustered_names_on_their_own_node() -> None:
+    counts = (
+        SurfaceCount(name="Acme Corp", label="company", count=3),
+        SurfaceCount(name="Acme Corporation", label="company", count=1),
+    )
+    vectors = {"Acme Corp": (1.0, 0.0), "Acme Corporation": (1.0, 0.0)}
+    # a stop before the embedding rung means the two never fold — each keeps its
+    # own node, exactly the graceful degradation an unavailable embedder gives
+    folded = fold_surfaces(counts, vectors, should_stop=lambda: True)
+    assert folded == {"Acme Corp": "Acme Corp", "Acme Corporation": "Acme Corporation"}
+
+
+def test_fold_surfaces_progress_advances_per_label_group() -> None:
+    counts = (
+        SurfaceCount(name="Acme Corp", label="company", count=3),
+        SurfaceCount(name="Ann", label="person", count=1),
+    )
+    ticks: list[int] = []
+    fold_surfaces(counts, {}, progress=lambda: ticks.append(1))
+    assert ticks  # at least one progress signal on a non-empty fold
+
+
 def test_prune_edges_drop_below_min_weight_and_count_them() -> None:
     grouped = (
         EntityWindow(ref=_ref(line=1), names=("A", "B")),

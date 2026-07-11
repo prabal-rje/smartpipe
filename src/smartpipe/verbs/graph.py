@@ -57,6 +57,7 @@ from smartpipe.verbs.common import (
     ExecutionPolicySource,
     batched,
     ensure_text,
+    interrupted_exit_code,
     outcome_exit_code,
     spin_pending,
 )
@@ -96,8 +97,9 @@ __all__ = [
 
 DEFAULT_ENTITIES = ("person", "organization", "location")
 
-_PACE_SAMPLE = 20  # windows before this machine's pace is worth projecting
+_PACE_SAMPLE = 20  # files before this machine's pace is worth projecting
 _PACE_NOTE_S = 120.0  # projected grinds past two minutes get one honest note
+_FOLD_NOTE_WINDOWS = 5_000  # co-occurrence windows past which the fold is worth naming
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,13 +172,18 @@ async def run_graph(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    should_stop: Callable[[], bool] | None = None,
     transcriber: Callable[[AudioData], str] = whisper_transcribe,
     clock: Callable[[], float] = time.monotonic,
     ask: Callable[[str], bool] | None = None,
     budget: CallBudget | None = None,
 ) -> ExitCode:
     """Dispatch on the mode grammar: ``--name-top`` → hybrid, a focus prompt →
-    full, ``--fast`` → the free half, else stdin must carry edge records."""
+    full, ``--fast`` → the free half, else stdin must carry edge records.
+
+    ``should_stop`` (B1) is the synchronous stop predicate the CPU-bound fold
+    phases poll from their worker thread — a starved loop can't deliver the async
+    ``stop`` in time, so the folds read this ``threading.Event``-backed callable."""
     if request.min_weight < 1:
         raise UsageFault("--min-weight needs a positive co-occurrence count")
     if request.top is not None and request.top < 1:
@@ -202,6 +209,7 @@ async def run_graph(
             stdin=stdin,
             stdout=stdout,
             stop=stop,
+            should_stop=should_stop,
             transcriber=transcriber,
             clock=clock,
             budget=budget,
@@ -216,6 +224,7 @@ async def run_graph(
             stdin=stdin,
             stdout=stdout,
             stop=stop,
+            should_stop=should_stop,
             ask=ask,
             budget=budget,
             concurrency=concurrency,
@@ -227,12 +236,15 @@ async def run_graph(
             stdin=stdin,
             stdout=stdout,
             stop=stop,
+            should_stop=should_stop,
             transcriber=transcriber,
             clock=clock,
         )
     from smartpipe.verbs.graphfull import run_adopt
 
-    return await run_adopt(request, context, stdin=stdin, stdout=stdout, stop=stop)
+    return await run_adopt(
+        request, context, stdin=stdin, stdout=stdout, stop=stop, should_stop=should_stop
+    )
 
 
 def _guard_save_outputs(raw: str, fmt: SaveFormat) -> None:
@@ -273,6 +285,7 @@ async def scan_corpus(
     *,
     stdin: TextIO,
     stop: asyncio.Event | None,
+    should_stop: Callable[[], bool] | None = None,
     transcriber: Callable[[AudioData], str],
     clock: Callable[[], float],
 ) -> FastScan | None:
@@ -354,19 +367,32 @@ async def scan_corpus(
             "the full mode or ocr-model reads them"
         )
 
-    counts = surface_counts(gathered)
+    # B1: the fold trio is CPU-bound and can dominate a large corpus (the
+    # co-occurrence fold is quadratic in the entities per window). Run it OFF the
+    # event loop so a single Ctrl-C is delivered and the fold-stage bar redraws;
+    # the pure fold polls ``should_stop`` per window and salvages a clean partial.
+    counts = await asyncio.to_thread(surface_counts, gathered)
     vectors = await fold_vectors(context, [surface.name for surface in counts])
-    canonical = fold_surfaces(counts, vectors)
+    canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
+    nodes = await asyncio.to_thread(build_nodes, counts, canonical)
+    entity_windows = windows(gathered, mode)
+    _note_fold_phase(len(entity_windows))
+    fold_bar = stage("fold")
+    fold_bar.start(len(entity_windows))
+    edges = await asyncio.to_thread(
+        fold_edges, entity_windows, canonical, should_stop=should_stop, progress=fold_bar.advance
+    )
+    fold_bar.finish()
 
     return FastScan(
         gathered=tuple(gathered),
         counts=counts,
         canonical=canonical,
         folded_names=folded_names,
-        nodes=build_nodes(counts, canonical),
-        edges=fold_edges(windows(gathered, mode), canonical),
+        nodes=nodes,
+        edges=edges,
         skipped=len(items) - len(gathered),
         failed=failed,
     )
@@ -379,11 +405,18 @@ async def _run_fast(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None,
+    should_stop: Callable[[], bool] | None,
     transcriber: Callable[[AudioData], str],
     clock: Callable[[], float],
 ) -> ExitCode:
     scan = await scan_corpus(
-        request, context, stdin=stdin, stop=stop, transcriber=transcriber, clock=clock
+        request,
+        context,
+        stdin=stdin,
+        stop=stop,
+        should_stop=should_stop,
+        transcriber=transcriber,
+        clock=clock,
     )
     if scan is None:
         return outcome_exit_code(done=0, skipped=0, failed=0)
@@ -395,6 +428,16 @@ async def _run_fast(
         f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
         f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
     )
+    if stop is not None and stop.is_set():
+        # A drained Ctrl-C (during entity extraction or the fold, B1): the graph
+        # written above is salvaged partial — say so and exit accordingly.
+        diagnostics.interrupted_summary(processed=len(scan.gathered), skipped=scan.skipped)
+        return interrupted_exit_code(
+            done=len(scan.gathered),
+            skipped=scan.skipped,
+            failed=scan.failed,
+            partial=True,
+        )
     return outcome_exit_code(
         done=len(scan.gathered),
         skipped=scan.skipped,
@@ -447,20 +490,35 @@ def write_edges(edges: Sequence[GraphEdge], stdout: TextIO) -> None:
     write_bar.finish()
 
 
-def _note_projected_grind(elapsed: float, total_windows: int, *, progress_visible: bool) -> None:
+def _note_projected_grind(elapsed: float, total_files: int, *, progress_visible: bool) -> None:
     """Projected-time honesty (owner ruling): after the sample, this machine's
-    measured pace projects the whole run — past ~2 minutes, say so once. The
-    "(progress below …)" clause only rides along when the status bar is actually
-    animating (``progress_visible``); with a suppressed bar the projection stays
-    truthful but promises nothing it won't deliver (B3)."""
-    projected = elapsed / _PACE_SAMPLE * total_windows
+    measured pace projects the whole entity pass — past ~2 minutes, say so once.
+    The unit is FILES (the pass iterates items), not windows — the fold's own
+    windows are named separately by ``_note_fold_phase`` (B1). The "(progress
+    below …)" clause only rides along when the status bar is actually animating
+    (``progress_visible``); with a suppressed bar the projection stays truthful
+    but promises nothing it won't deliver (B3)."""
+    projected = elapsed / _PACE_SAMPLE * total_files
     if projected <= _PACE_NOTE_S:
         return
     minutes = max(1, round(projected / 60))
-    line = f"~{total_windows:,} windows at this machine's pace — roughly {minutes} min"
+    line = f"~{total_files:,} files at this machine's pace — roughly {minutes} min"
     if progress_visible:
         line += " (progress below; Ctrl-C is safe)"
     diagnostics.note(line)
+
+
+def _note_fold_phase(total_windows: int) -> None:
+    """B1: once the entities are gathered, the co-occurrence fold is a distinct
+    quadratic phase that can dominate on large corpora. Name it (past a threshold,
+    so small graphs stay quiet) so a user watching the entity pass finish isn't
+    left wondering why the run keeps going."""
+    if total_windows < _FOLD_NOTE_WINDOWS:
+        return
+    diagnostics.note(
+        f"entities done — folding {total_windows:,} windows; "
+        "this can dominate on large corpora (progress below; Ctrl-C is safe)"
+    )
 
 
 def spine_ref(source: ItemSource) -> SpineRef:

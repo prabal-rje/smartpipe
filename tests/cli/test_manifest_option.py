@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.cli.manifest_option import settled
+from smartpipe.cli import interrupts
+from smartpipe.cli.manifest_option import begin_manifest, settled
 from smartpipe.core.errors import (
     ExitCode,
     ItemError,
@@ -199,6 +200,36 @@ async def test_late_setup_fault_finalizes_the_started_manifest(tmp_path: Path) -
     document = json.loads(target.read_text(encoding="utf-8"))
     assert document["items"] == {"in": 4, "succeeded": 1, "skipped": 3, "failed": 3}
     assert document["run"]["exit_status"] == "setup"
+
+
+def test_begin_manifest_registers_a_hard_exit_cleanup_that_unlinks_the_temp(
+    tmp_path: Path,
+) -> None:
+    # B6: a hard exit (second Ctrl-C / watchdog escalation) runs os._exit, which
+    # bypasses settled()'s abandon. begin_manifest registers a cleanup so the
+    # reserved 0-byte temp is unlinked on that path instead of leaking.
+    interrupts._reset_interrupt_state()  # pyright: ignore[reportPrivateUsage] — test isolation
+    manifest.reset()
+    target = tmp_path / "run.json"
+
+    begin_manifest(target, verb="graph")
+    assert any(p.name.endswith(".manifest.tmp") for p in tmp_path.iterdir())
+
+    # what _hard_exit runs before os._exit:
+    interrupts._run_hard_exit_cleanups()  # pyright: ignore[reportPrivateUsage] — path under test
+
+    assert list(tmp_path.iterdir()) == []  # no *.manifest.tmp left behind
+    manifest.reset()
+    interrupts._reset_interrupt_state()  # pyright: ignore[reportPrivateUsage] — test isolation
+
+
+def test_begin_manifest_without_a_path_registers_nothing(tmp_path: Path) -> None:
+    interrupts._reset_interrupt_state()  # pyright: ignore[reportPrivateUsage] — test isolation
+    manifest.reset()
+    begin_manifest(None, verb="graph")  # no --manifest → no reservation, no cleanup
+    interrupts._run_hard_exit_cleanups()  # pyright: ignore[reportPrivateUsage] — clean no-op
+    assert list(tmp_path.iterdir()) == []
+    interrupts._reset_interrupt_state()  # pyright: ignore[reportPrivateUsage] — test isolation
 
 
 async def _returning(code: ExitCode) -> ExitCode:
