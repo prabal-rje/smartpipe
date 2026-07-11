@@ -52,6 +52,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   now sets that warning's own documented toggle
   (`HF_HUB_DISABLE_IMPLICIT_TOKEN`) the same per-library way onnxruntime's log
   level is pinned, so diagnostics own stderr — never the hub's chatter.
+- **The `use` wizard's OCR-stage model picker is curated, not a capability
+  dump.** The document-OCR stage listed every model models.dev tags
+  image-input in raw registry order, so junk like `chatgpt-image-latest` and
+  `gpt-realtime-2.1` ranked as document parsers and a blind 30-row cap buried
+  real parsers under "(N more not shown)". It now applies the SAME curation the
+  text/chat stage already does — the openai capability-dump denylist
+  (realtime/image/audio/search/…) and the dated `-YYYY-MM-DD` snapshot drop —
+  and leads the survivors with one model per provider so a long openai list
+  can't crowd out anthropic/gemini/etc. The dedicated `mistral-ocr-latest` wire
+  and the picked vision chat model still lead the menu as their own rows.
 
 ## [1.5.1] — 2026-07-10
 

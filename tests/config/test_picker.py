@@ -471,6 +471,63 @@ def test_vision_candidates_follow_chip_precedence_and_dedupe() -> None:
     )
 
 
+def test_vision_candidates_drop_openai_capability_dump_noise() -> None:
+    from smartpipe.config.picker import vision_ocr_candidates
+
+    # models.dev flags these openai variants image-input, but they are NOT
+    # document parsers — the same noise the text/chat stage already denylists.
+    chips = ChipSources(
+        probed={},
+        registry={
+            "openai/chatgpt-image-latest": RegistryCaps(image=True, audio=False),
+            "openai/gpt-realtime-2.1": RegistryCaps(image=True, audio=False),
+            "openai/gpt-4o-search-preview": RegistryCaps(image=True, audio=False),
+            "openai/gpt-5.4": RegistryCaps(image=True, audio=False),
+        },
+        declared={},
+    )
+    assert vision_ocr_candidates(chips) == ("openai/gpt-5.4",)
+
+
+def test_vision_candidates_drop_dated_snapshots() -> None:
+    from smartpipe.config.picker import vision_ocr_candidates
+
+    chips = ChipSources(
+        probed={},
+        registry={
+            "openai/gpt-4o-2024-08-06": RegistryCaps(image=True, audio=False),  # dated pin
+            "openai/gpt-4o": RegistryCaps(image=True, audio=False),
+        },
+        declared={},
+    )
+    assert vision_ocr_candidates(chips) == ("openai/gpt-4o",)
+
+
+def test_vision_candidates_lead_with_one_model_per_provider() -> None:
+    from smartpipe.config.picker import vision_ocr_candidates
+
+    # a long openai list must not bury the other providers under the menu cap:
+    # the survivors lead with one model per provider (first-seen), then the rest.
+    chips = ChipSources(
+        probed={},
+        registry={
+            "openai/gpt-4o": RegistryCaps(image=True, audio=False),
+            "openai/gpt-4.1": RegistryCaps(image=True, audio=False),
+            "openai/gpt-5.4": RegistryCaps(image=True, audio=False),
+            "anthropic/claude-opus-4-8": RegistryCaps(image=True, audio=False),
+            "gemini/gemini-3.1-flash": RegistryCaps(image=True, audio=False),
+        },
+        declared={},
+    )
+    assert vision_ocr_candidates(chips) == (
+        "openai/gpt-4o",  # one per provider first…
+        "anthropic/claude-opus-4-8",
+        "gemini/gemini-3.1-flash",
+        "openai/gpt-4.1",  # …then each provider's tail, in order
+        "openai/gpt-5.4",
+    )
+
+
 def test_ocr_rows_list_vision_candidates_between_vision_chat_and_typed() -> None:
     rows = ocr_stage_rows(
         None,

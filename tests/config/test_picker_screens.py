@@ -9,7 +9,7 @@ answered by its default, and pins the full transcript. Refresh with
 from __future__ import annotations
 
 from smartpipe.cli.config_cmd import run_config_flow
-from smartpipe.config.picker import ChipSources, ProbeChip
+from smartpipe.config.picker import ChipSources, ProbeChip, RegistryCaps
 from smartpipe.config.store import Config
 from smartpipe.io.arrow_menu import numbered_choose
 from tests.helpers.golden import assert_golden
@@ -24,6 +24,7 @@ async def _transcript(
     catalogs: dict[str, tuple[str, ...] | None],
     embed_catalogs: dict[str, tuple[str, ...] | None] | None = None,
     chips: dict[str, ProbeChip] | None = None,
+    registry: dict[str, RegistryCaps] | None = None,
     picks: list[int | None] | None = None,
 ) -> str:
     said: list[str] = []
@@ -61,7 +62,7 @@ async def _transcript(
         login=lambda: False,
         fetch_catalog=fetch,
         fetch_embed_catalog=fetch_embed,
-        chips=ChipSources(probed=chips or {}, registry={}, declared={}),
+        chips=ChipSources(probed=chips or {}, registry=registry or {}, declared={}),
         now=_NOW,
         choose=choose,
         ask=ask,
@@ -94,6 +95,29 @@ async def test_flow_typed_fallback_screen_matches_golden() -> None:
         catalogs={"openai": None},  # the catalog fetch failed — typed input takes over
     )
     assert_golden("config_flow_typed_fallback", rendered)
+
+
+async def test_flow_ocr_curated_screen_matches_golden() -> None:
+    # models.dev tags all of these image-input, but the OCR stage curates like
+    # the chat stage: the noise variants (chatgpt-image / gpt-realtime) and the
+    # dated snapshot drop out, and the survivors lead with one model per
+    # provider so the openai list can't bury anthropic/gemini under the cap.
+    rendered = await _transcript(
+        env={"OPENAI_API_KEY": "sk-x"},
+        tags=None,
+        catalogs={"openai": None},  # typed fallback pins the chat model deterministically
+        registry={
+            "openai/chatgpt-image-latest": RegistryCaps(image=True, audio=False),
+            "openai/gpt-realtime-2.1": RegistryCaps(image=True, audio=False),
+            "openai/gpt-4o-2024-08-06": RegistryCaps(image=True, audio=False),
+            "openai/gpt-4o": RegistryCaps(image=True, audio=False),
+            "openai/gpt-5.4": RegistryCaps(image=True, audio=False),
+            "anthropic/claude-opus-4-8": RegistryCaps(image=True, audio=False),
+            "gemini/gemini-3.1-flash": RegistryCaps(image=True, audio=False),
+            "openai/o4-mini": RegistryCaps(image=False, audio=False),  # text-only: dropped
+        },
+    )
+    assert_golden("config_flow_ocr_curated", rendered)
 
 
 async def test_flow_back_navigation_screen_matches_golden() -> None:
