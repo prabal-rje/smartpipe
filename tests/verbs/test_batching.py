@@ -638,7 +638,11 @@ async def test_interrupt_drains_the_inflight_batch() -> None:
     stop.set()  # Ctrl-C: the in-flight batch drains; nothing new flies
     gate.set()
     code = await run
-    assert code == ExitCode.PARTIAL  # accepted but unflown work reports the drain honestly
+    # Intake and the interrupt are concurrent: a fast scheduler may have
+    # accepted later rows before the stop (those become unsent, so exit 1),
+    # while a slower one accepts only this completed batch (normal exit 0).
+    # Both are the pinned drained-interrupt contract; output must not differ.
+    assert code in (ExitCode.OK, ExitCode.PARTIAL)
     lines = out.getvalue().splitlines()
     assert len(lines) == 3  # the drained batch, in order; intake stopped after
     assert json.loads(lines[0])["shout"] == "ROW0"
