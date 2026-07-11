@@ -5,6 +5,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Changed
+- **The chat wire's breaker and concurrency gate are now composed as
+  decorators at the composition root.** A new `models/resilience.py` provides
+  native-Python resilience combinators (`retried`, `circuit_broken`,
+  `rate_limited`) plus the `Breaker`/`Cooldown` collaborators, and the
+  container stacks them into a `ResilientChatModel` — the per-ref transport
+  streak, trip signal, and concurrency semaphore that `OutboundCallPolicy`
+  owned for chat now live in first-class wrappers the root composes. Behavior
+  is unchanged: this is an internal decomposition (embed/OCR/STT keep the
+  shared admission policy). Retiring caller-handled failover
+  (`make_failover`/`run_ordered`'s `failover=`) rides a later change once the
+  fallback's composition is settled.
+
 ### Fixed
 - **`graph` proves the model can hold the schema before spending on OCR.**
   Both paid modes now fire one synthetic extraction ("Alice pays Bob for the
