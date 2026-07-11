@@ -24,6 +24,7 @@ __all__ = [
     "UnsentError",
     "UsageFault",
     "is_recoverable_item_error",
+    "is_systemic_availability_fault",
 ]
 
 
@@ -164,6 +165,14 @@ def is_recoverable_item_error(fault: ItemError) -> bool:
     second paid call and hide the real outage or budget stop.
     """
     return not isinstance(fault, (RetryableError, UnsentError, ExcludedError))
+
+
+def is_systemic_availability_fault(fault: ItemError) -> bool:
+    """A fault that condemns the WHOLE run, not one item: the run-scoped breaker
+    concluded the wire is down, or the page belt is exhausted. Neither may be
+    relabeled as a per-file 'falling back to local extraction'; the run must
+    surface the truth and stop (A1's salvage keeps what was already extracted)."""
+    return isinstance(fault, (CircuitOpenTransport, UnsentError))
 
 
 @dataclass(frozen=True, slots=True)

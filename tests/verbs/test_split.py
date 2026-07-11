@@ -13,7 +13,7 @@ from smartpipe.core.errors import ExitCode
 from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
 from smartpipe.verbs.split import SplitRequest, run_split
 from tests.helpers.pdf import minimal_pdf
-from tests.io.test_ocr_ingest import FakeParser
+from tests.io.test_ocr_ingest import FakeParser, RaisingParser
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -498,3 +498,53 @@ async def test_by_pages_falls_back_to_local_extraction_when_the_parse_fails(
     assert "alpha page" in records[0]["text"]  # the local ladder took over
     err = capsys.readouterr().err
     assert "ocr failed: r.pdf" in err and "falling back" in err
+
+
+async def test_by_pages_rate_limit_degrades_with_the_honest_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A5.1: an isolated exhausted 429 ladder still falls back to local page text,
+    but the note is the honest 'rate-limited', not 'ocr failed', not the wire body."""
+    from smartpipe.core.errors import RetryableError
+    from smartpipe.io.inputs import InputSpec
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "r.pdf").write_bytes(minimal_pdf(["alpha page", "beta page"]))
+    out = io.StringIO()
+    code = await run_split(
+        SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),
+        _OcrContext(RaisingParser(RetryableError("429 Too Many Requests"))),
+        stdin=_TtyStdin(),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    records = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert "alpha page" in records[0]["text"]  # the local ladder took over
+    err = capsys.readouterr().err
+    assert "ocr rate-limited: r.pdf — falling back to local extraction" in err
+    assert "ocr failed" not in err and "429" not in err
+
+
+async def test_by_pages_systemic_breaker_is_not_masqueraded_as_a_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A5.1: when the run-scoped breaker concludes the OCR wire is down, the fault
+    is NOT relabeled as a per-file fallback: no 'falling back' line, no degraded
+    local garbage, and the run stops (every source failed, exit 3)."""
+    from smartpipe.core.errors import CircuitOpenTransport
+    from smartpipe.io.inputs import InputSpec
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "r.pdf").write_bytes(minimal_pdf(["alpha page", "beta page"]))
+    out = io.StringIO()
+    code = await run_split(
+        SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),
+        _OcrContext(RaisingParser(CircuitOpenTransport("ocr wire down", trip_id=1))),
+        stdin=_TtyStdin(),
+        stdout=out,
+    )
+    assert code is ExitCode.ALL_FAILED  # the run stops with the truth
+    assert out.getvalue() == ""  # it did NOT degrade to local garbage
+    err = capsys.readouterr().err
+    assert "falling back" not in err  # never masquerades as a per-file fallback
+    assert "skipped: r.pdf" in err  # the file is dropped and counted, not degraded

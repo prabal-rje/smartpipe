@@ -18,7 +18,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ItemError, SetupFault, UsageFault
+from smartpipe.core.errors import (
+    ItemError,
+    RetryableError,
+    SetupFault,
+    UsageFault,
+    is_systemic_availability_fault,
+)
 from smartpipe.io import diagnostics, source_accounting
 from smartpipe.io.csvrows import CsvCutter, csv_file_items
 from smartpipe.io.items import Item, ItemSource, item_from_file, item_from_line
@@ -41,6 +47,7 @@ __all__ = [
     "file_items",
     "from_files_items",
     "ocr_eligible_count",
+    "ocr_fallback_note",
     "ocr_finite_paths",
     "ocr_parse_file",
     "ocr_preflight",
@@ -332,6 +339,19 @@ def ocr_finite_paths(spec: InputSpec, stdin: TextIO) -> bool:
     return _any_ocr_eligible(paths, spec.as_mode) and not _any_csv(paths, spec.as_mode)
 
 
+def ocr_fallback_note(fault: ItemError, *, where: str) -> str | None:
+    """The stderr note for degrading ONE file's OCR to local extraction (A5.1),
+    or None when the fault is SYSTEMIC (breaker open / belt exhausted) and the
+    caller must re-raise instead of falling back. An exhausted retry ladder reads
+    as the honest 'rate limited' (never the raw wire body); any other per-file
+    parse failure keeps its reason."""
+    if is_systemic_availability_fault(fault):
+        return None
+    if isinstance(fault, RetryableError):
+        return f"ocr rate-limited: {where} — falling back to local extraction"
+    return f"ocr failed: {where} ({fault}) — falling back to local extraction"
+
+
 async def ocr_parse_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item] | None:
     """The named file through the configured parser — ``None`` means "not
     OCR's case, or the parse failed (disclosed)": the caller falls back to
@@ -383,7 +403,10 @@ async def ocr_parse_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item]
             )
         return items
     except ItemError as exc:
-        diagnostics.warn(f"ocr failed: {name} ({exc}) — falling back to local extraction")
+        note = ocr_fallback_note(exc, where=name)
+        if note is None:
+            raise
+        diagnostics.warn(note)
         return None
 
 
@@ -858,7 +881,10 @@ async def _ocr_stdin_document(payload: _StdinDocument, ocr: OcrIngest) -> list[I
     try:
         pages = await ocr.parse_pdf(path)
     except ItemError as exc:
-        diagnostics.warn(f"ocr failed: <stdin> ({exc}) — falling back to local extraction")
+        note = ocr_fallback_note(exc, where="<stdin>")
+        if note is None:
+            raise
+        diagnostics.warn(note)
         return None
     payload.cleanup()
     detail = f"parsed by {parser.ref}"
@@ -893,7 +919,10 @@ async def _ocr_stdin_image(payload: ImageData, ocr: OcrIngest) -> Item | None:
     try:
         markdown = await ocr.parse_ingest_image(payload, "<stdin>")
     except ItemError as exc:
-        diagnostics.warn(f"ocr failed: <stdin> ({exc}) — falling back to local extraction")
+        note = ocr_fallback_note(exc, where="<stdin>")
+        if note is None:
+            raise
+        diagnostics.warn(note)
         return None
     ocr.log.note("<stdin>", "document → markdown", f"parsed by {parser.ref}")
     return item_from_file(markdown, "<stdin>", 0)

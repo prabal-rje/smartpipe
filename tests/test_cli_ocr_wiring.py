@@ -173,7 +173,12 @@ def test_split_refuses_an_over_belt_pdf_before_upload(
         code, out, err = run_cli(
             ["split", "--by", "pages", "book.pdf", "--max-calls", "1"], stdin=""
         )
-    assert code == 1
-    assert route.call_count == 0
-    assert len(out.splitlines()) == 2  # the free local fallback still drains this in-hand PDF
+    # A5.1: an exhausted page belt is SYSTEMIC, so it no longer masquerades as a
+    # per-file "falling back to local extraction". The over-belt PDF is skipped and
+    # the run stops with the truth instead of silently draining near-garbage pages.
+    assert code == 3
+    assert route.call_count == 0  # the belt refused before any upload
+    assert out == ""  # no silent local-fallback drain
+    assert "falling back" not in err
+    assert "skipped: book.pdf" in err
     assert "stopped by --max-calls (0 OCR pages processed)" in err

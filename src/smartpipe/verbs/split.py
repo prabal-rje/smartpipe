@@ -276,7 +276,10 @@ async def _pdf_pages(path: PathType, ocr: OcrIngest | None) -> list[str]:
         try:
             parsed = await ocr.parse_pdf(path)
         except ItemError as exc:
-            diagnostics.warn(f"ocr failed: {path.name} ({exc}) — falling back to local extraction")
+            note = readers.ocr_fallback_note(exc, where=path.name)
+            if note is None:
+                raise
+            diagnostics.warn(note)
         else:
             detail = f"parsed by {parser.ref}"
             for page in parsed:

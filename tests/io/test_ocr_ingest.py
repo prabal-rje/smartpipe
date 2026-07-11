@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ItemError
+from smartpipe.core.errors import (
+    CircuitOpenTransport,
+    ItemError,
+    RetryableError,
+    UnsentError,
+)
 from smartpipe.io import diagnostics
 from smartpipe.io.inputs import InputSpec
 from smartpipe.io.items import Item, source_record
@@ -44,6 +49,39 @@ class FakeParser:
             raise ItemError("wire down")
         self.pdf_calls.append(path)
         return tuple(OcrPage(index, f"page {index + 1} md") for index in range(self.pages))
+
+
+class RaisingParser(FakeParser):
+    """Raises one scripted fault on every parse route (A5.1 tier probes)."""
+
+    def __init__(self, fault: ItemError) -> None:
+        super().__init__()
+        self._fault = fault
+
+    async def parse_image(self, image: ImageData) -> str:
+        self.image_calls.append(image)
+        raise self._fault
+
+    async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+        self.pdf_calls.append(path)
+        raise self._fault
+
+
+class FlakyImageParser(FakeParser):
+    """Raises ``fault`` on the FIRST image, then parses cleanly: one rate-limited
+    scan among successes so the run's continuation is observable (A5.1)."""
+
+    def __init__(self, fault: ItemError, *, image_text: str = "OCR MD") -> None:
+        super().__init__(image_text=image_text)
+        self._fault = fault
+        self._first = True
+
+    async def parse_image(self, image: ImageData) -> str:
+        if self._first:
+            self._first = False
+            self.image_calls.append(image)
+            raise self._fault
+        return await super().parse_image(image)
 
 
 class _TtyStdin(io.StringIO):
@@ -229,6 +267,101 @@ async def test_all_blank_ocr_pdf_pages_fall_back_to_local_extraction(
 
     assert [item.text for item in loaded] == ["LOCAL TEXT"]
     assert "OCR model returned no text" in capsys.readouterr().err
+
+
+# --- the two-tier availability split (A5.1): isolated degrades, systemic stops -------
+
+
+async def test_isolated_rate_limit_degrades_with_the_honest_reason(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An exhausted 429 ladder on ONE scan still falls back to local text, but the
+    note reads as the honest 'rate limited' (never the raw wire body) and the run
+    CONTINUES through the next (successful) scan."""
+    (tmp_path / "a-scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    (tmp_path / "b-scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    parser = FlakyImageParser(RetryableError("429 Too Many Requests"))
+    items, _total = resolve_items(
+        InputSpec(patterns=(str(tmp_path / "*.png"),), from_files=False),
+        _TtyStdin(),
+        ocr=_ingest(parser),
+    )
+    loaded = await _drain(items)
+    assert len(loaded) == 2  # the run kept going after the rate-limited file
+    assert loaded[0].media  # a-scan.png degraded to the local ladder (rides as media)
+    assert loaded[1].text == "OCR MD"  # b-scan.png parsed cleanly
+    err = capsys.readouterr().err
+    assert "ocr rate-limited: a-scan.png — falling back to local extraction" in err
+    assert "429" not in err  # the raw wire body is NOT dumped
+    assert "ocr failed" not in err  # nor the old content-failure wording
+
+
+async def test_breaker_open_propagates_instead_of_masquerading_as_fallback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A run-scoped breaker verdict condemns the WHOLE run: the fault propagates
+    out of ingestion, no local text is produced, and no fallback line is printed."""
+    (tmp_path / "scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    items, _total = resolve_items(
+        InputSpec(patterns=(str(tmp_path / "scan.png"),), from_files=False),
+        _TtyStdin(),
+        ocr=_ingest(RaisingParser(CircuitOpenTransport("ocr wire down", trip_id=1))),
+    )
+    with pytest.raises(CircuitOpenTransport):
+        await _drain(items)
+    assert "falling back" not in capsys.readouterr().err
+
+
+async def test_belt_exhaustion_propagates_and_is_not_relabeled(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An exhausted page belt (--max-calls) stops the run; 'falling back' would lie."""
+    (tmp_path / "scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    items, _total = resolve_items(
+        InputSpec(patterns=(str(tmp_path / "scan.png"),), from_files=False),
+        _TtyStdin(),
+        ocr=_ingest(RaisingParser(UnsentError("the page belt is exhausted"))),
+    )
+    with pytest.raises(UnsentError):
+        await _drain(items)
+    assert "falling back" not in capsys.readouterr().err
+
+
+async def test_content_failure_still_degrades_with_its_own_reason(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A per-file parse failure that is NOT an availability fault keeps its reason
+    and the unchanged 'ocr failed' wording."""
+    (tmp_path / "corrupt.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    items, _total = resolve_items(
+        InputSpec(patterns=(str(tmp_path / "corrupt.png"),), from_files=False),
+        _TtyStdin(),
+        ocr=_ingest(RaisingParser(ItemError("corrupt page"))),
+    )
+    loaded = await _drain(items)
+    assert len(loaded) == 1 and loaded[0].media
+    err = capsys.readouterr().err
+    assert "ocr failed: corrupt.png (corrupt page) — falling back to local extraction" in err
+
+
+def test_ocr_fallback_note_classifies_each_availability_tier() -> None:
+    """The pure classifier: systemic → None (re-raise), isolated ladder → honest
+    'rate-limited', any other content failure → 'ocr failed …'. The systemic check
+    runs FIRST, so CircuitOpenTransport (an IS-A RetryableError) still returns None."""
+    from smartpipe.io.readers import ocr_fallback_note
+
+    assert ocr_fallback_note(CircuitOpenTransport("down", trip_id=1), where="f") is None
+    assert ocr_fallback_note(UnsentError("belt exhausted"), where="f") is None
+    assert (
+        ocr_fallback_note(RetryableError("429 slow down"), where="f")
+        == "ocr rate-limited: f — falling back to local extraction"
+    )
+    assert (
+        ocr_fallback_note(ItemError("corrupt page"), where="f")
+        == "ocr failed: f (corrupt page) — falling back to local extraction"
+    )
+    # ordering proof: the systemic subclass wins over its RetryableError base
+    assert isinstance(CircuitOpenTransport("down", trip_id=1), RetryableError)
 
 
 async def test_each_parsed_row_is_disclosed(

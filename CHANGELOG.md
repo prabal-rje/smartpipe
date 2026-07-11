@@ -100,6 +100,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   front, under the same final-stage TTY gate as every other bar; huggingface_hub's
   own download bar is deferred to when the spinner is gated off (a piped stdout),
   so the two never fight over the terminal row.
+- **A dead OCR wire stops the run instead of silently wrecking every scan.** The
+  "falling back to local extraction" path is now two-tier: an isolated file whose
+  429 retry ladder exhausted still degrades to local extraction, but with an honest
+  `ocr rate-limited: <file>` (the raw wire body is no longer dumped). A SYSTEMIC
+  availability fault never masquerades as a fallback: when the breaker concludes the
+  OCR wire is down, or the page belt is exhausted, the fault propagates and the run
+  stops with the truth (A1's salvage keeps what was already extracted). A pilot run
+  degraded a whole scanned corpus to near-garbage local text under a sustained rate
+  limit, and reported belt exhaustion mid-read as "ocr failed … falling back".
 
 ## [1.5.1] — 2026-07-10
 
