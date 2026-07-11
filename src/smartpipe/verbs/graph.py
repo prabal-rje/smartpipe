@@ -339,7 +339,12 @@ async def scan_corpus(
         )
         entity_bar.advance()
         if position == _PACE_SAMPLE and len(items) > _PACE_SAMPLE:
-            _note_projected_grind(clock() - stage_start, len(items))
+            # The bar the note points at IS ``entity_bar``; key the promise on its
+            # own ``enabled`` flag so a suppressed bar never advertises "progress
+            # below" (B3 — stderr-only gate; a piped stderr turns the bar off).
+            _note_projected_grind(
+                clock() - stage_start, len(items), progress_visible=entity_bar.enabled
+            )
     entity_bar.finish()
     log.finish()
     if no_free_text:
@@ -442,17 +447,20 @@ def write_edges(edges: Sequence[GraphEdge], stdout: TextIO) -> None:
     write_bar.finish()
 
 
-def _note_projected_grind(elapsed: float, total_windows: int) -> None:
+def _note_projected_grind(elapsed: float, total_windows: int, *, progress_visible: bool) -> None:
     """Projected-time honesty (owner ruling): after the sample, this machine's
-    measured pace projects the whole run — past ~2 minutes, say so once."""
+    measured pace projects the whole run — past ~2 minutes, say so once. The
+    "(progress below …)" clause only rides along when the status bar is actually
+    animating (``progress_visible``); with a suppressed bar the projection stays
+    truthful but promises nothing it won't deliver (B3)."""
     projected = elapsed / _PACE_SAMPLE * total_windows
     if projected <= _PACE_NOTE_S:
         return
     minutes = max(1, round(projected / 60))
-    diagnostics.note(
-        f"~{total_windows:,} windows at this machine's pace — roughly {minutes} min "
-        "(progress below; Ctrl-C is safe)"
-    )
+    line = f"~{total_windows:,} windows at this machine's pace — roughly {minutes} min"
+    if progress_visible:
+        line += " (progress below; Ctrl-C is safe)"
+    diagnostics.note(line)
 
 
 def spine_ref(source: ItemSource) -> SpineRef:

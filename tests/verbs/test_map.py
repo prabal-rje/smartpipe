@@ -474,11 +474,13 @@ async def test_map_routes_results_through_the_spinner_arbiter(
             assert not drawn, f"result bytes landed under the status line: {chunk!r}"
 
 
-async def test_piped_stdout_run_animates_nothing_on_stderr(
+async def test_piped_stdout_run_still_animates_on_stderr(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Mid-pipeline stage (stderr TTY, stdout pipe): line-atomic stderr notes
-    survive, but zero carriage-return animation bytes reach stderr."""
+    """B3: with stderr a TTY but stdout a pipe, the status bar DOES animate on
+    stderr — the bar lives on stderr and a piped stdout is how these verbs are
+    driven (``… > out.jsonl``), so carriage-return bytes reach stderr and the
+    line-atomic warning still survives, routed through the arbiter's pause."""
     from smartpipe.io import tty
 
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
@@ -488,7 +490,7 @@ async def test_piped_stdout_run_animates_nothing_on_stderr(
     code = await run_map(_request("x"), context, stdin=io.StringIO("a\nb\n"), stdout=out)
     assert code == ExitCode.PARTIAL
     err = capsys.readouterr().err
-    assert "\r" not in err
+    assert "\r" in err  # the bar animates now that stdout being piped no longer gates it off
     assert "skipped: line 2" in err  # the line-atomic warning stays
 
 

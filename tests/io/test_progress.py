@@ -292,20 +292,24 @@ def test_guard_is_a_passthrough_when_the_spinner_is_disabled() -> None:
     assert spinner.guard(stream) is stream
 
 
-def test_spinner_disabled_when_stdout_is_piped(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A piped stdout means another stage owns the terminal — no animation."""
+def test_spinner_enabled_when_only_stdout_is_redirected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """B3 re-pin: the bar lives on stderr, so redirecting stdout (``graph … >
+    edges.jsonl``, the verb's normal usage) must NOT suppress it — like curl/rsync
+    showing progress on stderr while stdout is piped. The gate keys on stderr alone."""
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
     monkeypatch.setattr(tty, "stdout_is_tty", lambda: False)
-    assert make_stderr_spinner().enabled is False
+    assert make_stderr_spinner().enabled is True
 
 
 def test_spinner_disabled_when_stderr_is_piped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A piped/redirected stderr (cron, ``2>log``) still suppresses the animation
+    entirely — stdout being a TTY is irrelevant now that the gate is stderr-only."""
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: False)
     monkeypatch.setattr(tty, "stdout_is_tty", lambda: True)
     assert make_stderr_spinner().enabled is False
 
 
-def test_spinner_enabled_only_at_the_final_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_spinner_enabled_when_stderr_is_a_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
     monkeypatch.setattr(tty, "stdout_is_tty", lambda: True)
     assert make_stderr_spinner().enabled is True
@@ -315,7 +319,6 @@ def test_make_stderr_spinner_wears_the_current_stage_label(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
-    monkeypatch.setattr(tty, "stdout_is_tty", lambda: True)
     set_stage_label("extract")
     try:
         assert make_stderr_spinner().label == "extract"

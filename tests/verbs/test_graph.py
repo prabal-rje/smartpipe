@@ -434,7 +434,37 @@ async def test_fast_never_touches_chat_or_the_configured_embedder() -> None:
 # --- projected-time honesty ----------------------------------------------------------
 
 
-async def test_slow_pace_projection_notes_once(capsys: pytest.CaptureFixture[str]) -> None:
+async def test_slow_pace_projection_drops_progress_clause_when_stderr_is_piped(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """B3: capsys makes stderr a non-TTY, so the status bar is OFF. The projection
+    must stay truthful — the '(progress below …)' clause is dropped rather than
+    promising a bar that will never appear (graph.py:_note_projected_grind keys the
+    clause on the entity bar's own ``enabled`` flag)."""
+    ticks = iter([0.0] + [100.0] * 200)
+    out = io.StringIO()
+    lines = "".join(f"Ann {n}\n" for n in range(40))
+    code = await run_graph(
+        GraphRequest(fast=True),
+        _context(PEOPLE),
+        stdin=io.StringIO(lines),
+        stdout=out,
+        clock=lambda: next(ticks),
+    )
+    assert code is ExitCode.OK
+    err = capsys.readouterr().err
+    assert "note: ~40 windows at this machine's pace — roughly 3 min" in err
+    assert "progress below" not in err  # no bar → no promise of one
+
+
+async def test_slow_pace_projection_promises_progress_when_the_bar_is_on(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B3: when stderr IS a TTY the status bar animates, so the projection may
+    honestly point at it — the '(progress below; Ctrl-C is safe)' clause returns.
+    NO_COLOR keeps the captured note free of the dim-wrap ANSI codes."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
     ticks = iter([0.0] + [100.0] * 200)
     out = io.StringIO()
     lines = "".join(f"Ann {n}\n" for n in range(40))

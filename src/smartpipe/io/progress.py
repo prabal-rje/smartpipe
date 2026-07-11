@@ -2,12 +2,12 @@
 
 Spec §6.1 + ledger item 67: one status line overwritten in place — a
 determinate bar (``engine/progressbar``) when the total is known, the running
-count + rate when it isn't. The animation renders only in a pipeline's FINAL
-stage — stderr and stdout both terminals. A piped stdout (mid-pipe stage) or a
-piped stderr (cron) suppresses it entirely — stdout stays sacred, the log
-stays clean, and two smartpipes in one pipe never fight over the terminal row.
-The render functions are pure; ``Spinner`` adds the clock, throttling, and the
-stderr writes.
+count + rate when it isn't. The animation renders whenever stderr is a terminal
+(B3 re-pin): because the bar lives on stderr, a redirected or piped stdout — how
+the verbs are meant to be driven (``graph … > edges.jsonl``) — no longer turns
+it off, matching ``curl``/``rsync``. A piped stderr (cron, ``2>log``) suppresses
+it entirely — stdout stays sacred and the log stays clean. The render functions
+are pure; ``Spinner`` adds the clock, throttling, and the stderr writes.
 """
 
 from __future__ import annotations
@@ -223,16 +223,18 @@ class _GuardedSink:
 
 
 def make_stderr_spinner() -> Spinner:
-    """A spinner wired to the real stderr — animated only in a pipeline's final
-    stage (stderr AND stdout both TTYs; a piped stdout means a downstream process
-    owns the terminal, so mid-pipe stages keep line-atomic notes and the receipt
-    but never a ``\\r`` animation), with a Braille or ASCII frame set depending
-    on the encoding. Inside a ``run`` pipeline the stage's name rides along so
-    any drawn line wears the same ``[name]`` prefix its receipts do."""
+    """A spinner wired to the real stderr — animated whenever stderr is a TTY
+    (B3 re-pin). The bar lives on stderr, so a redirected or piped *stdout* —
+    ``graph … > edges.jsonl``, the way these verbs are meant to be driven — no
+    longer suppresses it, exactly as ``curl``/``rsync`` keep their progress on
+    stderr while stdout is piped onward. A redirected *stderr* (cron, ``2>log``)
+    still suppresses it entirely, so logs stay clean. The frame set is Braille or
+    ASCII depending on the encoding; inside a ``run`` pipeline the stage's name
+    rides along so any drawn line wears the same ``[name]`` prefix its receipts do."""
     encoding = (sys.stderr.encoding or "").lower()
     return Spinner(
         stream=sys.stderr,
-        enabled=tty.stderr_is_tty() and tty.stdout_is_tty(),
+        enabled=tty.stderr_is_tty(),
         ascii_only="utf" not in encoding,
         clock=time.monotonic,
         label=stage_label(),

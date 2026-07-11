@@ -30,6 +30,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   concern).
 
 ### Fixed
+- **The status bar now shows when only stdout is redirected — `graph … >
+  edges.jsonl` no longer looks hung.** The stderr spinner gate is re-pinned to
+  stderr alone (it required BOTH stderr and stdout to be TTYs before), so a
+  redirected or piped stdout — how `graph` and the other verbs are meant to be
+  driven — keeps the progress bar on stderr, exactly as `curl`/`rsync` do. A
+  pilot run redirected `graph`'s edges to a file and saw nothing for minutes,
+  thinking it had hung. `graph`'s projected-grind note now keys its "(progress
+  below; Ctrl-C is safe)" clause on whether the bar is actually animating, so a
+  fully-piped run (no bar) no longer promises progress it won't display.
 - **`graph` honors `--fallback-model` - the failover was dead weight before.**
   Both paid modes (a focus prompt for extraction, `--name-top` for naming) now run
   on the composed resilient chat wire, so a provider-down primary trips the breaker
