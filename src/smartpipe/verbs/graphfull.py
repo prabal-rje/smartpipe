@@ -19,7 +19,15 @@ import asyncio
 import sys
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ExitCode, ItemError, SourceCounts, TooManyFailures, UsageFault
+from smartpipe.core.errors import (
+    ExitCode,
+    ItemError,
+    SetupFault,
+    SourceCounts,
+    TooManyFailures,
+    UsageFault,
+    is_recoverable_item_error,
+)
 from smartpipe.engine.graphkg import (
     EdgeAssertion,
     assertion_surface_counts,
@@ -65,6 +73,7 @@ if TYPE_CHECKING:
     from typing import TextIO
 
     from smartpipe.engine.graphkg import GraphEdge, SpineRef
+    from smartpipe.models.base import ChatModel
     from smartpipe.models.budget import CallBudget
 
 __all__ = [
@@ -83,6 +92,7 @@ _AV_SLICE_SECONDS = 600  # split's default duration unit: --by minutes → 10-mi
 _NUDGE_CALLS = 100  # beltless plans past this many calls earn the nudge
 _SNIPPET_CAP = 3  # co-occurrence context windows per naming call
 _SNIPPET_CHARS = 400  # each window arrives trimmed — context, not the corpus
+_CANARY_SNIPPET = "Alice pays Bob for the shipment."  # A2: the pre-spend schema probe
 
 CONFIRM_PARTIAL = "proceed with a partial graph? [y/N]"
 
@@ -126,6 +136,43 @@ def extraction_prompt(
     )
 
 
+async def _schema_canary(
+    model: ChatModel,
+    plan: MapPlan,
+    instruction: str,
+    log: diagnostics.DegradationLog,
+    *,
+    what: str,
+) -> None:
+    """Fire ONE synthetic extraction through the compiled schema before any
+    ingestion or paid OCR (A2). A model that cannot hold ``what`` would otherwise
+    burn the whole paid run on unparseable replies — pilot run B spent 943 OCR
+    pages and 7 extractions before a wholesale schema halt. ``map_one`` already
+    grants the one shape-repair rung, so a canary that still comes back wrong is
+    total incapacity, not a fluke; a rerun's identical probe is a cache hit, so
+    the check costs nothing the second time. An availability fault at canary time
+    (belt exhausted, 429 ladder spent, breaker open) is NOT a capability verdict
+    — it propagates as itself, never relabeled."""
+    canary = Item(
+        raw=_CANARY_SNIPPET,
+        text=_CANARY_SNIPPET,
+        data=None,
+        source=ItemSource(kind="stdin", name="schema canary", index=0),
+    )
+    try:
+        await map_one(model, plan, instruction, canary, log)
+    except ItemError as failed:
+        if not is_recoverable_item_error(failed):
+            raise  # belt/429/breaker — terminal, and no statement about the schema
+        raise SetupFault(
+            f"error: {model.ref} cannot hold {what}\n"
+            "  A canary extraction on a fixed snippet came back the wrong shape,\n"
+            "  so this model would burn the whole run on unparseable replies.\n"
+            "  Try --model openai/gpt-5.4-nano (or your configured fallback), or\n"
+            "  run --fast for the free co-occurrence graph."
+        ) from failed
+
+
 async def run_full(
     request: GraphRequest,
     context: GraphModelContext,
@@ -147,8 +194,14 @@ async def run_full(
     instruction = to_instruction(tokens)
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    if total != 0:
+        # A2: prove the model holds the schema BEFORE iterating spends paid OCR.
+        # A known-empty file list (total == 0) has nothing to protect; a stdin
+        # stream (total is None) always probes, since its size is unknowable here.
+        await _schema_canary(model, plan, instruction, log, what="the extraction schema")
     read_bar = stage("read")
     read_bar.start(total)
     items: list[Item] = []
@@ -203,8 +256,6 @@ async def run_full(
 
             manifest.abandon()
             return ExitCode.OK  # declined at the plan: nothing spent
-
-    model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
 
     async def worker(chunk: Item) -> tuple[Item, str | Mapping[str, object]]:
         return chunk, await map_one(model, plan, instruction, chunk, log)
@@ -507,6 +558,9 @@ async def run_hybrid(
         plan = MapPlan("structured", _naming_schema(relations), MAP_JSON_SYSTEM)
         instruction = _naming_instruction(request.focus)
         log = diagnostics.DegradationLog()
+        # A2: hybrid's only paid phase is naming (the scan is free), so the canary
+        # sits here — fired only when there are edges to name, never on empty input.
+        await _schema_canary(model, plan, instruction, log, what="the relation-naming schema")
 
         async def worker(item: Item) -> tuple[int, str]:
             result = await map_one(model, plan, instruction, item, log)

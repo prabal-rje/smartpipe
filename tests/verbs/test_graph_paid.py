@@ -11,7 +11,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ExitCode, SourceCounts, TooManyFailures, UsageFault
+from smartpipe.core.errors import (
+    ExitCode,
+    RetryableError,
+    SetupFault,
+    SourceCounts,
+    TooManyFailures,
+    UsageFault,
+)
 from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io import manifest
 from smartpipe.models.base import ModelRef
@@ -24,6 +31,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from smartpipe.models.base import ChatModel, CompletionRequest
+
+
+_CANARY_MARK = "Alice pays Bob for the shipment."  # mirrors graphfull._CANARY_SNIPPET
 
 
 class FakeChat:
@@ -51,6 +61,13 @@ class FakeChat:
         if self.replies:
             return self.replies[min(len(self.calls) - 1, len(self.replies) - 1)]
         return self.default
+
+    @property
+    def extraction_calls(self) -> list[CompletionRequest]:
+        """The corpus calls the run actually spent — the A2 schema-canary probe
+        (a fixed synthetic snippet, sent once before ingestion) filtered out so
+        counts and unpacks reflect real work."""
+        return [call for call in self.calls if _CANARY_MARK not in call.user]
 
 
 @dataclass
@@ -195,7 +212,7 @@ async def test_full_mode_extracts_folds_and_serializes(
 async def test_full_mode_instruction_carries_the_focus_preamble() -> None:
     chat = FakeChat()
     await _run(GraphRequest(focus="who pays whom"), _context(chat), "Ann met Bob\n")
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert call.user.startswith("who pays whom\n\nExtract triples:")
     assert "<input>\nAnn met Bob\n</input>" in call.user
 
@@ -209,7 +226,7 @@ async def test_enum_ontology_reaches_the_schema() -> None:
         _context(chat),
         "Ann met Bob\n",
     )
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert call.json_schema is not None
     outer = as_record(as_record(call.json_schema.get("properties")).get("triples"))  # type: ignore[union-attr]
     inner = as_record(as_record(outer.get("items")).get("properties"))  # type: ignore[union-attr]
@@ -434,7 +451,7 @@ async def test_tty_confirm_decline_spends_nothing_and_exits_zero(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     stop = asyncio.Event()
-    budget = CallBudget(limit=1, stop=stop)
+    budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat()
     context = _context(budgeted_chat(chat, budget))
     asked: list[str] = []
@@ -446,7 +463,7 @@ async def test_tty_confirm_decline_spends_nothing_and_exits_zero(
     code, out = await _run(
         GraphRequest(focus="pays"),
         context,
-        "Ann one\nBob two\n",
+        "Ann one\nBob two\nCat three\n",  # 3 chunks > belt 2 → belt_short → the prompt
         stop=stop,
         ask=decline,
         budget=budget,
@@ -455,13 +472,13 @@ async def test_tty_confirm_decline_spends_nothing_and_exits_zero(
     assert out == ""  # nothing extracted, nothing written
     assert asked == ["proceed with a partial graph? [y/N]"]
     assert asked == [CONFIRM_PARTIAL]
-    assert chat.calls == []  # declined at the plan: zero spend
+    assert chat.extraction_calls == []  # declined at the plan: only the canary probe fired
     assert "the graph will be partial" in capsys.readouterr().err
 
 
 async def test_piped_run_never_prompts_and_the_belt_governs() -> None:
     stop = asyncio.Event()
-    budget = CallBudget(limit=1, stop=stop)
+    budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat([triples(("Ann", "pays", "Bob"))])
     context = _context(budgeted_chat(chat, budget))
     # ask=None + a StringIO stdin (isatty False) = the piped path: no prompt
@@ -469,7 +486,7 @@ async def test_piped_run_never_prompts_and_the_belt_governs() -> None:
         GraphRequest(focus="pays"), context, "Ann one\nBob two\n", stop=stop, budget=budget
     )
     assert code is ExitCode.PARTIAL
-    assert len(chat.calls) == 1  # the belt, not a prompt, capped the run
+    assert len(chat.extraction_calls) == 1  # the belt, not a prompt, capped the run
     assert len(_edges(out)) == 1
 
 
@@ -477,7 +494,7 @@ async def test_belt_census_wording_and_partial_graph(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     stop = asyncio.Event()
-    budget = CallBudget(limit=1, stop=stop)
+    budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat([triples(("Ann", "pays", "Bob"))])
     context = _context(budgeted_chat(chat, budget))
     code, out = await _run(
@@ -523,7 +540,7 @@ async def test_belt_remainder_is_skipped_but_not_failed_in_manifest(tmp_path: ob
     manifest.reset()
     manifest.begin(target, verb="graph", argv=("graph",))
     stop = asyncio.Event()
-    budget = CallBudget(limit=1, stop=stop)
+    budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat([triples(("Ann", "pays", "Bob"))])
     context = _context(budgeted_chat(chat, budget))
     context.concurrency_value = 3  # admit the remainder so it becomes typed Unsent
@@ -585,7 +602,7 @@ async def test_hybrid_naming_call_carries_pair_windows_focus_and_enum() -> None:
         _context(chat),
         "Ann pays Bob\nBob thanks Ann\n",
     )
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert "source: Ann" in call.user
     assert "target: Bob" in call.user
     assert "they appear together in:" in call.user
@@ -614,7 +631,7 @@ async def test_hybrid_belt_shortfall_keeps_co_occurs_and_discloses(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     stop = asyncio.Event()
-    budget = CallBudget(limit=1, stop=stop)
+    budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat(default='{"relation": "pays"}')
     context = _context(budgeted_chat(chat, budget))
     code, out = await _run(
@@ -771,9 +788,9 @@ async def test_full_mode_splits_oversized_text_and_labels_the_chunks() -> None:
     chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), f"{long_text}\n")
     assert code is ExitCode.OK
-    assert len(chat.calls) > 1  # one call per token chunk
+    assert len(chat.extraction_calls) > 1  # one call per token chunk
     (edge,) = _edges(out)
-    assert edge["weight"] == len(chat.calls)  # every chunk asserted the triple
+    assert edge["weight"] == len(chat.extraction_calls)  # every chunk asserted the triple
     first = _source_records(edge)[0]
     assert first["as"] == "tokens"
     assert first["segment"] == 1
@@ -788,7 +805,7 @@ async def test_full_mode_routes_image_records_through_the_vision_ladder() -> Non
     chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), f"{record}\n")
     assert code is ExitCode.OK
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert len(call.media) == 1  # the figure rode the request natively
     assert len(_edges(out)) == 1
 
@@ -808,7 +825,7 @@ async def test_full_mode_slices_audio_and_sends_it_natively() -> None:
     chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), f"{record}\n")
     assert code is ExitCode.OK
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert len(call.media) == 1  # one sub-10-minute slice, heard natively
     assert len(_edges(out)) == 1
 
@@ -849,7 +866,7 @@ async def test_full_mode_on_empty_input_is_ok_and_silent() -> None:
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), "")
     assert code is ExitCode.OK
     assert out == ""
-    assert chat.calls == []
+    assert chat.extraction_calls == []  # empty stdin: at most the canary probe, no extraction
 
 
 async def test_full_mode_interrupt_drains_and_reports(
@@ -859,7 +876,8 @@ async def test_full_mode_interrupt_drains_and_reports(
 
     class StoppingChat(FakeChat):
         async def complete(self, request: CompletionRequest) -> str:
-            stop.set()  # a Ctrl-C mid-run: intake halts, in-flight work drains
+            if _CANARY_MARK not in request.user:
+                stop.set()  # a Ctrl-C mid-run (not the canary): intake halts, work drains
             return await super().complete(request)
 
     chat = StoppingChat(default=triples(("Ann", "pays", "Bob")))
@@ -894,7 +912,8 @@ async def test_hybrid_interrupt_drains_and_reports(
 
     class StoppingChat(FakeChat):
         async def complete(self, request: CompletionRequest) -> str:
-            stop.set()
+            if _CANARY_MARK not in request.user:
+                stop.set()
             return await super().complete(request)
 
     chat = StoppingChat(default='{"relation": "pays"}')
@@ -918,7 +937,7 @@ async def test_hybrid_document_window_names_without_snippets() -> None:
         GraphRequest(name_top=1, window="document"), _context(chat), "Ann here\nBob there\n"
     )
     assert code is ExitCode.OK
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert "source: Ann" in call.user
     assert "they appear together in:" not in call.user
     (edge,) = _edges(out)
@@ -929,7 +948,7 @@ async def test_hybrid_naming_windows_cap_at_three() -> None:
     chat = FakeChat(default='{"relation": "pays"}')
     corpus = "".join(f"Ann met Bob v{n}\n" for n in range(5))
     await _run(GraphRequest(name_top=1), _context(chat), corpus)
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert "[3] Ann met Bob v2" in call.user
     assert "[4]" not in call.user
 
@@ -982,7 +1001,7 @@ async def test_full_mode_whitespace_only_input_is_ok_and_silent() -> None:
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), "   \n")
     assert code is ExitCode.OK
     assert out == ""
-    assert chat.calls == []  # nothing worth an extraction call
+    assert chat.extraction_calls == []  # whitespace chunks to nothing: no extraction call
 
 
 async def test_adopt_ignores_a_boolean_weight() -> None:
@@ -1006,7 +1025,7 @@ async def test_full_mode_labels_figures_beside_text() -> None:
     chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), f"{record}\n")
     assert code is ExitCode.OK
-    assert len(chat.calls) == 2  # the text chunk and the figure chunk
+    assert len(chat.extraction_calls) == 2  # the text chunk and the figure chunk
     (edge,) = _edges(out)
     assert any("img.1" in label for label in _source_labels(edge))
 
@@ -1026,7 +1045,7 @@ async def test_full_mode_slices_long_audio_into_labeled_minutes() -> None:
     chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), f"{record}\n")
     assert code is ExitCode.OK
-    assert len(chat.calls) == 2  # two ten-minute slices, one call each
+    assert len(chat.extraction_calls) == 2  # two ten-minute slices, one call each
     (edge,) = _edges(out)
     labels = _source_labels(edge)
     assert any("§00:00-10:00" in label for label in labels)
@@ -1061,3 +1080,57 @@ def test_tty_asker_is_absent_when_stdin_is_piped() -> None:
     from smartpipe.verbs.graphfull import tty_asker
 
     assert tty_asker(io.StringIO("data\n")) is None
+
+
+# --- A2: the schema canary refuses total incapacity BEFORE any ingestion spend -----
+
+
+async def test_full_mode_canary_refuses_before_spend_when_the_model_fails_the_schema() -> None:
+    # the canary snippet comes back wrong-shaped twice (initial + the one repair
+    # rung map_one grants) → the model cannot hold the extraction schema, so the
+    # run refuses at SETUP before a single real chunk (or paid OCR page) is sent.
+    chat = FakeChat(by_content={"Alice pays Bob": "not json at all"})
+    context = _context(chat)
+    with pytest.raises(SetupFault) as excinfo:
+        await _run(GraphRequest(focus="who pays whom"), context, "Ann pays Bob\n")
+    message = str(excinfo.value)
+    assert "ollama/fake" in message
+    assert "cannot hold" in message
+    # the real corpus never reached the wire — only the fixed canary snippet did
+    assert all("Ann pays Bob" not in call.user for call in chat.calls)
+    assert any("Alice pays Bob" in call.user for call in chat.calls)
+
+
+async def test_full_mode_canary_passes_then_extracts_normally() -> None:
+    chat = FakeChat(
+        by_content={
+            "Alice pays Bob": triples(("Alice", "pays", "Bob")),
+            "Ann pays Bob": triples(("Ann", "pays", "Bob")),
+        }
+    )
+    code, out = await _run(GraphRequest(focus="who pays whom"), _context(chat), "Ann pays Bob\n")
+    assert code == ExitCode.OK
+    assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in _edges(out))
+    assert any("Alice pays Bob" in call.user for call in chat.calls)  # the probe fired
+
+
+async def test_full_mode_canary_does_not_relabel_an_availability_fault_as_incapacity() -> None:
+    # a transient wire fault at canary time is NOT a schema verdict: it must
+    # propagate as itself, never masquerade as "cannot hold the schema".
+    class DownChat(FakeChat):
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls.append(request)
+            raise RetryableError("rate limited")
+
+    with pytest.raises(RetryableError):
+        await _run(GraphRequest(focus="who pays whom"), _context(DownChat()), "Ann pays Bob\n")
+
+
+async def test_hybrid_mode_canary_refuses_before_the_naming_loop_spends() -> None:
+    # hybrid names its strongest edges through a single-field schema; if the
+    # model cannot hold even that, refuse before the naming loop spends. The
+    # canary is guarded by there being edges to name, so an empty corpus is free.
+    chat = FakeChat(by_content={"Alice pays Bob": "not json"})
+    context = _context(chat)
+    with pytest.raises(SetupFault):
+        await _run(GraphRequest(name_top=5), context, "Ann pays Bob and Bob pays Ann\n")

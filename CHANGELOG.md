@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Fixed
+- **`graph` proves the model can hold the schema before spending on OCR.**
+  Both paid modes now fire one synthetic extraction ("Alice pays Bob for the
+  shipment.") through the compiled schema before any ingestion — full mode
+  before the reader touches a paid page, hybrid before the naming loop. A model
+  that cannot produce the typed shape (even after the one shape-repair rung)
+  refuses at SETUP (2) naming the model and a fix, instead of burning the whole
+  run — a pilot run spent 943 OCR pages and 7 extractions before a wholesale
+  schema collapse. The probe charges one belt unit and is cached, so a rerun's
+  check is free; an availability fault at canary time (belt/429/breaker)
+  propagates as itself and is never mistaken for a capability verdict.
 - **A fail-fast halt no longer throws away everything already extracted.** When
   the failure policy trips mid-extraction (too many chunks failed the schema),
   `graph` full mode now folds and writes the edges it already has to stdout,
