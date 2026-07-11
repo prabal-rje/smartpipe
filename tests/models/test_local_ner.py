@@ -263,6 +263,53 @@ def test_hf_implicit_token_env_never_overrides_a_configured_choice() -> None:
     assert env["HF_HUB_DISABLE_IMPLICIT_TOKEN"] == "0"
 
 
+def test_load_engine_sets_the_token_env_before_importing_huggingface_hub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The load-bearing B5 property the helper-only tests never touch: the toggle
+    is in place BEFORE ``from huggingface_hub import hf_hub_download`` resolves, so
+    the "unauthenticated requests" warning is silenced even on the first uncached
+    download. Captured at the import line itself via PEP 562, with fakes standing in
+    for the three heavy wires so CI downloads nothing."""
+    import os
+    import sys
+    import types
+
+    import smartpipe.models.local_ner as local_ner
+
+    monkeypatch.delenv("HF_HUB_DISABLE_IMPLICIT_TOKEN", raising=False)
+
+    class _StopBeforeDownloadError(Exception):
+        pass
+
+    captured: dict[str, str | None] = {}
+
+    def _hf_getattr(name: str) -> object:
+        if name != "hf_hub_download":
+            raise AttributeError(name)
+        # PEP 562: this fires exactly when `from huggingface_hub import
+        # hf_hub_download` looks the symbol up — strictly before any download.
+        captured["env"] = os.environ.get("HF_HUB_DISABLE_IMPLICIT_TOKEN")
+
+        def _download(*_args: object, **_kwargs: object) -> str:
+            raise _StopBeforeDownloadError  # never touch the network or onnxruntime
+
+        return _download
+
+    fake_hf = types.ModuleType("huggingface_hub")
+    fake_hf.__getattr__ = _hf_getattr  # type: ignore[attr-defined]
+    fake_tokenizers = types.ModuleType("tokenizers")
+    fake_tokenizers.Tokenizer = object  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setitem(sys.modules, "tokenizers", fake_tokenizers)
+
+    with pytest.raises(_StopBeforeDownloadError):
+        local_ner._load_engine("q8")  # pyright: ignore[reportPrivateUsage] — the wire under test
+
+    assert captured["env"] == "1"  # the env was set before the import bound the symbol
+
+
 # --- the live wire (owner-run; CI always skips) --------------------------------
 
 

@@ -289,7 +289,7 @@ def hf_implicit_token_env(env: MutableMapping[str, str]) -> None:
 def _load_engine(  # pragma: no cover — the live wire; CI never downloads models
     precision: str,
 ) -> NerEngine:
-    hf_implicit_token_env(os.environ)
+    hf_implicit_token_env(os.environ)  # MUST precede the huggingface_hub import below
     try:
         import onnxruntime
         from huggingface_hub import hf_hub_download
