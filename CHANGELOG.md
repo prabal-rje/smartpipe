@@ -16,7 +16,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   schema collapse. The probe charges one belt unit and is cached, so a rerun's
   check is free; the partial-run plan counts that unit, so a belt sized exactly
   to the corpus warns "partial" up front instead of silently dropping the last
-  chunk, and the probe is skipped entirely when the belt can't afford it plus
+  chunk — and the note reports what is LEFT in the belt ("2 left in the belt" for
+  a belt-3 on 3 chunks), not the raw limit, so the shortfall is honest and a
+  reader who raises the belt clears the chunk count instead of landing one short
+  again. The probe is skipped entirely when the belt can't afford it plus
   real work (a `--max-calls 1` run does its one real call unprobed). An
   availability fault at canary time (belt/429/breaker) propagates as itself and
   is never mistaken for a capability verdict.

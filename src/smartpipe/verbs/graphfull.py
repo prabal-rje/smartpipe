@@ -263,15 +263,20 @@ async def run_full(
     # A2: the canary (and any read-phase OCR) has already charged the belt, so
     # the partial-run test must read what REMAINS, not the raw limit — else a
     # belt sized exactly to the chunk count silently yields a partial after
-    # promising a full graph (GLM review SHOULD-FIX 1).
+    # promising a full graph (GLM review SHOULD-FIX 1). The note reports that
+    # REMAINING, not the raw limit, so the shortfall the user must close is
+    # honest: a belt of 3 on 3 chunks shows "2 left" (the probe took one), not a
+    # "belt is 3" that reads as exactly-enough and understates by one probe unit.
     belt = budget.limit if budget is not None else None
+    # budget is not None is redundant given belt (belt None ⟺ budget None) but
+    # pyright cannot span the two statements — it narrows budget.calls here.
     remaining = belt - budget.calls if belt is not None and budget is not None else None
     plural = "s" if len(items) != 1 else ""
     plan_note = f"~{len(chunks):,} extraction calls across {len(items):,} file{plural}"
     belt_short = remaining is not None and remaining < len(chunks)
     if belt_short:
-        assert belt is not None  # remaining is not None ⟹ belt is not None
-        plan_note += f"; belt is {belt:,} — the graph will be partial"
+        assert remaining is not None  # belt_short ⟹ remaining is not None
+        plan_note += f"; {remaining:,} left in the belt — the graph will be partial"
     elif belt is None and len(chunks) > _NUDGE_CALLS:
         plan_note += " — no belt set"
     diagnostics.note(plan_note)

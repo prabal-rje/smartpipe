@@ -418,7 +418,11 @@ async def test_preflight_plan_names_the_short_belt(
         budget=budget,
     )
     err = capsys.readouterr().err
-    assert "note: ~3 extraction calls across 3 files; belt is 2 — the graph will be partial" in err
+    # belt 2, canary charges 1 → 1 left; the note reports the REMAINING, not the
+    # raw belt (GLM SHOULD-FIX 1), so the one-short shortfall is visible.
+    assert (
+        "note: ~3 extraction calls across 3 files; 1 left in the belt — the graph will be partial"
+    ) in err
     assert code is ExitCode.PARTIAL
 
 
@@ -1157,7 +1161,9 @@ async def test_a_belt_sized_to_the_chunk_count_is_one_short_from_the_probe(
     # GLM review SHOULD-FIX 1: the canary spends one belt unit, so a belt equal
     # to the chunk count leaves room for one fewer extraction. The plan must SAY
     # "partial" up front — counting the probe against the belt — not silently
-    # drop the last chunk after promising a full graph.
+    # drop the last chunk after promising a full graph. And the number it reports
+    # is the REMAINING (2 left of a belt-3), not the raw belt — so a reader who
+    # bumps the belt raises it PAST the chunk count, not merely up to it.
     stop = asyncio.Event()
     budget = CallBudget(limit=3, stop=stop)  # 3 chunks, but the probe eats one unit
     chat = FakeChat([triples(("Ann", "pays", "Bob"))])
@@ -1170,7 +1176,7 @@ async def test_a_belt_sized_to_the_chunk_count_is_one_short_from_the_probe(
         budget=budget,
     )
     err = capsys.readouterr().err
-    assert "belt is 3 — the graph will be partial" in err
+    assert "2 left in the belt — the graph will be partial" in err
     assert code is ExitCode.PARTIAL
 
 
