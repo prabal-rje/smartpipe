@@ -240,22 +240,26 @@ async def _stream_path_items(
     warned_extras: set[str] = set()
     census = FigureCensus()
     ordinal = 0
-    for path in paths:
-        if stop is not None and stop.is_set():
-            return
-        mode = spec.as_mode or _default_mode(path)
-        if mode == "csv":
-            for item in csv_file_items(path):
-                yield item
-        elif mode != "file":
-            for row in _text_rows(path, mode, stop=stop):
-                yield row
-        else:
-            item = _load_file(path, ordinal, warned_extras, census)
-            if item is not None:
-                yield item
-                ordinal += 1
-    census.finish()  # roll up the figure notes once the file loop is done (B4)
+    try:
+        for path in paths:
+            if stop is not None and stop.is_set():
+                return
+            mode = spec.as_mode or _default_mode(path)
+            if mode == "csv":
+                for item in csv_file_items(path):
+                    yield item
+            elif mode != "file":
+                for row in _text_rows(path, mode, stop=stop):
+                    yield row
+            else:
+                item = _load_file(path, ordinal, warned_extras, census)
+                if item is not None:
+                    yield item
+                    ordinal += 1
+    finally:
+        # roll up the figure notes even if the read is cut short — a stop-return or
+        # an abandoned generator must not swallow the deferred rollup (B4 review)
+        census.finish()
     if stdin is not None:
         _note_stdin_transition()
         async for item in stdin_items(
@@ -448,29 +452,33 @@ async def _ocr_path_items(
     warned_extras: set[str] = set()
     census = FigureCensus()
     ordinal = 0
-    for path in paths:
-        if stop is not None and stop.is_set():
-            return
-        mode = as_mode or _default_mode(path)
-        if mode == "csv":
-            for row in csv_file_items(path):
-                yield row
-            continue
-        if mode != "file":
-            for row in _text_rows(path, mode, stop=stop):
-                yield row
-            continue
-        parsed = await ocr_parse_file(path, ordinal, ocr)
-        if parsed is None:
-            item = _load_file(path, ordinal, warned_extras, census)
-            if item is not None:
+    try:
+        for path in paths:
+            if stop is not None and stop.is_set():
+                return
+            mode = as_mode or _default_mode(path)
+            if mode == "csv":
+                for row in csv_file_items(path):
+                    yield row
+                continue
+            if mode != "file":
+                for row in _text_rows(path, mode, stop=stop):
+                    yield row
+                continue
+            parsed = await ocr_parse_file(path, ordinal, ocr)
+            if parsed is None:
+                item = _load_file(path, ordinal, warned_extras, census)
+                if item is not None:
+                    yield item
+                    ordinal += 1
+                continue
+            for item in parsed:
                 yield item
-                ordinal += 1
-            continue
-        for item in parsed:
-            yield item
-        ordinal += 1
-    census.finish()  # roll up the figure notes once the file loop is done (B4)
+            ordinal += 1
+    finally:
+        # roll up the figure notes even if the read is cut short — a stop-return or
+        # an abandoned generator must not swallow the deferred rollup (B4 review)
+        census.finish()
     if stdin is not None:
         _note_stdin_transition()
         async for item in stdin_items(stdin, stop=stop, as_mode=as_mode, ocr=ocr):
@@ -1174,37 +1182,40 @@ async def from_files_items(
     warned_extras: set[str] = set()
     census = FigureCensus()
     index = 0
-    async for line in _lines(stdin, stop):
-        name = line.strip()
-        if not name:
-            continue
-        path = Path(name)
-        manifest.guard_manifest_alias(path, role="input")
-        if as_mode in ("lines", "jsonl", "csv"):
-            _refuse_uncuttable([path], as_mode)
-        mode = as_mode or _default_mode(path)
-        if mode == "csv":
-            for row in csv_file_items(path):
+    try:
+        async for line in _lines(stdin, stop):
+            name = line.strip()
+            if not name:
+                continue
+            path = Path(name)
+            manifest.guard_manifest_alias(path, role="input")
+            if as_mode in ("lines", "jsonl", "csv"):
+                _refuse_uncuttable([path], as_mode)
+            mode = as_mode or _default_mode(path)
+            if mode == "csv":
+                for row in csv_file_items(path):
+                    yield row
+                    index += 1
+                continue
+            if mode == "file":
+                if ocr is not None:
+                    parsed = await ocr_parse_file(path, index, ocr)
+                    if parsed is not None:
+                        for item in parsed:
+                            yield item
+                        index += 1
+                        continue
+                item = _load_file(path, index, warned_extras, census)
+                if item is not None:
+                    yield item
+                    index += 1
+                continue
+            for row in _text_rows(path, mode, stop=stop):
                 yield row
                 index += 1
-            continue
-        if mode == "file":
-            if ocr is not None:
-                parsed = await ocr_parse_file(path, index, ocr)
-                if parsed is not None:
-                    for item in parsed:
-                        yield item
-                    index += 1
-                    continue
-            item = _load_file(path, index, warned_extras, census)
-            if item is not None:
-                yield item
-                index += 1
-            continue
-        for row in _text_rows(path, mode, stop=stop):
-            yield row
-            index += 1
-    census.finish()  # roll up the figure notes once the filename stream is done (B4)
+    finally:
+        # flush the figure rollup even if the filename stream is abandoned (B4 review)
+        census.finish()
 
 
 async def read_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:

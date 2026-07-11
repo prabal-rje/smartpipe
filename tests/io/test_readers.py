@@ -139,6 +139,46 @@ async def test_figure_census_small_run_is_unchanged(
     assert "figures attached:" not in err  # no rollup for a small run
 
 
+async def test_figure_census_flushes_the_rollup_on_an_interrupted_read(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """B4 review: files past the cap defer their figure note to the rollup, so a read
+    abandoned mid-stream (a Ctrl-C, a downstream stop) must still flush it. The plain
+    ``census.finish()`` after the loop used to be skipped when the generator was closed
+    early, silencing every suppressed file's note; the try/finally now flushes it."""
+    import io
+    from collections.abc import AsyncGenerator
+    from pathlib import Path
+
+    from smartpipe.io import readers
+    from smartpipe.models.base import ImageData
+    from smartpipe.parsing import extract as extract_mod
+    from smartpipe.parsing.extract import EmbeddedImage, EmbeddedMedia, Extracted
+
+    assert isinstance(tmp_path, Path)
+    for i in range(50):
+        (tmp_path / f"doc{i:02d}.pdf").write_bytes(b"%PDF-1.4 tiny")
+
+    def fake_extract(path: object, kind: object) -> Extracted:
+        return Extracted(text="a genuine text layer " * 5)  # >64 chars: the plain branch
+
+    def fake_embedded(path: object) -> EmbeddedMedia:
+        img = ImageData(data=b"\x89PNGx", mime="image/png")
+        return EmbeddedMedia(images=(EmbeddedImage(image=img, where="p.1 img.1"),), dropped_small=0)
+
+    monkeypatch.setattr(readers, "extract", fake_extract)
+    monkeypatch.setattr(extract_mod, "embedded_images", fake_embedded)
+
+    names = "\n".join(str(tmp_path / f"doc{i:02d}.pdf") for i in range(50))
+    gen = readers.from_files_items(io.StringIO(names))
+    assert isinstance(gen, AsyncGenerator)  # narrow to the closable generator for aclose
+    for _ in range(6):  # pull past the 5-note cap: files 6+ suppressed, the rollup pending
+        await gen.__anext__()
+    await gen.aclose()  # abandon the stream before EOF — a Ctrl-C / downstream stop
+    err = capsys.readouterr().err
+    assert "note: figures attached: 6 files · 6 figures" in err  # the rollup survived the abandon
+
+
 # --- the kind census (wave 2, item 20) ---------------------------------------------
 
 
