@@ -65,6 +65,11 @@ async def run_outliers(
         request.input, stdin, stop=stop, ocr=ocr, budget=budget
     )
     items = [item async for item in items_iter]
+    if not items:
+        # A8 review: a belt-shortfall decline (or a genuinely empty corpus) reads
+        # nothing - exit 0 having spent zero, like cluster/distinct/top_k. A "needs
+        # at least 3 items" usage fault here would mislabel a run the user declined.
+        return outcome_exit_code(done=0, skipped=0, failed=0)
     if len(items) < 3:
         raise UsageFault("outliers needs at least 3 items to know what normal looks like")
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeVar, assert_never
 
 from smartpipe.core.errors import ExitCode, ItemError, UnsentError, UsageFault
 from smartpipe.engine.chunking import split_text
@@ -327,8 +327,10 @@ async def _run_pages(
 
                 manifest.abandon()
                 return outcome_exit_code(done=0, skipped=0, failed=0)
-            case _:
-                pass
+            case readers.OcrDecision.ROUTE | readers.OcrDecision.FALLBACK:
+                pass  # proceed to the page split below
+            case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                assert_never(unreachable)
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
     produced = 0
     skipped = 0

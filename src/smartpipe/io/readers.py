@@ -17,7 +17,7 @@ import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, NoReturn, assert_never
 
 from smartpipe.core.errors import (
     CircuitOpenTransport,
@@ -211,8 +211,10 @@ def resolve_items(
 
                     manifest.abandon()
                     return _iter_list(()), 0
-                case _:  # FALLBACK — not OCR's case; fall through to normal loading below
-                    pass
+                case OcrDecision.FALLBACK:
+                    pass  # not OCR's case — fall through to normal loading below
+                case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                    assert_never(unreachable)
         if _any_row_cut(paths, spec.as_mode):
             # Row-cut inputs stream one record at a time — no slurp, no fake total.
             chained = None if stdin.isatty() else stdin

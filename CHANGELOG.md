@@ -40,7 +40,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   joint math (`~N OCR pages through <ref> exceed --max-calls (M remaining)`) and
   prompts `proceed with a partial parse? [y/N]` before a cent is spent — exactly
   as the extraction preflight's `CONFIRM_PARTIAL` does. A decline abandons the
-  manifest and reads nothing (a clean exit 0, zero pages billed) rather than
+  manifest and reads nothing (a clean exit 0, zero pages billed; `outliers` now
+  treats the empty corpus as done like its `cluster`/`distinct`/`top_k` siblings
+  rather than raising a spurious "needs at least 3 items" usage fault) instead of
   falling through to a garbage binary read; a non-TTY run keeps today's
   disclose-and-proceed note; a corpus within the belt never asks. `ocr_preflight`
   now returns a typed `OcrDecision` (route/fallback/declined) instead of a bare
