@@ -11,8 +11,8 @@ class Smartpipe < Formula
 
   desc "Semantic pipes and queries for your terminal"
   homepage "https://prabal-rje.github.io/smartpipe"
-  url "https://files.pythonhosted.org/packages/a7/8a/8d46f4e4a80869f0a7a899e4edb2ec4a26cc66d90ecd337e8414c61f4c34/smartpipe_cli-1.5.0.tar.gz"
-  sha256 "eb3f77e7058c0b83fb747aabbb0c7903d4371ff186e16a46062228ee987da1ed"
+  url "https://files.pythonhosted.org/packages/d3/8c/ca1e7e7186cb02aa4387da782e07ef6d352f111f781bd6ab66ff485dd436/smartpipe_cli-1.5.1.tar.gz"
+  sha256 "d0ae09d8d70f939defb0ddeaa7afb7b8fa96a642c13fad1c26fa6c45b124af2c"
   license "Apache-2.0"
 
   depends_on "python@3.13"
