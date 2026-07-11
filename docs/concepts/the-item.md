@@ -114,7 +114,9 @@ bottom of each block; `--bare` (or `write` without `--keep-meta`) strips it.
 When an item reaches a model (`map`, `extend`, `filter`, `reduce`), its
 payload rides in an `<input>` block. A record renders as a minimal
 `key: value` block in its own field order - lists as `- ` rows, nesting
-indented - and plain text rides unchanged:
+indented. Ambiguous YAML strings are quoted, and XML-significant characters
+in records or plain text are escaped as literal data so input cannot close or
+forge the fence:
 
 ```text
 Summarize the ticket

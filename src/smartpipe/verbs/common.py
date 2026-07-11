@@ -4,9 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclasses_field
-from typing import TYPE_CHECKING, TypeVar, assert_never
+from typing import TYPE_CHECKING, Protocol, TypeVar, assert_never
 
-from smartpipe.core.errors import ExitCode, ItemError, TooManyFailures, UsageFault
+from smartpipe.core.errors import (
+    CircuitOpenTransport,
+    ExcludedError,
+    ExitCode,
+    ItemError,
+    LateSetupFault,
+    RetryableError,
+    SourceCounts,
+    TooManyFailures,
+    UnsentError,
+    UsageFault,
+)
 from smartpipe.engine.runner import (
     Done,
     FailurePolicy,
@@ -15,7 +26,7 @@ from smartpipe.engine.runner import (
     should_halt,
     should_halt_consecutive,
 )
-from smartpipe.io import diagnostics
+from smartpipe.io import diagnostics, source_accounting
 from smartpipe.models.base import AudioData, ImageData, MediaEmbeddingModel, VideoData
 from smartpipe.verbs.convert import AUDIO_NEEDS_TEXT, Converter
 
@@ -31,12 +42,12 @@ __all__ = [
     "AUDIO_NEEDS_TEXT",
     "EMBED_BATCH_SIZE",
     "IMAGE_NEEDS_MAP",
+    "ExecutionPolicySource",
     "GeometryFence",
     "ModelSlot",
     "Oversize",
     "WindowGate",
     "batched",
-    "breaker_policy",
     "embed_budget",
     "embed_in_batches",
     "ensure_text",
@@ -48,6 +59,7 @@ __all__ = [
     "note_native_once",
     "outcome_exit_code",
     "prepend",
+    "reset_run_disclosures",
     "resolve_schema",
     "row_embedder",
     "transcribe",
@@ -58,7 +70,12 @@ T = TypeVar("T")
 EMBED_BATCH_SIZE = 64  # texts per embed call on finite corpora (plan/post-1.0/06)
 
 
-_DEFAULT_BREAKER_LIMIT = 5  # consecutive transport failures before "provider looks down"
+class ExecutionPolicySource(Protocol):
+    """The composition-root execution policy shared by model-using verbs."""
+
+    def concurrency(self, flag: int | None = None) -> int: ...
+
+    def failure_policy(self, provider: str) -> FailurePolicy: ...
 
 
 @dataclass(slots=True)
@@ -114,48 +131,70 @@ def make_failover(
     return switch
 
 
-def breaker_policy(provider: str) -> FailurePolicy:
-    """The chat verbs' failure policy, circuit breaker armed (problems.md #6):
-    SMARTPIPE_BREAKER sets the consecutive-transport-failure threshold
-    (default 5, 0 disables), and the provider-down screen is rendered here so
-    the pure runner only ever raises it."""
-    import os
+def outcome_exit_code(
+    *,
+    done: int,
+    skipped: int,
+    failed: int = 0,
+    input_count: int | None = None,
+    partial: bool = False,
+    source_counts: SourceCounts | None = None,
+) -> ExitCode:
+    """0 = all ok · 1 = some skipped · 3 = every item failed (spec §12).
 
-    from smartpipe.cli import screens
-
-    raw = os.environ.get("SMARTPIPE_BREAKER", "").strip()
-    if not raw:
-        limit = _DEFAULT_BREAKER_LIMIT
-    elif raw.isdigit():
-        limit = int(raw)
-    else:
-        raise UsageFault(f"SMARTPIPE_BREAKER must be a whole number >= 0, got {raw!r}")
-    return FailurePolicy(
-        transport_limit=limit, transport_screen=screens.provider_down(provider, limit)
-    )
-
-
-def outcome_exit_code(*, done: int, skipped: int) -> ExitCode:
-    """0 = all ok · 1 = some skipped · 3 = every item failed (spec §12)."""
+    ``done``/``skipped`` remain the verb's stage outcome for its exit status.
+    A grouped source (for example one PDF yielding three OCR pages) supplies
+    ``source_counts`` so the manifest records the source once without making
+    page-level partial output look like an all-source failure.
+    """
     from smartpipe.io import manifest
 
-    manifest.record_counts(done=done, skipped=skipped)  # the --manifest funnel (item 65a)
-    if skipped == 0:
-        return ExitCode.OK
+    recorded = (
+        SourceCounts(succeeded=done, skipped=skipped, failed=failed)
+        if source_counts is None
+        else source_counts
+    )
+    manifest.record_counts(
+        done=recorded.succeeded,
+        skipped=recorded.skipped,
+        failed=recorded.failed,
+        input_count=recorded.total if source_counts is not None else input_count,
+    )
     if done == 0:
-        return ExitCode.ALL_FAILED
-    return ExitCode.PARTIAL
+        return ExitCode.ALL_FAILED if skipped else (ExitCode.PARTIAL if partial else ExitCode.OK)
+    return ExitCode.PARTIAL if skipped or partial else ExitCode.OK
 
 
-def interrupted_exit_code(*, done: int, skipped: int) -> ExitCode:
+def interrupted_exit_code(
+    *,
+    done: int,
+    skipped: int,
+    failed: int = 0,
+    input_count: int | None = None,
+    partial: bool = False,
+    source_counts: SourceCounts | None = None,
+) -> ExitCode:
     """After a drained Ctrl-C (ux.md §12): the run's normal outcome code — an
     interrupt doesn't mask partiality — except 130 when nothing finished at all."""
     if done == 0 and skipped == 0:
         from smartpipe.io import manifest
 
-        manifest.record_counts(done=0, skipped=0)
+        recorded = SourceCounts(0, 0, 0) if source_counts is None else source_counts
+        manifest.record_counts(
+            done=recorded.succeeded,
+            skipped=recorded.skipped,
+            failed=recorded.failed,
+            input_count=recorded.total if source_counts is not None else input_count,
+        )
         return ExitCode.INTERRUPTED
-    return outcome_exit_code(done=done, skipped=skipped)
+    return outcome_exit_code(
+        done=done,
+        skipped=skipped,
+        failed=failed,
+        input_count=input_count,
+        partial=partial,
+        source_counts=source_counts,
+    )
 
 
 async def prepend(first: Item, rest: AsyncIterator[Item]) -> AsyncIterator[Item]:
@@ -167,7 +206,7 @@ async def prepend(first: Item, rest: AsyncIterator[Item]) -> AsyncIterator[Item]
 
 IMAGE_NEEDS_MAP = "image items need map — this verb reads text"  # stage-7 wording, pinned
 
-_AMBIGUITY_CAP = 5  # ambiguous-date notes per process: first rows verbatim, then quiet
+_AMBIGUITY_CAP = 5  # ambiguous-date notes per invocation: first rows verbatim, then quiet
 _ambiguous_dates_seen = 0
 
 
@@ -299,11 +338,9 @@ def _merge(text: str, addition: str) -> str:
 
 
 def _whisper_detail() -> str:
-    import os
+    from smartpipe.parsing.extract import configured_whisper_size
 
-    from smartpipe.parsing.extract import whisper_size
-
-    return f"whisper {whisper_size(os.environ)}"
+    return f"whisper {configured_whisper_size()}"
 
 
 EMBED_BUDGET_TOKENS = 4_800  # 8k published minus the usual safety margin
@@ -325,6 +362,13 @@ class Oversize:
     estimate: int
     budget: int
     media_tokens: int = 0
+    model_name: str | None = None
+
+
+@dataclass(slots=True)
+class _WindowState:
+    budget: int
+    probe: asyncio.Future[int | None] | None = None
 
 
 @dataclass
@@ -341,40 +385,66 @@ class WindowGate:
     model_name: str
     overhead: int
     window: Callable[[], Awaitable[int | None]]
-    _budget: int | None = None
-    _probed: bool = False
+    _states: dict[tuple[str, str], _WindowState] = dataclasses_field(
+        default_factory=dict[tuple[str, str], _WindowState],
+        init=False,
+    )
 
     async def budget_for_oversized(
-        self, text: str, media: Sequence[MediaData] = ()
+        self,
+        text: str,
+        media: Sequence[MediaData] = (),
+        *,
+        provider: str | None = None,
+        model_name: str | None = None,
+        window: Callable[[], Awaitable[int | None]] | None = None,
     ) -> Oversize | None:
         """None when the item fits (no probe, no cost); else the estimate and
         the best-known budget."""
+        import asyncio
+
         from smartpipe.engine.chunking import budget_for, estimate_tokens, media_tokens
 
-        if self._budget is None:
-            self._budget = budget_for(self.provider, prompt_overhead=self.overhead)
+        effective_provider = self.provider if provider is None else provider
+        effective_model = self.model_name if model_name is None else model_name
+        effective_window = self.window if window is None else window
+        key = (effective_provider, effective_model)
+        state = self._states.get(key)
+        if state is None:
+            state = _WindowState(
+                budget=budget_for(effective_provider, prompt_overhead=self.overhead)
+            )
+            self._states[key] = state
         media_estimate = 0
         if media:
             from smartpipe.io import metering
 
-            media_estimate = media_tokens(media, self.provider, seconds_of=metering.clip_seconds)
+            media_estimate = media_tokens(
+                media,
+                effective_provider,
+                seconds_of=metering.clip_seconds,
+            )
         estimate = estimate_tokens(text) + media_estimate
-        if estimate <= self._budget:
+        if estimate <= state.budget:
             return None
-        if not self._probed:
-            self._probed = True
-            probed = await self.window()
-            if probed is not None:
-                widened = budget_for(self.provider, prompt_overhead=self.overhead, window=probed)
-                self._budget = max(self._budget, widened)
-        if estimate <= self._budget:
+        if state.probe is None:
+            state.probe = asyncio.ensure_future(effective_window())
+        probed = await asyncio.shield(state.probe)
+        if probed is not None:
+            widened = budget_for(
+                effective_provider,
+                prompt_overhead=self.overhead,
+                window=probed,
+            )
+            state.budget = max(state.budget, widened)
+        if estimate <= state.budget:
             return None
-        return Oversize(estimate, self._budget, media_estimate)
+        return Oversize(estimate, state.budget, media_estimate, effective_model)
 
     def refusal(self, over: Oversize) -> str:
         from smartpipe.verbs.oversize import refusal
 
-        return refusal(over.estimate, self.model_name, over.budget)
+        return refusal(over.estimate, over.model_name or self.model_name, over.budget)
 
 
 def resolve_schema(
@@ -411,7 +481,14 @@ def batched(items: Sequence[T], size: int) -> Iterator[tuple[T, ...]]:
     return (tuple(items[start : start + size]) for start in range(0, len(items), size))
 
 
-_native_noted = False  # one disclosure per process, not per item
+_native_noted = False  # one disclosure per invocation, not per item
+
+
+def reset_run_disclosures() -> None:
+    """Reset stderr disclosure caps at one invocation boundary."""
+    global _ambiguous_dates_seen, _native_noted
+    _ambiguous_dates_seen = 0
+    _native_noted = False
 
 
 def note_native_once(model: object) -> None:
@@ -495,33 +572,92 @@ async def embed_in_batches(
     *,
     failure_policy: FailurePolicy,
     batch_size: int = EMBED_BATCH_SIZE,
+    call_concurrency: int = 1,
     stop: asyncio.Event | None = None,
     transcriber: Callable[[AudioData], str] = transcribe,
     log: diagnostics.DegradationLog | None = None,
     converter: Converter | None = None,
     media_model: EmbeddingModel | None = None,
 ) -> AsyncIterator[ItemOutcome[tuple[Item, tuple[float, ...]]]]:
-    """Embed a finite corpus in ≤``batch_size`` chunks, sequentially (DEFER-3).
+    """Embed a finite corpus in ≤``batch_size`` chunks (DEFER-3).
 
-    Bypasses ``run_ordered`` on purpose — batching ≠ per-item workers: order
-    comes from sequential chunks, and isolation from the fallback (a failed
-    chunk re-runs item-by-item, so one poison item skips alone instead of
-    taking 63 neighbors with it). Accounting mirrors the runner's: majority
-    failure past ``min_sample`` halts with ``TooManyFailures``.
+    Up to ``call_concurrency`` batch API calls run at once while outcomes stay
+    input-ordered. A content-specific failed chunk re-runs item-by-item so one
+    poison item skips alone instead of taking its neighbors with it. Fatal
+    failures cancel sibling calls; accounting is applied only in input order.
     """
+    if call_concurrency < 1:
+        raise ValueError(f"call concurrency must be >= 1, got {call_concurrency}")
+    if stop is not None and stop.is_set():
+        return
+    import asyncio
+
     processed = 0
     skipped = 0
     consecutive = 0
     succeeded = False
+    sources = source_accounting.SourceCounter()
+    active_calls: list[tuple[list[Item], asyncio.Task[tuple[tuple[float, ...], ...]]]] = []
+    stopped_before_send = "run stopping — not sent"
+
+    def is_stopping() -> bool:
+        return stop is not None and stop.is_set()
+
+    def unsent(entry: Item, *, reason: str = stopped_before_send) -> Skipped:
+        return Skipped(entry.source.index, reason, entry.source, failed=False)
+
+    def unavailable(entry: Item, fault: RetryableError) -> Skipped:
+        return Skipped(
+            entry.source.index,
+            str(fault),
+            entry.source,
+            transport=True,
+            transport_series=fault.series_id,
+            transport_call=fault.call_id,
+            circuit_trip=(fault.trip_id if isinstance(fault, CircuitOpenTransport) else None),
+        )
+
+    def provider_down(failed_entries: Sequence[Item]) -> LateSetupFault:
+        """Settle an accepted finite corpus before surfacing provider exit 2."""
+        failed_sources = [entry.source for entry in failed_entries]
+        for batch, call in active_calls:
+            if not call.done() or call.cancelled():
+                continue
+            fault = call.exception()
+            if isinstance(fault, RetryableError):
+                failed_sources.extend(entry.source for entry in batch)
+        for remainder in items[processed:]:
+            sources.skip(
+                remainder.source,
+                failed=any(remainder.source == source for source in failed_sources),
+            )
+        return LateSetupFault(
+            failure_policy.transport_screen,
+            source_counts=sources.counts,
+        )
 
     def account_skip(reason: str) -> None:
         nonlocal skipped, consecutive
         skipped += 1
         consecutive += 1
         if should_halt(failure_policy, total=processed, skipped=skipped):
-            raise TooManyFailures(skipped, processed, reason)
+            for remainder in items[processed:]:
+                sources.skip(remainder.source, failed=False)
+            raise TooManyFailures(
+                skipped,
+                processed,
+                reason,
+                source_counts=sources.counts,
+            )
         if should_halt_consecutive(failure_policy, succeeded=succeeded, consecutive=consecutive):
-            raise TooManyFailures(skipped, processed, reason)
+            for remainder in items[processed:]:
+                sources.skip(remainder.source, failed=False)
+            raise TooManyFailures(
+                skipped,
+                processed,
+                reason,
+                source_counts=sources.counts,
+            )
 
     def account_done() -> None:
         nonlocal consecutive, succeeded
@@ -532,77 +668,220 @@ async def embed_in_batches(
 
     budget = embed_budget(model.ref.provider)
 
-    async def embed_batch(
+    async def finish_batch(
         batch: list[Item],
+        call: asyncio.Task[tuple[tuple[float, ...], ...]],
     ) -> AsyncIterator[ItemOutcome[tuple[Item, tuple[float, ...]]]]:
-        if not batch:
-            return
         try:
-            vectors = await model.embed([entry.text for entry in batch])
+            vectors = call.result()
             if len(vectors) != len(batch):
                 raise ItemError(f"endpoint returned {len(vectors)} vectors for {len(batch)} texts")
-        except ItemError:
+        except CircuitOpenTransport as fault:
+            raise provider_down(batch) from fault
+        except RetryableError as batch_error:
+            # One failed actual call had every batch member waiting behind it.
+            # Fan that one typed availability outcome to the waiters; retrying
+            # each text solo would multiply an exhausted retry ladder by K.
+            for entry in batch:
+                skip = unavailable(entry, batch_error)
+                account(skip)
+                yield skip
+            return
+        except ItemError as batch_error:
+            if isinstance(batch_error, UnsentError):
+                for entry in batch:
+                    skip = unsent(entry, reason=str(batch_error))
+                    account(skip)
+                    yield skip
+                return
             # the poison fallback (DEFER-3): re-run item-by-item so one bad item
             # skips alone — accounting runs BETWEEN calls so the D18 halt can
             # stop the spend mid-batch, not after it
-            for entry in batch:
-                if stop is not None and stop.is_set():
+            for position, entry in enumerate(batch):
+                if is_stopping():
+                    for remainder in batch[position:]:
+                        skip = unsent(remainder)
+                        account(skip)
+                        yield skip
                     return
                 try:
                     vector = (await model.embed([entry.text]))[0]
-                except ItemError as exc:
-                    skip = Skipped(entry.source.index, str(exc), entry.source)
+                except CircuitOpenTransport as fault:
+                    raise provider_down((entry,)) from fault
+                except RetryableError as fault:
+                    skip = unavailable(entry, fault)
                     account(skip)
                     yield skip
+                    for remainder in batch[position + 1 :]:
+                        rest = unsent(
+                            remainder,
+                            reason="provider unavailable — not sent after isolation stopped",
+                        )
+                        account(rest)
+                        yield rest
+                    return
+                except ItemError as exc:
+                    skip = Skipped(
+                        entry.source.index,
+                        str(exc),
+                        entry.source,
+                        failed=not isinstance(exc, (ExcludedError, UnsentError)),
+                    )
+                    account(skip)
+                    yield skip
+                    if isinstance(exc, UnsentError) or is_stopping():
+                        for remainder in batch[position + 1 :]:
+                            rest = unsent(remainder)
+                            account(rest)
+                            yield rest
+                        return
                 else:
                     done = Done(entry.source.index, (entry, vector))
                     account(done)
                     yield done
+                    if is_stopping():
+                        for remainder in batch[position + 1 :]:
+                            skip = unsent(remainder)
+                            account(skip)
+                            yield skip
+                        return
             return
         for entry, vector in zip(batch, vectors, strict=True):
             done = Done(entry.source.index, (entry, vector))
             account(done)
             yield done
 
+    async def embed_text_run(
+        entries: Sequence[Item],
+    ) -> AsyncIterator[ItemOutcome[tuple[Item, tuple[float, ...]]]]:
+        """Run batch calls concurrently and consume their outcomes in order."""
+        from collections import deque
+
+        batches = iter(list(batch) for batch in batched(entries, batch_size))
+        calls: deque[tuple[list[Item], asyncio.Task[tuple[tuple[float, ...], ...]]]] = deque()
+
+        def start_one() -> bool:
+            if is_stopping():
+                return False
+            try:
+                batch = next(batches)
+            except StopIteration:
+                return False
+            call = asyncio.create_task(model.embed([entry.text for entry in batch]))
+            calls.append((batch, call))
+            return True
+
+        for _slot in range(call_concurrency):
+            if not start_one():
+                break
+        try:
+            while calls:
+                batch, call = calls.popleft()
+                start_after_finish = False
+                try:
+                    await call
+                except CircuitOpenTransport:
+                    pass  # finish_batch maps it to the provider-down screen
+                except RetryableError:
+                    if not is_stopping():
+                        start_one()
+                except ItemError:
+                    # Poison isolation itself makes solo API calls, so it owns
+                    # this freed slot until the batch is fully isolated.
+                    start_after_finish = True
+                else:
+                    vectors = call.result()
+                    if len(vectors) == len(batch) and not is_stopping():
+                        start_one()
+                    else:
+                        start_after_finish = True
+                active_calls[:] = list(calls)
+                try:
+                    async for outcome in finish_batch(batch, call):
+                        yield outcome
+                finally:
+                    active_calls.clear()
+                if start_after_finish and not is_stopping():
+                    start_one()
+            for batch in batches:
+                for entry in batch:
+                    skip = unsent(entry)
+                    account(skip)
+                    yield skip
+        finally:
+            for _batch, call in calls:
+                call.cancel()
+            await asyncio.gather(
+                *(call for _batch, call in calls),
+                return_exceptions=True,
+            )
+
     async def pooled(entry: Item) -> ItemOutcome[tuple[Item, tuple[float, ...]]]:
         # D26: one text past the embedding window — embed its chunks, mean-pool
         try:
             vectors = await model.embed(list(split_text(entry.text, budget)))
+        except CircuitOpenTransport as fault:
+            raise provider_down((entry,)) from fault
+        except RetryableError as fault:
+            return unavailable(entry, fault)
         except ItemError as exc:
-            return Skipped(entry.source.index, str(exc), entry.source)
+            return Skipped(
+                entry.source.index,
+                str(exc),
+                entry.source,
+                failed=not isinstance(exc, (ExcludedError, UnsentError)),
+            )
         return Done(entry.source.index, (entry, mean_pool(vectors)))
 
     def account(outcome: ItemOutcome[tuple[Item, tuple[float, ...]]]) -> None:
         nonlocal processed
         processed += 1
         if isinstance(outcome, Done):
+            sources.done(outcome.value[0].source)
             account_done()
         else:
-            account_skip(outcome.reason)
-
-    async def _drain(
-        outcomes: AsyncIterator[ItemOutcome[tuple[Item, tuple[float, ...]]]],
-    ) -> list[ItemOutcome[tuple[Item, tuple[float, ...]]]]:
-        return [outcome async for outcome in outcomes]
+            sources.skip(outcome.source, failed=outcome.failed)
+            if outcome.failed and not outcome.transport:
+                account_skip(outcome.reason)
 
     pending: list[Item] = []
     for item in items:
-        if stop is not None and stop.is_set():
-            return
+        if is_stopping():
+            skip = unsent(item)
+            account(skip)
+            yield skip
+            continue
         if item.media:
             effective = media_embedder(model, media_model)
             native = native_route(item, effective)
             if native is not None:
                 narrowed, image = native
                 # D39/04: the embedder takes images natively — no captions
-                for outcome in await _drain(embed_batch(pending)):
+                async for outcome in embed_text_run(pending):
                     yield outcome
                 pending = []
+                if is_stopping():
+                    skip = unsent(item)
+                    account(skip)
+                    yield skip
+                    continue
                 note_native_once(effective)
                 try:
                     vectors = await narrowed.embed_parts([image])
+                except CircuitOpenTransport as fault:
+                    raise provider_down((item,)) from fault
+                except RetryableError as fault:
+                    skip = unavailable(item, fault)
+                    account(skip)
+                    yield skip
+                    continue
                 except ItemError as exc:
-                    skip = Skipped(item.source.index, str(exc), item.source)
+                    skip = Skipped(
+                        item.source.index,
+                        str(exc),
+                        item.source,
+                        failed=not isinstance(exc, (ExcludedError, UnsentError)),
+                    )
                     account(skip)
                     yield skip
                     continue
@@ -615,13 +894,30 @@ async def embed_in_batches(
                 from smartpipe.verbs.convert import embed_video_halves
 
                 # flush first so stdout order stays input order, then the halves
-                for outcome in await _drain(embed_batch(pending)):
+                async for outcome in embed_text_run(pending):
                     yield outcome
                 pending = []
+                if is_stopping():
+                    skip = unsent(item)
+                    account(skip)
+                    yield skip
+                    continue
                 try:
                     converted, vector = await embed_video_halves(model, item, video, converter)
+                except CircuitOpenTransport as fault:
+                    raise provider_down((item,)) from fault
+                except RetryableError as fault:
+                    skip = unavailable(item, fault)
+                    account(skip)
+                    yield skip
+                    continue
                 except ItemError as exc:
-                    skip = Skipped(item.source.index, str(exc), item.source)
+                    skip = Skipped(
+                        item.source.index,
+                        str(exc),
+                        item.source,
+                        failed=not isinstance(exc, (ExcludedError, UnsentError)),
+                    )
                     account(skip)
                     yield skip
                     continue
@@ -633,24 +929,54 @@ async def embed_in_batches(
                 item = await ensure_text(
                     item, transcriber=transcriber, log=log, converter=converter
                 )
+            except CircuitOpenTransport as fault:
+                async for outcome in embed_text_run(pending):
+                    yield outcome
+                pending = []
+                raise provider_down((item,)) from fault
+            except RetryableError as fault:
+                async for outcome in embed_text_run(pending):
+                    yield outcome
+                pending = []
+                skip = unavailable(item, fault)
+                account(skip)
+                yield skip
+                continue
             except ItemError as exc:
-                skip = Skipped(item.source.index, str(exc), item.source)
+                async for outcome in embed_text_run(pending):
+                    yield outcome
+                pending = []
+                skip = Skipped(
+                    item.source.index,
+                    str(exc),
+                    item.source,
+                    failed=not isinstance(exc, (ExcludedError, UnsentError)),
+                )
+                account(skip)
+                yield skip
+                continue
+            if is_stopping():
+                async for outcome in embed_text_run(pending):
+                    yield outcome
+                pending = []
+                skip = unsent(item)
                 account(skip)
                 yield skip
                 continue
         if estimate_tokens(item.text) > budget:
             # flush first so stdout order stays input order, then pool this one
-            async for outcome in embed_batch(pending):
+            async for outcome in embed_text_run(pending):
                 yield outcome
             pending = []
+            if is_stopping():
+                skip = unsent(item)
+                account(skip)
+                yield skip
+                continue
             pooled_outcome = await pooled(item)
             account(pooled_outcome)
             yield pooled_outcome
             continue
         pending.append(item)
-        if len(pending) >= batch_size:
-            async for outcome in embed_batch(pending):
-                yield outcome
-            pending = []
-    async for outcome in embed_batch(pending):
+    async for outcome in embed_text_run(pending):
         yield outcome

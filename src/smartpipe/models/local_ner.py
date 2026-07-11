@@ -143,6 +143,7 @@ class GlinerEntityFinder:
     ``EntitySpan``s out. Synchronous CPU compute — callers ``to_thread`` it."""
 
     labels: tuple[str, ...]
+    precision: str = "q8"
     threshold: float = _THRESHOLD
     window_words: int = MAX_TEXT_WORDS
     engine: NerEngine | None = field(default=None, repr=False)  # injected in tests
@@ -200,18 +201,16 @@ class GlinerEntityFinder:
     def _load(self) -> NerEngine:
         if self.engine is not None:
             return self.engine  # loaded once, reused for every window
-        import os
 
-        precision = ner_precision(os.environ)
         global _announced
         if not _announced:
             _announced = True
-            size = _MODEL_FILES[precision][1]
+            size = _MODEL_FILES[self.precision][1]
             diagnostics.note(
-                f"local NER: gliner-small v2.1 ({precision}) on CPU "
+                f"local NER: gliner-small v2.1 ({self.precision}) on CPU "
                 f"(first use downloads {size}, once)"
             )
-        self.engine = _load_engine(precision)
+        self.engine = _load_engine(self.precision)
         return self.engine
 
 

@@ -106,6 +106,10 @@ def _console(buffer: StringIO, *, color: bool) -> Console:
         force_interactive=False,
         no_color=not color,
         width=_UNWRAPPED_WIDTH,
+        # Rich intentionally forces TERM=dumb consoles to 80x25 unless both
+        # dimensions are explicit. These render to an in-memory buffer and are
+        # contractually unwrapped, so pin the otherwise irrelevant height too.
+        height=25,
         highlight=False,
         markup=False,
         emoji=False,

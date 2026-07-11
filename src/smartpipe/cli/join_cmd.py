@@ -115,8 +115,13 @@ __all__ = ["join_command"]
     show_default=True,
     help="Output format.",
 )
-@click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel left items.")
-@click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
+@click.option(
+    "--max-calls",
+    "max_calls",
+    type=int,
+    help="Stop after N billable units (model calls; dedicated OCR pages).",
+)
 @manifest_option
 @fields_option
 @click.option(

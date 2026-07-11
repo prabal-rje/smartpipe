@@ -13,11 +13,15 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, RetryableError, SetupFault, TransportError
 from smartpipe.core.jsontools import as_float_vector, as_items, as_record
 from smartpipe.io import metering
 from smartpipe.models.base import ImageData
-from smartpipe.models.http_support import is_retryable_http, retry_after_seconds
+from smartpipe.models.http_support import (
+    decode_json_response,
+    is_retryable_http,
+    retry_after_seconds,
+)
 from smartpipe.models.retry import RetryPolicy, with_retries
 
 if TYPE_CHECKING:
@@ -77,7 +81,7 @@ class JinaClipEmbeddingModel:
                 f"{self.base_url}{path}", json=payload, headers=headers
             )
             response.raise_for_status()
-            return response.json()
+            return decode_json_response(response, provider="Jina")
 
         try:
             return await with_retries(
@@ -88,11 +92,16 @@ class JinaClipEmbeddingModel:
             )
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
+            detail = exc.response.text[:200]
             if status in (401, 403):
                 raise SetupFault(
                     "error: Jina rejected the API key\n"
                     "  Set JINA_API_KEY (https://jina.ai) and retry."
                 ) from exc
-            raise ItemError(f"jina error {status}: {exc.response.text[:200]}") from exc
+            if status == 429:
+                raise RetryableError(f"jina error {status}: {detail}") from exc
+            if status >= 500:
+                raise TransportError(f"jina error {status}: {detail}") from exc
+            raise ItemError(f"jina error {status}: {detail}") from exc
         except httpx.HTTPError as exc:
-            raise ItemError(f"jina request failed ({exc})") from exc
+            raise TransportError(f"jina request failed ({exc})") from exc

@@ -10,8 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ItemError
+from smartpipe.core.errors import ItemError, is_recoverable_item_error
 from smartpipe.engine.schema import validate_and_coerce
+from smartpipe.io.readers import OcrIngest
 from smartpipe.models.base import AudioData, CompletionRequest, ImageData, VideoData
 
 if TYPE_CHECKING:
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.models.base import ChatModel, EmbeddingModel
     from smartpipe.models.ocr import DocumentParser
-    from smartpipe.models.stt import RemoteTranscriber
+    from smartpipe.models.stt import Transcriber
 
 __all__ = ["IMAGE_NEEDS_CAPTION", "Converter", "embed_video_halves", "make_converter"]
 
@@ -67,8 +68,8 @@ class Converter:
     chat: ChatModel | None  # None: no model resolvable — lower rungs only
     allow_paid: bool  # --allow-captions
     log: DegradationLog
-    stt: RemoteTranscriber | None = None  # the stt-model role (D39/05): verbatim rung 0
-    ocr: DocumentParser | None = None  # the ocr-model role (item 40): outranks vision-chat
+    stt: Transcriber | None = None  # the stt-model role (D39/05): verbatim rung 0
+    ocr: DocumentParser | OcrIngest | None = None  # configured role outranks vision-chat
 
     def _meter_paid(self) -> None:
         from smartpipe.io import metering
@@ -92,10 +93,13 @@ class Converter:
         if self.stt is not None and self.allow_paid:
             try:
                 transcript = await self.stt.transcribe(audio)
-            except ItemError:
+            except ItemError as fault:
+                if not is_recoverable_item_error(fault):
+                    raise
                 transcript = ""  # the wire hiccuped — the ladder continues below
             if transcript:
-                self._meter_paid()
+                # Remote STT meters at its provider boundary. Using the chat
+                # ref here misclassified the spend (and could double-count it).
                 self.log.note(
                     where,
                     "audio → text",
@@ -115,20 +119,21 @@ class Converter:
                         frequency_penalty=0.5,
                     )
                 )
-            except ItemError:
+            except ItemError as fault:
+                if not is_recoverable_item_error(fault):
+                    raise
                 text = None  # the model can't hear — fall through to whisper
             if text is not None and text.strip():
                 self._meter_paid()
                 self.log.note(where, "audio → text", f"heard by {self._rung_name()}")
                 return text.strip()
         import asyncio
-        import os
 
-        from smartpipe.parsing.extract import whisper_size
+        from smartpipe.parsing.extract import configured_whisper_size
 
         transcript = await asyncio.to_thread(_whisper_or_skip, audio)
 
-        self.log.note(where, "audio → text", f"whisper {whisper_size(os.environ)}")
+        self.log.note(where, "audio → text", f"whisper {configured_whisper_size()}")
         return transcript
 
     async def video_halves(self, video: VideoData, where: str) -> tuple[str | None, str | None]:
@@ -156,8 +161,9 @@ class Converter:
                     self._meter_paid()
                     self.log.note(where, "video → text", f"watched by {self._rung_name()}")
                     return visual, speech
-            except ItemError:
-                pass  # this wire can't watch — the refusal cost nothing
+            except ItemError as fault:
+                if not is_recoverable_item_error(fault):
+                    raise
         import asyncio
 
         from smartpipe.parsing.extract import video_to_parts
@@ -189,8 +195,14 @@ class Converter:
         LLM rung → nothing: there is no free non-LLM rung for images."""
         if self.ocr is not None:
             try:
-                read = await self.ocr.parse_image(image)
-            except ItemError:
+                read = (
+                    await self.ocr.parse_conversion_image(image, where)
+                    if isinstance(self.ocr, OcrIngest)
+                    else await self.ocr.parse_image(image)
+                )
+            except ItemError as fault:
+                if not is_recoverable_item_error(fault):
+                    raise
                 read = ""  # the parser hiccuped — the vision-chat rung continues below
             if read.strip():
                 self.log.note(where, "image → text", f"parsed by {self.ocr.ref}")
@@ -257,7 +269,7 @@ def make_converter(
     *,
     allow_paid: bool,
     log: DegradationLog,
-    stt: RemoteTranscriber | None = None,
-    ocr: DocumentParser | None = None,
+    stt: Transcriber | None = None,
+    ocr: DocumentParser | OcrIngest | None = None,
 ) -> Converter:
     return Converter(chat=chat, allow_paid=allow_paid, log=log, stt=stt, ocr=ocr)

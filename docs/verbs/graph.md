@@ -3,7 +3,8 @@
 Point `graph` at a folder of mixed files and get back who and what connects,
 as weighted edges with a source citation on every one. `--fast` does it with
 **zero model calls** - a local NER model finds the entities, co-occurrence
-draws the edges, and nothing leaves the machine.
+draws the edges, and corpus data stays on the machine. First use may download
+the local model weights.
 
 ![The interactive HTML view: colored entity nodes sized by mentions, with a hovered edge showing its per-file provenance card](../assets/graph-hero.png)
 

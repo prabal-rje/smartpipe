@@ -86,7 +86,12 @@ __all__ = ["graph_command"]
     help="Model for the extraction/naming calls (e.g. ollama/qwen3:8b).",
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
-@click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@click.option(
+    "--max-calls",
+    "max_calls",
+    type=int,
+    help="Stop after N billable units (model calls; dedicated OCR pages).",
+)
 @manifest_option
 @ocr_model_option
 @input_options
@@ -125,8 +130,8 @@ def graph_command(
     "sources"} — sorted heaviest first, with spine-ref provenance on every
     edge. --fast finds the entities you name with a local NER model (one
     ~190 MB download, then free forever), folds near-duplicate names, and
-    counts co-occurrence inside --window. Zero model calls; nothing leaves
-    the machine.
+    counts co-occurrence inside --window. Zero model calls; corpus data stays
+    on the machine.
 
     \b
     The model-read modes (spend, belted by --max-calls):

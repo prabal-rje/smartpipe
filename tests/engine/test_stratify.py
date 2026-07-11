@@ -18,9 +18,15 @@ def test_largest_remainder_takes_the_leftover_slot() -> None:
     assert allocate(10, {"a": 5, "b": 5, "c": 2}) == {"a": 4, "b": 4, "c": 2}
 
 
-def test_remainder_ties_break_by_first_seen_order() -> None:
-    assert allocate(5, {"a": 3, "b": 3}) == {"a": 3, "b": 2}
-    assert allocate(5, {"b": 3, "a": 3}) == {"b": 3, "a": 2}
+def test_remainder_ties_use_seeded_order_not_first_seen_order() -> None:
+    forward = allocate(5, {"a": 3, "b": 3}, seed=9)
+    reverse = allocate(5, {"b": 3, "a": 3}, seed=9)
+    assert forward == reverse
+    winners = {
+        next(key for key, count in allocate(5, {"a": 3, "b": 3}, seed=seed).items() if count == 3)
+        for seed in range(32)
+    }
+    assert winners == {"a", "b"}
 
 
 def test_a_request_covering_everything_takes_everything() -> None:

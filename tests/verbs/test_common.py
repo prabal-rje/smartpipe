@@ -14,6 +14,15 @@ def test_outcome_exit_code() -> None:
     assert outcome_exit_code(done=0, skipped=0) == ExitCode.OK  # empty input is success
 
 
+def test_outcome_tracks_attempted_failures_without_copying_all_skips() -> None:
+    assert outcome_exit_code(done=2, skipped=3, failed=1) is ExitCode.PARTIAL
+    assert outcome_exit_code(done=2, skipped=0, partial=True) is ExitCode.PARTIAL
+    with pytest.raises(ValueError, match="failed cannot exceed skipped"):
+        outcome_exit_code(done=2, skipped=1, failed=2)
+    with pytest.raises(ValueError, match="input count"):
+        outcome_exit_code(done=2, skipped=1, input_count=4)
+
+
 def test_interrupted_exit_code_preserves_outcome() -> None:
     assert interrupted_exit_code(done=2, skipped=0) == ExitCode.OK
     assert interrupted_exit_code(done=1, skipped=1) == ExitCode.PARTIAL

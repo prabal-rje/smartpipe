@@ -23,7 +23,7 @@ from smartpipe.core.errors import UsageFault
 from smartpipe.engine.fieldpath import MISSING, lookup
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterable, Mapping
 
 __all__ = [
     "AgreementStats",
@@ -40,7 +40,7 @@ class LabelFile:
     """One side of the comparison: a name (for messages) and its records."""
 
     name: str
-    records: tuple[Mapping[str, object], ...]
+    records: Iterable[Mapping[str, object]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,13 +78,23 @@ def canonical_label(value: object) -> str | None:
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
-def agreement(pairs: Sequence[tuple[str, str]]) -> AgreementStats:
+def agreement(pairs: Iterable[tuple[str, str]]) -> AgreementStats:
     """The coefficients for aligned label pairs (side A first)."""
-    n = len(pairs)
-    cells = Counter(pairs)
+    cells: Counter[tuple[str, str]] = Counter()
+    n = 0
+    for pair in pairs:
+        cells[pair] += 1
+        n += 1
+    if n == 0:
+        raise ValueError("agreement needs at least one comparable pair")
+    return _agreement_from_cells(cells, n)
+
+
+def _agreement_from_cells(cells: Mapping[tuple[str, str], int], n: int) -> AgreementStats:
+    """Coefficient calculation from online confusion counts."""
     matches = sum(count for (a, b), count in cells.items() if a == b)
     observed = matches / n
-    labels = tuple(sorted({label for pair in pairs for label in pair}))
+    labels = tuple(sorted({label for pair in cells for label in pair}))
     matrix = tuple(
         (a, b, count)
         for (a, b), count in sorted(cells.items(), key=lambda item: (-item[1], item[0]))
@@ -134,27 +144,142 @@ def _krippendorff_alpha_nominal(cells: Mapping[tuple[str, str], int], n: int) ->
 
 
 def compare_labels(a: LabelFile, b: LabelFile, *, on: str | None, label: str) -> Comparison:
-    """Align two label files, extract labels, and score the agreement."""
-    _require_label_somewhere(a, label)
-    _require_label_somewhere(b, label)
+    """Align and score online: row-order streams both; key mode indexes B."""
     if on is None:
-        aligned = _align_by_order(a, b)
-        missing_key_a = missing_key_b = only_a = only_b = 0
-    else:
-        aligned, only_a, only_b, missing_key_a, missing_key_b = _align_by_key(a, b, on)
-    pairs: list[tuple[str, str]] = []
+        return _compare_by_order(a, b, label)
+    return _compare_by_key(a, b, on, label)
+
+
+def _compare_by_order(a: LabelFile, b: LabelFile, label: str) -> Comparison:
+    iterator_a = iter(a.records)
+    iterator_b = iter(b.records)
+    census_a: Counter[str] = Counter()
+    census_b: Counter[str] = Counter()
+    label_seen_a = label_seen_b = False
+    cells: Counter[tuple[str, str]] = Counter()
     unlabeled_a = unlabeled_b = 0
-    for record_a, record_b in aligned:
-        label_a = canonical_label(lookup(record_a, label))
-        label_b = canonical_label(lookup(record_b, label))
-        if label_a is None:
-            unlabeled_a += 1
-        if label_b is None:
-            unlabeled_b += 1
-        if label_a is None or label_b is None:
+    count = 0
+    while True:
+        record_a = next(iterator_a, None)
+        record_b = next(iterator_b, None)
+        if record_a is None or record_b is None:
+            count_a = count + (0 if record_a is None else 1) + sum(1 for _ in iterator_a)
+            count_b = count + (0 if record_b is None else 1) + sum(1 for _ in iterator_b)
+            if count_a != count_b:
+                raise UsageFault(
+                    f"agree: {a.name} has {_rows(count_a)}, {b.name} has "
+                    f"{_rows(count_b)} - row-order alignment needs equal counts\n"
+                    "  Give both files a shared key column and align on it: --on id"
+                )
+            break
+        count += 1
+        census_a.update(record_a.keys())
+        census_b.update(record_b.keys())
+        value_a = lookup(record_a, label)
+        value_b = lookup(record_b, label)
+        label_seen_a = label_seen_a or value_a is not MISSING
+        label_seen_b = label_seen_b or value_b is not MISSING
+        missing_a, missing_b = _add_pair(cells, value_a, value_b)
+        unlabeled_a += missing_a
+        unlabeled_b += missing_b
+    _require_label_somewhere(a.name, label, label_seen_a, census_a)
+    _require_label_somewhere(b.name, label, label_seen_b, census_b)
+    return _comparison(
+        a,
+        b,
+        label,
+        cells,
+        only_a=0,
+        only_b=0,
+        missing_key_a=0,
+        missing_key_b=0,
+        unlabeled_a=unlabeled_a,
+        unlabeled_b=unlabeled_b,
+    )
+
+
+def _compare_by_key(a: LabelFile, b: LabelFile, on: str, label: str) -> Comparison:
+    keyed_b: dict[str, Mapping[str, object]] = {}
+    census_b: Counter[str] = Counter()
+    label_seen_b = False
+    missing_key_b = 0
+    for record in b.records:
+        census_b.update(record.keys())
+        label_seen_b = label_seen_b or lookup(record, label) is not MISSING
+        key = canonical_label(lookup(record, on))
+        if key is None:
+            missing_key_b += 1
             continue
-        pairs.append((label_a, label_b))
-    if not pairs:
+        if key in keyed_b:
+            _duplicate_key(b.name, on, key)
+        keyed_b[key] = record
+
+    seen_a: set[str] = set()
+    census_a: Counter[str] = Counter()
+    label_seen_a = False
+    missing_key_a = only_a = unlabeled_a = unlabeled_b = 0
+    cells: Counter[tuple[str, str]] = Counter()
+    for record_a in a.records:
+        census_a.update(record_a.keys())
+        label_seen_a = label_seen_a or lookup(record_a, label) is not MISSING
+        key = canonical_label(lookup(record_a, on))
+        if key is None:
+            missing_key_a += 1
+            continue
+        if key in seen_a:
+            _duplicate_key(a.name, on, key)
+        seen_a.add(key)
+        record_b = keyed_b.pop(key, None)
+        if record_b is None:
+            only_a += 1
+            continue
+        missing_a, missing_b = _add_pair(
+            cells,
+            lookup(record_a, label),
+            lookup(record_b, label),
+        )
+        unlabeled_a += missing_a
+        unlabeled_b += missing_b
+
+    _require_label_somewhere(a.name, label, label_seen_a, census_a)
+    _require_label_somewhere(b.name, label, label_seen_b, census_b)
+    return _comparison(
+        a,
+        b,
+        label,
+        cells,
+        only_a=only_a,
+        only_b=len(keyed_b),
+        missing_key_a=missing_key_a,
+        missing_key_b=missing_key_b,
+        unlabeled_a=unlabeled_a,
+        unlabeled_b=unlabeled_b,
+    )
+
+
+def _add_pair(cells: Counter[tuple[str, str]], value_a: object, value_b: object) -> tuple[int, int]:
+    label_a = canonical_label(value_a)
+    label_b = canonical_label(value_b)
+    if label_a is not None and label_b is not None:
+        cells[label_a, label_b] += 1
+    return int(label_a is None), int(label_b is None)
+
+
+def _comparison(
+    a: LabelFile,
+    b: LabelFile,
+    label: str,
+    cells: Counter[tuple[str, str]],
+    *,
+    only_a: int,
+    only_b: int,
+    missing_key_a: int,
+    missing_key_b: int,
+    unlabeled_a: int,
+    unlabeled_b: int,
+) -> Comparison:
+    n = sum(cells.values())
+    if n == 0:
         raise UsageFault(
             f"agree: no comparable pairs between {a.name} and {b.name}\n"
             "  Every aligned row was excluded (keys on one side only, or missing "
@@ -162,7 +287,7 @@ def compare_labels(a: LabelFile, b: LabelFile, *, on: str | None, label: str) ->
             "  Check --on and --label against the files' actual fields."
         )
     return Comparison(
-        stats=agreement(pairs),
+        stats=_agreement_from_cells(cells, n),
         only_a=only_a,
         only_b=only_b,
         missing_key_a=missing_key_a,
@@ -172,53 +297,19 @@ def compare_labels(a: LabelFile, b: LabelFile, *, on: str | None, label: str) ->
     )
 
 
-def _align_by_order(
-    a: LabelFile, b: LabelFile
-) -> list[tuple[Mapping[str, object], Mapping[str, object]]]:
-    if len(a.records) != len(b.records):
-        raise UsageFault(
-            f"agree: {a.name} has {_rows(len(a.records))}, {b.name} has "
-            f"{_rows(len(b.records))} - row-order alignment needs equal counts\n"
-            "  Give both files a shared key column and align on it: --on id"
-        )
-    return list(zip(a.records, b.records, strict=True))
+def _duplicate_key(name: str, on: str, key: str) -> None:
+    raise UsageFault(
+        f"agree: duplicate key {key!r} in {name} - --on '{on}' must identify each row uniquely"
+    )
 
 
-def _align_by_key(
-    a: LabelFile, b: LabelFile, on: str
-) -> tuple[list[tuple[Mapping[str, object], Mapping[str, object]]], int, int, int, int]:
-    keyed_a, missing_a = _key_map(a, on)
-    keyed_b, missing_b = _key_map(b, on)
-    aligned = [(record_a, keyed_b[key]) for key, record_a in keyed_a.items() if key in keyed_b]
-    shared = sum(1 for key in keyed_a if key in keyed_b)
-    return aligned, len(keyed_a) - shared, len(keyed_b) - shared, missing_a, missing_b
-
-
-def _key_map(side: LabelFile, on: str) -> tuple[dict[str, Mapping[str, object]], int]:
-    keyed: dict[str, Mapping[str, object]] = {}
-    missing = 0
-    for record in side.records:
-        key = canonical_label(lookup(record, on))
-        if key is None:
-            missing += 1
-            continue
-        if key in keyed:
-            raise UsageFault(
-                f"agree: duplicate key {key!r} in {side.name} - "
-                f"--on '{on}' must identify each row uniquely"
-            )
-        keyed[key] = record
-    return keyed, missing
-
-
-def _require_label_somewhere(side: LabelFile, label: str) -> None:
+def _require_label_somewhere(name: str, label: str, seen_label: bool, census: Counter[str]) -> None:
     """Fault with a field census when NO row of a side carries the label."""
-    if any(lookup(record, label) is not MISSING for record in side.records):
+    if seen_label:
         return
-    census: Counter[str] = Counter(field for record in side.records for field in record)
     seen = ", ".join(f"{name} ({count})" for name, count in _census_order(census))
     raise UsageFault(
-        f"agree: no field '{label}' in {side.name}\n"
+        f"agree: no field '{label}' in {name}\n"
         f"  Fields seen: {seen or '(no records)'}\n"
         "  Name the label field: --label FIELD"
     )

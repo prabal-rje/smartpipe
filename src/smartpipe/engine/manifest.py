@@ -23,13 +23,22 @@ MANIFEST_VERSION = 1
 
 @dataclass(frozen=True, slots=True)
 class ItemCounts:
-    """End-of-run item accounting. smartpipe's runner turns every per-item
-    failure into a skip-and-warn (never a crash), so ``skipped`` and
-    ``failed`` name the same rows today - both ride the manifest so its
-    schema stays stable if the taxonomy ever splits them."""
+    """End-of-run source-item accounting.
+
+    ``skipped`` is every consumed input not represented successfully. ``failed``
+    is the subset that was actually attempted and failed; an excluded row or an
+    unattempted belt remainder is skipped without being called failed.
+    """
 
     succeeded: int
     skipped: int
+    failed: int = 0
+
+    def __post_init__(self) -> None:
+        if self.succeeded < 0 or self.skipped < 0 or self.failed < 0:
+            raise ValueError("manifest item counts cannot be negative")
+        if self.failed > self.skipped:
+            raise ValueError("failed cannot exceed skipped")
 
     @property
     def total(self) -> int:
@@ -78,7 +87,7 @@ def build_manifest(
                 "in": counts.total,
                 "succeeded": counts.succeeded,
                 "skipped": counts.skipped,
-                "failed": counts.skipped,
+                "failed": counts.failed,
             }
         ),
         "receipt": {

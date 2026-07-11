@@ -11,6 +11,7 @@ import pytest
 
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
 from smartpipe.engine.graphkg import EntitySpan
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.inputs import InputSpec
 from smartpipe.verbs.graph import DEFAULT_ENTITIES, GraphRequest, parse_entities, run_graph
 
@@ -102,6 +103,10 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        del provider
+        return FailurePolicy()
+
 
 def _context(
     known: dict[str, str] | None = None,
@@ -148,6 +153,20 @@ async def test_save_extension_refuses_before_any_work() -> None:
     context = _context(PEOPLE)
     with pytest.raises(UsageFault, match="--save"):
         await _run(GraphRequest(fast=True, save="graph.xlsx"), context, "Ann met Bob\n")
+
+
+async def test_concurrency_is_configured_before_mode_work() -> None:
+    class InvalidConcurrency(FakeContext):
+        def concurrency(self, flag: int | None = None) -> int:
+            raise UsageFault("invalid concurrency")
+
+    base = _context(PEOPLE)
+    context = InvalidConcurrency(base.finder, base.embedder)
+
+    with pytest.raises(UsageFault, match="invalid concurrency"):
+        await _run(GraphRequest(fast=True), context, "Ann met Bob\n")
+
+    assert context.finder.calls == []
     assert context.finder.calls == []  # the refusal landed before the grind
 
 
@@ -316,6 +335,16 @@ async def test_image_only_items_get_one_census_note(
     assert len([json.loads(line) for line in out.splitlines()]) == 1
 
 
+async def test_all_image_only_items_exit_nonzero() -> None:
+    import base64
+
+    pixel = base64.b64encode(b"px").decode()
+    record = json.dumps({"__media": {"kind": "image", "mime": "image/png", "data_b64": pixel}})
+    code, out = await _run(GraphRequest(fast=True), _context(PEOPLE), f"{record}\n{record}\n")
+    assert code is ExitCode.ALL_FAILED
+    assert out == ""
+
+
 async def test_audio_items_ride_the_local_whisper_rung() -> None:
     import base64
 
@@ -429,6 +458,56 @@ async def test_save_csv_writes_the_pair_side_by_side(
     assert nodes.startswith("id,label,count\n")
     assert edges.startswith("source,target,relation,weight\n")
     assert "graph saved:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("save_name", "manifest_name"),
+    (
+        ("g.graphml", "g.graphml"),
+        ("g.csv", "g.nodes.csv"),
+        ("g.csv", "g.edges.csv"),
+    ),
+)
+async def test_every_static_save_output_refuses_a_manifest_alias_before_work(
+    tmp_path: Path,
+    save_name: str,
+    manifest_name: str,
+) -> None:
+    from smartpipe.io import manifest
+
+    target = tmp_path / manifest_name
+    original = "irreplaceable manifest\n"
+    target.write_text(original, encoding="utf-8")
+    manifest.reset()
+    manifest.begin(target, verb="graph", argv=("graph",))
+    context = _context(PEOPLE)
+
+    with pytest.raises(UsageFault, match="aliases --save output"):
+        await _run(_save_request(str(tmp_path / save_name)), context, CORPUS)
+
+    assert context.finder.calls == []
+    assert target.read_text(encoding="utf-8") == original
+
+
+async def test_vault_save_refuses_a_manifest_inside_its_output_tree_before_work(
+    tmp_path: Path,
+) -> None:
+    from smartpipe.io import manifest
+
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    target = vault / "index.md"
+    original = "irreplaceable manifest\n"
+    target.write_text(original, encoding="utf-8")
+    manifest.reset()
+    manifest.begin(target, verb="graph", argv=("graph",))
+    context = _context(PEOPLE)
+
+    with pytest.raises(UsageFault, match="inside --save vault"):
+        await _run(_save_request(f"{vault}/"), context, CORPUS)
+
+    assert context.finder.calls == []
+    assert target.read_text(encoding="utf-8") == original
 
 
 async def test_save_vault_writes_notes_and_index(

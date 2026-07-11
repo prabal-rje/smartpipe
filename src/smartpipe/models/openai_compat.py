@@ -14,12 +14,22 @@ from typing import TYPE_CHECKING, assert_never
 import httpx
 
 from smartpipe.cli import screens
-from smartpipe.core.errors import ItemError, SetupFault, TransportError
+from smartpipe.core.errors import (
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    SetupFault,
+    TransportError,
+)
 from smartpipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
 from smartpipe.engine.schema import is_strict_compatible
 from smartpipe.io import metering
 from smartpipe.models.base import AudioData, ImageData, VideoData
-from smartpipe.models.http_support import is_retryable_http, retry_after_seconds
+from smartpipe.models.http_support import (
+    decode_json_response,
+    is_retryable_http,
+    retry_after_seconds,
+)
 from smartpipe.models.retry import RetryPolicy, with_retries
 
 if TYPE_CHECKING:
@@ -122,7 +132,11 @@ class OpenAIChatModel:
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     wire: WireConfig = OPENAI_WIRE  # names the right env vars in error screens
 
+    def preflight(self, request: CompletionRequest) -> None:
+        _validate_media(request)
+
     async def complete(self, request: CompletionRequest) -> str:
+        self.preflight(request)
         messages = [
             *(
                 [{"role": "system", "content": request.system}]
@@ -209,7 +223,7 @@ async def _post(
     async def attempt() -> object:
         response = await model.client.post(f"{model.base_url}{path}", json=payload, headers=headers)
         response.raise_for_status()
-        return response.json()
+        return decode_json_response(response, provider=model.ref.provider)
 
     try:
         return await with_retries(
@@ -244,15 +258,19 @@ async def _post(
         # D18: failures that doom every item identically stop the run at the first
         if status == 404:
             raise SetupFault(screens.cloud_model_missing(model.ref.name, _host(model))) from exc
-        if status == 400 and ("response_format" in detail or "json_schema" in detail):
-            raise SetupFault(screens.schema_rejected(_host(model), detail)) from exc
+        lowered = detail.lower()
+        if status == 400 and ("response_format" in lowered or "json_schema" in lowered):
+            raise SchemaRejected(screens.schema_rejected(_host(model), detail)) from exc
+        if status == 429:
+            raise RetryableError(f"{model.ref.provider} error {status}: {detail}") from exc
         if status >= 500:  # the wire, not the content — the breaker counts these
             raise TransportError(f"{model.ref.provider} error {status}: {detail}") from exc
         raise ItemError(f"{model.ref.provider} error {status}: {detail}") from exc
     except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
         # ConnectTimeout is a TimeoutException, not a ConnectError — both mean
-        # "couldn't establish a connection", so both map to the same screen.
-        raise SetupFault(
+        # "couldn't establish a connection". Cloud outages belong to the shared
+        # breaker/failover path; only Ollama's local daemon keeps a setup screen.
+        raise TransportError(
             f"error: can't reach {model.base_url} ({exc})\n"
             f"  The model '{model.ref}' needs that endpoint.\n"
             f"  Check your network, or {model.wire.base_url_env} if you pointed\n"
@@ -284,9 +302,41 @@ _AUDIO_FORMATS = {  # OpenAI-wire input_audio formats by mime; anything else fai
 }
 
 
+def _validate_media(request: CompletionRequest) -> None:
+    for part in request.media:
+        match part:
+            case ImageData():
+                pass
+            case AudioData():
+                _audio_format(part.mime)
+            case VideoData():
+                _reject_video()
+            case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                assert_never(unreachable)
+
+
+def _audio_format(mime: str) -> str:
+    found = _AUDIO_FORMATS.get(mime)
+    if found is None:
+        raise ItemError(
+            f"audio format {mime} isn't sendable — "
+            "wav or mp3 reach audio models natively; "
+            "other formats transcribe locally"
+        )
+    return found
+
+
+def _reject_video() -> None:
+    raise ItemError(
+        "this endpoint can't watch video — map converts video to "
+        "frames + audio automatically; use map, or split --by seconds"
+    )
+
+
 def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
     """Plain string normally; the content-array form when media rides along (D20 §3:
     a modality is one more renderer in this builder, never a new adapter)."""
+    _validate_media(request)
     if not request.media:
         return request.user
     parts: list[dict[str, object]] = [{"type": "text", "text": request.user}]
@@ -296,23 +346,13 @@ def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
                 data_uri = f"data:{part.mime};base64,{base64.b64encode(part.data).decode()}"
                 parts.append({"type": "image_url", "image_url": {"url": data_uri}})
             case AudioData():
-                fmt = _AUDIO_FORMATS.get(part.mime)
-                if fmt is None:
-                    # never guess a format at a paid endpoint — fail before the spend
-                    raise ItemError(
-                        f"audio format {part.mime} isn't sendable — "
-                        "wav or mp3 reach audio models natively; "
-                        "other formats transcribe locally"
-                    )
+                fmt = _audio_format(part.mime)
                 encoded = base64.b64encode(part.data).decode()
                 parts.append(
                     {"type": "input_audio", "input_audio": {"data": encoded, "format": fmt}}
                 )
             case VideoData():
-                raise ItemError(
-                    "this endpoint can't watch video — map converts video to "
-                    "frames + audio automatically; use map, or split --by seconds"
-                )
+                _reject_video()
             case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                 assert_never(unreachable)
     return parts

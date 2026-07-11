@@ -161,7 +161,7 @@ class CsvCutter:
 def csv_file_items(path: Path) -> Iterator[Item]:
     """One named file, streamed: rows become Items as the file is read.
     Unreadable files warn and skip (spec §6.3), like every other reader."""
-    from smartpipe.io import diagnostics
+    from smartpipe.io import diagnostics, source_accounting
 
     cutter = CsvCutter(origin=str(path), delimiter=csv_delimiter(path))
     try:
@@ -170,5 +170,6 @@ def csv_file_items(path: Path) -> Iterator[Item]:
                 yield from cutter.push(line)
     except OSError as exc:
         diagnostics.warn(f"skipped: {path} (cannot read: {exc.strerror or exc})")
+        source_accounting.record_ingestion_skip(failed=True)
         return
     yield from cutter.finish()

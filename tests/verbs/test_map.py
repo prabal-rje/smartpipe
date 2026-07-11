@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.core.errors import ExitCode, ItemError, SetupFault
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.engine.schema import BARE_PROPERTY
 from smartpipe.io.writers import (
     OutputFormat,
@@ -47,9 +48,10 @@ class FakeChat:
 
 
 class FakeContext:
-    def __init__(self, model: FakeChat, *, concurrency: int = 4) -> None:
+    def __init__(self, model: FakeChat, *, concurrency: int = 4, breaker_limit: int = 5) -> None:
         self.model = model
         self.concurrency_value = concurrency
+        self.breaker_limit = breaker_limit
 
     async def chat_model(self, flag: str | None = None) -> FakeChat:
         return self.model
@@ -62,6 +64,14 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return self.concurrency_value
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        from smartpipe.cli import screens
+
+        return FailurePolicy(
+            transport_limit=self.breaker_limit,
+            transport_screen=screens.provider_down(provider, self.breaker_limit),
+        )
 
     def batching(self) -> BatchSettings | None:
         return None  # batching off: these tests pin the solo path byte-for-byte
@@ -449,9 +459,8 @@ async def test_five_consecutive_transport_failures_stop_the_run(
     assert capsys.readouterr().err.count("skipped:") == 5  # the window was reported
 
 
-async def test_breaker_env_zero_disables(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SMARTPIPE_BREAKER", "0")
-    context = FakeContext(model=DownModel(replies=[]), concurrency=1)
+async def test_resolved_breaker_zero_disables(monkeypatch: pytest.MonkeyPatch) -> None:
+    context = FakeContext(model=DownModel(replies=[]), concurrency=1, breaker_limit=0)
     out = io.StringIO()
     # 6 failures, no breaker — but the doomed-run guardrail (TooManyFailures)
     # is a different rule and would fire at 5 consecutive with zero successes,
@@ -474,23 +483,22 @@ async def test_breaker_env_zero_disables(monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(model.calls) == 7  # every item attempted; nothing tripped
 
 
-async def test_breaker_env_overrides_the_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_resolved_breaker_threshold_is_used() -> None:
     from smartpipe.core.errors import SetupFault
 
-    monkeypatch.setenv("SMARTPIPE_BREAKER", "2")
-    context = FakeContext(model=DownModel(replies=[]), concurrency=1)
+    context = FakeContext(model=DownModel(replies=[]), concurrency=1, breaker_limit=2)
     with pytest.raises(SetupFault, match="2 consecutive transport failures"):
         await run_map(_request("x"), context, stdin=io.StringIO("a\nb\nc\n"), stdout=io.StringIO())
     assert len(context.model.calls) == 2
 
 
-async def test_breaker_env_junk_is_a_usage_fault(monkeypatch: pytest.MonkeyPatch) -> None:
-    from smartpipe.core.errors import UsageFault
-
+async def test_breaker_ambient_junk_is_not_reread_by_the_verb(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("SMARTPIPE_BREAKER", "many")
     context = FakeContext(model=FakeChat(replies=["ok"]))
-    with pytest.raises(UsageFault, match="SMARTPIPE_BREAKER must be a whole number"):
-        await run_map(_request("x"), context, stdin=io.StringIO("a\n"), stdout=io.StringIO())
+    code = await run_map(_request("x"), context, stdin=io.StringIO("a\n"), stdout=io.StringIO())
+    assert code is ExitCode.OK
 
 
 # --- fallback-model failover (item 11) --------------------------------------------
@@ -499,8 +507,19 @@ async def test_breaker_env_junk_is_a_usage_fault(monkeypatch: pytest.MonkeyPatch
 class FailoverContext(FakeContext):
     """A context with a configured fallback: primary down, backup healthy."""
 
-    def __init__(self, primary: FakeChat, backup: FakeChat, *, concurrency: int = 1) -> None:
-        super().__init__(model=primary, concurrency=concurrency)
+    def __init__(
+        self,
+        primary: FakeChat,
+        backup: FakeChat,
+        *,
+        concurrency: int = 1,
+        breaker_limit: int = 5,
+    ) -> None:
+        super().__init__(
+            model=primary,
+            concurrency=concurrency,
+            breaker_limit=breaker_limit,
+        )
         self.backup = backup
 
     def fallback_ref(self, flag: str | None = None) -> ModelRef:
@@ -536,10 +555,8 @@ async def test_failover_switches_wholesale_and_answers_everything(
 
 
 async def test_failover_receipt_splits_counts_by_model(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv("SMARTPIPE_BREAKER", "2")
-
     class FlakyPrimary(FakeChat):
         async def complete(self, request: CompletionRequest) -> str:
             from smartpipe.core.errors import TransportError
@@ -552,7 +569,7 @@ async def test_failover_receipt_splits_counts_by_model(
     primary = FlakyPrimary(replies=[])
     backup = FakeChat(replies=["B"])
     backup.ref = ModelRef("openai", "gpt-4o-mini")
-    context = FailoverContext(primary, backup)
+    context = FailoverContext(primary, backup, breaker_limit=2)
     out = io.StringIO()
     code = await run_map(
         _request("x"), context, stdin=io.StringIO("a\nb\nc\nd\ne\nf\n"), stdout=out

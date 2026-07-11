@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.core.errors import ExitCode
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
 from smartpipe.models.base import CompletionRequest, ModelRef
 from smartpipe.verbs.extend import ExtendRequest, run_extend
@@ -77,6 +78,10 @@ class Ctx:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        del provider
+        return FailurePolicy()
 
     def batching(self) -> BatchSettings | None:
         return None  # batching off: these tests pin the solo path byte-for-byte
@@ -362,6 +367,65 @@ async def test_window_gate_counts_media_alongside_text() -> None:
     assert over is not None  # the same text + a 81-megapixel image overflows
     assert over.estimate > over.budget
     assert over.media_tokens > 0  # the media share travels with the verdict
+
+
+async def test_window_gate_shares_one_in_flight_probe_between_waiters() -> None:
+    import asyncio
+
+    from smartpipe.verbs.common import WindowGate
+
+    probes = 0
+    probe_started = asyncio.Event()
+    release_probe = asyncio.Event()
+
+    async def wide_window() -> int | None:
+        nonlocal probes
+        probes += 1
+        probe_started.set()
+        await release_probe.wait()
+        return 1_000_000
+
+    gate = WindowGate(provider="ollama", model_name="fake", overhead=500, window=wide_window)
+    first = asyncio.create_task(gate.budget_for_oversized("word " * 8_000))
+    await asyncio.wait_for(probe_started.wait(), timeout=1)
+    second = asyncio.create_task(gate.budget_for_oversized("word " * 8_000))
+    await asyncio.sleep(0)
+    release_probe.set()
+
+    assert await asyncio.gather(first, second) == [None, None]
+    assert probes == 1
+
+
+async def test_window_gate_keeps_probe_state_per_model_ref() -> None:
+    from smartpipe.verbs.common import WindowGate
+
+    probes: list[str] = []
+
+    async def primary_window() -> int | None:
+        probes.append("primary")
+        return None
+
+    async def fallback_window() -> int | None:
+        probes.append("fallback")
+        return 1_000_000
+
+    gate = WindowGate(
+        provider="ollama",
+        model_name="primary",
+        overhead=500,
+        window=primary_window,
+    )
+    assert await gate.budget_for_oversized("word " * 8_000) is not None
+    assert (
+        await gate.budget_for_oversized(
+            "word " * 8_000,
+            provider="ollama",
+            model_name="fallback",
+            window=fallback_window,
+        )
+        is None
+    )
+    assert probes == ["primary", "fallback"]
 
 
 async def test_media_alone_past_the_window_is_a_per_item_error(

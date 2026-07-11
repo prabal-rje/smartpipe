@@ -9,15 +9,17 @@ smartpipe agree rater1.jsonl rater2.jsonl --on id
 ```
 
 ```json
-{"n":40,"observed_agreement":0.925,"cohen_kappa":0.8819,"krippendorff_alpha":0.8828}
-{"label_a":"feature","label_b":"feature","count":17}
-{"label_a":"bug","label_b":"bug","count":12}
-{"label_a":"question","label_b":"question","count":8}
-{"label_a":"bug","label_b":"feature","count":3}
+{"n":40,"observed_agreement":0.925,"cohen_kappa":0.8819,"krippendorff_alpha":0.8828,"label_a":null,"label_b":null,"count":null}
+{"n":null,"observed_agreement":null,"cohen_kappa":null,"krippendorff_alpha":null,"label_a":"feature","label_b":"feature","count":17}
+{"n":null,"observed_agreement":null,"cohen_kappa":null,"krippendorff_alpha":null,"label_a":"bug","label_b":"bug","count":12}
+{"n":null,"observed_agreement":null,"cohen_kappa":null,"krippendorff_alpha":null,"label_a":"question","label_b":"question","count":8}
+{"n":null,"observed_agreement":null,"cohen_kappa":null,"krippendorff_alpha":null,"label_a":"bug","label_b":"feature","count":3}
 ```
 
-At a terminal the same records render as readable blocks; piped, they are
-JSONL for `jq`/`--output csv` downstream. The two most common shapes:
+The stable seven-field union keeps non-applicable values null, so CSV/TSV can
+carry the summary and confusion cells without dropping later columns. At a
+terminal the same records render as readable blocks; piped, they are JSONL
+for `jq` or table output. The two most common shapes:
 
 ```bash
 # did my model agree with the gold labels?

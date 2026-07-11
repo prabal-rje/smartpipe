@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, TypeGuard
 
 if TYPE_CHECKING:
+    from smartpipe.io.source_accounting import SourceGroup
     from smartpipe.models.base import MediaData
 
 __all__ = [
@@ -64,6 +65,7 @@ class ItemSource:
     cut: str = "lines"  # how the item was cut: lines|jsonl|csv|file|tokens|pages|minutes|seconds
     path: str | None = None  # the origin path when `name` carries a human label
     label: str | None = None  # adopted human wording ("report.pdf §3/12")
+    group: SourceGroup | None = field(default=None, repr=False, compare=False)
 
 
 def source_record(source: ItemSource) -> dict[str, object]:

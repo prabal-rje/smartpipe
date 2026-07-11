@@ -15,6 +15,7 @@ from smartpipe.core.errors import SetupFault
 from smartpipe.engine.graphkg import EntitySpan
 from smartpipe.models.local_ner import (
     MAX_SPAN_WIDTH,
+    MAX_TEXT_WORDS,
     NER_REPO,
     GlinerEntityFinder,
     NerEngine,
@@ -135,13 +136,14 @@ class FakeSession:
 def _finder(
     hits: dict[tuple[int, int, int], float],
     labels: tuple[str, ...] = ("person", "company"),
-    **kwargs: int,
+    *,
+    window_words: int = MAX_TEXT_WORDS,
 ) -> tuple[GlinerEntityFinder, FakeSession]:
     session = FakeSession(hits, num_classes=max(len(labels), 1))
     finder = GlinerEntityFinder(
         labels=labels,
         engine=NerEngine(session=session, tokenizer=FakeTokenizer()),
-        **kwargs,
+        window_words=window_words,
     )
     return finder, session
 
@@ -223,6 +225,26 @@ def test_fp32_is_an_explicit_opt_out() -> None:
 def test_unknown_precision_is_loud() -> None:
     with pytest.raises(SetupFault, match="SMARTPIPE_NER_PRECISION"):
         ner_precision({"SMARTPIPE_NER_PRECISION": "int4"})
+
+
+def test_finder_loads_the_precision_injected_by_the_composition_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import smartpipe.models.local_ner as local_ner
+
+    expected = NerEngine(session=FakeSession({}, num_classes=1), tokenizer=FakeTokenizer())
+    observed: list[str] = []
+
+    def load(precision: str) -> NerEngine:
+        observed.append(precision)
+        return expected
+
+    monkeypatch.setattr(local_ner, "_announced", True)
+    monkeypatch.setattr(local_ner, "_load_engine", load)
+    finder = GlinerEntityFinder(labels=("person",), precision="fp32")
+
+    finder.find("Alice")
+    assert observed == ["fp32"]
 
 
 # --- the live wire (owner-run; CI always skips) --------------------------------

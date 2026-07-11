@@ -15,6 +15,7 @@ import pytest
 import respx
 
 from tests.conftest import RunCli
+from tests.helpers.pdf import minimal_pdf
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -77,7 +78,7 @@ def test_distinct_without_ocr_model_makes_zero_calls(
     (tmp_path / "scan.png").write_bytes(_PNG)
     with respx.mock:
         code, out, err = run_cli(["distinct", "scan.png"], stdin="")
-    assert code == 0
+    assert code == 3
     assert out == "\n"  # the image item's raw text is empty — kept unexamined, as today
     assert "kept unexamined: scan.png" in err
 
@@ -90,8 +91,8 @@ def test_outliers_without_ocr_model_makes_zero_calls(
         (tmp_path / name).write_bytes(_PNG)
     with respx.mock:
         code, _out, err = run_cli(["outliers", "3", "*.png"], stdin="")
-    assert code == 64  # today's behavior: no scan embeds, so normal can't be learned
-    assert "needs at least 3 embeddable items" in err
+    assert code == 3
+    assert "fewer than 3 items embedded" in err
 
 
 def test_split_without_ocr_model_makes_zero_calls(
@@ -158,4 +159,21 @@ def test_split_max_calls_caps_the_ocr_spend(
         code, out, err = run_cli(["split", "*.png", "--max-calls", "1"], stdin="")
     assert code == 1  # PARTIAL: the belt fired, completeness can't be trusted
     assert len(out.splitlines()) == 1  # intake stopped after the limit call
-    assert "stopped by --max-calls (1 calls made)" in err
+    assert "stopped by --max-calls (1 OCR page processed)" in err
+
+
+def test_split_refuses_an_over_belt_pdf_before_upload(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _ocr_env(monkeypatch)
+    (tmp_path / "book.pdf").write_bytes(minimal_pdf(["one", "two"]))
+    with respx.mock:
+        route = respx.post(_OCR_URL)
+        code, out, err = run_cli(
+            ["split", "--by", "pages", "book.pdf", "--max-calls", "1"], stdin=""
+        )
+    assert code == 1
+    assert route.call_count == 0
+    assert len(out.splitlines()) == 2  # the free local fallback still drains this in-hand PDF
+    assert "stopped by --max-calls (0 OCR pages processed)" in err

@@ -10,6 +10,7 @@ couldn't be parsed — skip with a warning).
 from __future__ import annotations
 
 import math
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, assert_never
 
@@ -29,11 +30,14 @@ __all__ = [
     "ImageData",
     "MissingExtra",
     "VideoParts",
+    "configure_whisper_size",
+    "configured_whisper_size",
     "embedded_images",
     "extract",
     "ffmpeg_exe",
     "ffprobe_duration",
     "pdf_page_texts",
+    "reset_whisper_size",
     "slice_audio",
     "slice_video",
     "transcribe_audio",
@@ -527,13 +531,31 @@ def slice_video(video: VideoData, *, seconds: int) -> list[VideoData]:
 
 def whisper_size(environ: Mapping[str, str]) -> str:
     """The local whisper variant: ``SMARTPIPE_WHISPER_MODEL`` or the tiny default."""
-    return environ.get("SMARTPIPE_WHISPER_MODEL", "tiny")
+    return environ.get("SMARTPIPE_WHISPER_MODEL", "").strip() or "tiny"
+
+
+_WHISPER_SIZE: ContextVar[str] = ContextVar("smartpipe_whisper_size", default="tiny")
+
+
+def configured_whisper_size() -> str:
+    """The composition root's local-transcription choice for this invocation."""
+    return _WHISPER_SIZE.get()
+
+
+def configure_whisper_size(model_size: str) -> Token[str]:
+    """Install one invocation's already-resolved local Whisper size."""
+    return _WHISPER_SIZE.set(model_size)
+
+
+def reset_whisper_size(token: Token[str]) -> None:
+    """Restore the enclosing invocation's local Whisper choice."""
+    _WHISPER_SIZE.reset(token)
 
 
 _WHISPER_CACHE: dict[str, object] = {}  # one loaded model per size, per process
 
 
-def transcribe_audio(audio: AudioData) -> str:
+def transcribe_audio(audio: AudioData, *, model_size: str | None = None) -> str:
     """In-memory audio → transcript, locally, via faster-whisper (D20 rung 2).
 
     The audio bytes never leave the machine; the first use of a model size
@@ -541,7 +563,6 @@ def transcribe_audio(audio: AudioData) -> str:
     a thread. ``MissingExtra`` propagates so the verb layer can name both fixes.
     """
     import io
-    import os
 
     try:
         from faster_whisper import WhisperModel
@@ -550,7 +571,7 @@ def transcribe_audio(audio: AudioData) -> str:
             "audio", "local transcription is unavailable — reinstall smartpipe"
         ) from exc
 
-    size = whisper_size(os.environ)
+    size = configured_whisper_size() if model_size is None else model_size
     model = _WHISPER_CACHE.get(size)
     if model is None:
         from smartpipe.io import diagnostics

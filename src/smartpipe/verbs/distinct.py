@@ -14,12 +14,12 @@ from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import ExitCode, UsageFault
 from smartpipe.engine.clustering import leader_clusters
-from smartpipe.engine.runner import Done, FailurePolicy
-from smartpipe.io import diagnostics, readers
+from smartpipe.engine.runner import Done
+from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source
 from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
-from smartpipe.verbs.common import embed_in_batches
+from smartpipe.verbs.common import ExecutionPolicySource, embed_in_batches, outcome_exit_code
 from smartpipe.verbs.convert import make_converter
 from smartpipe.verbs.embed import optional_chat
 
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
     from smartpipe.models.ocr import DocumentParser
-    from smartpipe.models.stt import RemoteTranscriber
+    from smartpipe.models.stt import Transcriber
 
 __all__ = ["DistinctRequest", "run_distinct"]
 
@@ -49,12 +49,11 @@ class DistinctRequest:
     ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 48)
 
 
-class DistinctContext(Protocol):
-    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+class DistinctContext(ExecutionPolicySource, Protocol):
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> Transcriber | None: ...
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
-    def concurrency(self, flag: int | None = None) -> int: ...
 
 
 async def run_distinct(
@@ -67,13 +66,13 @@ async def run_distinct(
 ) -> ExitCode:
     if not 0.0 < request.threshold <= 1.0:
         raise UsageFault("--threshold is a cosine similarity: between 0 and 1")
+    concurrency = context.concurrency(request.concurrency_flag)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
-    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     items = [item async for item in items_iter]
     if not items:
-        return ExitCode.OK
+        return outcome_exit_code(done=0, skipped=0, failed=0)
 
     # exact fast path: identical items fold for free, before any embedding
     first_of: dict[str | bytes, int] = {}
@@ -81,27 +80,26 @@ async def run_distinct(
     uniques: list[Item] = []
     unique_positions: list[int] = []
     exact_folded = 0
+    sources = source_accounting.SourceCounter()
     for position, item in enumerate(items):
         key = _fold_key(item, position, exact=request.exact)
         seen_at = first_of.get(key)
         if seen_at is not None:
             exact_dupes_of.setdefault(seen_at, []).append(position)
             exact_folded += 1
+            sources.done(item.source)
             continue
         first_of[key] = position
         uniques.append(item)
         unique_positions.append(position)
-
-    from smartpipe.io import manifest
 
     if request.exact:
         # --exact (item 22): the hash rung IS the answer — no embedding model
         # is even resolved, no fuzzy anything
         kept_exact = set(unique_positions)
         log.finish()  # OCR parses (if any) still roll up before the receipt
-        manifest.record_counts(done=len(items), skipped=0)  # every item was examined
         _receipt(kept=len(kept_exact), total=len(items), exact=exact_folded, near=0)
-        return _emit(
+        _emit(
             request,
             stdout,
             items,
@@ -109,22 +107,33 @@ async def run_distinct(
             near_dupes_of={},
             exact_dupes_of=exact_dupes_of,
         )
+        for item in uniques:
+            sources.done(item.source)
+        return outcome_exit_code(
+            done=len(items),
+            skipped=0,
+            failed=0,
+            source_counts=sources.counts,
+        )
 
     model = await context.embedding_model(request.model_flag)
+    failure_policy = context.failure_policy(model.ref.provider)
     converter_chat = await optional_chat(context)
     converter = make_converter(
         converter_chat,
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
-        ocr=parser,
+        ocr=ocr,
     )
     vectors: dict[int, tuple[float, ...]] = {}  # original position → vector
     unexamined: list[int] = []  # embed-skipped: kept, disclosed
+    failed = 0
     outcomes = embed_in_batches(
         model,
         uniques,
-        failure_policy=FailurePolicy(),
+        failure_policy=failure_policy,
+        call_concurrency=concurrency,
         stop=stop,
         log=log,
         converter=converter,
@@ -133,20 +142,20 @@ async def run_distinct(
     async for outcome in outcomes:
         if isinstance(outcome, Done):
             embedded_item, vector = outcome.value
-            del embedded_item
+            sources.done(embedded_item.source)
             position = unique_positions[len(embed_order) + len(unexamined)]
             vectors[position] = vector
             embed_order.append(position)
         else:  # Skipped: keep the item — never silently drop what we couldn't compare
             position = unique_positions[len(embed_order) + len(unexamined)]
             unexamined.append(position)
+            failed += int(outcome.failed)
+            sources.skip(outcome.source, failed=outcome.failed)
             diagnostics.warn(
                 f"kept unexamined: {describe_source(outcome.source)} ({outcome.reason})"
             )
     log.finish()
     # unexamined rows are KEPT in the output but never compared - the honest skip count
-    manifest.record_counts(done=len(items) - len(unexamined), skipped=len(unexamined))
-
     clusters = leader_clusters([vectors[p] for p in embed_order], threshold=request.threshold)
     kept: set[int] = set(unexamined)
     near_dupes_of: dict[int, list[int]] = {}
@@ -159,13 +168,19 @@ async def run_distinct(
         near_folded += len(followers)
 
     _receipt(kept=len(kept), total=len(items), exact=exact_folded, near=near_folded)
-    return _emit(
+    _emit(
         request,
         stdout,
         items,
         kept=kept,
         near_dupes_of=near_dupes_of,
         exact_dupes_of=exact_dupes_of,
+    )
+    return outcome_exit_code(
+        done=len(items) - len(unexamined),
+        skipped=len(unexamined),
+        failed=failed,
+        source_counts=sources.counts,
     )
 
 
@@ -207,7 +222,7 @@ def _emit(
     kept: set[int],
     near_dupes_of: dict[int, list[int]],
     exact_dupes_of: dict[int, list[int]],
-) -> ExitCode:
+) -> None:
     if request.show_groups:
         writer = make_writer(
             WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=None), stdout
@@ -228,8 +243,7 @@ def _emit(
                 }
             )
         writer.flush()
-        return ExitCode.OK
+        return
 
     for position in sorted(kept):
         stdout.write(items[position].raw + "\n")
-    return ExitCode.OK

@@ -6,7 +6,13 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from smartpipe.core.errors import ItemError, SetupFault, TransportError
+from smartpipe.core.errors import (
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    SetupFault,
+    TransportError,
+)
 from smartpipe.models.base import CompletionRequest, parse_model_ref
 from smartpipe.models.openai_compat import (
     MISTRAL_WIRE,
@@ -142,6 +148,17 @@ async def test_rate_limit_is_retried_then_recovers(
     assert route.call_count == 2
 
 
+async def test_exhausted_rate_limit_is_a_typed_retryable_error(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    route = respx_mock.post(f"{BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(429, json={"error": {"message": "slow down"}})
+    )
+    with pytest.raises(RetryableError, match="429"):
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))
+    assert route.call_count == 3
+
+
 async def test_server_error_exhausts_retries_then_skips_item(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:
@@ -153,16 +170,15 @@ async def test_server_error_exhausts_retries_then_skips_item(
     assert route.call_count == 3
 
 
-async def test_connect_timeout_retries_then_maps_to_unreachable_screen(
+async def test_connect_timeout_retries_then_maps_to_transport_error(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:
-    # regression: a connect timeout must retry (transient) and then surface the
-    # actionable "can't reach" screen, exactly like a refused connection — not a
-    # generic item skip (ConnectTimeout != ConnectError).
+    # Cloud connect exhaustion belongs to the shared availability breaker, so
+    # an advertised fallback can take over. Ollama retains its local-daemon screen.
     route = respx_mock.post(f"{BASE}/v1/chat/completions").mock(
         side_effect=httpx.ConnectTimeout("timed out")
     )
-    with pytest.raises(SetupFault, match="can't reach"):
+    with pytest.raises(TransportError, match="can't reach"):
         await _chat(client).complete(CompletionRequest(system=None, user="x"))
     assert route.call_count == 3  # retried before giving up
 
@@ -178,6 +194,16 @@ async def test_read_timeout_after_retries_is_a_transport_skip(
     with pytest.raises(TransportError, match="failed"):
         await _chat(client).complete(CompletionRequest(system=None, user="x"))
     assert route.call_count == 3
+
+
+async def test_malformed_success_json_is_an_item_error(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    respx_mock.post(f"{BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(200, text="not-json")
+    )
+    with pytest.raises(ItemError, match="openai returned malformed JSON"):
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))
 
 
 async def test_embeddings_sort_by_index(
@@ -338,7 +364,7 @@ async def test_schema_rejection_400_is_fatal(
             json={"error": {"message": "Invalid 'response_format.json_schema': missing items"}},
         )
     )
-    with pytest.raises(SetupFault, match="rejected the --schema"):
+    with pytest.raises(SchemaRejected, match="rejected the --schema"):
         await _chat(client).complete(CompletionRequest(system=None, user="x"))
 
 

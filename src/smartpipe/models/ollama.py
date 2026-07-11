@@ -14,11 +14,21 @@ from typing import TYPE_CHECKING
 import httpx
 
 from smartpipe.cli import screens
-from smartpipe.core.errors import ItemError, SetupFault, TransportError
+from smartpipe.core.errors import (
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    SetupFault,
+    TransportError,
+)
 from smartpipe.core.jsontools import as_float_vector, as_items, as_record, as_str, record_at
 from smartpipe.io import metering
 from smartpipe.models.base import AudioData, ImageData, VideoData
-from smartpipe.models.http_support import is_retryable_http, retry_after_seconds
+from smartpipe.models.http_support import (
+    decode_json_response,
+    is_retryable_http,
+    retry_after_seconds,
+)
 from smartpipe.models.retry import RetryPolicy, with_retries
 
 if TYPE_CHECKING:
@@ -53,22 +63,24 @@ class OllamaChatModel:
     host: str
     retry: RetryPolicy = field(default_factory=RetryPolicy)
 
-    async def complete(self, request: CompletionRequest) -> str:
-        messages: list[dict[str, object]] = []
-        if request.system is not None:
-            messages.append({"role": "system", "content": request.system})
-        user: dict[str, object] = {"role": "user", "content": request.user}
+    def preflight(self, request: CompletionRequest) -> None:
         if any(isinstance(part, VideoData) for part in request.media):
             raise ItemError(
                 "this model can't watch video — map converts it to frames + audio "
                 "automatically (gemini watches natively)"
             )
         if any(isinstance(part, AudioData) for part in request.media):
-            # ollama's chat API carries images only — fail before any bytes leave (D20 §2)
             raise ItemError(
                 "this model can't hear audio — try an audio model "
                 "(voxtral, gemini) — smartpipe transcribes locally otherwise"
             )
+
+    async def complete(self, request: CompletionRequest) -> str:
+        self.preflight(request)
+        messages: list[dict[str, object]] = []
+        if request.system is not None:
+            messages.append({"role": "system", "content": request.system})
+        user: dict[str, object] = {"role": "user", "content": request.user}
         images = [part for part in request.media if isinstance(part, ImageData)]
         if images:
             user["images"] = [base64.b64encode(image.data).decode() for image in images]
@@ -134,9 +146,9 @@ async def ollama_model_names(client: httpx.AsyncClient, host: str) -> tuple[str,
     try:
         response = await client.get(f"{host}/api/tags", timeout=2.0)
         response.raise_for_status()
-    except httpx.HTTPError:
+        models = as_record(decode_json_response(response, provider="Ollama"))
+    except (httpx.HTTPError, ItemError):
         return None
-    models = as_record(response.json())
     entries = as_items(models.get("models")) if models is not None else None
     if entries is None:
         return None
@@ -168,7 +180,7 @@ async def _post(
             detail = _error_detail(response)
             raise SetupFault(screens.ollama_model_missing(model.ref.name, model.host, detail))
         response.raise_for_status()
-        return response.json()
+        return decode_json_response(response, provider="Ollama")
 
     try:
         return await with_retries(
@@ -177,6 +189,16 @@ async def _post(
     except httpx.HTTPStatusError as exc:
         detail = _error_detail(exc.response)
         status = exc.response.status_code
+        lowered = detail.lower()
+        if (
+            status == 400
+            and isinstance(model, OllamaChatModel)
+            and "format" in payload
+            and ("schema" in lowered or "format" in lowered)
+        ):
+            raise SchemaRejected(screens.schema_rejected(model.host, detail)) from exc
+        if status == 429:
+            raise RetryableError(f"ollama error {status}: {detail}") from exc
         if status >= 500:  # the wire, not the content — the breaker counts these
             raise TransportError(f"ollama error {status}: {detail}") from exc
         raise ItemError(f"ollama error {status}: {detail}") from exc

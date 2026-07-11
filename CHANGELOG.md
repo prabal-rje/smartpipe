@@ -5,6 +5,34 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Fixed
+- **The audit boundaries now fail closed.** `--local-only` accepts only
+  canonical loopback endpoints and ignores ambient proxy settings, so model
+  execution and user data remain on-device without pretending the machine is
+  air-gapped. Input spools are owned through consumption; fragmented binary
+  sniffing, OCR page billing/fallback, binary `--right` inputs, split stops,
+  output/manifest aliases, and fatal reduce-task cleanup are pinned.
+- **Batching is bounded, injection-safe, and counts real API calls.** Packed
+  chat requests cap at 12 items, escape record text at the XML framing layer,
+  validate recursive schemas, and tear down cleanly on cancellation.
+  `--concurrency` limits simultaneous API calls (not item workers); exhausted
+  rate-limit/transport failures fan out once instead of launching one retry
+  ladder per packed item, while item-specific failures still isolate through
+  a single solo recovery.
+- **Receipts and exits count input sources rather than internal work units.**
+  Multi-page OCR, prefetched-but-unsent rows, whole-set exclusions, research
+  agreement/sampling, reader mode, joins, and graphs now preserve the
+  succeeded/skipped/failed subset laws without inflating one document into
+  many sources. Empty OCR, empty valid inputs, all-skipped runs, and partial
+  whole-set results have explicit tested outcomes.
+
+### Changed
+- **One run-scoped policy now owns outbound behavior.** Chat, embeddings,
+  dedicated OCR, and remote transcription share composition-root admission,
+  call budgeting, concurrency, and availability state. Environment/config
+  choices are resolved once, request construction stays deferred until a call
+  is admitted, and run disclosures reset between invocations.
+
 ## [1.5.0] — 2026-07-10
 
 ### Fixed
@@ -35,8 +63,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   proportionally per stratum, integer-exact, still seeded and
   reproducible. And `--local-only` is the IRB sentence made enforceable:
   every cloud wire refused before any spend, remote OLLAMA_HOST
-  included, and the run makes no network calls at all - not even the
-  update ping. One cookbook page tells the whole story with real runs.
+  included, so model execution and user inputs stay on this machine.
+  Supporting downloads without user payload are allowed; this is not an
+  air-gap mode. One cookbook page tells the whole story with real runs.
 - **The OCR role works everywhere now.** cluster, diff, distinct,
   outliers, split, and join (both sides, `--right` included) honor a
   configured ocr-model with the same per-row disclosure, local fallback,

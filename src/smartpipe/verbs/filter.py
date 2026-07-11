@@ -14,8 +14,9 @@ from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.cli import screens
-from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.core.errors import ExcludedError, ExitCode, ItemError, UsageFault
 from smartpipe.engine.chunking import estimate_tokens, is_context_overflow, split_text
+from smartpipe.engine.coalesce import max_group, worker_capacity
 from smartpipe.engine.prompts import (
     JUDGE_SCHEMA,
     build_filter_request,
@@ -28,15 +29,15 @@ from smartpipe.engine.prompts import (
 )
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import validate_and_coerce
-from smartpipe.io import diagnostics, readers
+from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.io.writers import OutputFormat
 from smartpipe.verbs.common import (
+    ExecutionPolicySource,
     ModelSlot,
     WindowGate,
-    breaker_policy,
     ensure_text,
     interrupted_exit_code,
     make_failover,
@@ -56,7 +57,7 @@ if TYPE_CHECKING:
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, ModelRef
     from smartpipe.models.ocr import DocumentParser
-    from smartpipe.models.stt import RemoteTranscriber
+    from smartpipe.models.stt import Transcriber
 
 __all__ = ["FilterContext", "FilterRequest", "run_filter"]
 
@@ -76,14 +77,13 @@ class FilterRequest:
     ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 40)
 
 
-class FilterContext(Protocol):
-    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+class FilterContext(ExecutionPolicySource, Protocol):
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> Transcriber | None: ...
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
     async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
-    def concurrency(self, flag: int | None = None) -> int: ...
     def batching(self) -> BatchSettings | None: ...
     def writer(
         self, output_flag: OutputFormat, *, structured: bool, stdout: TextSink
@@ -101,8 +101,7 @@ async def run_filter(
     tokens = parse_prompt(request.condition, allow_paths=True)  # UsageFault on bad grammar
     reject_comma_groups(tokens)  # UsageFault: comma-braces are map-only
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 40)
-    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     model = await context.chat_model(request.model_flag)
     slot = ModelSlot(model)
@@ -115,7 +114,8 @@ async def run_filter(
     # Batching multiplexes many judgments onto few calls, so intake widens to
     # fill a group; `wire` keeps every SOLO path (media, oversized chunks) at
     # the documented max-parallel-calls contract regardless of that boost.
-    workers = concurrency if batching is None else max(concurrency, batching.size)
+    group_size = 1 if batching is None else max_group(JUDGE_SCHEMA, batching.size)
+    workers = worker_capacity(call_concurrency=concurrency, group_size=group_size)
     wire = asyncio.Semaphore(concurrency)
 
     # First-item brace check (streaming can't see "all items" up front): the common
@@ -126,7 +126,7 @@ async def run_filter(
         if stop is not None and stop.is_set():
             diagnostics.interrupted_summary(processed=0, skipped=0)
             return interrupted_exit_code(done=0, skipped=0)
-        return ExitCode.OK
+        return outcome_exit_code(done=0, skipped=0, failed=0, input_count=0)
     if has_brace(tokens) and first.data is None:
         raise UsageFault(screens.FIELD_REF_ON_PLAIN_INPUT)  # exit 64, zero model calls
     items_iter = prepend(first, items_iter)
@@ -138,7 +138,7 @@ async def run_filter(
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(model.ref),
-        ocr=parser,
+        ocr=ocr,
     )
     gate = WindowGate(
         provider=model.ref.provider,
@@ -155,7 +155,13 @@ async def run_filter(
                 current, tokens, replace(item, text=chunk), log, converter, whole=False
             )
 
-        over = await gate.budget_for_oversized(item.text, item.media)
+        over = await gate.budget_for_oversized(
+            item.text,
+            item.media,
+            provider=current.ref.provider,
+            model_name=current.ref.name,
+            window=partial(context.context_window, current.ref),
+        )
         if over is None:
             try:
                 if batching is not None and not item.media:
@@ -185,7 +191,7 @@ async def run_filter(
                     )
         elif request.whole:
             # --whole: the old D26 refusal — reproducibility beats handling
-            raise ItemError(gate.refusal(over))
+            raise ExcludedError(gate.refusal(over))
         else:
             # D26 v2: judge the chunks, ANY match keeps the whole item (--not
             # inverts after), early exit on the first true chunk — disclosed.
@@ -200,7 +206,7 @@ async def run_filter(
         slot.tally(str(current.ref))
         return item, matched
 
-    policy = breaker_policy(model.ref.provider)
+    policy = context.failure_policy(model.ref.provider)
     failover = (
         make_failover(
             slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
@@ -211,6 +217,8 @@ async def run_filter(
     judged = 0
     matches = 0
     skipped = 0
+    failed = 0
+    sources = source_accounting.SourceCounter()
     outcomes = run_ordered(
         items_iter,
         worker,
@@ -218,12 +226,14 @@ async def run_filter(
         failure_policy=policy,
         stop=stop,
         failover=failover,
+        halt_sources=sources,
     )
     try:
         async for outcome in outcomes:
             if isinstance(outcome, Done):
                 judged += 1
                 item, matched = outcome.value
+                sources.done(item.source)
                 if matched:
                     matches += 1
                     spinner.matched = matches  # the status line's "N matched" segment
@@ -232,6 +242,8 @@ async def run_filter(
             else:  # Skipped
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
                 skipped += 1
+                failed += int(outcome.failed)
+                sources.skip(outcome.source, failed=outcome.failed)
             spinner.advance()
     finally:
         spinner.finish()
@@ -241,8 +253,18 @@ async def run_filter(
         diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=judged, skipped=skipped)
-        return interrupted_exit_code(done=judged, skipped=skipped)
-    return outcome_exit_code(done=judged, skipped=skipped)
+        return interrupted_exit_code(
+            done=judged,
+            skipped=skipped,
+            failed=failed,
+            source_counts=sources.counts,
+        )
+    return outcome_exit_code(
+        done=judged,
+        skipped=skipped,
+        failed=failed,
+        source_counts=sources.counts,
+    )
 
 
 def _emit_match(writer: ResultWriter, item: Item) -> None:

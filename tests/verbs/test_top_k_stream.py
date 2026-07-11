@@ -10,8 +10,17 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.core.errors import (
+    ExitCode,
+    LateSetupFault,
+    RetryableError,
+    SetupFault,
+    SourceCounts,
+    UnsentError,
+    UsageFault,
+)
 from smartpipe.engine.ranking import board_insert
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.inputs import InputSpec
 from smartpipe.io.leaderboard import render_frame
 from smartpipe.models.base import ChatModel, ModelRef
@@ -95,6 +104,9 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic arrival order for the snapshot transcript
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        return FailurePolicy(transport_limit=5, transport_screen=f"{provider} unavailable")
 
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
@@ -226,3 +238,36 @@ async def test_interrupted_stream_reports_and_exits_130(
     )
     assert code == ExitCode.INTERRUPTED
     assert "done: interrupted" in capsys.readouterr().err
+
+
+async def test_stream_query_failure_is_a_pre_input_setup_fault() -> None:
+    class QueryDown(FakeEmbed):
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            raise RetryableError(f"query failed: {list(texts)}")
+
+    with pytest.raises(LateSetupFault, match="failed after bounded retries") as caught:
+        await run_top_k(
+            _request(),
+            FakeContext(QueryDown({})),
+            stdin=io.StringIO("never accepted\n"),
+            stdout=io.StringIO(),
+        )
+
+    assert caught.value.source_counts == SourceCounts(succeeded=0, skipped=0, failed=0)
+
+
+async def test_stream_query_pre_send_refusal_remains_an_ordinary_setup_fault() -> None:
+    class QueryUnsent(FakeEmbed):
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            del texts
+            raise UnsentError("call budget reached before send")
+
+    with pytest.raises(SetupFault) as caught:
+        await run_top_k(
+            _request(),
+            FakeContext(QueryUnsent({})),
+            stdin=io.StringIO("never accepted\n"),
+            stdout=io.StringIO(),
+        )
+
+    assert not isinstance(caught.value, LateSetupFault)

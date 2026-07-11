@@ -76,15 +76,21 @@ the endpoint you configured.
 
 ## No telemetry, ever
 
-smartpipe makes **no network calls except to the model endpoint you configured** and
-one-time model asset downloads for local Whisper or local embeddings.
+smartpipe sends no analytics or usage telemetry. Network traffic is limited to
+the model endpoint you configure and data-free supporting requests: model asset
+downloads, connected-provider catalogs, the public capability registry, and the
+optional daily PyPI version check. `--local-only` blocks remote model/data wires,
+accepts only canonical loopback endpoints for local HTTP models, and disables
+ambient HTTP proxy routing for those calls, so input stays on the machine. It is
+not an air-gap switch.
 
 Two interactive exceptions, both data-free: `smartpipe use` fetches model
 catalogs from providers you've connected and a public capability registry
 (`models.dev/api.json`) to label menu rows - day-cached, nothing about you or
 your data in the request, and any failure just means a plainer menu.
 
-There is no analytics, no phone-home, one optional daily version check against PyPI (disable: smartpipe config update-check off). The test suite enforces this:
+There is no analytics or phone-home. Disable the optional version check with
+`smartpipe config update-check off`. The test suite enforces the boundary:
 it runs with strict HTTP mocking, so any unexpected outbound request fails the build.
 
 ## No tool-use surface - prompt injection can't make smartpipe act

@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
-from smartpipe.core.errors import ItemError
+from smartpipe.core.errors import ExcludedError, ItemError
 from smartpipe.engine.chunking import estimate_tokens, is_context_overflow, split_text
 from smartpipe.engine.prompts import (
     build_combine_request,
@@ -213,7 +213,7 @@ async def transform_oversized(
     where = describe_source(item.source)
     text_budget = over.budget - over.media_tokens
     if text_budget <= 0:  # media alone exceeds the window — nothing to chunk
-        raise ItemError(refusal(over.estimate, model.ref.name, over.budget))
+        raise ExcludedError(refusal(over.estimate, model.ref.name, over.budget))
     chunks = split_text(item.text, text_budget)
     assert len(chunks) > 1, "an oversized item always cuts into at least two chunks"
     structured = plan.schema is not None

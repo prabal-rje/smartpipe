@@ -43,4 +43,9 @@ def expand_globs(patterns: tuple[str, ...]) -> list[Path]:
             f"no files matched: {joined}\n"
             "  check the pattern, and quote it so the shell doesn't expand it first: '*.pdf'"
         )
-    return list(seen.values())
+    paths = list(seen.values())
+    from smartpipe.io import manifest
+
+    for path in paths:
+        manifest.guard_manifest_alias(path, role="input")
+    return paths

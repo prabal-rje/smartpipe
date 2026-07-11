@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import tempfile
 
 import pytest
 
@@ -154,3 +156,36 @@ def test_non_string_field_values_stratify_by_their_json_text() -> None:
     labels = [json.loads(line)["label"] for line in out.splitlines()]
     assert labels.count(0) == 5 and labels.count(1) == 5
     assert "2 strata by 'label'" in err
+
+
+def test_stratum_identity_keeps_json_scalar_types_distinct() -> None:
+    values: list[object] = [True, 1, 1.0, "1"]
+    corpus = "".join(
+        json.dumps({"label": value, "row": f"{type(value).__name__}-{n}"}) + "\n"
+        for value in values
+        for n in range(10)
+    )
+    out, err = _run_by(4, stdin_text=corpus)
+    rows = [json.loads(line) for line in out.splitlines()]
+    assert {type(row["label"]).__name__ for row in rows} == {"bool", "int", "float", "str"}
+    assert "4 strata by 'label'" in err
+
+
+def test_high_cardinality_strata_use_an_owned_temp_store_and_clean_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real = tempfile.TemporaryDirectory
+    created: list[str] = []
+
+    def tracked(*, prefix: str) -> tempfile.TemporaryDirectory[str]:
+        directory = real(prefix=prefix)
+        created.append(directory.name)
+        return directory
+
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", tracked)
+    corpus = "".join(
+        json.dumps({"label": f"stratum-{n}", "payload": "x" * 200}) + "\n" for n in range(2_000)
+    )
+    out, _err = _run_by(25, seed=11, stdin_text=corpus)
+    assert len(out.splitlines()) == 25
+    assert created and all(not os.path.exists(path) for path in created)

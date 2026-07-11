@@ -226,8 +226,8 @@ def _entry_point_command(name: str) -> click.Command | None:
     "--local-only",
     "local_only_flag",
     is_flag=True,
-    help="Hard privacy fence: refuse every cloud wire; the run makes no network "
-    "calls at all (env form: SMARTPIPE_LOCAL_ONLY=1).",
+    help="User input stays local: refuse remote model wires. Supporting downloads "
+    "may use the network (env form: SMARTPIPE_LOCAL_ONLY=1).",
 )
 def cli(local_only_flag: bool) -> None:
     """smartpipe — semantic pipes for your terminal: documents, images, audio, video, text."""
@@ -306,8 +306,10 @@ def main() -> None:
     # CI, kill switches) and swallow every failure.
     from smartpipe.io import update_check
 
-    # --local-only is parsed AFTER this hook would fire, so the flag is
-    # pre-scanned here; the env form is caught by check_allowed itself (65d)
+    # This side channel carries no user payload and is allowed by the local-only
+    # contract, but remains conservatively quiet while the flag is armed. The
+    # flag is parsed after this hook, so pre-scan it here; check_allowed catches
+    # the env form itself (65d).
     if "--local-only" not in sys.argv[1:]:
         update_check.begin_background_check()
     try:

@@ -52,8 +52,9 @@ async def fetch_catalog(
     provider: str, env: Mapping[str, str], client: httpx.AsyncClient
 ) -> tuple[str, ...] | None:
     """The provider's chat-model names, or None (no key, no wire, or any failure).
-    Under --local-only (item 65d) every fetcher answers None without a request:
-    the fenced run makes no network calls at all."""
+    Under --local-only (item 65d) every fetcher conservatively answers None.
+    Catalog requests carry no user input and the contract permits them, but a
+    model-selection convenience does not need to weaken the quiet default."""
     from smartpipe.core.fence import local_only
 
     if local_only(env):
@@ -102,7 +103,7 @@ async def fetch_registry(
 ) -> dict[str, RegistryCaps] | None:
     """models.dev's public capability map — the chips' middle source. Graceful
     absent: any wire trouble is a plain None (no registry = no registry chips).
-    Public or not, --local-only forbids the request (item 65d)."""
+    The current --local-only posture suppresses this data-free request too."""
     from smartpipe.core.fence import local_only
 
     if local_only(env):

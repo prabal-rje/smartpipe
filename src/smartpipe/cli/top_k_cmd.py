@@ -39,7 +39,12 @@ __all__ = ["top_k_command"]
     help="Joint text+image embedder for media items (e.g. jina/jina-clip-v2).",
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
-@click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@click.option(
+    "--max-calls",
+    "max_calls",
+    type=int,
+    help="Stop after N billable units (model calls; dedicated OCR pages).",
+)
 @manifest_option
 @click.option("--stream", "stream", is_flag=True, help="Live leaderboard over a stream.")
 @fields_option

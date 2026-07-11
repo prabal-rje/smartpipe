@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.models.base import ChatModel, ModelRef
 from smartpipe.verbs.outliers import OutliersRequest, run_outliers
 
@@ -46,6 +47,9 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 2
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        return FailurePolicy(transport_limit=5, transport_screen=f"{provider} unavailable")
 
     def document_parser(self, flag: str | None = None) -> None:
         return None
@@ -101,6 +105,26 @@ async def test_record_shape_mirrors_top_k_for_json_rows() -> None:
 async def test_tiny_corpus_is_a_usage_fault() -> None:
     with pytest.raises(UsageFault, match="at least 3 items"):
         await _run("a\nb\n")
+
+
+async def test_all_embedding_failures_are_an_outcome_not_a_post_spend_usage_fault() -> None:
+    class FailedEmbedding(FakeEmbedding):
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            raise ItemError(f"could not embed {len(texts)} rows")
+
+    class FailedContext(FakeContext):
+        async def embedding_model(self, flag: str | None = None) -> FailedEmbedding:  # type: ignore[override]
+            return FailedEmbedding()
+
+    out = io.StringIO()
+    code = await run_outliers(
+        OutliersRequest(count=1),
+        FailedContext(),
+        stdin=io.StringIO("one\ntwo\nthree\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.ALL_FAILED
+    assert out.getvalue() == ""
 
 
 # --- the ocr-model role at ingestion (item 48) ---------------------------------------

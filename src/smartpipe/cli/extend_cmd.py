@@ -115,7 +115,12 @@ __all__ = ["extend_command"]
     help="Never auto-chunk oversized items: process whole or skip with an error.",
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
-@click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@click.option(
+    "--max-calls",
+    "max_calls",
+    type=int,
+    help="Stop after N billable units (model calls; dedicated OCR pages).",
+)
 @manifest_option
 @fields_option
 @ocr_model_option

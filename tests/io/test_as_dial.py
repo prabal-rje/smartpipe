@@ -66,6 +66,45 @@ async def test_jsonl_extension_defaults_to_records(tmp_path: Path) -> None:
     assert items[0].source.path == str(data)
 
 
+async def test_named_jsonl_streams_without_path_read_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Row-cut files must not allocate the entire payload before yielding row one."""
+    from pathlib import Path as ConcretePath
+
+    data = tmp_path / "rows.jsonl"
+    data.write_text('{"a": 1}\n{"a": 2}\n', encoding="utf-8")
+
+    def forbid_slurp(*args: object, **kwargs: object) -> str:
+        raise AssertionError("row-cut inputs must not call Path.read_text")
+
+    monkeypatch.setattr(ConcretePath, "read_text", forbid_slurp)
+    items, total = resolve_items(_spec(str(data)), io.StringIO(""))
+    first = await anext(items)
+
+    assert total is None
+    assert first.data == {"a": 1}
+
+
+async def test_explicit_named_lines_streams_without_path_read_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pathlib import Path as ConcretePath
+
+    data = tmp_path / "rows.txt"
+    data.write_text("one\ntwo\n", encoding="utf-8")
+
+    def forbid_slurp(*args: object, **kwargs: object) -> str:
+        raise AssertionError("row-cut inputs must not call Path.read_text")
+
+    monkeypatch.setattr(ConcretePath, "read_text", forbid_slurp)
+    items, total = resolve_items(_spec(str(data), as_mode="lines"), io.StringIO(""))
+    first = await anext(items)
+
+    assert total is None
+    assert first.text == "one"
+
+
 async def test_jsonl_extension_bad_row_is_loud_and_names_the_file(tmp_path: Path) -> None:
     data = tmp_path / "rows.jsonl"
     data.write_text('{"a": 1}\noops\n', encoding="utf-8")

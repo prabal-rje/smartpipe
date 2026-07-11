@@ -1,8 +1,9 @@
-"""``--max-calls`` (D18): a hard ceiling on model calls.
+"""``--max-calls`` (D18): a hard ceiling on outbound billable units.
 
-The budget wraps models at the composition root, so verbs stay ignorant. One
-charge = one model call (a repair re-ask charges again; wire retries of the same
-call, inside ``with_retries``, do not — the wrapper sits outside them).
+The budget wraps models at the composition root, so verbs stay ignorant. A
+regular chat, embedding, or remote-STT request is one unit; dedicated OCR is
+one unit per page. A repair re-ask charges again, while wire retries of the
+same request do not because the wrapper sits outside ``with_retries``.
 
 Two exhaustion behaviors, pinned in ux.md: with a ``stop`` event (the per-item
 verbs' drain machinery) the limit call still runs, intake stops, and any racing
@@ -15,7 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import SetupFault, UnsentError
+from smartpipe.models.base import preflight_chat
 
 if TYPE_CHECKING:
     import asyncio
@@ -23,6 +25,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from smartpipe.models.base import (
+        AudioData,
         ChatModel,
         CompletionRequest,
         EmbeddingModel,
@@ -31,8 +34,15 @@ if TYPE_CHECKING:
         ModelRef,
     )
     from smartpipe.models.ocr import DocumentParser, OcrPage
+    from smartpipe.models.stt import Transcriber
 
-__all__ = ["CallBudget", "budgeted_chat", "budgeted_embed", "budgeted_parser"]
+__all__ = [
+    "CallBudget",
+    "budgeted_chat",
+    "budgeted_embed",
+    "budgeted_parser",
+    "budgeted_transcriber",
+]
 
 
 @dataclass(slots=True)
@@ -44,13 +54,23 @@ class CallBudget:
     stop: asyncio.Event | None  # per-item verbs trip intake; None = whole-set (fatal)
     calls: int = 0
     exhausted: bool = False
+    model_calls: int = 0
+    ocr_pages: int = 0
+    _saw_ocr: bool = False
 
     def __post_init__(self) -> None:
         if self.limit < 1:
             raise ValueError(f"--max-calls must be >= 1, got {self.limit}")
 
-    def charge(self) -> None:
-        if self.calls >= self.limit:
+    def _reserve(self, units: int) -> None:
+        """Reserve billable units atomically before an outbound request.
+
+        Ordinary model envelopes reserve one unit. Dedicated OCR reserves the
+        document's full page count so an over-belt PDF never uploads partially.
+        """
+        if units < 1:
+            raise ValueError(f"budget units must be >= 1, got {units}")
+        if self.calls + units > self.limit:
             self.exhausted = True
             if self.stop is None:
                 raise SetupFault(
@@ -59,12 +79,33 @@ class CallBudget:
                     "  that stops early leaves nothing usable.\n"
                     "  Raise --max-calls, shrink the input, or drop the cap."
                 )
-            raise ItemError(f"call budget reached (--max-calls {self.limit})")
-        self.calls += 1
+            self.stop.set()
+            raise UnsentError(f"call budget reached (--max-calls {self.limit})")
+        self.calls += units
         if self.calls >= self.limit:
             self.exhausted = True
             if self.stop is not None:
                 self.stop.set()  # the limit call runs; nothing new starts
+
+    def charge(self) -> None:
+        self._reserve(1)
+        self.model_calls += 1
+
+    def reserve_ocr_pages(self, pages: int) -> None:
+        self._saw_ocr = True
+        self._reserve(pages)
+        self.ocr_pages += pages
+
+    def describe_usage(self) -> str:
+        if not self._saw_ocr:
+            return _count(self.model_calls, "call", suffix="made")
+        if self.model_calls == 0:
+            return _count(self.ocr_pages, "OCR page", suffix="processed")
+        return (
+            f"{_count(self.calls, 'unit', suffix='used')}: "
+            f"{_count(self.model_calls, 'model call')} + "
+            f"{_count(self.ocr_pages, 'OCR page')}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +117,11 @@ class _BudgetedChat:
     def ref(self) -> ModelRef:
         return self.inner.ref
 
+    def preflight(self, request: CompletionRequest) -> None:
+        preflight_chat(self.inner, request)
+
     async def complete(self, request: CompletionRequest) -> str:
+        self.preflight(request)
         self.budget.charge()
         return await self.inner.complete(request)
 
@@ -119,9 +164,11 @@ class _BudgetedMediaEmbed:
 
 @dataclass(frozen=True, slots=True)
 class _BudgetedParser:
-    """The belt on the dedicated OCR wire (item 48): one charge per parse
-    call. Only the mistral parser needs it — the vision rung's chat model is
-    already wrapped, so wrapping that parser too would double-charge."""
+    """Page-denominated belt for the dedicated OCR wire (item 48).
+
+    Only the Mistral parser needs it. The vision rung's chat model is already
+    wrapped per request, so wrapping that parser too would double-charge.
+    """
 
     inner: DocumentParser
     budget: CallBudget
@@ -131,12 +178,31 @@ class _BudgetedParser:
         return self.inner.ref
 
     async def parse_image(self, image: ImageData) -> str:
-        self.budget.charge()
+        self.budget.reserve_ocr_pages(1)
         return await self.inner.parse_image(image)
 
     async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
-        self.budget.charge()
+        import asyncio
+
+        from smartpipe.models.ocr import pdf_page_count
+
+        pages = await asyncio.to_thread(pdf_page_count, path)
+        self.budget.reserve_ocr_pages(pages)
         return await self.inner.parse_pdf(path)
+
+
+@dataclass(frozen=True, slots=True)
+class _BudgetedTranscriber:
+    inner: Transcriber
+    budget: CallBudget
+
+    @property
+    def ref(self) -> ModelRef:
+        return self.inner.ref
+
+    async def transcribe(self, audio: AudioData) -> str:
+        self.budget.charge()
+        return await self.inner.transcribe(audio)
 
 
 def budgeted_chat(inner: ChatModel, budget: CallBudget) -> ChatModel:
@@ -153,3 +219,13 @@ def budgeted_embed(inner: EmbeddingModel, budget: CallBudget) -> EmbeddingModel:
     if supports_media_embedding(inner):
         return _BudgetedMediaEmbed(inner, budget)
     return _BudgetedEmbed(inner, budget)
+
+
+def budgeted_transcriber(inner: Transcriber, budget: CallBudget) -> Transcriber:
+    return _BudgetedTranscriber(inner, budget)
+
+
+def _count(value: int, noun: str, *, suffix: str = "") -> str:
+    plural = "" if value == 1 else "s"
+    tail = f" {suffix}" if suffix else ""
+    return f"{value} {noun}{plural}{tail}"

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, RetryableError, SetupFault, TransportError
 from smartpipe.models.base import CompletionRequest, ImageData, ModelRef
 from smartpipe.models.ocr import MistralOcrParser, OcrPage, VisionOcrParser
 from smartpipe.models.retry import RetryPolicy
@@ -84,10 +84,39 @@ async def test_wire_error_is_an_item_error(respx_mock: respx.MockRouter) -> None
             await _parser(client).parse_image(ImageData(b"x", "image/png"))
 
 
+@pytest.mark.parametrize(
+    ("status", "fault"),
+    ((429, RetryableError), (503, TransportError)),
+)
+async def test_exhausted_transient_faults_reach_shared_admission(
+    respx_mock: respx.MockRouter,
+    status: int,
+    fault: type[ItemError],
+) -> None:
+    respx_mock.post(URL).mock(return_value=httpx.Response(status, text="try later"))
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(fault):
+            await _parser(client).parse_image(ImageData(b"x", "image/png"))
+
+
 async def test_unexpected_shape_is_an_item_error(respx_mock: respx.MockRouter) -> None:
     respx_mock.post(URL).mock(return_value=httpx.Response(200, json={"nope": True}))
     async with httpx.AsyncClient() as client:
         with pytest.raises(ItemError, match="unexpected shape"):
+            await _parser(client).parse_image(ImageData(b"x", "image/png"))
+
+
+async def test_empty_pages_reply_is_an_item_error(respx_mock: respx.MockRouter) -> None:
+    respx_mock.post(URL).mock(return_value=httpx.Response(200, json={"pages": []}))
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(ItemError, match="no pages"):
+            await _parser(client).parse_image(ImageData(b"x", "image/png"))
+
+
+async def test_malformed_success_json_is_an_item_error(respx_mock: respx.MockRouter) -> None:
+    respx_mock.post(URL).mock(return_value=httpx.Response(200, text="not-json"))
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(ItemError, match="Mistral OCR returned malformed JSON"):
             await _parser(client).parse_image(ImageData(b"x", "image/png"))
 
 

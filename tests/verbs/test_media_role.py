@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.items import item_from_line
 from smartpipe.models.base import ChatModel, ImageData, ModelRef
 from smartpipe.verbs.common import GeometryFence, media_embedder, row_embedder
@@ -68,6 +69,9 @@ class RoleContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 2
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        return FailurePolicy(transport_limit=5, transport_screen=f"{provider} unavailable")
 
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None

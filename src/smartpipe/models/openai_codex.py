@@ -23,10 +23,18 @@ from typing import TYPE_CHECKING
 import httpx
 
 from smartpipe.config.credentials import OAuthCredential, load_oauth, save_oauth
-from smartpipe.core.errors import ItemError, SetupFault, TransportError
+from smartpipe.core.errors import (
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    SetupFault,
+    TransportError,
+)
 from smartpipe.core.jsontools import as_items, as_record, as_str
 from smartpipe.io import metering
+from smartpipe.models.http_support import is_retryable_http, retry_after_seconds
 from smartpipe.models.openai_oauth import refresh_tokens
+from smartpipe.models.retry import RetryPolicy, with_retries
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -52,10 +60,15 @@ class CodexChatModel:
     client: httpx.AsyncClient
     store_path: Path
     credential: OAuthCredential
+    retry: RetryPolicy = field(default_factory=RetryPolicy)
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     _refresh_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
+    def preflight(self, request: CompletionRequest) -> None:
+        _validate_media(request)
+
     async def complete(self, request: CompletionRequest) -> str:
+        self.preflight(request)
         await self._ensure_fresh()
         response = await self._post(request)
         if response.status_code == 401:  # one refresh, one retry, then be honest
@@ -69,12 +82,15 @@ class CodexChatModel:
             raise SetupFault(screens.cloud_model_missing(self.ref.name, "the ChatGPT wire"))
         if response.status_code != 200:
             detail = _detail(response)
+            lowered = detail.lower()
             if response.status_code == 400 and (
-                "response_format" in detail or "json_schema" in detail
+                "response_format" in lowered or "json_schema" in lowered
             ):
                 from smartpipe.cli import screens
 
-                raise SetupFault(screens.schema_rejected("the ChatGPT wire", detail))
+                raise SchemaRejected(screens.schema_rejected("the ChatGPT wire", detail))
+            if response.status_code == 429:
+                raise RetryableError(f"chatgpt wire error {response.status_code}: {detail}")
             if response.status_code >= 500:  # the wire, not the content
                 raise TransportError(f"chatgpt wire error {response.status_code}: {detail}")
             raise ItemError(f"chatgpt wire error {response.status_code}: {detail}")
@@ -93,9 +109,29 @@ class CodexChatModel:
         }
         if self.credential.account_id is not None:
             headers["ChatGPT-Account-Id"] = self.credential.account_id
-        return await self.client.post(
-            CODEX_ENDPOINT, json=build_payload(self.ref.name, request), headers=headers
-        )
+        payload = build_payload(self.ref.name, request)
+
+        async def attempt() -> httpx.Response:
+            response = await self.client.post(CODEX_ENDPOINT, json=payload, headers=headers)
+            if response.status_code == 429 or response.status_code >= 500:
+                response.raise_for_status()
+            return response
+
+        try:
+            return await with_retries(
+                self.retry,
+                attempt,
+                is_retryable=is_retryable_http,
+                delay_hint=retry_after_seconds,
+            )
+        except httpx.HTTPStatusError as exc:
+            detail = _detail(exc.response)
+            status = exc.response.status_code
+            if status == 429:
+                raise RetryableError(f"chatgpt wire error {status}: {detail}") from exc
+            raise TransportError(f"chatgpt wire error {status}: {detail}") from exc
+        except httpx.HTTPError as exc:
+            raise TransportError(f"request to the ChatGPT wire failed: {exc}") from exc
 
     async def _ensure_fresh(self) -> None:
         if self.credential.expires_ms - _SKEW_MS > time.time() * 1000:
@@ -118,23 +154,10 @@ class CodexChatModel:
 
 
 def build_payload(model: str, request: CompletionRequest) -> dict[str, object]:
+    _validate_media(request)
     content: list[dict[str, object]] = [{"type": "input_text", "text": request.user}]
-    from smartpipe.models.base import AudioData, ImageData, VideoData
+    from smartpipe.models.base import ImageData
 
-    if any(isinstance(part, AudioData) for part in request.media):
-        # audio on the ChatGPT login wire is unverified — fail free, name the fixes
-        raise ItemError(
-            "this model can't hear audio — try an audio model "
-            "(voxtral, gemini) — smartpipe transcribes locally otherwise"
-        )
-    if any(isinstance(part, VideoData) for part in request.media):
-        # the responses wire has no video input — refuse pre-send at zero cost so
-        # the ladder converts to frames+audio (silently dropping it would send a
-        # prompt-only request and return a confident wrong answer)
-        raise ItemError(
-            "this endpoint can't watch video — map converts video to "
-            "frames + audio automatically; use map, or split --by seconds"
-        )
     for part in request.media:
         if isinstance(part, ImageData):
             data_uri = f"data:{part.mime};base64,{base64.b64encode(part.data).decode()}"
@@ -161,6 +184,21 @@ def build_payload(model: str, request: CompletionRequest) -> dict[str, object]:
             }
         }
     return payload
+
+
+def _validate_media(request: CompletionRequest) -> None:
+    from smartpipe.models.base import AudioData, VideoData
+
+    if any(isinstance(part, AudioData) for part in request.media):
+        raise ItemError(
+            "this model can't hear audio — try an audio model "
+            "(voxtral, gemini) — smartpipe transcribes locally otherwise"
+        )
+    if any(isinstance(part, VideoData) for part in request.media):
+        raise ItemError(
+            "this endpoint can't watch video — map converts video to "
+            "frames + audio automatically; use map, or split --by seconds"
+        )
 
 
 def accumulate_sse(body: str) -> str:

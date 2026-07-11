@@ -25,6 +25,7 @@ __all__ = [
     "AudioData",
     "BatchHint",
     "ChatModel",
+    "ChatPreflight",
     "CompletionRequest",
     "EmbeddingModel",
     "ImageData",
@@ -34,6 +35,7 @@ __all__ = [
     "Provider",
     "VideoData",
     "parse_model_ref",
+    "preflight_chat",
     "supports_media_embedding",
 ]
 
@@ -122,6 +124,19 @@ class ChatModel(Protocol):
     def ref(self) -> ModelRef: ...
 
     async def complete(self, request: CompletionRequest) -> str: ...
+
+
+@runtime_checkable
+class ChatPreflight(Protocol):
+    """Optional pure validation performed before admission and billing."""
+
+    def preflight(self, request: CompletionRequest) -> None: ...
+
+
+def preflight_chat(model: object, request: CompletionRequest) -> None:
+    """Validate a chat request locally when its adapter exposes that seam."""
+    if isinstance(model, ChatPreflight):
+        model.preflight(request)
 
 
 @runtime_checkable

@@ -103,6 +103,8 @@ smartpipe map "Summarize this document" < report.pdf
 
 One document per run (stdin is one stream); for many documents use `--in`.
 Unrecognizable binary data stops with a clear message instead of garbling.
+The private spool has one owner and is removed on normal completion, parse
+failure, downstream early stop, or Ctrl-C.
 
 ## Mixing files and a pipe
 

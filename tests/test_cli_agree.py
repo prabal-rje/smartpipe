@@ -32,7 +32,10 @@ def test_agree_runs_with_zero_config_and_zero_network(run_cli: RunCli, tmp_path:
     rows = [json.loads(line) for line in out.splitlines()]
     assert rows[0]["n"] == 3
     assert rows[0]["observed_agreement"] == round(2 / 3, 4)
-    assert {"label_a": "spam", "label_b": "spam", "count": 1} in rows[1:]
+    assert any(
+        row["label_a"] == "spam" and row["label_b"] == "spam" and row["count"] == 1
+        for row in rows[1:]
+    )
     assert err == ""
 
 

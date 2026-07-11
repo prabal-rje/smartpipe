@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 import click
 
@@ -15,7 +16,8 @@ from smartpipe.cli.input_options import (
     ocr_model_option,
     positional_paths,
 )
-from smartpipe.cli.interrupts import graceful_interrupts, settle_budget
+from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.split import SplitRequest, run_split
 
@@ -47,8 +49,9 @@ __all__ = ["split_command"]
     "--max-calls",
     "max_calls",
     type=int,
-    help="Stop after N model calls (cost cap; only ocr-model parsing ever calls one).",
+    help="Stop after N billable units (model calls; dedicated OCR pages).",
 )
+@manifest_option
 @input_options
 def split_command(
     by_flag: str | None,
@@ -56,6 +59,7 @@ def split_command(
     max_tokens: int | None,
     ocr_model_flag: str | None,
     max_calls: int | None,
+    manifest_path: Path | None,
     in_patterns: tuple[str, ...],
     from_files: bool,
     as_mode: str | None,
@@ -88,17 +92,22 @@ def split_command(
             strict_rows=strict_rows,
         ),
     )
-    code = asyncio.run(_run(request, max_calls))
+    code = asyncio.run(_run(request, max_calls, manifest_path))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
-async def _run(request: SplitRequest, max_calls: int | None) -> ExitCode:
+async def _run(
+    request: SplitRequest, max_calls: int | None, manifest_path: Path | None
+) -> ExitCode:
     from smartpipe.container import build_container
 
     async with (
         graceful_interrupts() as stop,
         build_container(os.environ, max_calls=max_calls, stop=stop) as container,
     ):
-        code = await run_split(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop)
-        return settle_budget(container.budget, code)
+        begin_manifest(manifest_path, verb="split")
+        return await settled(
+            run_split(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            container.budget,
+        )

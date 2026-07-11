@@ -41,7 +41,12 @@ __all__ = ["distinct_command"]
     help="Embedding model for this run.",
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
-@click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@click.option(
+    "--max-calls",
+    "max_calls",
+    type=int,
+    help="Stop after N billable units (model calls; dedicated OCR pages).",
+)
 @manifest_option
 @click.option(
     "--allow-captions",

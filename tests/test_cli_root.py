@@ -27,6 +27,42 @@ def test_help_exits_zero(run_cli: RunCli) -> None:
     code, out, _err = run_cli(["--help"])
     assert code == 0
     assert "Usage: smartpipe" in out
+    assert "User input stays local" in out
+    assert "no network calls at all" not in out
+
+
+def test_join_concurrency_help_names_api_calls_not_left_objects(run_cli: RunCli) -> None:
+    code, out, _err = run_cli(["join", "--help"])
+    assert code == 0
+    assert "Max parallel model calls" in out
+    assert "Max parallel left items" not in out
+
+
+@pytest.mark.parametrize(
+    "verb",
+    [
+        "map",
+        "extend",
+        "filter",
+        "embed",
+        "top_k",
+        "reduce",
+        "cluster",
+        "distinct",
+        "outliers",
+        "diff",
+        "join",
+        "graph",
+    ],
+)
+def test_model_surface_budgets_use_billable_units_in_help(
+    verb: str,
+    run_cli: RunCli,
+) -> None:
+    code, out, _err = run_cli([verb, "--help"])
+    assert code == 0
+    assert "billable units" in out
+    assert "OCR pages" in out
 
 
 def test_unknown_command_exits_64(run_cli: RunCli) -> None:

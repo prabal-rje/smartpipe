@@ -12,7 +12,7 @@ your machine, via Ollama). You choose which; smartpipe just talks to it.
 | | Cloud | Local (Ollama) |
 |---|---|---|
 | Cost | Small charge per use | Free |
-| Privacy | Text and supported media go to the provider | Nothing leaves your machine when Ollama is local |
+| Privacy | Text and supported media go to the provider | Input stays on your machine when Ollama is local; first use may download model weights |
 | Setup | Log in with ChatGPT, or get an API key | Install Ollama, pull a model |
 | Speed / quality | Usually faster and stronger | Depends on your hardware |
 
@@ -260,8 +260,10 @@ ladder with a note - never a hard stop. `--ocr-model` (per run) >
 Every ingesting verb honors the role - the per-item verbs, the embedding
 verbs, `cluster`/`diff`/`distinct`/`outliers`, `split`, `join` (the `--right`
 file included), and reader mode - with the same disclosures, the same
-`--max-calls` belt, and a preflight note before a 20+-file folder starts
-parsing. The OCR stage of `smartpipe use` offers the dedicated mistral wire,
+`--max-calls` belt, and a preflight note before more than 20 billable pages
+start parsing. Mistral bills per page, so smartpipe reserves the complete PDF
+page count before upload; a document that does not fit in the remaining belt
+is not sent. The OCR stage of `smartpipe use` offers the dedicated mistral wire,
 your chat model, and the vision-capable catalog entries (capped at the menu
 height; typing a name covers the rest).
 
@@ -291,7 +293,9 @@ items wait about 75 ms (or until 12 gather) and fly as ONE request, each in
 its own labeled `<input id="r1">` block; the model answers with one JSON
 object keyed per item, and the answers fan back out in input order. Grouping
 follows (model, output schema) - prompts that interpolate fields still batch,
-each carrying its own instruction inside its block.
+each carrying its own instruction inside its block. Instructions and bodies
+are XML-text escaped before wrapping, so a literal `</input>` in text or a
+YAML scalar remains data and cannot forge a neighboring record.
 
 Never batched: media items, oversized items, repair retries, and every other
 verb - they take the solo path unchanged. A missing or invalid per-item
@@ -300,13 +304,22 @@ repair ladder); valid neighbors keep their answers.
 
 The accounting stays per real call: `--max-calls` counts a batch of 12 items
 as 1 call, the circuit breaker watches real wire failures, the meter counts
-real usage, and one stderr note per run discloses what happened:
-`note: batched 500 items into 42 calls`. The result cache stays per item -
+real usage, and `--concurrency` caps simultaneous outbound calls rather than
+objects waiting to be processed. Batch size 6 + concurrency 1 + 18 eligible
+items therefore means three sequential calls. One stderr note per run
+discloses attempts and recovery:
+`note: batching: 500 items in 42 packed calls · 3 solo recoveries`. The result cache stays per item -
 hits skip the batch entirely, and batched answers are cached individually.
 
+Missing/invalid keys recover solo once. A packed-schema incompatibility also
+splits to solo once. Auth/model/setup faults stop immediately; an exhausted
+rate-limit or transport retry is fanned back to the affected rows without
+launching one new retry ladder per row. Every recovery crosses the same budget,
+breaker, and concurrency gate.
+
 Kill switch: `smartpipe config batching off`, or `SMARTPIPE_BATCH=off` for
-one run. `SMARTPIPE_BATCH_SIZE` (default 12) and `SMARTPIPE_BATCH_WINDOW_MS`
-(default 75) tune it.
+one run. `SMARTPIPE_BATCH_SIZE` accepts 2..12 (default 12; larger values fault)
+and `SMARTPIPE_BATCH_WINDOW_MS` (default 75) tunes the coalesce window.
 
 ## The usage ledger
 

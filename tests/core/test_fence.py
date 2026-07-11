@@ -47,6 +47,37 @@ def test_remote_hosts_are_not_local(url: str) -> None:
     assert is_local_host(url) is False
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://127.attacker.example:11434",
+        "https://127.0.0.1.attacker.example:11434",
+        "http://127.0.0.1@attacker.example:11434",
+        "http://2130706433:11434",
+        "http://0177.0.0.1:11434",
+    ],
+)
+def test_loopback_looking_remote_names_are_not_local(url: str) -> None:
+    assert is_local_host(url) is False
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://[::ffff:127.0.0.1]:11434",
+        "localhost:11434",
+        "127.0.0.1:11434",
+    ],
+)
+def test_canonical_loopback_variants_are_local(url: str) -> None:
+    assert is_local_host(url) is True
+
+
+@pytest.mark.parametrize("url", ["", "://", "http://[::1", "http://user@"])
+def test_malformed_hosts_fail_closed(url: str) -> None:
+    assert is_local_host(url) is False
+
+
 FENCED = {"SMARTPIPE_LOCAL_ONLY": "1"}
 LOCALHOST = "http://localhost:11434"
 
@@ -62,7 +93,7 @@ def test_cloud_chat_is_refused_with_the_local_alternative() -> None:
         ensure_local_wire(ref, FENCED, role="chat", ollama_host=LOCALHOST)
     screen = str(caught.value)
     assert "openai/gpt-4o-mini" in screen
-    assert "no data leaves this machine" in screen
+    assert "input stays on this machine" in screen
     assert "ollama" in screen  # the fix names the local wire
 
 
@@ -109,3 +140,14 @@ def test_a_remote_ollama_host_is_honestly_refused() -> None:
     screen = str(caught.value)
     assert "OLLAMA_HOST" in screen
     assert "data leaving" in screen
+
+
+def test_a_loopback_looking_dns_name_is_refused_at_the_wire_boundary() -> None:
+    ref = ModelRef(provider="ollama", name="qwen3:8b")
+    with pytest.raises(SetupFault, match="OLLAMA_HOST"):
+        ensure_local_wire(
+            ref,
+            FENCED,
+            role="chat",
+            ollama_host="https://127.0.0.1.attacker.example:11434",
+        )

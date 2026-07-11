@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from smartpipe.core.errors import SetupFault
+from smartpipe.core.errors import ItemError, RetryableError, SetupFault, TransportError
 from smartpipe.models.base import ImageData, ModelRef, supports_media_embedding
 from smartpipe.models.jina import JinaClipEmbeddingModel
 from smartpipe.models.retry import RetryPolicy
@@ -56,6 +56,35 @@ async def test_401_names_the_env_var(respx_mock: respx.MockRouter) -> None:
     respx_mock.post(URL).mock(return_value=httpx.Response(401, text="no"))
     async with httpx.AsyncClient() as client:
         with pytest.raises(SetupFault, match="JINA_API_KEY"):
+            await _model(client).embed(["x"])
+
+
+@pytest.mark.parametrize(
+    ("status", "error_type"),
+    [(429, RetryableError), (503, TransportError), (400, ItemError)],
+)
+async def test_http_failures_keep_the_shared_error_taxonomy(
+    respx_mock: respx.MockRouter,
+    status: int,
+    error_type: type[ItemError],
+) -> None:
+    respx_mock.post(URL).mock(return_value=httpx.Response(status, text="wire detail"))
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(error_type, match=f"jina error {status}"):
+            await _model(client).embed(["x"])
+
+
+async def test_network_failure_is_a_transport_error(respx_mock: respx.MockRouter) -> None:
+    respx_mock.post(URL).mock(side_effect=httpx.ConnectError("offline"))
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(TransportError, match="jina request failed"):
+            await _model(client).embed(["x"])
+
+
+async def test_malformed_success_json_is_an_item_error(respx_mock: respx.MockRouter) -> None:
+    respx_mock.post(URL).mock(return_value=httpx.Response(200, text="not-json"))
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(ItemError, match="Jina returned malformed JSON"):
             await _model(client).embed(["x"])
 
 

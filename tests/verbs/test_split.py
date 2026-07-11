@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 from typing import TYPE_CHECKING
@@ -11,6 +12,7 @@ import pytest
 from smartpipe.core.errors import ExitCode
 from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
 from smartpipe.verbs.split import SplitRequest, run_split
+from tests.helpers.pdf import minimal_pdf
 from tests.io.test_ocr_ingest import FakeParser
 
 if TYPE_CHECKING:
@@ -105,47 +107,11 @@ async def test_stdin_lines_split_too() -> None:
     assert all(r["__source"]["label"].startswith("line 1 §") for r in records)
 
 
-def _minimal_pdf(pages: list[str]) -> bytes:
-    """A hand-rolled N-page PDF with one text line per page (no writer dep)."""
-    objects: list[bytes] = []
-    kids = " ".join(f"{3 + i * 2} 0 R" for i in range(len(pages)))
-    objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
-    objects.append(f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>".encode())
-    for i, text in enumerate(pages):
-        content = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
-        objects.append(
-            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-            f"/Contents {4 + i * 2} 0 R /Resources << /Font << /F1 "
-            f"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>".encode()
-        )
-        objects.append(
-            b"<< /Length "
-            + str(len(content)).encode()
-            + b" >>\nstream\n"
-            + content
-            + b"\nendstream"
-        )
-    out = bytearray(b"%PDF-1.4\n")
-    offsets: list[int] = []
-    for number, body in enumerate(objects, start=1):
-        offsets.append(len(out))
-        out += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
-    xref_at = len(out)
-    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
-    for offset in offsets:
-        out += f"{offset:010d} 00000 n \n".encode()
-    out += (
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
-        f"startxref\n{xref_at}\n%%EOF\n".encode()
-    )
-    return bytes(out)
-
-
 async def test_by_pages_yields_page_spans(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from smartpipe.io.inputs import InputSpec
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "r.pdf").write_bytes(_minimal_pdf(["alpha page", "beta page", "gamma page"]))
+    (tmp_path / "r.pdf").write_bytes(minimal_pdf(["alpha page", "beta page", "gamma page"]))
     out = io.StringIO()
     code = await run_split(
         SplitRequest(by_flag="pages:2", input=InputSpec(patterns=("*.pdf",), from_files=False)),
@@ -470,13 +436,56 @@ async def test_by_pages_parses_through_the_role_and_keeps_the_grouping(
     assert "degraded: r.pdf p.1 document → markdown" in err  # disclosed per page
 
 
+async def test_media_branch_never_constructs_the_ocr_parser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from smartpipe.io.inputs import InputSpec
+
+    class GuardContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> None:
+            raise AssertionError("split --media never consults ocr-model")
+
+    monkeypatch.chdir(tmp_path)
+    _docx_with_media(tmp_path / "deck.docx", {})
+    code = await run_split(
+        SplitRequest(media=True, input=InputSpec(patterns=("*.docx",), from_files=False)),
+        GuardContext(),
+        stdin=_TtyStdin(),
+        stdout=io.StringIO(),
+    )
+
+    assert code is ExitCode.OK
+
+
+async def test_pre_stopped_pages_run_never_constructs_or_calls_the_parser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from smartpipe.io.inputs import InputSpec
+
+    class GuardContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> None:
+            raise AssertionError("stopped intake must not set up OCR")
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "r.pdf").write_bytes(minimal_pdf(["one"]))
+    stop = asyncio.Event()
+    stop.set()
+    await run_split(
+        SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),
+        GuardContext(),
+        stdin=_TtyStdin(),
+        stdout=io.StringIO(),
+        stop=stop,
+    )
+
+
 async def test_by_pages_falls_back_to_local_extraction_when_the_parse_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from smartpipe.io.inputs import InputSpec
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "r.pdf").write_bytes(_minimal_pdf(["alpha page", "beta page"]))
+    (tmp_path / "r.pdf").write_bytes(minimal_pdf(["alpha page", "beta page"]))
     out = io.StringIO()
     code = await run_split(
         SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),

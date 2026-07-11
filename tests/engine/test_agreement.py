@@ -134,12 +134,42 @@ def test_row_order_mode_compares_in_order() -> None:
     assert comparison.stats.observed == pytest.approx(0.5)
 
 
+def test_row_order_mode_consumes_each_side_once() -> None:
+    class OneShot:
+        def __init__(self, rows: tuple[dict[str, object], ...]) -> None:
+            self.rows = rows
+            self.iterations = 0
+
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            self.iterations += 1
+            assert self.iterations == 1
+            return iter(self.rows)
+
+    rows_a = OneShot(({"label": "x"}, {"label": "y"}))
+    rows_b = OneShot(({"label": "x"}, {"label": "x"}))
+    comparison = compare_labels(
+        LabelFile(name="a.jsonl", records=rows_a),  # type: ignore[arg-type]
+        LabelFile(name="b.jsonl", records=rows_b),  # type: ignore[arg-type]
+        on=None,
+        label="label",
+    )
+    assert comparison.stats.n == 2
+    assert rows_a.iterations == rows_b.iterations == 1
+
+
 def test_key_alignment_pairs_rows_regardless_of_order() -> None:
     a = _file("a.jsonl", {"id": 1, "label": "x"}, {"id": 2, "label": "y"})
     b = _file("b.jsonl", {"id": 2, "label": "y"}, {"id": 1, "label": "x"})
     comparison = compare_labels(a, b, on="id", label="label")
     assert comparison.stats.observed == 1.0
     assert comparison.only_a == 0 and comparison.only_b == 0
+
+
+def test_key_alignment_accepts_a_one_shot_stream_on_the_probe_side() -> None:
+    streamed = ({"id": key, "label": label} for key, label in ((1, "x"), (2, "y")))
+    a = LabelFile(name="a.jsonl", records=streamed)  # type: ignore[arg-type]
+    b = _file("b.jsonl", {"id": 2, "label": "y"}, {"id": 1, "label": "x"})
+    assert compare_labels(a, b, on="id", label="label").stats.observed == 1.0
 
 
 def test_keys_on_one_side_only_are_excluded_and_counted() -> None:

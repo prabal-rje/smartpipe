@@ -1,10 +1,9 @@
-"""Full-stack ``--local-only`` tests (item 65d): the IRB checkbox sentence.
+"""Full-stack ``--local-only`` tests (item 65d): local data execution.
 
-With the fence armed, no data leaves the machine: cloud wires refuse at
-model-resolution time (exit 2, before any spend), a remote OLLAMA_HOST is
-honestly refused, and the run's own side channels (update ping, catalog
-fetches) go quiet. No respx route is mounted unless a call is EXPECTED -
-any stray network attempt fails the test loudly.
+With the fence armed, user input stays on the machine: cloud model wires
+refuse at resolution time (exit 2, before spend), and a remote OLLAMA_HOST is
+honestly refused. Supporting requests without user payload are allowed by the
+product contract; the current update/catalog paths remain conservatively quiet.
 """
 
 from __future__ import annotations
@@ -38,7 +37,7 @@ def test_cloud_chat_refuses_before_any_spend(
     assert code == 2
     assert out == ""
     assert "--local-only forbids the cloud chat wire 'openai/gpt-4o-mini'" in err
-    assert "no data leaves this machine" in err
+    assert "input stays on this machine" in err
     assert "ollama" in err  # the local alternative is on the screen
 
 

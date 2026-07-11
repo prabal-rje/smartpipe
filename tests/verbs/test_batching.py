@@ -13,8 +13,17 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ExitCode, SetupFault, TransportError
+import pytest
+
+from smartpipe.core.errors import (
+    ExitCode,
+    SchemaRejected,
+    TransportError,
+    UnsentError,
+)
 from smartpipe.engine.coalesce import BatchSettings
+from smartpipe.engine.runner import FailurePolicy
+from smartpipe.io import manifest
 from smartpipe.io.writers import (
     OutputFormat,
     RenderMode,
@@ -22,13 +31,14 @@ from smartpipe.io.writers import (
     make_writer,
 )
 from smartpipe.models.base import CompletionRequest, ModelRef
-from smartpipe.models.coalesce import CoalescingChatModel
+from smartpipe.models.coalesce import CoalescingChatModel, OutboundCallPolicy
 from smartpipe.verbs.extend import ExtendRequest, run_extend
 from smartpipe.verbs.filter import FilterRequest, run_filter
 from smartpipe.verbs.map import MapRequest, run_map
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel
@@ -105,6 +115,14 @@ class BatchContext:
     def concurrency(self, flag: int | None = None) -> int:
         return self.concurrency_value
 
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        from smartpipe.cli import screens
+
+        return FailurePolicy(
+            transport_limit=5,
+            transport_screen=screens.provider_down(provider, 5),
+        )
+
     def batching(self) -> BatchSettings | None:
         return self.settings if self.enabled else None
 
@@ -134,7 +152,11 @@ class BatchContext:
 def _wrap(model: ChatModel, context: BatchContext) -> ChatModel:
     """The container's wiring for these tests: the coalescer around the wire."""
     assert context.settings is not None
-    return CoalescingChatModel(model, settings=context.settings)
+    return CoalescingChatModel(
+        model,
+        settings=context.settings,
+        calls=OutboundCallPolicy(concurrency=context.concurrency_value),
+    )
 
 
 def _extract(body: str, _request: CompletionRequest) -> object:
@@ -186,6 +208,87 @@ async def test_map_structured_nine_items_fly_in_three_calls() -> None:
     )
     assert len(solo_inner.calls) == 9
     assert batched_out == solo_out  # identical final outputs, batching on or off
+
+
+async def test_batch_six_concurrency_one_makes_three_sequential_calls() -> None:
+    class PeakPacked(PackedCapable):
+        def __init__(self) -> None:
+            super().__init__(_extract)
+            self.active = 0
+            self.peak = 0
+
+        async def complete(self, request: CompletionRequest) -> str:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            await asyncio.sleep(0.005)
+            try:
+                return await super().complete(request)
+            finally:
+                self.active -= 1
+
+    inner = PeakPacked()
+    context = BatchContext(inner, size=6, concurrency=1, enabled=True)
+    model: ChatModel = _wrap(inner, context)  # type: ignore[assignment]
+    context.model = model
+    out = io.StringIO()
+    request = MapRequest(
+        prompt="Extract {shout}",
+        schema_path=None,
+        model_flag=None,
+        output=OutputFormat.AUTO,
+        concurrency_flag=1,
+    )
+    code = await run_map(
+        request,
+        context,
+        stdin=io.StringIO("".join(f"row{n}\n" for n in range(18))),
+        stdout=out,
+    )
+    assert code == ExitCode.OK
+    assert len(inner.calls) == 3
+    assert inner.peak == 1
+    assert len(out.getvalue().splitlines()) == 18
+
+
+async def test_batch_workers_fill_every_concurrent_api_call_slot() -> None:
+    class PeakPacked(PackedCapable):
+        def __init__(self) -> None:
+            super().__init__(_extract)
+            self.active = 0
+            self.peak = 0
+
+        async def complete(self, request: CompletionRequest) -> str:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            await asyncio.sleep(0.01)
+            try:
+                return await super().complete(request)
+            finally:
+                self.active -= 1
+
+    inner = PeakPacked()
+    context = BatchContext(inner, size=6, concurrency=3, enabled=True)
+    context.model = _wrap(inner, context)
+    out = io.StringIO()
+    request = MapRequest(
+        prompt="Extract {shout}",
+        schema_path=None,
+        model_flag=None,
+        output=OutputFormat.AUTO,
+        concurrency_flag=3,
+    )
+
+    code = await run_map(
+        request,
+        context,
+        stdin=io.StringIO("".join(f"row{n}\n" for n in range(18))),
+        stdout=out,
+    )
+
+    assert code == ExitCode.OK
+    assert len(inner.calls) == 3
+    assert inner.peak == 3
+    assert len(out.getvalue().splitlines()) == 18
 
 
 async def test_map_plain_mode_batches_too() -> None:
@@ -313,7 +416,7 @@ async def test_keep_invalid_still_works_for_solo_retried_items() -> None:
     assert len(inner.calls) == 3
 
 
-async def test_breaker_trips_on_batch_failure_backed_by_real_calls() -> None:
+async def test_one_packed_failure_does_not_multiply_retry_ladders() -> None:
     class Down:
         def __init__(self) -> None:
             self.ref = ModelRef("ollama", "fake")
@@ -324,8 +427,12 @@ async def test_breaker_trips_on_batch_failure_backed_by_real_calls() -> None:
             raise TransportError("connection refused")
 
     inner = Down()
-    context = BatchContext(inner, size=6, enabled=True)  # type: ignore[arg-type]
-    model: ChatModel = CoalescingChatModel(inner, settings=context.settings)  # type: ignore[arg-type]
+    context = BatchContext(inner, size=6, concurrency=1, enabled=True)  # type: ignore[arg-type]
+    model: ChatModel = CoalescingChatModel(  # type: ignore[arg-type]
+        inner,
+        settings=context.settings,
+        calls=OutboundCallPolicy(concurrency=1, breaker_limit=5),
+    )
     context.model = model
     request = MapRequest(
         prompt="Extract {shout}",
@@ -335,13 +442,165 @@ async def test_breaker_trips_on_batch_failure_backed_by_real_calls() -> None:
         concurrency_flag=None,
     )
     stdin = io.StringIO("".join(f"row{n}\n" for n in range(6)))
-    try:
-        await run_map(request, context, stdin=stdin, stdout=io.StringIO())
-        raise AssertionError("the provider-down screen should have been raised")
-    except SetupFault:
-        pass
-    # one failed packed call, then real solo failures until the breaker's five
-    assert inner.calls >= 1 + 5
+    code = await run_map(request, context, stdin=stdin, stdout=io.StringIO())
+    assert code is ExitCode.ALL_FAILED
+    assert inner.calls == 1  # one packed ladder fans out; no K solo ladders
+
+
+async def test_one_packed_trip_replays_every_waiter_once_on_fallback() -> None:
+    class Down:
+        def __init__(self) -> None:
+            self.ref = ModelRef("ollama", "primary")
+            self.calls = 0
+
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls += 1
+            raise TransportError("connection refused")
+
+    primary = Down()
+    fallback = PackedCapable(_extract)
+    fallback.ref = ModelRef("ollama", "fallback")
+    policy = OutboundCallPolicy(concurrency=1, breaker_limit=2)
+    settings = BatchSettings(size=4, window_seconds=0.001)
+    primary_model = CoalescingChatModel(primary, settings=settings, calls=policy)  # type: ignore[arg-type]
+    fallback_model = CoalescingChatModel(fallback, settings=settings, calls=policy)  # type: ignore[arg-type]
+
+    class FallbackContext(BatchContext):
+        def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
+            return fallback.ref
+
+        async def fallback_chat_model(self, ref: object) -> ChatModel:
+            assert ref == fallback.ref
+            return fallback_model
+
+    context = FallbackContext(primary_model, settings=settings, concurrency=1)
+    out = io.StringIO()
+    code = await run_map(
+        MapRequest(
+            prompt="Extract {shout}",
+            schema_path=None,
+            model_flag=None,
+            output=OutputFormat.AUTO,
+            concurrency_flag=1,
+            fallback_flag="ollama/fallback",
+        ),
+        context,
+        stdin=io.StringIO("a\nb\nc\nd\ne\nf\ng\nh\n"),
+        stdout=out,
+    )
+    assert code == ExitCode.OK
+    assert primary.calls == 2  # two packed actual calls reach the threshold
+    assert len(fallback.calls) == 2  # eight replayed waiters re-form two packed calls
+    assert [json.loads(line)["shout"] for line in out.getvalue().splitlines()] == [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+    ]
+
+
+async def test_reverse_transport_completion_replays_the_whole_breaker_series() -> None:
+    class ReverseDown:
+        ref = ModelRef("ollama", "primary")
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.high_failed = asyncio.Event()
+
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls += 1
+            if _BLOCK.findall(request.user):
+                raise SchemaRejected("packed schema rejected")  # recover each key once
+            if "\na\n</input>" in request.user:
+                await self.high_failed.wait()
+                raise TransportError("low index failed second")  # availability call 2: trip
+            self.high_failed.set()
+            raise TransportError("high index failed first")  # availability call 1
+
+    primary = ReverseDown()
+    fallback = PackedCapable(_extract)
+    fallback.ref = ModelRef("ollama", "fallback")
+    policy = OutboundCallPolicy(concurrency=2, breaker_limit=2)
+    settings = BatchSettings(size=2, window_seconds=0.001)
+    primary_model = CoalescingChatModel(primary, settings=settings, calls=policy)  # type: ignore[arg-type]
+    fallback_model = CoalescingChatModel(fallback, settings=settings, calls=policy)  # type: ignore[arg-type]
+
+    class FallbackContext(BatchContext):
+        def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
+            return fallback.ref
+
+        async def fallback_chat_model(self, ref: object) -> ChatModel:
+            assert ref == fallback.ref
+            return fallback_model
+
+    context = FallbackContext(primary_model, settings=settings, concurrency=2)
+    out = io.StringIO()
+    code = await run_map(
+        MapRequest(
+            prompt="Extract {shout}",
+            schema_path=None,
+            model_flag=None,
+            output=OutputFormat.AUTO,
+            concurrency_flag=2,
+            fallback_flag="ollama/fallback",
+        ),
+        context,
+        stdin=io.StringIO("a\nb\n"),
+        stdout=out,
+    )
+    assert code == ExitCode.OK
+    assert primary.calls == 3
+    assert len(fallback.calls) == 1
+    assert [json.loads(line)["shout"] for line in out.getvalue().splitlines()] == ["A", "B"]
+
+
+@pytest.mark.parametrize("surface", ("map", "filter", "extend"))
+async def test_unsent_rows_are_skipped_but_not_failed_in_manifests(
+    surface: str,
+    tmp_path: Path,
+) -> None:
+    class OneUnsent(PackedCapable):
+        async def complete(self, request: CompletionRequest) -> str:
+            if "skip" in self._body(request.user):
+                self.calls.append(request)
+                raise UnsentError("run stopping — not sent")
+            return await super().complete(request)
+
+    answer = _judge_keep if surface == "filter" else _extract
+    inner = OneUnsent(answer)
+    context = BatchContext(inner, concurrency=1, enabled=False)
+    out = io.StringIO()
+    target = tmp_path / f"{surface}.json"
+    manifest.reset()
+    manifest.begin(target, verb=surface, argv=(surface,))
+    if surface == "map":
+        code = await run_map(
+            MapRequest("Extract {shout}", None, None, OutputFormat.AUTO, 1),
+            context,
+            stdin=io.StringIO("keep\nskip\n"),
+            stdout=out,
+        )
+    elif surface == "filter":
+        code = await run_filter(
+            FilterRequest("worth keeping", False, None, 1),
+            context,
+            stdin=io.StringIO("keep\nskip\n"),
+            stdout=out,
+        )
+    else:
+        code = await run_extend(
+            ExtendRequest("Add {shout}", None, None, OutputFormat.AUTO, 1),
+            context,
+            stdin=io.StringIO('{"text":"keep"}\n{"text":"skip"}\n'),
+            stdout=out,
+        )
+    manifest.finish(code)
+    document = json.loads(target.read_text(encoding="utf-8"))
+    assert document["items"] == {"in": 2, "succeeded": 1, "skipped": 1, "failed": 0}
 
 
 async def test_interrupt_drains_the_inflight_batch() -> None:
@@ -358,7 +617,12 @@ async def test_interrupt_drains_the_inflight_batch() -> None:
     inner = Held(_extract)
     stop = asyncio.Event()
     context = BatchContext(inner, size=3, concurrency=3, enabled=True)
-    model: ChatModel = CoalescingChatModel(inner, settings=context.settings, stop=stop)  # type: ignore[arg-type]
+    model: ChatModel = CoalescingChatModel(  # type: ignore[arg-type]
+        inner,
+        settings=context.settings,
+        stop=stop,
+        calls=OutboundCallPolicy(concurrency=3),
+    )
     context.model = model
     out = io.StringIO()
     request = MapRequest(
@@ -374,7 +638,7 @@ async def test_interrupt_drains_the_inflight_batch() -> None:
     stop.set()  # Ctrl-C: the in-flight batch drains; nothing new flies
     gate.set()
     code = await run
-    assert code == ExitCode.OK  # everything that started finished cleanly
+    assert code == ExitCode.PARTIAL  # accepted but unflown work reports the drain honestly
     lines = out.getvalue().splitlines()
     assert len(lines) == 3  # the drained batch, in order; intake stopped after
     assert json.loads(lines[0])["shout"] == "ROW0"

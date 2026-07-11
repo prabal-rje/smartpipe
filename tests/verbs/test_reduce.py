@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.core.errors import ExitCode, ItemError, SetupFault, UsageFault
+from smartpipe.io import manifest
 from smartpipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
 from smartpipe.models.base import CompletionRequest, ModelRef
 from smartpipe.verbs.reduce import ReduceRequest, run_reduce
@@ -111,6 +113,24 @@ async def test_empty_input_is_ok() -> None:
     code, out, model = await _run(_request("Summarize"), "", lambda _r: "x")
     assert code == ExitCode.OK
     assert out == ""
+    assert model.calls == []
+
+
+async def test_concurrency_is_configured_before_empty_input_ingestion() -> None:
+    class InvalidConcurrency(FakeContext):
+        def concurrency(self, flag: int | None = None) -> int:
+            raise UsageFault("invalid concurrency")
+
+    model = FakeChat(lambda _request: "unused")
+
+    with pytest.raises(UsageFault, match="invalid concurrency"):
+        await run_reduce(
+            _request("Summarize"),
+            InvalidConcurrency(model),
+            stdin=io.StringIO(""),
+            stdout=io.StringIO(),
+        )
+
     assert model.calls == []
 
 
@@ -255,6 +275,47 @@ async def test_one_chunk_fails_is_partial(capsys: pytest.CaptureFixture[str]) ->
     assert "skipped: chunk over items" in capsys.readouterr().err
 
 
+async def test_recursive_reduce_manifest_counts_source_rows_not_stage_chunks(
+    tmp_path: object,
+) -> None:
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    target = tmp_path / "reduce.json"
+    manifest.reset()
+    manifest.begin(target, verb="reduce", argv=("reduce",))
+    big = "x" * 8_000
+
+    def reply(request: CompletionRequest) -> str:
+        return "note" if "condensing PART" in (request.system or "") else "summary"
+
+    code, _out, _model = await _run(_request("Summarize"), f"{big}\n" * 6, reply)
+    manifest.finish(code)
+    document = json.loads(target.read_text(encoding="utf-8"))
+    assert document["items"] == {"in": 6, "succeeded": 6, "skipped": 0, "failed": 0}
+
+
+async def test_reduce_manifest_maps_a_failed_chunk_back_to_its_source_row(
+    tmp_path: object,
+) -> None:
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    target = tmp_path / "reduce-partial.json"
+    manifest.reset()
+    manifest.begin(target, verb="reduce", argv=("reduce",))
+
+    def reply(request: CompletionRequest) -> str:
+        if "condensing PART" in (request.system or ""):
+            return "__RAISE__" if "B" in request.user else "note A"
+        return "summary"
+
+    code, _out, _model = await _run(_request("Summarize"), _two_big_items(), reply)
+    manifest.finish(code)
+    document = json.loads(target.read_text(encoding="utf-8"))
+    assert document["items"] == {"in": 2, "succeeded": 1, "skipped": 1, "failed": 1}
+
+
 async def test_all_chunks_fail_exits_3() -> None:
     def reply(request: CompletionRequest) -> str:
         return "__RAISE__" if "condensing PART" in (request.system or "") else "FINAL"
@@ -262,6 +323,40 @@ async def test_all_chunks_fail_exits_3() -> None:
     code, out, _model = await _run(_request("Summarize"), _two_big_items(), reply)
     assert code == ExitCode.ALL_FAILED
     assert out == ""
+
+
+async def test_fatal_reduce_level_failure_cancels_and_awaits_siblings() -> None:
+    from smartpipe.verbs.reduce import Reducer
+
+    class FatalChat:
+        ref = ModelRef("ollama", "fatal")
+
+        def __init__(self) -> None:
+            self.sibling_started = asyncio.Event()
+            self.release_sibling = asyncio.Event()
+            self.sibling_cancelled = asyncio.Event()
+
+        async def complete(self, request: CompletionRequest) -> str:
+            if "A" in request.user:
+                await self.sibling_started.wait()
+                raise SetupFault("fatal setup")
+            self.sibling_started.set()
+            try:
+                await self.release_sibling.wait()
+            except asyncio.CancelledError:
+                self.sibling_cancelled.set()
+                raise
+            return "note"
+
+    model = FatalChat()
+    reducer = Reducer(model=model, budget=4_000, concurrency=2, verbose=False)
+    try:
+        with pytest.raises(SetupFault, match="fatal setup"):
+            await reducer.reduce("summarize", None, ["A" * 12_000, "B" * 12_000])
+        assert model.sibling_cancelled.is_set()
+    finally:
+        model.release_sibling.set()
+        await asyncio.sleep(0)
 
 
 async def test_group_reduce_failure_is_partial(capsys: pytest.CaptureFixture[str]) -> None:

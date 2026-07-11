@@ -63,7 +63,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 |---|---|
 | `--model TEXT` | Model for this run - overrides the config and `SMARTPIPE_MODEL`. |
 | `--embed-model TEXT` | Embedding model (`embed`, `top_k`). |
-| `--concurrency N` | Max parallel model calls (default 4). |
+| `--concurrency N` | Max simultaneous outbound model/API calls (default 4); one packed batch counts as one call. |
 | `FILES…` (positional) | Read each named file/glob as items (quote globs). `--in GLOB` is a hidden compatibility alias. |
 | `--as {file,lines,jsonl,csv}` | Cut granularity: whole crates, text rows, strict records, or header-named csv rows ([the item](../concepts/the-item.md), [csv rows](../concepts/feeding-smartpipe.md#csv-rows)). Auto: `.jsonl` paths cut into records, `.csv`/`.tsv` into csv rows (`.tsv` on tabs); other paths are one item; stdin sniffs per line. |
 | `--from-files` | Treat each `stdin` line as a filename. |
@@ -74,9 +74,9 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `--fields A,B` | Select + order columns of structured output (`map`, `embed`, `top_k`, `reduce` - never `filter`). |
 | `--allow-captions` | Let a CLOUD model convert images/audio/video to text for embedding/text verbs (paid; local models convert free; a cloud `smartpipe use` pick sets this by default). |
 | `@file` / `--prompt-file FILE` | Read the prompt from a file (`map`, `extend`, `filter`, `reduce`, `join`). Missing file = loud exit 64; `@@` escapes a literal leading `@`. |
-| `--max-calls N` | Hard ceiling on model calls (cost cap). Per-item verbs stop intake and drain; whole-set `top_k`/`reduce` treat exhaustion as fatal (nothing usable from a partial collection). A capped run never exits 0. |
+| `--max-calls N` | Hard ceiling on model-call spend. Per-item verbs stop intake and drain; whole-set `top_k`/`reduce` treat exhaustion as fatal. Dedicated Mistral OCR is page-billed, so one unit is reserved per PDF page before upload. A capped run never exits 0. |
 | `--manifest PATH` | Write a JSON run manifest at run end (all model verbs): smartpipe version, verb + raw argv, resolved model roles, prompt text + sha256, compiled schema, temperature, item counts, token/conversion receipt, UTC start/end, exit status. Atomic; a second run overwrites - it records THIS run. The citable methods-section artifact ([recipe](../cookbook/research-methods.md)). |
-| `--local-only` (before the verb) | Hard privacy fence: `smartpipe --local-only map ...` refuses every cloud wire at model-resolution time (exit 2, before any spend, naming the local alternative) and makes **no network calls at all** - the update ping and catalog fetches included. A remote `OLLAMA_HOST` is refused too: sending items there IS data leaving. Env form: `SMARTPIPE_LOCAL_ONLY=1`. |
+| `--local-only` (before the verb) | Local-data fence: `smartpipe --local-only map ...` refuses every remote model wire at resolution time (exit 2, before spend), so execution and user input stay on this machine. It is not air-gap mode: supporting traffic without user payload, such as model downloads, may use the network. A remote `OLLAMA_HOST` is refused. Env form: `SMARTPIPE_LOCAL_ONLY=1`. |
 
 ## Verb-specific options
 
@@ -103,7 +103,7 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 | `usage` | model usage over hour/day/week/month/lifetime; `usage reset` remembers when |
 | `cache` | `stats` · `clear` (auto-swept: 30-day TTL + 500 MB LRU cap - `cache-days`, `cache-max-mb`) |
 | `sort` | `--by FIELD` (required), `--desc` |
-| `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`), `--ocr-model`, `--max-calls N` (caps OCR parsing - the one way split ever calls a model) |
+| `split` | `--by UNIT[:N]` (tokens, pages, minutes, seconds), `--media` (embedded images), `--max-tokens N` (= `--by tokens:N`), `--ocr-model`, `--max-calls N` (caps OCR parsing; dedicated OCR counts billable pages) |
 | `chart` | `FIELD` (or whole lines), `--facet f1,f2,…`, `--by-time FIELD:BUCKET`, `--top N`, `--save FILE.svg` / `FILE.png`, `--title` |
 
 ## `use`
@@ -295,14 +295,14 @@ per shell in [Installing smartpipe → Tab completion](../install.md#tab-complet
 | `SMARTPIPE_EMBED_MODEL` | Default embedding model. |
 | `SMARTPIPE_OUTPUT` | Default output format. |
 | `SMARTPIPE_MAX_CALLS` | Default call ceiling (see `--max-calls`). |
-| `SMARTPIPE_BATCH` | Request batching kill switch (`off` disables; default on). `SMARTPIPE_BATCH_SIZE` (default 12) and `SMARTPIPE_BATCH_WINDOW_MS` (default 75) tune the group size and the coalesce window. |
+| `SMARTPIPE_BATCH` | Request batching kill switch (`off` disables; default on). `SMARTPIPE_BATCH_SIZE` (2..12; default 12) and `SMARTPIPE_BATCH_WINDOW_MS` (default 75) tune the group size and coalesce window. `--concurrency` still caps actual simultaneous API calls. |
 | `SMARTPIPE_OPENAI_BASE_URL` | Point the OpenAI-compatible adapter at any endpoint. |
 | `SMARTPIPE_MISTRAL_BASE_URL` / `SMARTPIPE_GEMINI_BASE_URL` / `SMARTPIPE_OPENROUTER_BASE_URL` | Point a provider's wire elsewhere (proxies, gateways). |
 | `SMARTPIPE_CONTEXT_TOKENS` | Assert your model's context window (beats the table and the probe; the fix for OpenAI/Anthropic deployments the table underestimates). |
 | `SMARTPIPE_WHISPER_MODEL` | Local transcription size: `tiny` (default), `base`, `small`, `medium`, `large-v3`. |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY` / `JINA_API_KEY` | Cloud credentials - the environment always wins over a key stored by `auth login`. |
 | `OLLAMA_HOST` | Ollama endpoint (default `http://localhost:11434`). |
-| `SMARTPIPE_LOCAL_ONLY` | The `--local-only` fence as an env var: refuse cloud wires, make no network calls at all. Any value other than `0`/`false`/`off`/`no` arms it (fail closed). |
+| `SMARTPIPE_LOCAL_ONLY` | The `--local-only` fence as an env var: refuse remote model/data wires so input stays local. Supporting data-free network requests are allowed. Any value other than `0`/`false`/`off`/`no` arms it (fail closed). |
 | `NO_COLOR` | Disable color. |
 
 ## Exit codes

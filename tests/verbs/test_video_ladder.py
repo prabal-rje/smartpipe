@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.core.errors import ExitCode, ItemError
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.diagnostics import DegradationLog
 from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
 from smartpipe.models.base import AudioData, CompletionRequest, ImageData, ModelRef, VideoData
@@ -172,6 +173,10 @@ class Ctx:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        del provider
+        return FailurePolicy()
 
     def batching(self) -> BatchSettings | None:
         return None  # batching off: these tests pin the solo path byte-for-byte

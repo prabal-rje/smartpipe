@@ -47,12 +47,18 @@ from smartpipe.engine.graphout import (
     to_nodes_csv,
     to_obsidian,
 )
-from smartpipe.io import diagnostics, readers
+from smartpipe.io import diagnostics, manifest, readers
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source, project_content
 from smartpipe.io.progress import Spinner, make_stderr_spinner
 from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
-from smartpipe.verbs.common import EMBED_BATCH_SIZE, batched, ensure_text, outcome_exit_code
+from smartpipe.verbs.common import (
+    EMBED_BATCH_SIZE,
+    ExecutionPolicySource,
+    batched,
+    ensure_text,
+    outcome_exit_code,
+)
 from smartpipe.verbs.common import transcribe as whisper_transcribe
 
 if TYPE_CHECKING:
@@ -117,13 +123,12 @@ class GraphContext(Protocol):
     def fold_embedder(self) -> EmbeddingModel: ...
 
 
-class GraphModelContext(GraphContext, Protocol):
+class GraphModelContext(GraphContext, ExecutionPolicySource, Protocol):
     """The paid half's seam (G2): everything ``--fast`` has, plus the chat
     wire and its dials — the same accessors ``map`` composes with."""
 
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
-    def concurrency(self, flag: int | None = None) -> int: ...
 
 
 def parse_entities(raw: str | None) -> tuple[str, ...]:
@@ -172,13 +177,15 @@ async def run_graph(
     if request.name_top is not None and request.name_top < 1:
         raise UsageFault("--name-top needs a positive edge count")
     if request.save is not None:
-        save_format(request.save)  # a typo'd extension must refuse BEFORE the work
+        fmt = save_format(request.save)  # a typo'd extension must refuse BEFORE the work
+        _guard_save_outputs(request.save, fmt)
     if request.relations is not None and request.focus is None and request.name_top is None:
         raise UsageFault(
             "--relations shapes the model-read modes — pair it with a focus prompt "
             "or --name-top\n"
             '  Example: smartpipe graph "who pays whom" --relations "pays, owns" notes/*.md'
         )
+    concurrency = context.concurrency(request.concurrency_flag)
     if request.name_top is not None:
         from smartpipe.verbs.graphfull import run_hybrid
 
@@ -191,12 +198,20 @@ async def run_graph(
             transcriber=transcriber,
             clock=clock,
             budget=budget,
+            concurrency=concurrency,
         )
     if request.focus is not None:
         from smartpipe.verbs.graphfull import run_full
 
         return await run_full(
-            request, context, stdin=stdin, stdout=stdout, stop=stop, ask=ask, budget=budget
+            request,
+            context,
+            stdin=stdin,
+            stdout=stdout,
+            stop=stop,
+            ask=ask,
+            budget=budget,
+            concurrency=concurrency,
         )
     if request.fast:
         return await _run_fast(
@@ -213,6 +228,23 @@ async def run_graph(
     return await run_adopt(request, context, stdin=stdin, stdout=stdout, stop=stop)
 
 
+def _guard_save_outputs(raw: str, fmt: SaveFormat) -> None:
+    """Reserve the manifest boundary against every path ``--save`` writes."""
+    from pathlib import Path
+
+    path = Path(raw)
+    match fmt:
+        case SaveFormat.VAULT:
+            manifest.guard_manifest_tree(path, role="--save vault")
+        case SaveFormat.CSV:
+            manifest.guard_manifest_alias(path.with_suffix(".nodes.csv"), role="--save output")
+            manifest.guard_manifest_alias(path.with_suffix(".edges.csv"), role="--save output")
+        case SaveFormat.GRAPHML | SaveFormat.DOT | SaveFormat.MERMAID | SaveFormat.HTML:
+            manifest.guard_manifest_alias(path, role="--save output")
+        case _ as unreachable:  # pragma: no cover - pyright proves exhaustiveness
+            assert_never(unreachable)
+
+
 @dataclass(frozen=True, slots=True)
 class FastScan:
     """Everything the free pass produces — the fast mode writes it out as-is;
@@ -225,6 +257,7 @@ class FastScan:
     nodes: tuple[GraphNode, ...]
     edges: tuple[GraphEdge, ...]
     skipped: int  # items the free ladder couldn't read (censused already)
+    failed: int  # skipped items whose attempted local NER call failed
 
 
 async def scan_corpus(
@@ -315,7 +348,8 @@ async def scan_corpus(
         folded_names=folded_names,
         nodes=build_nodes(counts, canonical),
         edges=fold_edges(windows(gathered, mode), canonical),
-        skipped=no_free_text + failed,
+        skipped=len(items) - len(gathered),
+        failed=failed,
     )
 
 
@@ -333,7 +367,7 @@ async def _run_fast(
         request, context, stdin=stdin, stop=stop, transcriber=transcriber, clock=clock
     )
     if scan is None:
-        return ExitCode.OK
+        return outcome_exit_code(done=0, skipped=0, failed=0)
     kept, pruned = prune_edges(scan.edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
@@ -342,7 +376,11 @@ async def _run_fast(
         f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
         f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
     )
-    return outcome_exit_code(done=len(scan.gathered), skipped=scan.skipped)
+    return outcome_exit_code(
+        done=len(scan.gathered),
+        skipped=scan.skipped,
+        failed=scan.failed,
+    )
 
 
 def stage(name: str) -> Spinner:

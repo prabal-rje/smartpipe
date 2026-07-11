@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ExitCode, UsageFault
 from smartpipe.engine.clustering import knn_mean_distance
-from smartpipe.engine.runner import Done, FailurePolicy
-from smartpipe.io import diagnostics, readers
+from smartpipe.engine.runner import Done
+from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source
 from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
-from smartpipe.verbs.common import embed_in_batches
+from smartpipe.verbs.common import embed_in_batches, outcome_exit_code
 from smartpipe.verbs.convert import make_converter
 from smartpipe.verbs.distinct import DistinctContext
 from smartpipe.verbs.embed import optional_chat
@@ -54,10 +54,11 @@ async def run_outliers(
 ) -> ExitCode:
     if request.count < 1:
         raise UsageFault("outliers needs a positive count")
+    concurrency = context.concurrency(request.concurrency_flag)
     model = await context.embedding_model(request.model_flag)
+    failure_policy = context.failure_policy(model.ref.provider)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
-    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     items = [item async for item in items_iter]
     if len(items) < 3:
@@ -69,15 +70,18 @@ async def run_outliers(
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
-        ocr=parser,
+        ocr=ocr,
     )
     scored_items: list[Item] = []
     vectors: list[tuple[float, ...]] = []
-    position = 0
+    embedding_skipped = 0
+    embedding_failed = 0
+    sources = source_accounting.SourceCounter()
     outcomes = embed_in_batches(
         model,
         items,
-        failure_policy=FailurePolicy(),
+        failure_policy=failure_policy,
+        call_concurrency=concurrency,
         stop=stop,
         log=log,
         converter=converter,
@@ -87,15 +91,21 @@ async def run_outliers(
             embedded, vector = outcome.value
             scored_items.append(embedded)
             vectors.append(vector)
+            sources.done(embedded.source)
         else:  # an unexamined item can't be scored — excluded, disclosed
             diagnostics.warn(f"excluded: {describe_source(outcome.source)} ({outcome.reason})")
-        position += 1
+            embedding_skipped += 1
+            embedding_failed += int(outcome.failed)
+            sources.skip(outcome.source, failed=outcome.failed)
     log.finish()
-    from smartpipe.io import manifest
-
-    manifest.record_counts(done=len(vectors), skipped=len(items) - len(vectors))
     if len(vectors) < 3:
-        raise UsageFault("outliers needs at least 3 embeddable items")
+        diagnostics.warn("outliers: fewer than 3 items embedded - no ranking can be formed")
+        return outcome_exit_code(
+            done=0,
+            skipped=len(items),
+            failed=embedding_failed,
+            source_counts=sources.counts,
+        )
 
     distances = knn_mean_distance(vectors, k=_NEIGHBORS)
     ranked = sorted(range(len(distances)), key=lambda index: -distances[index])
@@ -123,4 +133,9 @@ async def run_outliers(
         record.setdefault("source", describe_source(item.source))
         writer.write_record(record)
     writer.flush()
-    return ExitCode.OK
+    return outcome_exit_code(
+        done=len(vectors),
+        skipped=embedding_skipped,
+        failed=embedding_failed,
+        source_counts=sources.counts,
+    )

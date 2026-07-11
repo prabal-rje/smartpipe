@@ -15,9 +15,15 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
-from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.core.errors import (
+    ExcludedError,
+    ExitCode,
+    ItemError,
+    UsageFault,
+    is_recoverable_item_error,
+)
 from smartpipe.engine.chunking import is_context_overflow
-from smartpipe.engine.coalesce import max_group
+from smartpipe.engine.coalesce import max_group, worker_capacity
 from smartpipe.engine.fieldpath import validate_field
 from smartpipe.engine.prompts import (
     build_map_request,
@@ -29,15 +35,15 @@ from smartpipe.engine.prompts import (
 )
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import load_schema, validate_and_coerce
-from smartpipe.io import diagnostics, readers
+from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source, source_record
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.models.base import AudioData, VideoData
 from smartpipe.verbs.common import (
+    ExecutionPolicySource,
     ModelSlot,
     WindowGate,
-    breaker_policy,
     interrupted_exit_code,
     make_failover,
     note_ambiguous_temporal,
@@ -87,7 +93,7 @@ class MapRequest:
     ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 40)
 
 
-class MapContext(Protocol):
+class MapContext(ExecutionPolicySource, Protocol):
     """The slice of the container ``map`` needs — a DI seam so tests inject fakes."""
 
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
@@ -95,7 +101,6 @@ class MapContext(Protocol):
     def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
     async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
-    def concurrency(self, flag: int | None = None) -> int: ...
     def batching(self) -> BatchSettings | None: ...
     def writer(
         self,
@@ -128,8 +133,7 @@ async def run_map(
         items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
         return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 40)
-    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
     slot = ModelSlot(model)
@@ -147,13 +151,12 @@ async def run_map(
     )
     concurrency = context.concurrency(request.concurrency_flag)
     batching = context.batching()  # item 62: eligible items coalesce into shared calls
-    coalescing = batching is not None and max_group(plan.schema, batching.size) >= 2
+    group_size = 1 if batching is None else max_group(plan.schema, batching.size)
+    coalescing = group_size >= 2
     # Batching multiplexes many items onto few calls, so intake widens to fill a
     # group; `wire` keeps every SOLO path (media, oversized) at the documented
     # max-parallel-calls contract regardless of that boost.
-    workers = (
-        max(concurrency, batching.size) if batching is not None and coalescing else concurrency
-    )
+    workers = worker_capacity(call_concurrency=concurrency, group_size=group_size)
     wire = asyncio.Semaphore(concurrency)
 
     tally = None
@@ -191,10 +194,16 @@ async def run_map(
 
     async def worker(item: Item) -> tuple[Item, str | Mapping[str, object]]:
         current = slot.current  # captured per item: the failover swaps wholesale
-        over = await gate.budget_for_oversized(item.text, item.media)
+        over = await gate.budget_for_oversized(
+            item.text,
+            item.media,
+            provider=current.ref.provider,
+            model_name=current.ref.name,
+            window=partial(context.context_window, current.ref),
+        )
         if over is not None and request.whole:
             # --whole: the old D26 refusal — reproducibility beats handling
-            raise ItemError(gate.refusal(over))
+            raise ExcludedError(gate.refusal(over))
         if over is not None:
             # D26 v2: handled, not skipped — chunk, transform, synthesize (disclosed).
             # Oversized items never batch (item 62 §7) — solo, wire-gated.
@@ -242,7 +251,7 @@ async def run_map(
         slot.tally(str(current.ref))
         return item, result
 
-    policy = breaker_policy(model.ref.provider)
+    policy = context.failure_policy(model.ref.provider)
     failover = (
         make_failover(
             slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
@@ -252,6 +261,8 @@ async def run_map(
     )
     done = 0
     skipped = 0
+    failed = 0
+    sources = source_accounting.SourceCounter()
     outcomes = run_ordered(
         items_iter,
         worker,
@@ -259,6 +270,7 @@ async def run_map(
         failure_policy=policy,
         stop=stop,
         failover=failover,
+        halt_sources=sources,
     )
     try:
         async for outcome in outcomes:
@@ -279,9 +291,12 @@ async def run_map(
                         tally.add(row)
                         spinner.extra = tally.live_segment()
                 done += 1
+                sources.done(item.source)
             else:  # Skipped — the union has no third case
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
                 skipped += 1
+                failed += int(outcome.failed)
+                sources.skip(outcome.source, failed=outcome.failed)
             spinner.advance()
     finally:
         spinner.finish()
@@ -293,8 +308,18 @@ async def run_map(
         diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped)
-        return interrupted_exit_code(done=done, skipped=skipped)
-    return outcome_exit_code(done=done, skipped=skipped)
+        return interrupted_exit_code(
+            done=done,
+            skipped=skipped,
+            failed=failed,
+            source_counts=sources.counts,
+        )
+    return outcome_exit_code(
+        done=done,
+        skipped=skipped,
+        failed=failed,
+        source_counts=sources.counts,
+    )
 
 
 async def map_one(
@@ -333,6 +358,8 @@ async def map_one(
             batch=batch,
         )
     except ItemError as native_failure:
+        if not is_recoverable_item_error(native_failure):
+            raise
         audio = next((part for part in item.media if isinstance(part, AudioData)), None)
         if audio is None:
             raise
@@ -364,8 +391,9 @@ async def _map_video(
     then frames + heard track, then frames + transcript."""
     try:
         return await _attempt(model, plan, instruction, render_input(item), (video,))
-    except ItemError:
-        pass  # this wire can't watch — convert (the refusal cost nothing)
+    except ItemError as watch_failure:
+        if not is_recoverable_item_error(watch_failure):
+            raise
     from functools import partial as _partial
 
     from smartpipe.parsing.extract import video_to_parts
@@ -386,6 +414,8 @@ async def _map_video(
             model, plan, instruction, render_input(item), media, keep_invalid=keep_invalid
         )
     except ItemError as native_failure:
+        if not is_recoverable_item_error(native_failure):
+            raise
         if track is None:
             raise
         # the model saw frames but couldn't hear — transcribe the track, retry
@@ -398,11 +428,9 @@ async def _map_video(
 
 
 def _whisper_note() -> str:
-    import os
+    from smartpipe.parsing.extract import configured_whisper_size
 
-    from smartpipe.parsing.extract import whisper_size
-
-    return f"whisper {whisper_size(os.environ)}"
+    return f"whisper {configured_whisper_size()}"
 
 
 async def _attempt(
@@ -467,7 +495,13 @@ async def print_dry_run(
     sections.append(f"--- user ---\n{composed.user}")
     stdout.write("\n".join(sections) + "\n")
     stdout.flush()
-    return ExitCode.OK
+    consumed = int(first is not None)
+    return outcome_exit_code(
+        done=consumed,
+        skipped=0,
+        failed=0,
+        input_count=consumed,
+    )
 
 
 def _media_kind(part: MediaData) -> str:

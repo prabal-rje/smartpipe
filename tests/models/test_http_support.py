@@ -16,11 +16,33 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from smartpipe.models.http_support import is_retryable_http, retry_after_seconds
+from smartpipe.core.errors import ItemError
+from smartpipe.models.http_support import (
+    decode_json_response,
+    is_retryable_http,
+    make_client,
+    retry_after_seconds,
+)
 from smartpipe.models.retry import RetryPolicy, with_retries
 
 if TYPE_CHECKING:
     import respx
+
+
+def test_shared_client_honors_the_explicit_proxy_posture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+    sentinel = object()
+
+    def build(**kwargs: object) -> object:
+        observed.update(kwargs)
+        return sentinel
+
+    monkeypatch.setattr(httpx, "AsyncClient", build)
+
+    assert make_client(trust_env=False) is sentinel
+    assert observed["trust_env"] is False
 
 
 @pytest.mark.parametrize(
@@ -56,6 +78,16 @@ def test_client_errors_are_not_retryable(status: int) -> None:
 
 def test_unrelated_exception_is_not_retryable() -> None:
     assert is_retryable_http(ValueError("nope")) is False
+
+
+def test_malformed_success_json_is_a_typed_item_error() -> None:
+    response = httpx.Response(
+        200,
+        text="<html>not json</html>",
+        request=httpx.Request("POST", "https://provider.example/v1/chat"),
+    )
+    with pytest.raises(ItemError, match="test provider returned malformed JSON"):
+        decode_json_response(response, provider="test provider")
 
 
 # --- Retry-After parsing (workstream 06) -----------------------------------------

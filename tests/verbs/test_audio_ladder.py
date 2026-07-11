@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.core.errors import ExitCode, ItemError
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.items import item_from_file
 from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
 from smartpipe.models.base import AudioData, CompletionRequest, ImageData, ModelRef
@@ -110,6 +111,10 @@ class FakeContext:
     def concurrency(self, flag: int | None = None) -> int:
         return 1
 
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        del provider
+        return FailurePolicy()
+
     def batching(self) -> BatchSettings | None:
         return None  # batching off: these tests pin the solo path byte-for-byte
 
@@ -201,6 +206,36 @@ async def test_deaf_model_without_extra_skips_with_both_fixes(
     assert code is ExitCode.ALL_FAILED  # the one item skipped
     assert out.getvalue() == ""
     assert "can't hear audio" in capsys.readouterr().err  # the adapter's two-fix line
+
+
+async def test_transport_failure_does_not_launch_transcription_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartpipe.core.errors import TransportError
+    from smartpipe.parsing import extract
+
+    class DownAudioChat(DeafChat):
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls.append(request)
+            raise TransportError("provider unavailable")
+
+    def unexpected_transcription(audio: AudioData) -> str:
+        del audio
+        raise AssertionError("availability failures must not enter the capability ladder")
+
+    monkeypatch.setattr(extract, "transcribe_audio", unexpected_transcription)
+    model = DownAudioChat()
+
+    code = await run_map(
+        _request(tmp_path),
+        FakeContext(model),
+        stdin=_TtyStdin(),
+        stdout=io.StringIO(),
+    )
+
+    assert code is ExitCode.ALL_FAILED
+    assert len(model.calls) == 1
 
 
 async def test_default_transcriber_end_to_end_on_junk_audio() -> None:

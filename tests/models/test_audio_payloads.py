@@ -94,6 +94,8 @@ async def test_unknown_audio_mime_fails_before_the_wire(
         api_key="k",
     )
     with pytest.raises(ItemError, match="audio format audio/flac isn't sendable"):
+        model.preflight(exotic)
+    with pytest.raises(ItemError, match="audio format audio/flac isn't sendable"):
         await model.complete(exotic)
     assert route.call_count == 0  # never guess a format at a paid endpoint
 

@@ -18,11 +18,14 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from smartpipe.core.errors import SetupFault
-from smartpipe.io.readers import stdin_items
+from smartpipe.io.readers import OcrIngest, stdin_items
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
     from typing import TextIO
+
+    from smartpipe.io.items import Item
 
 PDF_FIXTURE = "tests/corpus/one-page.pdf"
 
@@ -147,6 +150,71 @@ async def test_streaming_survives_the_sniff(pipe: BytePipe) -> None:
     pipe.close_write()
     with pytest.raises(StopAsyncIteration):
         await asyncio.wait_for(anext(it), timeout=2)
+
+
+async def test_fragmented_pdf_magic_is_not_misclassified_as_text(pipe: BytePipe) -> None:
+    """A short first OS read is normal; '%' is not enough evidence for text."""
+    from smartpipe.io import diagnostics
+    from smartpipe.models.base import ImageData, ModelRef
+    from smartpipe.models.ocr import OcrPage
+
+    class Parser:
+        ref = ModelRef("mistral", "mistral-ocr-latest")
+
+        def __init__(self) -> None:
+            self.pdf_calls = 0
+
+        async def parse_image(self, image: ImageData) -> str:
+            raise AssertionError("not an image")
+
+        async def parse_pdf(self, path: object) -> tuple[OcrPage, ...]:
+            self.pdf_calls += 1
+            return (OcrPage(0, "parsed pdf"),)
+
+    parser = Parser()
+    task = asyncio.create_task(
+        _collect_with_ocr(pipe, OcrIngest(parser=parser, log=diagnostics.DegradationLog()))
+    )
+    payload = pathlib_read(PDF_FIXTURE)
+    pipe.write(payload[:1])
+    await asyncio.sleep(0.05)  # let the reader observe the deliberately tiny fragment
+    pipe.write(payload[1:])
+    pipe.close_write()
+
+    items = await asyncio.wait_for(task, timeout=5)
+    assert [item.text for item in items] == ["parsed pdf"]
+    assert parser.pdf_calls == 1
+
+
+async def _collect_with_ocr(pipe: BytePipe, ocr: OcrIngest) -> list[Item]:
+    return [item async for item in stdin_items(pipe.reader, ocr=ocr)]
+
+
+async def test_pre_stopped_binary_stdin_does_not_leak_its_spool(
+    pipe: BytePipe, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The consumer may stop before the producer has even finished spooling."""
+    real_named_temporary_file = tempfile.NamedTemporaryFile
+    created = threading.Event()
+
+    def owned_temp(*, suffix: str = "", delete: bool = True) -> object:
+        handle = real_named_temporary_file(suffix=suffix, delete=delete, dir=tmp_path)
+        created.set()
+        return handle
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", owned_temp)
+    stop = asyncio.Event()
+    stop.set()
+    pipe.write(pathlib_read(PDF_FIXTURE))
+    pipe.close_write()
+
+    assert [item async for item in stdin_items(pipe.reader, stop=stop)] == []
+    await asyncio.to_thread(created.wait, 0.2)
+    for _ in range(100):
+        if not list(tmp_path.iterdir()):
+            break
+        await asyncio.sleep(0.01)
+    assert list(tmp_path.iterdir()) == []
 
 
 async def test_image_on_stdin_becomes_an_image_item(pipe: BytePipe) -> None:

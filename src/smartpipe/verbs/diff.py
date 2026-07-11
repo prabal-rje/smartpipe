@@ -8,20 +8,20 @@ regression story (P7), and dataset drift before the GPU bill (P12).
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.core.errors import ExitCode, SourceCounts, UsageFault
 from smartpipe.engine.chunking import mean_pool
 from smartpipe.engine.clustering import adaptive_threshold, leader_clusters
 from smartpipe.engine.ranking import cosine
-from smartpipe.engine.runner import Done, FailurePolicy
-from smartpipe.io import diagnostics, readers
+from smartpipe.engine.runner import Done
+from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.inputs import STDIN
-from smartpipe.io.items import ItemSource, describe_source, item_from_line
+from smartpipe.io.items import describe_source
 from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 from smartpipe.verbs.cluster import ClusterContext, label_cluster
-from smartpipe.verbs.common import embed_in_batches
+from smartpipe.verbs.common import embed_in_batches, outcome_exit_code
 from smartpipe.verbs.convert import make_converter
 from smartpipe.verbs.embed import optional_chat
 
@@ -58,15 +58,20 @@ async def run_diff(
     stdout: TextIO,
     stop: asyncio.Event | None = None,
 ) -> ExitCode:
-    model = await context.embedding_model(request.embed_flag)
+    if request.top is not None and request.top < 1:
+        raise UsageFault(f"--top must be >= 1, got {request.top}")
+    concurrency = context.concurrency(request.concurrency_flag)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
-    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
+    right = await _right_items(request.right, ocr)
+    if not right:
+        raise UsageFault("diff needs items on BOTH sides — left is stdin, right is --right FILE")
     left_iter, _total = readers.resolve_items(STDIN, stdin, stop=stop, ocr=ocr)
     left = [item async for item in left_iter]
-    right = await _right_items(request.right, ocr)
     if not left or not right:
         raise UsageFault("diff needs items on BOTH sides — left is stdin, right is --right FILE")
+    model = await context.embedding_model(request.embed_flag)
+    failure_policy = context.failure_policy(model.ref.provider)
     boundary = len(left)
     diagnostics.note(
         f"diff: left = stdin ({len(left):,}) · right = {request.right.name} "
@@ -80,14 +85,17 @@ async def run_diff(
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
-        ocr=parser,
+        ocr=ocr,
     )
     union_items: list[Item] = []
     vectors: list[tuple[float, ...]] = []
+    failed = 0
+    sources = source_accounting.SourceCounter()
     outcomes = embed_in_batches(
         model,
         [*left, *right],
-        failure_policy=FailurePolicy(),
+        failure_policy=failure_policy,
+        call_concurrency=concurrency,
         stop=stop,
         log=log,
         converter=converter,
@@ -100,21 +108,39 @@ async def run_diff(
             union_items.append(embedded)
             vectors.append(vector)
             kept_positions.append(position)
+            sources.done(embedded.source)
         else:
             diagnostics.warn(f"excluded: {describe_source(outcome.source)} ({outcome.reason})")
+            failed += int(outcome.failed)
+            sources.skip(outcome.source, failed=outcome.failed)
         position += 1
     log.finish()
-    from smartpipe.io import manifest
-
     total_in = len(left) + len(right)
-    manifest.record_counts(done=len(union_items), skipped=total_in - len(union_items))
+    excluded = total_in - len(union_items)
     if not vectors:
-        return ExitCode.ALL_FAILED
+        return outcome_exit_code(
+            done=0,
+            skipped=total_in,
+            failed=failed,
+            input_count=total_in,
+            source_counts=sources.counts,
+        )
 
     left_total = sum(1 for kept in kept_positions if kept < boundary)
     right_total = len(kept_positions) - left_total
     if left_total == 0 or right_total == 0:
-        raise UsageFault("diff needs embeddable items on both sides")
+        counts = sources.counts
+        return outcome_exit_code(
+            done=0,
+            skipped=total_in,
+            failed=failed,
+            input_count=total_in,
+            source_counts=SourceCounts(
+                succeeded=0,
+                skipped=counts.total,
+                failed=counts.failed,
+            ),
+        )
 
     clusters = leader_clusters(vectors, threshold=adaptive_threshold(vectors))
     themes = [
@@ -163,7 +189,13 @@ async def run_diff(
         diagnostics.note(f"diff: {omitted} shared theme(s) omitted — --all shows them")
     if chat is None and shown:
         diagnostics.note("no chat model — themes are unnamed; configure one: smartpipe config")
-    return ExitCode.OK
+    return outcome_exit_code(
+        done=len(union_items),
+        skipped=excluded,
+        failed=failed,
+        input_count=total_in,
+        source_counts=sources.counts,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,19 +246,4 @@ async def _right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
     """The right side under the ocr-model role (item 48): a parseable
     PDF/image parses to page items; everything else — and an unset role —
     reads exactly as before (JSONL or plain lines)."""
-    if ocr is not None and path.exists():
-        parsed = await readers.ocr_parse_file(path, 0, ocr)
-        if parsed:
-            return parsed
-    return _read_right(path)
-
-
-def _read_right(path: Path) -> list[Item]:
-    if not path.exists():
-        raise UsageFault(f"no such file: {path}\n  --right needs a JSONL or plain-lines file.")
-    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-    return [
-        replace(item_from_line(line, index), source=ItemSource("file", path.name, index))
-        for index, line in enumerate(lines)
-        if line.strip()
-    ]
+    return await readers.read_right_items(path, ocr)

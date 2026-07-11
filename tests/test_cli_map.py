@@ -412,4 +412,4 @@ def test_batching_on_packs_items_and_discloses(
     assert len(calls) == 1  # three items, ONE model call
     rows = [json.loads(line) for line in out.splitlines()]
     assert [row["v"] for row in rows] == ["A", "B", "C"]  # fan-out kept input order
-    assert "note: batched 3 items into 1 call" in err  # §9: the disclosure, once
+    assert "note: batching: 3 items in 1 packed call" in err  # §9: the disclosure, once

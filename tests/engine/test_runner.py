@@ -8,7 +8,19 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from smartpipe.core.errors import ItemError, SetupFault, TooManyFailures, TransportError
+from smartpipe.core.errors import (
+    CircuitOpenTransport,
+    ExcludedError,
+    ItemError,
+    LateSetupFault,
+    RetryableError,
+    SetupFault,
+    SourceCounts,
+    TooManyFailures,
+    TransportError,
+    UnsentError,
+    UsageFault,
+)
 from smartpipe.engine.runner import (
     Done,
     FailurePolicy,
@@ -87,6 +99,32 @@ async def test_item_error_becomes_skipped_and_others_continue() -> None:
     assert all(isinstance(outcomes[i], Done) for i in (0, 1, 3, 4))
 
 
+async def test_unsent_item_is_skipped_without_becoming_a_failure() -> None:
+    async def worker(item: Item) -> str:
+        if item.source.index == 0:
+            raise UnsentError("run stopping — not sent")
+        raise ItemError("model rejected the item")
+
+    outcomes = await _collect([_item(0), _item(1)], worker)
+    assert [outcome.failed for outcome in outcomes if isinstance(outcome, Skipped)] == [
+        False,
+        True,
+    ]
+
+
+async def test_excluded_item_is_skipped_without_becoming_a_failure() -> None:
+    async def worker(item: Item) -> str:
+        if item.source.index == 0:
+            raise ExcludedError("item excluded before primary model submission")
+        raise ItemError("model rejected the item")
+
+    outcomes = await _collect([_item(0), _item(1)], worker)
+    assert [outcome.failed for outcome in outcomes if isinstance(outcome, Skipped)] == [
+        False,
+        True,
+    ]
+
+
 async def test_non_item_exception_propagates_loudly() -> None:
     items = [_item(i) for i in range(4)]
 
@@ -97,6 +135,27 @@ async def test_non_item_exception_propagates_loudly() -> None:
 
     with pytest.raises(ValueError, match="a real bug"):
         await _collect(items, worker)
+
+
+async def test_source_exception_propagates_after_prior_outcomes_settle() -> None:
+    async def source() -> AsyncIterator[Item]:
+        yield _item(0, "settled first")
+        raise UsageFault("bad streamed input")
+
+    async def worker(item: Item) -> str:
+        return item.text
+
+    outcomes: list[ItemOutcome[str]] = []
+    with pytest.raises(UsageFault, match="bad streamed input"):
+        async for outcome in run_ordered(
+            source(),
+            worker,
+            concurrency=2,
+            failure_policy=NEVER_HALT,
+        ):
+            outcomes.append(outcome)
+
+    assert [outcome.index for outcome in outcomes] == [0]
 
 
 async def test_concurrency_is_bounded() -> None:
@@ -281,6 +340,31 @@ async def test_doomed_run_halts_after_five_consecutive_failures() -> None:
     assert excinfo.value.failed == 5
 
 
+async def test_worker_halt_display_units_do_not_constrain_source_counts() -> None:
+    async def worker(_item: Item) -> str:
+        raise TooManyFailures(5, 5, "five failed pairs")
+
+    with pytest.raises(TooManyFailures) as excinfo:
+        await _collect([_item(0)], worker, concurrency=1)
+
+    halt = excinfo.value
+    assert (halt.failed, halt.total, halt.consumed) == (5, 5, 1)
+    assert halt.source_counts == SourceCounts(succeeded=0, skipped=1, failed=1)
+
+
+async def test_worker_halt_rejects_source_counts_beyond_consumed_input() -> None:
+    async def worker(_item: Item) -> str:
+        raise TooManyFailures(
+            1,
+            1,
+            "bad source accounting",
+            source_counts=SourceCounts(succeeded=2, skipped=0, failed=0),
+        )
+
+    with pytest.raises(ValueError, match="exceed runner-consumed items"):
+        await _collect([_item(0)], worker, concurrency=1)
+
+
 async def test_one_success_disarms_the_consecutive_rule_forever() -> None:
     items = [_item(i) for i in range(12)]
 
@@ -349,6 +433,19 @@ async def test_breaker_yields_the_window_skips_before_dying() -> None:
     assert all(isinstance(outcome, Skipped) for outcome in seen)
 
 
+async def test_provider_down_fault_carries_the_settled_source_ledger() -> None:
+    items = [_item(index) for index in range(3)]
+    with pytest.raises(LateSetupFault) as caught:
+        await _collect(
+            items,
+            _scripted_worker(".tt"),
+            concurrency=1,
+            policy=_breaker_policy(limit=2),
+        )
+
+    assert caught.value.source_counts == SourceCounts(succeeded=1, skipped=2, failed=2)
+
+
 async def test_a_success_resets_the_transport_streak() -> None:
     # 2 transport failures, a success, 2 more — never 3 consecutive
     items = [_item(i) for i in range(6)]
@@ -406,6 +503,204 @@ async def test_failover_reruns_the_window_and_the_rest_on_model_b() -> None:
     assert [outcome.index for outcome in outcomes] == list(range(10))
     values = [outcome.value for outcome in outcomes if isinstance(outcome, Done)]
     assert values == [f"A:{i}" for i in range(3)] + [f"B:{i}" for i in range(3, 10)]
+
+
+async def test_packed_429_waiters_count_as_one_actual_call_and_replay_on_fallback() -> None:
+    switched = False
+    switch_count = 0
+
+    async def worker(item: Item) -> str:
+        if switched:
+            return f"B:{item.source.index}"
+        if item.source.index < 3:
+            # Three waiters behind one packed actual call.
+            raise RetryableError("429", series_id=17, call_id=101)
+        # The second actual call reaches the policy threshold and opens.
+        raise CircuitOpenTransport("429", trip_id=17, call_id=102)
+
+    async def failover() -> bool:
+        nonlocal switched, switch_count
+        switched = True
+        switch_count += 1
+        return True
+
+    outcomes = [
+        outcome
+        async for outcome in run_ordered(
+            _stream([_item(index) for index in range(6)]),
+            worker,
+            concurrency=6,
+            failure_policy=_breaker_policy(limit=2),
+            failover=failover,
+        )
+    ]
+
+    assert switch_count == 1
+    assert [outcome.value for outcome in outcomes if isinstance(outcome, Done)] == [
+        f"B:{index}" for index in range(6)
+    ]
+
+
+async def test_packed_429_waiters_do_not_trip_no_fallback_breaker_per_item() -> None:
+    async def worker(item: Item) -> str:
+        del item
+        raise RetryableError("429", series_id=17, call_id=101)
+
+    outcomes = await _collect(
+        [_item(index) for index in range(6)],
+        worker,
+        concurrency=6,
+        policy=_breaker_policy(limit=2),
+    )
+
+    assert len(outcomes) == 6
+    assert all(isinstance(outcome, Skipped) for outcome in outcomes)
+
+
+async def test_one_packed_transport_call_does_not_trip_item_failure_rules() -> None:
+    async def worker(item: Item) -> str:
+        del item
+        raise RetryableError("429", series_id=17, call_id=101)
+
+    policy = FailurePolicy(
+        halt_ratio=0.5,
+        min_sample=5,
+        consecutive_limit=5,
+        transport_limit=2,
+        transport_screen=BREAKER_SCREEN,
+    )
+    outcomes = await _collect(
+        [_item(index) for index in range(6)],
+        worker,
+        concurrency=6,
+        policy=policy,
+    )
+
+    assert len(outcomes) == 6
+    assert all(isinstance(outcome, Skipped) for outcome in outcomes)
+
+
+async def test_failover_replays_the_held_window_concurrently() -> None:
+    switched = False
+    active = 0
+    peak = 0
+    concurrent_replay = asyncio.Event()
+    release_replay = asyncio.Event()
+
+    async def worker(item: Item) -> str:
+        nonlocal active, peak
+        if not switched:
+            if item.source.index < 3:
+                raise RetryableError("429", series_id=17, call_id=101)
+            raise CircuitOpenTransport("429", trip_id=17, call_id=102)
+        active += 1
+        peak = max(peak, active)
+        if active >= 2:
+            concurrent_replay.set()
+        await release_replay.wait()
+        active -= 1
+        return f"B:{item.source.index}"
+
+    async def failover() -> bool:
+        nonlocal switched
+        switched = True
+        return True
+
+    async def collect() -> list[ItemOutcome[str]]:
+        return [
+            outcome
+            async for outcome in run_ordered(
+                _stream([_item(index) for index in range(4)]),
+                worker,
+                concurrency=4,
+                failure_policy=_breaker_policy(limit=2),
+                failover=failover,
+            )
+        ]
+
+    collecting = asyncio.create_task(collect())
+    replay_was_concurrent = False
+    try:
+        await asyncio.wait_for(concurrent_replay.wait(), timeout=0.1)
+        replay_was_concurrent = True
+    except TimeoutError:
+        pass
+    finally:
+        release_replay.set()
+    outcomes = await collecting
+
+    assert replay_was_concurrent is True
+    assert peak == 4
+    assert [outcome.value for outcome in outcomes if isinstance(outcome, Done)] == [
+        f"B:{index}" for index in range(4)
+    ]
+
+
+async def test_failover_coalesces_late_same_series_replays() -> None:
+    switched = False
+    primary_started = 0
+    all_primary_started = asyncio.Event()
+    release_primary = asyncio.Event()
+    active = 0
+    peak = 0
+    concurrent_replay = asyncio.Event()
+    release_replay = asyncio.Event()
+
+    async def worker(item: Item) -> str:
+        nonlocal active, peak, primary_started
+        if not switched:
+            primary_started += 1
+            if primary_started == 4:
+                all_primary_started.set()
+            await release_primary.wait()
+            if item.source.index == 0:
+                raise CircuitOpenTransport("429", trip_id=17, call_id=102)
+            raise RetryableError("429", series_id=17, call_id=101)
+        if item.source.index == 0:
+            return "B:0"
+        active += 1
+        peak = max(peak, active)
+        if active >= 2:
+            concurrent_replay.set()
+        await release_replay.wait()
+        active -= 1
+        return f"B:{item.source.index}"
+
+    async def failover() -> bool:
+        nonlocal switched
+        switched = True
+        return True
+
+    async def collect() -> list[ItemOutcome[str]]:
+        return [
+            outcome
+            async for outcome in run_ordered(
+                _stream([_item(index) for index in range(4)]),
+                worker,
+                concurrency=4,
+                failure_policy=_breaker_policy(limit=2),
+                failover=failover,
+            )
+        ]
+
+    collecting = asyncio.create_task(collect())
+    await asyncio.wait_for(all_primary_started.wait(), timeout=1)
+    release_primary.set()
+    replay_was_coalesced = False
+    try:
+        await asyncio.wait_for(concurrent_replay.wait(), timeout=0.1)
+        replay_was_coalesced = True
+    except TimeoutError:
+        pass
+    finally:
+        release_replay.set()
+    outcomes = await collecting
+
+    assert replay_was_coalesced is True
+    assert peak == 3
+    assert [outcome.value for outcome in outcomes if isinstance(outcome, Done)] == [
+        f"B:{index}" for index in range(4)
+    ]
 
 
 async def test_failover_declined_flushes_the_window_then_dies() -> None:
@@ -502,3 +797,63 @@ async def test_trailing_window_flushes_at_end_of_input() -> None:
     ]
     assert [outcome.index for outcome in outcomes] == [0, 1, 2, 3]
     assert [isinstance(outcome, Skipped) for outcome in outcomes] == [False, False, True, True]
+
+
+async def test_halt_source_counter_collapses_prefetched_ocr_pages() -> None:
+    from smartpipe.io import source_accounting
+
+    source_accounting.reset()
+    group = source_accounting.new_group(size=3)
+    items = [
+        Item(
+            raw=f"page {index}",
+            text=f"page {index}",
+            data=None,
+            source=ItemSource("file", "book.pdf", index, "pages", group=group),
+        )
+        for index in range(3)
+    ]
+    sources = source_accounting.SourceCounter()
+
+    async def worker(_item: Item) -> str:
+        raise ItemError("bad page")
+
+    policy = FailurePolicy(min_sample=10**9, consecutive_limit=2)
+    with pytest.raises(TooManyFailures) as caught:
+        async for outcome in run_ordered(
+            _stream(items),
+            worker,
+            concurrency=3,
+            failure_policy=policy,
+            halt_sources=sources,
+        ):
+            assert isinstance(outcome, Skipped)
+            sources.skip(outcome.source, failed=outcome.failed)
+
+    assert caught.value.source_counts == SourceCounts(succeeded=0, skipped=1, failed=1)
+
+
+async def test_halt_counts_completed_unemitted_failures_as_failed_sources() -> None:
+    later_failures_ready = asyncio.Event()
+    later_failures = 0
+
+    async def worker(item: Item) -> str:
+        nonlocal later_failures
+        if item.source.index == 0:
+            await later_failures_ready.wait()
+        else:
+            later_failures += 1
+            if later_failures == 4:
+                later_failures_ready.set()
+        raise ItemError(f"failed {item.source.index}")
+
+    with pytest.raises(TooManyFailures) as caught:
+        async for _outcome in run_ordered(
+            _stream([_item(index) for index in range(5)]),
+            worker,
+            concurrency=5,
+            failure_policy=FailurePolicy(min_sample=10**9, consecutive_limit=1),
+        ):
+            pass
+
+    assert caught.value.source_counts == SourceCounts(succeeded=0, skipped=5, failed=5)

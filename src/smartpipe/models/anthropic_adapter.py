@@ -1,11 +1,10 @@
-"""Anthropic (Claude) adapter via the official SDK — an optional extra.
+"""Anthropic (Claude) adapter via the official SDK.
 
 Project policy (plan/decisions.md D04): Claude calls go through the ``anthropic``
-SDK, not raw HTTP. The SDK is lazy-imported so the core install stays SDK-free; a
-``claude-*`` model without the extra produces the actionable missing-extra screen.
-The SDK owns its own retries and credential resolution (``ANTHROPIC_API_KEY``,
-``ANTHROPIC_AUTH_TOKEN``, ``ant`` profiles) — we never pre-check the env var, and a
-rejected key surfaces as the key screen at request time.
+SDK, not a hand-written protocol. The dependency remains lazy-imported for the
+startup budget. Credentials and the underlying HTTP client are injected by the
+composition root, so stored keys and transport policy have one authority; the
+SDK owns only its bounded retry behavior.
 """
 
 from __future__ import annotations
@@ -14,12 +13,21 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from smartpipe.cli import screens
-from smartpipe.core.errors import ItemError, SetupFault, TransportError
+from smartpipe.core.errors import (
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    SetupFault,
+    TransportError,
+)
 from smartpipe.core.jsontools import as_str, record_at
 from smartpipe.io import metering
 from smartpipe.models.base import AudioData, ImageData
+from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
+    import httpx
+
     from smartpipe.models.base import CompletionRequest, ModelRef
 
 __all__ = [
@@ -30,19 +38,30 @@ __all__ = [
 ]
 
 _TIMEOUT_SECONDS = 120.0
-# The SDK's built-in retries already honor Retry-After on 429 (unlike our raw-httpx
-# adapters, which route the header through retry.with_retries' delay_hint).
-_MAX_RETRIES = 3
 
 
-def load_anthropic_client(model: str) -> Any:
+def load_anthropic_client(
+    model: str,
+    *,
+    api_key: str,
+    http_client: httpx.AsyncClient,
+    retry: RetryPolicy,
+) -> Any:
     try:
         import anthropic
     except ImportError as exc:
         raise SetupFault(screens.missing_anthropic_extra(model)) from exc
+    if not api_key:
+        raise SetupFault(_key_screen(model))
     try:
-        return anthropic.AsyncAnthropic(timeout=_TIMEOUT_SECONDS, max_retries=_MAX_RETRIES)
-    except anthropic.AnthropicError as exc:  # e.g. no credentials resolvable at all
+        return anthropic.AsyncAnthropic(
+            api_key=api_key,
+            http_client=http_client,
+            timeout=_TIMEOUT_SECONDS,
+            # The SDK names retries after the first try; our policy names all attempts.
+            max_retries=retry.attempts - 1,
+        )
+    except anthropic.AnthropicError as exc:
         raise SetupFault(_key_screen(model)) from exc
 
 
@@ -50,8 +69,22 @@ def _key_screen(model: str) -> str:
     return screens.missing_api_key(model, "Anthropic", "ANTHROPIC_API_KEY", "sk-ant-...")
 
 
-def build_anthropic_chat_model(ref: ModelRef) -> AnthropicChatModel:
-    return AnthropicChatModel(ref=ref, client=load_anthropic_client(ref.name))
+def build_anthropic_chat_model(
+    ref: ModelRef,
+    *,
+    api_key: str,
+    http_client: httpx.AsyncClient,
+    retry: RetryPolicy,
+) -> AnthropicChatModel:
+    return AnthropicChatModel(
+        ref=ref,
+        client=load_anthropic_client(
+            ref.name,
+            api_key=api_key,
+            http_client=http_client,
+            retry=retry,
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,9 +92,13 @@ class AnthropicChatModel:
     ref: ModelRef
     client: Any  # anthropic.AsyncAnthropic — untyped here to keep the SDK a soft dependency
 
+    def preflight(self, request: CompletionRequest) -> None:
+        _validate_media(request)
+
     async def complete(self, request: CompletionRequest) -> str:
         import anthropic
 
+        self.preflight(request)
         kwargs = build_kwargs(self.ref.name, request)
         try:
             metering.add_request_media(request.media)
@@ -69,17 +106,21 @@ class AnthropicChatModel:
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
             raise SetupFault(_key_screen(self.ref.name)) from exc
         except anthropic.APIConnectionError as exc:
-            raise SetupFault(
-                f"error: can't reach the Anthropic API ({exc})\n"
-                f"  The model '{self.ref}' needs api.anthropic.com.\n"
-                "  Check your network connection and try again."
-            ) from exc
+            raise TransportError(f"request to the Anthropic API failed: {exc}") from exc
         except anthropic.APIStatusError as exc:
+            detail = _status_detail(exc)
+            lowered = detail.lower()
+            if (
+                exc.status_code == 400
+                and "output_config" in kwargs
+                and ("schema" in lowered or "format" in lowered)
+            ):
+                raise SchemaRejected(screens.schema_rejected("api.anthropic.com", detail)) from exc
+            if exc.status_code == 429:
+                raise RetryableError(f"anthropic error {exc.status_code}: {detail}") from exc
             if exc.status_code >= 500:  # the wire, not the content — the breaker counts these
-                raise TransportError(
-                    f"anthropic error {exc.status_code}: {_status_detail(exc)}"
-                ) from exc
-            raise ItemError(f"anthropic error {exc.status_code}: {_status_detail(exc)}") from exc
+                raise TransportError(f"anthropic error {exc.status_code}: {detail}") from exc
+            raise ItemError(f"anthropic error {exc.status_code}: {detail}") from exc
         return _reply_text(self.ref.name, message)
 
 
@@ -101,23 +142,9 @@ def build_kwargs(name: str, request: CompletionRequest) -> dict[str, object]:
 
 def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
     """Plain string normally; image blocks (image first) when media rides along."""
+    _validate_media(request)
     if not request.media:
         return request.user
-    if any(isinstance(part, AudioData) for part in request.media):
-        # the messages API has no audio input — fail before any bytes leave (D20 §2)
-        raise ItemError(
-            "this model can't hear audio — try an audio model "
-            "(voxtral, gemini) — smartpipe transcribes locally otherwise"
-        )
-    from smartpipe.models.base import VideoData
-
-    if any(isinstance(part, VideoData) for part in request.media):
-        # no video input on the messages API either — refuse pre-send at zero
-        # cost so the ladder converts (a silent drop = confident wrong answer)
-        raise ItemError(
-            "this endpoint can't watch video — map converts video to "
-            "frames + audio automatically; use map, or split --by seconds"
-        )
     import base64
 
     blocks: list[dict[str, object]] = [
@@ -134,6 +161,21 @@ def _user_content(request: CompletionRequest) -> str | list[dict[str, object]]:
     ]
     blocks.append({"type": "text", "text": request.user})
     return blocks
+
+
+def _validate_media(request: CompletionRequest) -> None:
+    if any(isinstance(part, AudioData) for part in request.media):
+        raise ItemError(
+            "this model can't hear audio — try an audio model "
+            "(voxtral, gemini) — smartpipe transcribes locally otherwise"
+        )
+    from smartpipe.models.base import VideoData
+
+    if any(isinstance(part, VideoData) for part in request.media):
+        raise ItemError(
+            "this endpoint can't watch video — map converts video to "
+            "frames + audio automatically; use map, or split --by seconds"
+        )
 
 
 def _reply_text(name: str, message: Any) -> str:

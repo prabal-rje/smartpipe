@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.core.errors import ExitCode
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
 from smartpipe.models.base import CompletionRequest, ModelRef
 from smartpipe.verbs.map import MapRequest, run_map
@@ -101,6 +102,10 @@ async def test_map_emits_before_eof_in_process() -> None:
 
         def concurrency(self, flag: int | None = None) -> int:
             return 2
+
+        def failure_policy(self, provider: str) -> FailurePolicy:
+            del provider
+            return FailurePolicy()
 
         def batching(self) -> None:
             return None  # batching off: this test pins the streaming solo path

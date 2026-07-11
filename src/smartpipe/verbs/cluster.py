@@ -15,14 +15,14 @@ from smartpipe.core.errors import ExitCode, ItemError, UsageFault
 from smartpipe.engine.chunking import mean_pool
 from smartpipe.engine.clustering import adaptive_threshold, leader_clusters, merge_to_k
 from smartpipe.engine.ranking import cosine
-from smartpipe.engine.runner import Done, FailurePolicy
+from smartpipe.engine.runner import Done
 from smartpipe.engine.schema import validate_and_coerce
-from smartpipe.io import diagnostics, readers
+from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source
 from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 from smartpipe.models.base import ChatModel, CompletionRequest
-from smartpipe.verbs.common import embed_in_batches
+from smartpipe.verbs.common import ExecutionPolicySource, embed_in_batches, outcome_exit_code
 from smartpipe.verbs.convert import make_converter
 from smartpipe.verbs.embed import optional_chat
 
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.models.base import EmbeddingModel, ModelRef
     from smartpipe.models.ocr import DocumentParser
-    from smartpipe.models.stt import RemoteTranscriber
+    from smartpipe.models.stt import Transcriber
 
 __all__ = ["ClusterRequest", "label_cluster", "run_cluster"]
 
@@ -67,12 +67,11 @@ class ClusterRequest:
     ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 48)
 
 
-class ClusterContext(Protocol):
-    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+class ClusterContext(ExecutionPolicySource, Protocol):
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> Transcriber | None: ...
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
-    def concurrency(self, flag: int | None = None) -> int: ...
 
 
 async def run_cluster(
@@ -87,14 +86,15 @@ async def run_cluster(
         raise UsageFault("--explode takes exactly 'members' (one row per input item)")
     if request.k is not None and request.k < 1:
         raise UsageFault("--k needs a positive cluster count")
+    concurrency = context.concurrency(request.concurrency_flag)
     model = await context.embedding_model(request.embed_flag)
+    failure_policy = context.failure_policy(model.ref.provider)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
-    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     items = [item async for item in items_iter]
     if not items:
-        return ExitCode.OK
+        return outcome_exit_code(done=0, skipped=0, failed=0)
     diagnostics.note(
         f"cluster: ~{len(items):,} embeddings + one label call per cluster (typically < 20)"
     )
@@ -105,14 +105,18 @@ async def run_cluster(
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
-        ocr=parser,
+        ocr=ocr,
     )
     clustered_items: list[Item] = []
     vectors: list[tuple[float, ...]] = []
+    embedding_skipped = 0
+    embedding_failed = 0
+    sources = source_accounting.SourceCounter()
     outcomes = embed_in_batches(
         model,
         items,
-        failure_policy=FailurePolicy(),
+        failure_policy=failure_policy,
+        call_concurrency=concurrency,
         stop=stop,
         log=log,
         converter=converter,
@@ -122,14 +126,20 @@ async def run_cluster(
             embedded, vector = outcome.value
             clustered_items.append(embedded)
             vectors.append(vector)
+            sources.done(embedded.source)
         else:
             diagnostics.warn(f"excluded: {describe_source(outcome.source)} ({outcome.reason})")
+            embedding_skipped += 1
+            embedding_failed += int(outcome.failed)
+            sources.skip(outcome.source, failed=outcome.failed)
     log.finish()
-    from smartpipe.io import manifest
-
-    manifest.record_counts(done=len(clustered_items), skipped=len(items) - len(clustered_items))
     if not vectors:
-        return ExitCode.ALL_FAILED
+        return outcome_exit_code(
+            done=0,
+            skipped=embedding_skipped,
+            failed=embedding_failed,
+            source_counts=sources.counts,
+        )
 
     # the threshold adapts to the embedder's geometry (measured: gemini's
     # same-theme pairs sit near 0.7; a fixed bar can't serve every model)
@@ -165,7 +175,12 @@ async def run_cluster(
             record["cluster"] = member_label[position]
             writer.write_record(record)
         writer.flush()
-        return ExitCode.OK
+        return outcome_exit_code(
+            done=len(clustered_items),
+            skipped=embedding_skipped,
+            failed=embedding_failed,
+            source_counts=sources.counts,
+        )
 
     total = len(clustered_items)
     shown = clusters if request.top is None else clusters[: request.top]
@@ -193,7 +208,12 @@ async def run_cluster(
             }
         )
     writer.flush()
-    return ExitCode.OK
+    return outcome_exit_code(
+        done=len(clustered_items),
+        skipped=embedding_skipped,
+        failed=embedding_failed,
+        source_counts=sources.counts,
+    )
 
 
 async def _label_clusters(

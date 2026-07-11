@@ -63,14 +63,22 @@ if TYPE_CHECKING:
 
     from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.engine.graphkg import EntityFinder
+    from smartpipe.engine.runner import FailurePolicy
     from smartpipe.io.writers import ResultWriter, TextSink
+    from smartpipe.models.admission import OutboundCallPolicy
     from smartpipe.models.base import ChatModel, EmbeddingModel
     from smartpipe.models.ocr import DocumentParser
-    from smartpipe.models.stt import RemoteTranscriber
+    from smartpipe.models.stt import Transcriber
 
 __all__ = ["AppContainer", "build_container"]
 
 _DEFAULT_CONCURRENCY = 4
+
+
+def _default_call_policy() -> OutboundCallPolicy:
+    from smartpipe.models.admission import OutboundCallPolicy
+
+    return OutboundCallPolicy(concurrency=_DEFAULT_CONCURRENCY)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +93,7 @@ class AppContainer:
     caches: list[object] = field(default_factory=list[object])  # CachingChatModel wrappers (D38/15)
     coalescers: list[object] = field(default_factory=list[object])  # batching wrappers (item 62)
     window_cache: dict[str, int | None] = field(default_factory=dict[str, "int | None"])
+    call_policy: OutboundCallPolicy = field(default_factory=_default_call_policy)
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
         resolved = await resolve_chat_ref(flag, self.env, self.config, self.probe_ollama)
@@ -107,13 +116,20 @@ class AppContainer:
 
     def _wrap_chat(self, model: ChatModel) -> ChatModel:
         wired = model if self.budget is None else budgeted_chat(model, self.budget)
+        from smartpipe.models.admission import admitted_chat
+
+        wired = admitted_chat(wired, self.call_policy)
         settings = self.batching()
         if settings is not None:
-            # coalescer INSIDE the cache, OUTSIDE the budget: hits never enqueue,
-            # and one packed flight is one charged call (item 62 §5/§9)
+            # cache → coalescer → admission → budget → adapter: hits never
+            # enqueue, and one packed flight is one charged call (item 62 §5/§9)
             from smartpipe.models.coalesce import CoalescingChatModel
 
-            wired = CoalescingChatModel(wired, settings=settings, stop=self.stop)
+            wired = CoalescingChatModel(
+                wired,
+                settings=settings,
+                stop=self.stop,
+            )
             self.coalescers.append(wired)
         if not _cache_enabled(self.env, self.config):
             return wired
@@ -179,8 +195,7 @@ class AppContainer:
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel:
         ref = resolve_embed_ref(flag, self.env, self.config)
         manifest.record_model("embed", str(ref))
-        model = self._build_embed(ref)
-        return model if self.budget is None else budgeted_embed(model, self.budget)
+        return self._wrap_embed(self._build_embed(ref))
 
     async def media_embedding_model(self, flag: str | None = None) -> EmbeddingModel | None:
         """The ``media-embed-model`` role (item 40): a JOINT text+image space
@@ -210,7 +225,7 @@ class AppContainer:
                 '  Set one in config.toml: media-embed-model = "jina/jina-clip-v2" — '
                 "or unset the role."
             )
-        return model if self.budget is None else budgeted_embed(model, self.budget)
+        return self._wrap_embed(model)
 
     def document_parser(self, flag: str | None = None) -> DocumentParser | None:
         """The ``ocr-model`` role (item 40): when set, ingested PDFs and images
@@ -229,6 +244,7 @@ class AppContainer:
         self._fence(ref, "ocr")  # a vision rung re-checks via _build_chat; harmless
         manifest.record_model("ocr", str(ref))
         if ref.provider == "mistral":
+            from smartpipe.models.admission import admitted_parser
             from smartpipe.models.budget import budgeted_parser
             from smartpipe.models.ocr import MistralOcrParser
 
@@ -240,13 +256,14 @@ class AppContainer:
                 retry=self.retry,
             )
             # item 48: the dedicated OCR wire wears the belt too — one charge
-            # per parse call (the vision rung below is budgeted via its chat)
-            return parser if self.budget is None else budgeted_parser(parser, self.budget)
+            # per page (the vision rung below is budgeted via its chat)
+            wired = parser if self.budget is None else budgeted_parser(parser, self.budget)
+            return admitted_parser(wired, self.call_policy)
         from smartpipe.models.ocr import VisionOcrParser
 
         return VisionOcrParser(chat=self._wrap_chat(self._build_chat(ref)))
 
-    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None:
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> Transcriber | None:
         """The stt-model role (D39/05): explicit env/config wins; otherwise the
         owner's auto-matrix — an openai KEY means whisper-1 (the API supports
         it; ChatGPT-login does not, so OAuth-only stays local); gemini hears
@@ -275,41 +292,58 @@ class AppContainer:
                 "error: remote transcription needs OPENAI_API_KEY\n"
                 "  export OPENAI_API_KEY=sk-…   (or unset stt-model to use the ladder)"
             )
+        from smartpipe.models.admission import admitted_transcriber
+        from smartpipe.models.budget import budgeted_transcriber
         from smartpipe.models.stt import RemoteTranscriber
 
         manifest.record_model("stt", str(ref))
-        return RemoteTranscriber(ref=ref, client=self.http_client, api_key=key, retry=self.retry)
+        adapter = RemoteTranscriber(
+            ref=ref,
+            client=self.http_client,
+            api_key=key,
+            retry=self.retry,
+        )
+        wired = adapter if self.budget is None else budgeted_transcriber(adapter, self.budget)
+        return admitted_transcriber(wired, self.call_policy)
 
     def entity_finder(self, labels: Sequence[str]) -> EntityFinder:
         """``graph --fast``'s NER (wave G1): ALWAYS the local GLiNER wire —
         the free mode never routes entities through a paid model."""
-        from smartpipe.models.local_ner import GlinerEntityFinder
+        from smartpipe.models.local_ner import GlinerEntityFinder, ner_precision
 
-        return GlinerEntityFinder(labels=tuple(labels))
+        precision = ner_precision(self.env)
+        manifest.record_model("ner", f"local/gliner-small-v2.1@{precision}")
+        return GlinerEntityFinder(labels=tuple(labels), precision=precision)
 
     def fold_embedder(self) -> EmbeddingModel:
         """``graph --fast``'s canonicalization embedder: ALWAYS local, whatever
         ``embed-model`` says — free by definition means no cloud vectors."""
         from smartpipe.models.local_embed import LocalEmbeddingModel
 
-        return LocalEmbeddingModel(ref=parse_model_ref("local/nomic-embed-text-v1.5"))
+        ref = parse_model_ref("local/nomic-embed-text-v1.5")
+        manifest.record_model("fold_embed", str(ref))
+        return LocalEmbeddingModel(ref=ref)
 
     def concurrency(self, flag: int | None = None) -> int:
         """Max parallel model calls: flag > SMARTPIPE_CONCURRENCY > config > default 4."""
-        if flag is not None:
-            if flag < 1:
-                raise UsageFault(f"--concurrency must be >= 1, got {flag}")
-            return flag
-        env_value = self.env.get("SMARTPIPE_CONCURRENCY", "").strip()
-        if env_value:
-            if not (env_value.isdigit() and int(env_value) >= 1):
-                raise UsageFault(
-                    f"SMARTPIPE_CONCURRENCY must be a whole number >= 1, got {env_value!r}"
-                )
-            return int(env_value)
-        if self.config.concurrency is not None:
-            return self.config.concurrency
-        return _DEFAULT_CONCURRENCY
+        value = _resolve_concurrency(self.env, self.config, flag)
+        from smartpipe.engine.runner import resolve_breaker_limit
+
+        self.call_policy.configure(
+            concurrency=value,
+            breaker_limit=resolve_breaker_limit(self.env.get("SMARTPIPE_BREAKER", "")),
+        )
+        return value
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        """The runner view of the already-resolved outbound breaker."""
+        from smartpipe.engine.runner import FailurePolicy
+
+        limit = self.call_policy.breaker_limit
+        return FailurePolicy(
+            transport_limit=limit,
+            transport_screen=screens.provider_down(provider, limit),
+        )
 
     def writer(
         self,
@@ -369,7 +403,11 @@ class AppContainer:
             from smartpipe.models.openai_codex import CodexChatModel
 
             return CodexChatModel(
-                ref=ref, client=self.http_client, store_path=store, credential=credential
+                ref=ref,
+                client=self.http_client,
+                store_path=store,
+                credential=credential,
+                retry=self.retry,
             )
         raise SetupFault(screens.openai_needs_key_or_login(ref.name))
 
@@ -387,9 +425,23 @@ class AppContainer:
             retry=self.retry,
         )
 
+    def _wrap_embed(self, model: EmbeddingModel) -> EmbeddingModel:
+        """Budget then admit one remote embedding request.
+
+        The built-in on-device embedder performs no API call, so it stays off
+        the API-call semaphore. Ollama remains admitted: it is an HTTP API even
+        when its endpoint is loopback.
+        """
+        wired = model if self.budget is None else budgeted_embed(model, self.budget)
+        if model.ref.provider == "local":
+            return wired
+        from smartpipe.models.admission import admitted_embed
+
+        return admitted_embed(wired, self.call_policy)
+
     def _fence(self, ref: ModelRef, role: str) -> None:
         """--local-only (item 65d): refuse any wire that would leave this
-        machine - HERE, at build time, before any spend or network."""
+        machine - HERE, at build time, before user data or spend leaves it."""
         from smartpipe.core.fence import ensure_local_wire
 
         ensure_local_wire(ref, self.env, role=role, ollama_host=resolve_host(self.env))
@@ -407,7 +459,12 @@ class AppContainer:
             case "openai":
                 return self._build_openai_chat(ref)
             case "anthropic":
-                return build_anthropic_chat_model(ref)
+                return build_anthropic_chat_model(
+                    ref,
+                    api_key=self.env.get("ANTHROPIC_API_KEY", "").strip(),
+                    http_client=self.http_client,
+                    retry=self.retry,
+                )
             case "mistral":  # the parametrized OpenAI wire (workstream 10)
                 return self._wire_chat(ref, MISTRAL_WIRE)
             case "jina" | "local":
@@ -501,7 +558,7 @@ class AppContainer:
     async def probe_ollama(self) -> tuple[str, ...] | None:
         """Installed ollama model names, or None if nothing is listening.
         Under --local-only a remote OLLAMA_HOST refuses BEFORE the probe -
-        even a tags request is a network call the fence forbids."""
+        otherwise autodetection could select execution on another machine."""
         self._fence(ModelRef(provider="ollama", name="(autodetect)"), "chat")
         return await ollama_model_names(self.http_client, resolve_host(self.env))
 
@@ -526,6 +583,23 @@ def _resolve_max_calls(environ: Mapping[str, str], flag: int | None) -> int | No
     return int(env_value)
 
 
+def _resolve_concurrency(env: Mapping[str, str], config: Config, flag: int | None) -> int:
+    if flag is not None:
+        if flag < 1:
+            raise UsageFault(f"--concurrency must be >= 1, got {flag}")
+        return flag
+    env_value = env.get("SMARTPIPE_CONCURRENCY", "").strip()
+    if env_value:
+        if not (env_value.isdigit() and int(env_value) >= 1):
+            raise UsageFault(
+                f"SMARTPIPE_CONCURRENCY must be a whole number >= 1, got {env_value!r}"
+            )
+        return int(env_value)
+    if config.concurrency is not None:
+        return config.concurrency
+    return _DEFAULT_CONCURRENCY
+
+
 def _cache_enabled(env: Mapping[str, str], config: Config) -> bool:
     flag = env.get("SMARTPIPE_CACHE", "").strip().lower()
     if flag in ("1", "true", "on", "yes"):
@@ -547,15 +621,16 @@ def _batching_enabled(env: Mapping[str, str], config: Config) -> bool:
 
 
 def _batch_size(env: Mapping[str, str]) -> int:
-    """SMARTPIPE_BATCH_SIZE: items per packed call (K). Default 12; ≥ 2 —
-    a K of one would only add window latency to every item."""
-    from smartpipe.engine.coalesce import GROUP_CEILING
+    """SMARTPIPE_BATCH_SIZE: items per packed call (K), code-capped at 12."""
+    from smartpipe.engine.coalesce import MAX_BATCH_SIZE
 
     raw = env.get("SMARTPIPE_BATCH_SIZE", "").strip()
     if not raw:
-        return GROUP_CEILING
-    if not (raw.isdigit() and int(raw) >= 2):
-        raise UsageFault(f"SMARTPIPE_BATCH_SIZE must be a whole number >= 2, got {raw!r}")
+        return MAX_BATCH_SIZE
+    if not (raw.isdigit() and 2 <= int(raw) <= MAX_BATCH_SIZE):
+        raise UsageFault(
+            f"SMARTPIPE_BATCH_SIZE must be a whole number in 2..{MAX_BATCH_SIZE}, got {raw!r}"
+        )
     return int(raw)
 
 
@@ -593,36 +668,64 @@ async def build_container(
     """
     limit = _resolve_max_calls(environ, max_calls)
     config = load_config(config_path(environ), warn=diagnostics.warn)
-    client = make_client()
     from smartpipe.config.credentials import keys_path, overlay_stored_keys, stored_api_keys
     from smartpipe.engine.schema import reset_deterministic_repairs
-    from smartpipe.io import metering
+    from smartpipe.io import metering, source_accounting
+    from smartpipe.parsing.extract import (
+        configure_whisper_size,
+        reset_whisper_size,
+        whisper_size,
+    )
+    from smartpipe.verbs.common import reset_run_disclosures
 
+    resolved_env = overlay_stored_keys(environ, stored_api_keys(keys_path(environ)))
+    from smartpipe.engine.runner import resolve_breaker_limit
+    from smartpipe.models.admission import OutboundCallPolicy
+
+    call_concurrency = _resolve_concurrency(resolved_env, config, None)
+    breaker_limit = resolve_breaker_limit(resolved_env.get("SMARTPIPE_BREAKER", ""))
+    from smartpipe.core.fence import local_only
+
+    client = make_client(trust_env=not local_only(resolved_env))
     metering.reset()  # a fresh run's meter (D40)
     reset_deterministic_repairs()  # rung 0's tally is run-scoped, like the meter (item 58)
+    reset_run_disclosures()  # native-embedding/date notes are once per invocation
     manifest.reset()  # the --manifest collector is run-scoped too (item 65a); begin() re-arms
+    source_accounting.reset()  # dropped inputs/OCR owners are invocation-scoped
+    whisper_token = configure_whisper_size(whisper_size(resolved_env))
     container = AppContainer(
         # env > stored key, per provider — `auth login`'s store fills only the gaps
-        env=overlay_stored_keys(environ, stored_api_keys(keys_path(environ))),
+        env=resolved_env,
         config=config,
         http_client=client,
         color_mode=color_mode,
         budget=None if limit is None else CallBudget(limit=limit, stop=stop),
         stop=stop,
+        call_policy=OutboundCallPolicy(
+            concurrency=call_concurrency,
+            breaker_limit=breaker_limit,
+        ),
     )
     try:
         yield container
     finally:
-        await client.aclose()
-        totals = metering.receipt()
-        if totals is not None:
-            diagnostics.note(totals)  # D40: the number that goes in the report
-        _repair_receipt()  # rung 0's once-per-run disclosure (item 58)
-        _batch_receipt(container)  # item 62 §9: the once-per-run batching disclosure
-        from smartpipe.io import usage
+        try:
+            try:
+                await _close_coalescers(container)
+            finally:
+                await client.aclose()
+            totals = metering.receipt()
+            if totals is not None:
+                diagnostics.note(totals)  # D40: the number that goes in the report
+            _repair_receipt()  # rung 0's once-per-run disclosure (item 58)
+            _batch_receipt(container)  # item 62 §9: the once-per-run batching disclosure
+            from smartpipe.io import usage
 
-        usage.record_run(metering.snapshot(), container.env)  # D41: the ledger
-        _cache_receipt(container)
+            usage.record_run(metering.snapshot(), container.env)  # D41: the ledger
+            _cache_receipt(container)
+        finally:
+            source_accounting.discard()
+            reset_whisper_size(whisper_token)
 
 
 def _repair_receipt() -> None:
@@ -644,10 +747,16 @@ def _batch_receipt(container: AppContainer) -> None:
 
     wrappers = [w for w in container.coalescers if isinstance(w, CoalescingChatModel)]
     calls = sum(w.packed_calls for w in wrappers)
-    items = sum(w.batched_items for w in wrappers)
+    items = sum(w.packed_items for w in wrappers)
+    recoveries = sum(w.solo_recoveries for w in wrappers)
     if calls:
-        noun = "call" if calls == 1 else "calls"
-        diagnostics.note(f"batched {items:,} items into {calls:,} {noun}")
+        item_noun = "item" if items == 1 else "items"
+        call_noun = "call" if calls == 1 else "calls"
+        message = f"batching: {items:,} {item_noun} in {calls:,} packed {call_noun}"
+        if recoveries:
+            recovery_noun = "recovery" if recoveries == 1 else "recoveries"
+            message = f"{message} · {recoveries:,} solo {recovery_noun}"
+        diagnostics.note(message)
 
 
 def _cache_receipt(container: AppContainer) -> None:
@@ -656,7 +765,7 @@ def _cache_receipt(container: AppContainer) -> None:
     hits = sum(w.hits for w in container.caches if isinstance(w, CachingChatModel))
     misses = sum(w.misses for w in container.caches if isinstance(w, CachingChatModel))
     if hits or misses:
-        diagnostics.note(f"cache: {hits:,} hits · {misses:,} calls")
+        diagnostics.note(f"cache: {hits:,} hits · {misses:,} misses")
     if container.caches:
         _maybe_sweep(container)
 
@@ -687,3 +796,19 @@ def _maybe_sweep(container: AppContainer) -> None:
             diagnostics.note(f"cache: swept {removed:,} entries ({freed / 1_048_576:.1f} MB)")
     except OSError:
         return
+
+
+async def _close_coalescers(container: AppContainer) -> None:
+    """Join every batching timer/flight before their shared client closes."""
+    from smartpipe.models.coalesce import CoalescingChatModel
+
+    wrappers = tuple(
+        wrapper for wrapper in container.coalescers if isinstance(wrapper, CoalescingChatModel)
+    )
+    outcomes = await asyncio.gather(
+        *(wrapper.aclose() for wrapper in wrappers),
+        return_exceptions=True,
+    )
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            raise outcome

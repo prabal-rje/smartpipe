@@ -18,11 +18,21 @@ from typing import TYPE_CHECKING, assert_never
 import httpx
 
 from smartpipe.cli import screens
-from smartpipe.core.errors import ItemError, SetupFault, TransportError
+from smartpipe.core.errors import (
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    SetupFault,
+    TransportError,
+)
 from smartpipe.core.jsontools import as_items, as_record, as_str
 from smartpipe.io import metering
 from smartpipe.models.base import AudioData, ImageData, VideoData
-from smartpipe.models.http_support import is_retryable_http, retry_after_seconds
+from smartpipe.models.http_support import (
+    decode_json_response,
+    is_retryable_http,
+    retry_after_seconds,
+)
 from smartpipe.models.openai_compat import GEMINI_WIRE, resolve_base_url
 from smartpipe.models.retry import RetryPolicy, with_retries
 
@@ -95,7 +105,7 @@ class GeminiNativeChatModel:
         async def attempt() -> object:
             response = await self.client.post(url, json=payload, headers=headers)
             response.raise_for_status()
-            return response.json()
+            return decode_json_response(response, provider="Gemini")
 
         try:
             return await with_retries(
@@ -115,13 +125,16 @@ class GeminiNativeChatModel:
                 raise SetupFault(
                     screens.cloud_model_missing(self.ref.name, _host(self.base_url))
                 ) from exc
-            if status == 400 and ("responseSchema" in detail or "response_schema" in detail):
-                raise SetupFault(screens.schema_rejected(_host(self.base_url), detail)) from exc
+            lowered = detail.lower()
+            if status == 400 and ("responseschema" in lowered or "response_schema" in lowered):
+                raise SchemaRejected(screens.schema_rejected(_host(self.base_url), detail)) from exc
+            if status == 429:
+                raise RetryableError(f"gemini error {status}: {detail}") from exc
             if status >= 500:  # the wire, not the content — the breaker counts these
                 raise TransportError(f"gemini error {status}: {detail}") from exc
             raise ItemError(f"gemini error {status}: {detail}") from exc
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-            raise SetupFault(
+            raise TransportError(
                 f"error: can't reach {self.base_url} ({exc})\n"
                 f"  The model '{self.ref}' needs that endpoint.\n"
                 f"  Check your network, or {GEMINI_WIRE.base_url_env} if you pointed "

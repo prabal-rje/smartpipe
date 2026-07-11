@@ -7,7 +7,7 @@ import pytest
 
 from smartpipe.core.errors import UsageFault
 from smartpipe.io.inputs import InputSpec
-from smartpipe.io.readers import file_items, resolve_items
+from smartpipe.io.readers import file_items, read_right_items, resolve_items
 
 
 async def _collect(spec: InputSpec, stdin: str = "") -> list[str]:
@@ -84,6 +84,26 @@ async def test_image_file_becomes_an_image_item(tmp_path: Path) -> None:
     assert photo.media[0].mime == "image/png"
     assert photo.text == ""  # nothing to "read" — the model sees the image
     assert by_name["note.txt"].media == ()
+
+
+async def test_shared_right_loader_routes_binary_images_without_decoding(tmp_path: Path) -> None:
+    image = tmp_path / "right.png"
+    payload = b"\x89PNG\r\n\x1a\n" + b"\xff" * 32
+    image.write_bytes(payload)
+
+    items = await read_right_items(image, None)
+
+    assert len(items) == 1
+    assert items[0].text == ""
+    assert items[0].media and items[0].media[0].data == payload
+
+
+async def test_shared_right_loader_turns_invalid_utf8_into_a_usage_fault(tmp_path: Path) -> None:
+    text = tmp_path / "right.txt"
+    text.write_bytes(b"valid row\ninvalid \xff row\n")
+
+    with pytest.raises(UsageFault, match="not valid UTF-8"):
+        await read_right_items(text, None)
 
 
 async def test_missing_extra_warns_once(

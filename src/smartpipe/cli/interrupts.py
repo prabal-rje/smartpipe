@@ -85,8 +85,11 @@ async def graceful_interrupts() -> AsyncGenerator[asyncio.Event]:
 
 def settle_budget(budget: CallBudget | None, code: ExitCode) -> ExitCode:
     """D18: a run whose --max-calls budget fired never exits 0 — completeness
-    can't be trusted; the note names the cause after the drain summary."""
+    can't be trusted; the note names the cause after the drain summary. A belt
+    may set the shared stop before the first source item starts (for example a
+    streaming ranker's query call), so its synthetic 130 is a partial budget
+    stop, not a user interrupt."""
     if budget is None or not budget.exhausted:
         return code
-    diagnostics.note(f"stopped by --max-calls ({budget.calls} calls made)")
-    return ExitCode.PARTIAL if code is ExitCode.OK else code
+    diagnostics.note(f"stopped by --max-calls ({budget.describe_usage()})")
+    return ExitCode.PARTIAL if code in (ExitCode.OK, ExitCode.INTERRUPTED) else code

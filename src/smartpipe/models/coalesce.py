@@ -1,16 +1,15 @@
 """The async half of request coalescing (item 62): queue, window, flight.
 
-Sits INSIDE the result cache and OUTSIDE the call budget
-(cache → coalescer → budget → adapter): a cache hit never enqueues, and one
-packed flight charges ``--max-calls`` exactly once — a batch of twelve items
-IS one call. All grouping/packing/salvage math is pure (``engine/coalesce``);
-this module owns time and the wire only.
+Sits inside the result cache and outside the generic call boundary
+(cache → coalescer → admission → budget → adapter): a cache hit never
+enqueues, and one packed flight charges ``--max-calls`` exactly once — a
+batch of twelve items IS one call. All grouping/packing/salvage math is pure
+(``engine/coalesce``); this module owns timing and request shape only.
 
-Failure contract (§9 accounting honesty): when a packed call fails — transport,
-budget, a strict wire balking — every member re-runs SOLO through the inner
-model, so every skip the runner sees is backed by a real call and the circuit
-breaker/retry machinery keep their per-call meaning. Salvage failures (missing
-or invalid keys) re-run solo the same way; failures are never re-batched.
+Failure contract (§9 accounting honesty): recoverable packed-call or salvage
+failures re-run affected members SOLO through the inner model. Fatal faults and
+an open circuit fan out without multiplying doomed calls; stop/budget refusals
+remain explicitly unsent. Recovery calls are never re-batched.
 """
 
 from __future__ import annotations
@@ -19,7 +18,13 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, assert_never
 
-from smartpipe.core.errors import ItemError
+from smartpipe.core.errors import (
+    CircuitOpenTransport,
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    UnsentError,
+)
 from smartpipe.engine.coalesce import (
     Resend,
     Salvaged,
@@ -29,8 +34,14 @@ from smartpipe.engine.coalesce import (
     max_group,
     pack,
     pack_budget,
+    packed_submission_tokens,
     split_reply,
-    submission_tokens,
+)
+from smartpipe.models.admission import (
+    DeferredChatModel,
+    OutboundCallPolicy,
+    admitted_chat,
+    supports_deferred_chat,
 )
 
 if TYPE_CHECKING:
@@ -39,7 +50,7 @@ if TYPE_CHECKING:
     from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.models.base import ChatModel, CompletionRequest, ModelRef
 
-__all__ = ["STOPPED_BEFORE_SEND", "CoalescingChatModel"]
+__all__ = ["STOPPED_BEFORE_SEND", "CoalescingChatModel", "OutboundCallPolicy"]
 
 # ux.md §12 with batching: an in-flight batch drains; queued-but-unflown
 # submissions obey the stop — no new wire calls after Ctrl-C.
@@ -48,16 +59,15 @@ STOPPED_BEFORE_SEND = "run stopping — not sent"
 
 @dataclass(slots=True)
 class _Pending:
+    key: str
     request: CompletionRequest
     future: asyncio.Future[str]
-    tokens: int
 
 
 @dataclass(slots=True)
 class _Group:
     key: str
     pending: list[_Pending] = field(default_factory=list["_Pending"])
-    tokens: int = 0
     timer: asyncio.Task[None] | None = None
 
 
@@ -77,8 +87,16 @@ class CoalescingChatModel:
         stop: asyncio.Event | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
         budget_tokens: int | None = None,  # test seam; None = the provider's pack budget
+        calls: OutboundCallPolicy | None = None,
     ) -> None:
-        self.inner = inner
+        if supports_deferred_chat(inner):
+            if calls is not None:
+                raise ValueError("an admitted chat model cannot take a second call policy")
+            self.inner: DeferredChatModel = inner
+        else:
+            admitted = admitted_chat(inner, OutboundCallPolicy() if calls is None else calls)
+            assert supports_deferred_chat(admitted)
+            self.inner = admitted
         self.settings = settings
         self.stop = stop
         self._sleep: Callable[[float], Awaitable[None]] = asyncio.sleep if sleep is None else sleep
@@ -87,30 +105,68 @@ class CoalescingChatModel:
         self._budget_tokens = (
             pack_budget(inner.ref.provider) if budget_tokens is None else budget_tokens
         )
-        self.batched_items = 0  # answers that came out of packed calls
-        self.packed_calls = 0  # packed requests that actually flew
+        self.packed_items = 0  # members submitted in packed calls (success or failure)
+        self.packed_calls = 0  # packed requests attempted at the actual call boundary
+        self.solo_recoveries = 0  # original requests resent after a packed attempt
+        self._closed = False
 
     @property
     def ref(self) -> ModelRef:
         return self.inner.ref
 
     async def complete(self, request: CompletionRequest) -> str:
+        if self._closed:
+            raise UnsentError(STOPPED_BEFORE_SEND)
         if not eligible(request, self.settings.size):
             return await self.inner.complete(request)
         if self._stopping():
-            raise ItemError(STOPPED_BEFORE_SEND)
+            raise UnsentError(STOPPED_BEFORE_SEND)
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-        self._enqueue(request, future)
-        return await future
+        entry = self._enqueue(request, future)
+        try:
+            return await future
+        except asyncio.CancelledError:
+            self._remove_pending(entry)
+            raise
+
+    @property
+    def pending_groups(self) -> int:
+        return len(self._groups)
+
+    @property
+    def pending_tasks(self) -> int:
+        return len(self._tasks)
+
+    async def aclose(self) -> None:
+        """Stop queued work, then join every timer/flight before the container
+        closes the underlying HTTP client. In-flight calls drain."""
+        if self._closed:
+            return
+        self._closed = True
+        groups = tuple(self._groups.values())
+        self._groups.clear()
+        for group in groups:
+            if group.timer is not None:
+                group.timer.cancel()
+            for entry in group.pending:
+                _resolve_error(entry.future, UnsentError(STOPPED_BEFORE_SEND))
+        while self._tasks:
+            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
 
     def _stopping(self) -> bool:
         return self.stop is not None and self.stop.is_set()
 
-    def _enqueue(self, request: CompletionRequest, future: asyncio.Future[str]) -> None:
+    def _enqueue(self, request: CompletionRequest, future: asyncio.Future[str]) -> _Pending:
         key = coalesce_key(request)
-        entry = _Pending(request, future, submission_tokens(request))
+        entry = _Pending(key, request, future)
         group = self._groups.get(key)
-        if group is not None and group.tokens + entry.tokens > self._budget_tokens:
+        if (
+            group is not None
+            and packed_submission_tokens(
+                tuple(candidate.request for candidate in (*group.pending, entry))
+            )
+            > self._budget_tokens
+        ):
             self._dispatch(key)  # full by tokens — fly what's queued, start fresh
             group = None
         if group is None:
@@ -118,9 +174,20 @@ class CoalescingChatModel:
             self._groups[key] = group
             group.timer = self._spawn(self._window(group))
         group.pending.append(entry)
-        group.tokens += entry.tokens
         if len(group.pending) >= max_group(request.json_schema, self.settings.size):
             self._dispatch(key)
+        return entry
+
+    def _remove_pending(self, entry: _Pending) -> None:
+        group = self._groups.get(entry.key)
+        if group is None:
+            return  # already dispatched; _fly filters the cancelled future again
+        group.pending = [candidate for candidate in group.pending if candidate is not entry]
+        if group.pending:
+            return
+        self._groups.pop(entry.key, None)
+        if group.timer is not None:
+            group.timer.cancel()
 
     def _spawn(self, work: Awaitable[None]) -> asyncio.Task[None]:
         task = asyncio.ensure_future(work)
@@ -144,59 +211,124 @@ class CoalescingChatModel:
         self._spawn(self._fly(tuple(group.pending)))
 
     async def _fly(self, pending: tuple[_Pending, ...]) -> None:
-        if self._stopping():
-            # queued-but-unflown obeys the stop like today's pending items
-            for entry in pending:
-                _resolve_error(entry.future, ItemError(STOPPED_BEFORE_SEND))
-            return
-        if len(pending) == 1:
-            await self._solo(pending[0])  # a group of one flies as the ORIGINAL request
-            return
-        packed = pack(tuple(entry.request for entry in pending))
+        chosen = self._live(pending)
+        packed_flight = False
+
+        def send() -> CompletionRequest | None:
+            nonlocal chosen, packed_flight
+            chosen = self._live(pending)  # cancellations while waiting never leave the machine
+            if not chosen:
+                return None
+            if self._stopping():
+                self._stop(chosen)
+                return None
+            if len(chosen) == 1:
+                return chosen[0].request
+            packed_flight = True
+            self.packed_calls += 1
+            self.packed_items += len(chosen)
+            return pack(tuple(entry.request for entry in chosen))
+
         try:
-            reply = await self.inner.complete(packed)
+            reply = await self.inner.complete_deferred(send)
         except asyncio.CancelledError:
-            for entry in pending:
-                _resolve_error(entry.future, ItemError(STOPPED_BEFORE_SEND))
+            self._stop(chosen)
             raise
-        except ItemError:
-            # the packed call failed — every member re-runs solo so each outcome
-            # is backed by a real call (breaker/budget keep per-call meaning)
-            for entry in pending:
-                await self._solo(entry)
+        except CircuitOpenTransport as fault:
+            self._fanout(chosen, fault)
             return
-        except Exception as fault:  # fatal (SetupFault, bugs): the waiters crash loudly
-            for entry in pending:
-                _resolve_error(entry.future, fault)
+        except SchemaRejected as fault:
+            if packed_flight:
+                await self._recover(chosen)
+            else:
+                self._fanout(chosen, fault)
             return
-        self.packed_calls += 1
-        base = pending[0].request
-        outcomes = split_reply(reply, labels(len(pending)), base.json_schema)
-        for entry, outcome in zip(pending, outcomes, strict=True):
+        except RetryableError as fault:
+            # The adapter already spent its one bounded retry ladder.  Replaying
+            # K solos would amplify a provider-wide 429/outage into K more
+            # ladders; one actual-call failure fans to the K item waiters.
+            self._fanout(chosen, fault)
+            return
+        except ItemError as fault:
+            if packed_flight:
+                await self._recover(chosen)
+            else:
+                self._fanout(chosen, fault)
+            return
+        except Exception as fault:  # fatal auth/model/setup faults and bugs
+            self._fanout(chosen, fault)
+            return
+        if reply is None or not chosen:
+            return
+        if not packed_flight:
+            _resolve(chosen[0].future, reply)
+            return
+        base = chosen[0].request
+        outcomes = split_reply(reply, labels(len(chosen)), base.json_schema)
+        recoveries: list[_Pending] = []
+        for entry, outcome in zip(chosen, outcomes, strict=True):
             match outcome:
                 case Salvaged(reply=text):
-                    self.batched_items += 1
                     _resolve(entry.future, text)
                 case Resend():
-                    await self._solo(entry)  # the named item retries solo, never re-batched
+                    recoveries.append(entry)
                 case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                     assert_never(unreachable)
+        await self._recover(tuple(recoveries))
 
-    async def _solo(self, entry: _Pending) -> None:
-        if entry.future.done():  # pragma: no cover — waiter already cancelled
+    async def _recover(self, pending: tuple[_Pending, ...]) -> None:
+        if not pending:
             return
-        if self._stopping():
-            _resolve_error(entry.future, ItemError(STOPPED_BEFORE_SEND))
+        outcomes = await asyncio.gather(
+            *(self._solo(entry, recovery=True) for entry in pending),
+            return_exceptions=True,
+        )
+        trip = next(
+            (outcome for outcome in outcomes if isinstance(outcome, CircuitOpenTransport)),
+            None,
+        )
+        if trip is not None:
+            self._fanout(pending, trip)
+
+    async def _solo(self, entry: _Pending, *, recovery: bool = False) -> None:
+        if entry.future.done():
             return
+
+        def send() -> CompletionRequest | None:
+            if entry.future.done():
+                return None
+            if self._stopping():
+                _resolve_error(entry.future, UnsentError(STOPPED_BEFORE_SEND))
+                return None
+            if recovery:
+                self.solo_recoveries += 1
+            return entry.request
+
         try:
-            reply = await self.inner.complete(entry.request)
+            reply = await self.inner.complete_deferred(send)
         except asyncio.CancelledError:
-            _resolve_error(entry.future, ItemError(STOPPED_BEFORE_SEND))
+            _resolve_error(entry.future, UnsentError(STOPPED_BEFORE_SEND))
+            raise
+        except CircuitOpenTransport:
             raise
         except Exception as fault:
             _resolve_error(entry.future, fault)
         else:
-            _resolve(entry.future, reply)
+            if reply is not None:
+                _resolve(entry.future, reply)
+
+    def _live(self, pending: tuple[_Pending, ...]) -> tuple[_Pending, ...]:
+        return tuple(entry for entry in pending if not entry.future.done())
+
+    @staticmethod
+    def _fanout(pending: tuple[_Pending, ...], fault: BaseException) -> None:
+        for entry in pending:
+            _resolve_error(entry.future, fault)
+
+    @staticmethod
+    def _stop(pending: tuple[_Pending, ...]) -> None:
+        for entry in pending:
+            _resolve_error(entry.future, UnsentError(STOPPED_BEFORE_SEND))
 
 
 def _resolve(future: asyncio.Future[str], reply: str) -> None:

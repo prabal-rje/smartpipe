@@ -18,7 +18,16 @@ from dataclasses import dataclass, replace
 from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
-from smartpipe.core.errors import ExitCode, ItemError, TooManyFailures, UsageFault
+from smartpipe.core.errors import (
+    ExcludedError,
+    ExitCode,
+    ItemError,
+    RetryableError,
+    SourceCounts,
+    TooManyFailures,
+    UnsentError,
+    UsageFault,
+)
 from smartpipe.engine.blocking import RightIndex, build_index, candidates
 from smartpipe.engine.chunking import estimate_tokens, mean_pool, split_text
 from smartpipe.engine.fieldpath import MISSING, lookup, parse_path
@@ -37,13 +46,13 @@ from smartpipe.engine.runner import (
     should_halt_consecutive,
 )
 from smartpipe.engine.schema import validate_and_coerce
-from smartpipe.io import diagnostics, readers
+from smartpipe.io import diagnostics, manifest, readers, source_accounting
 from smartpipe.io.inputs import STDIN
-from smartpipe.io.items import ItemSource, describe_source, item_from_line, source_record
+from smartpipe.io.items import describe_source, source_record
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.verbs.common import (
+    ExecutionPolicySource,
     ModelSlot,
-    breaker_policy,
     embed_budget,
     embed_in_batches,
     ensure_text,
@@ -55,6 +64,7 @@ from smartpipe.verbs.convert import Converter, make_converter
 from smartpipe.verbs.oversize import RowNote, judge_bisected, matched_note, refusal
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
     from pathlib import Path
     from typing import TextIO
 
@@ -65,7 +75,7 @@ if TYPE_CHECKING:
     from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
     from smartpipe.models.ocr import DocumentParser
-    from smartpipe.models.stt import RemoteTranscriber
+    from smartpipe.models.stt import Transcriber
 
 __all__ = ["JoinContext", "JoinRequest", "PairBook", "run_join"]
 
@@ -95,8 +105,8 @@ class JoinRequest:
     ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (item 48)
 
 
-class JoinContext(Protocol):
-    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+class JoinContext(ExecutionPolicySource, Protocol):
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> Transcriber | None: ...
 
     """The first verb that needs BOTH models — the container already has both."""
 
@@ -105,7 +115,6 @@ class JoinContext(Protocol):
     def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
     async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
-    def concurrency(self, flag: int | None = None) -> int: ...
     def writer(
         self,
         output_flag: OutputFormat,
@@ -158,39 +167,39 @@ async def run_join(
     stdout: TextIO,
     stop: asyncio.Event | None = None,
 ) -> ExitCode:
-    on_pairs = _parse_on(request.on)
-    if request.predicate is None and on_pairs is None:
-        raise UsageFault(
-            "join needs a predicate or --on\n"
-            '  Semantic: smartpipe join "ticket {left.text} concerns {right.name}" --right …\n'
-            "  Deterministic: smartpipe join --on 'left.sku == right.sku' --right …"
-        )
-    if request.k < 1:
-        raise UsageFault(f"--k must be >= 1, got {request.k}")
+    on_pairs, tokens = _validate_request(request)
+    concurrency = context.concurrency(request.concurrency_flag)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 48)
-    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     if request.predicate is None:
         assert on_pairs is not None
         return await _run_key_join(
             request, on_pairs, context, stdin=stdin, stdout=stdout, stop=stop, ocr=ocr
         )
-    tokens = parse_join_predicate(request.predicate)  # UsageFault on bad grammar
+    assert tokens is not None
     right_items = await _load_right_items(request.right, ocr)
     embed_model = await context.embedding_model(request.embed_model_flag)
-    kept_right, index, right_chunks = await _index_right(
-        embed_model, right_items, request.right.name, log, whole=request.whole
+    embed_failure_policy = context.failure_policy(embed_model.ref.provider)
+    kept_right, index, right_chunks, right_counts = await _index_right(
+        embed_model,
+        right_items,
+        request.right.name,
+        log,
+        failure_policy=embed_failure_policy,
+        call_concurrency=concurrency,
+        whole=request.whole,
     )
+    if not kept_right:
+        log.finish()
+        return outcome_exit_code(
+            done=right_counts.succeeded,
+            skipped=right_counts.skipped,
+            failed=right_counts.failed,
+            input_count=right_counts.total,
+        )
     chat = await context.chat_model(request.model_flag)
     slot = ModelSlot(chat)
     fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
-    concurrency = context.concurrency(request.concurrency_flag)
-    if request.kind not in ("inner", "leftouter", "anti"):
-        raise UsageFault("--kind takes inner, leftouter, or anti")
-    if request.kind == "anti" and request.unmatched is not None:
-        raise UsageFault(
-            "--unmatched with --kind anti is redundant — anti already puts unmatched rows on stdout"
-        )
     spinner = make_stderr_spinner()
     # the arbiter: result writes pause the status line, so they never interleave
     writer = context.writer(
@@ -202,6 +211,13 @@ async def run_join(
         full=request.full,
     )
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    accepted_left: list[Item] = []
+
+    async def tracked_items() -> AsyncIterator[Item]:
+        async for item in items_iter:
+            accepted_left.append(item)
+            yield item
+
     preview_cost(total, request.k, len(index))
 
     converter = make_converter(
@@ -209,7 +225,7 @@ async def run_join(
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(chat.ref),
-        ocr=parser,
+        ocr=ocr,
     )
     book = PairBook(policy=FailurePolicy(), right_name=request.right.name)
     right_blocks = _right_blocks(kept_right, on_pairs)
@@ -241,7 +257,7 @@ async def run_join(
         slot.tally(str(current.ref))
         return item, matches
 
-    policy = breaker_policy(chat.ref.provider)
+    policy = context.failure_policy(chat.ref.provider)
     failover = (
         make_failover(
             slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
@@ -250,9 +266,9 @@ async def run_join(
         else None
     )
     done = 0
-    skipped = 0
+    left_sources = source_accounting.SourceCounter()
     outcomes = run_ordered(
-        items_iter,
+        tracked_items(),
         worker,
         concurrency=concurrency,
         failure_policy=policy,
@@ -261,11 +277,14 @@ async def run_join(
     )
     matched_pairs = 0
     unmatched_count = 0
+    emitted_left = 0
+    emitted_left_failed = 0
     unmatched_sink = (
         request.unmatched.open("w", encoding="utf-8") if request.unmatched is not None else None
     )
     try:
         async for outcome in outcomes:
+            emitted_left += 1
             if isinstance(outcome, Done):
                 left, matches = outcome.value
                 if request.kind != "anti":
@@ -290,10 +309,29 @@ async def run_join(
                             if unmatched_sink is not None:
                                 unmatched_sink.write(left.raw + "\n")
                 done += 1
+                left_sources.done(left.source)
             else:  # Skipped — the left item itself failed (image, embed error, …)
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
-                skipped += 1
+                left_sources.skip(outcome.source, failed=outcome.failed)
+                emitted_left_failed += int(outcome.failed)
             spinner.advance()
+    except TooManyFailures as halt:
+        if halt.source_counts is None:
+            raise
+        _fold_halt_sources(
+            left_sources,
+            accepted_left,
+            emitted=emitted_left,
+            emitted_failed=emitted_left_failed,
+            stage_counts=halt.source_counts,
+        )
+        combined = source_accounting.add_counts(right_counts, left_sources.counts)
+        raise TooManyFailures(
+            halt.failed,
+            halt.total,
+            halt.last_reason,
+            source_counts=combined,
+        ) from None
     finally:
         spinner.finish()
         writer.flush()
@@ -311,10 +349,28 @@ async def run_join(
         diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
     if avoided[0]:
         diagnostics.note(f"join --on: {avoided[0]:,} pairs never considered (equality blocking)")
+    counts = source_accounting.add_counts(right_counts, left_sources.counts)
     if stop is not None and stop.is_set():
-        diagnostics.interrupted_summary(processed=done, skipped=skipped + book.skipped)
-        return interrupted_exit_code(done=done, skipped=skipped + book.skipped)
-    return outcome_exit_code(done=done, skipped=skipped + book.skipped)
+        diagnostics.interrupted_summary(
+            processed=done,
+            skipped=left_sources.counts.skipped + book.skipped,
+        )
+        code = interrupted_exit_code(
+            done=left_sources.counts.succeeded,
+            skipped=left_sources.counts.skipped,
+            failed=left_sources.counts.failed,
+            partial=book.skipped > 0,
+        )
+        _record_join_counts(counts)
+        return code
+    code = outcome_exit_code(
+        done=left_sources.counts.succeeded,
+        skipped=left_sources.counts.skipped,
+        failed=left_sources.counts.failed,
+        partial=book.skipped > 0,
+    )
+    _record_join_counts(counts)
+    return code
 
 
 async def _join_one(
@@ -339,7 +395,7 @@ async def _join_one(
     if estimate_tokens(item.text) > budget:
         if request.whole:
             # --whole: the old refusal — reproducibility beats handling (D26 v2)
-            raise ItemError(refusal(estimate_tokens(item.text), embed_model.ref.name, budget))
+            raise ExcludedError(refusal(estimate_tokens(item.text), embed_model.ref.name, budget))
         vector, left_side = await _chunked_side(embed_model, item.text, budget)
         log.note(
             describe_source(item.source),
@@ -378,6 +434,8 @@ async def _join_one(
             verdict = await _judge_pair(
                 chat, tokens, item, right_item, left_texts, right_texts, note=note
             )
+        except RetryableError:
+            raise
         except ItemError as exc:
             book.skip(item, position, str(exc))
             continue
@@ -385,6 +443,37 @@ async def _join_one(
         if verdict:
             matches.append((position, score))
     return tuple(matches)
+
+
+def _validate_request(
+    request: JoinRequest,
+) -> tuple[tuple[tuple[str, str], ...] | None, tuple[Token, ...] | None]:
+    """Validate every flag relationship before setup, input, spend, or sinks."""
+    on_pairs = _parse_on(request.on)
+    if request.predicate is None and on_pairs is None:
+        raise UsageFault(
+            "join needs a predicate or --on\n"
+            '  Semantic: smartpipe join "ticket {left.text} concerns {right.name}" --right …\n'
+            "  Deterministic: smartpipe join --on 'left.sku == right.sku' --right …"
+        )
+    if request.k < 1:
+        raise UsageFault(f"--k must be >= 1, got {request.k}")
+    if request.kind not in ("inner", "leftouter", "anti"):
+        raise UsageFault("--kind takes inner, leftouter, or anti")
+    if request.kind == "anti" and request.unmatched is not None:
+        raise UsageFault(
+            "--unmatched with --kind anti is redundant — anti already puts unmatched rows on stdout"
+        )
+    if request.unmatched is not None:
+        manifest.guard_manifest_alias(request.unmatched, role="--unmatched output")
+    if str(request.right) == "-":
+        raise UsageFault(
+            "--right - reads nothing — stdin is join's left side\n"
+            "  The right side is a finite file smartpipe indexes up front.\n"
+            '  Example: cat stream.jsonl | smartpipe join "…" --right catalog.jsonl'
+        )
+    tokens = parse_join_predicate(request.predicate) if request.predicate is not None else None
+    return on_pairs, tokens
 
 
 async def _judge_pair(
@@ -508,6 +597,9 @@ async def _run_key_join(
     calls (a configured ocr-model at ingestion is the one exception, item 48),
     works with --kind inner/leftouter/anti and --unmatched."""
     right_items = await _load_right_items(request.right, ocr)
+    right_sources = source_accounting.SourceCounter()
+    for right_item in right_items:
+        right_sources.done(right_item.source)
     blocks = _right_blocks(right_items, on_pairs)
     assert blocks is not None
     spinner = make_stderr_spinner()
@@ -522,6 +614,7 @@ async def _run_key_join(
     spinner.start(total=total)
     left_fields = tuple(left for left, _right in on_pairs)
     done = 0
+    left_sources = source_accounting.SourceCounter()
     matched_pairs = 0
     unmatched_count = 0
     unmatched_sink = (
@@ -554,6 +647,7 @@ async def _run_key_join(
                         if unmatched_sink is not None:
                             unmatched_sink.write(left.raw + "\n")
             done += 1
+            left_sources.done(left.source)
             spinner.advance()
     finally:
         spinner.finish()
@@ -569,10 +663,58 @@ async def _run_key_join(
         )
     elif request.kind != "inner":
         diagnostics.note(f"join: {matched_pairs} matched · {unmatched_count} unmatched")
+    counts = source_accounting.add_counts(right_sources.counts, left_sources.counts)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=0)
-        return interrupted_exit_code(done=done, skipped=0)
-    return outcome_exit_code(done=done, skipped=0)
+        code = interrupted_exit_code(
+            done=left_sources.counts.succeeded,
+            skipped=left_sources.counts.skipped,
+            failed=left_sources.counts.failed,
+        )
+        _record_join_counts(counts)
+        return code
+    code = outcome_exit_code(
+        done=left_sources.counts.succeeded,
+        skipped=left_sources.counts.skipped,
+        failed=left_sources.counts.failed,
+    )
+    _record_join_counts(counts)
+    return code
+
+
+def _record_join_counts(counts: SourceCounts) -> None:
+    manifest.record_counts(
+        done=counts.succeeded,
+        skipped=counts.skipped,
+        failed=counts.failed,
+        input_count=counts.total,
+    )
+
+
+def _fold_halt_sources(
+    counter: source_accounting.SourceCounter,
+    accepted: list[Item],
+    *,
+    emitted: int,
+    emitted_failed: int,
+    stage_counts: SourceCounts,
+) -> None:
+    """Fold a runner halt's un-emitted work units through source ownership.
+
+    The runner reports accepted stage units. Join additionally needs to
+    collapse several OCR pages back to their one input source, so intake is
+    tracked at this boundary and only the un-emitted suffix is added here.
+    """
+    if stage_counts.total != len(accepted):
+        raise ValueError("join halt counts do not match accepted left items")
+    if emitted > len(accepted):
+        raise ValueError("join emitted more left items than it accepted")
+    remaining_failed = stage_counts.failed - emitted_failed
+    remaining = accepted[emitted:]
+    if not 0 <= remaining_failed <= len(remaining):
+        raise ValueError("join halt failure counts do not match un-emitted left items")
+    for position, item in enumerate(remaining):
+        counter.skip(item.source, failed=position < remaining_failed)
 
 
 def _payload(item: Item) -> dict[str, object]:
@@ -602,32 +744,7 @@ async def _load_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
     PDF/image --right parses to page items (disclosed per page, the belt
     applies); anything else — and an unset role — reads exactly as before
     (JSONL or plain lines)."""
-    if ocr is not None and str(path) != "-" and path.exists():
-        parsed = await readers.ocr_parse_file(path, 0, ocr)
-        if parsed:
-            return parsed
-    return _load_right(path)
-
-
-def _load_right(path: Path) -> list[Item]:
-    if str(path) == "-":
-        raise UsageFault(
-            "--right - reads nothing — stdin is join's left side\n"
-            "  The right side is a finite file smartpipe indexes up front.\n"
-            '  Example: cat stream.jsonl | smartpipe join "…" --right catalog.jsonl'
-        )
-    if not path.exists():
-        raise UsageFault(
-            f"no such file: {path}\n  --right needs a JSONL or plain-lines file to index."
-        )
-    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-    items = [
-        replace(
-            item_from_line(line, index),
-            source=ItemSource("file", path.name, index),
-        )
-        for index, line in enumerate(lines)
-    ]
+    items = await readers.read_right_items(path, ocr)
     if not items:
         raise UsageFault(
             f"{path} is empty — a join against nothing is a mistake\n"
@@ -665,8 +782,10 @@ async def _index_right(
     right_name: str,
     log: diagnostics.DegradationLog,
     *,
+    failure_policy: FailurePolicy,
+    call_concurrency: int,
     whole: bool = False,
-) -> tuple[list[Item], RightIndex, dict[int, ChunkedSide]]:
+) -> tuple[list[Item], RightIndex, dict[int, ChunkedSide], SourceCounts]:
     """The build side, fully embedded before any chat spend (the preflight)."""
     budget = embed_budget(model.ref.provider)
     normal = [item for item in items if estimate_tokens(item.text) <= budget]
@@ -674,33 +793,58 @@ async def _index_right(
     kept: list[Item] = []
     vectors: list[tuple[float, ...]] = []
     chunked: dict[int, ChunkedSide] = {}
-    async for outcome in embed_in_batches(model, normal, failure_policy=FailurePolicy()):
-        if isinstance(outcome, Done):
-            item, vector = outcome.value
-            kept.append(item)
-            vectors.append(vector)
-        else:
-            diagnostics.warn(f"skipped: {right_name} line {outcome.index + 1} ({outcome.reason})")
+    sources = source_accounting.SourceCounter()
+    seen = 0
+    try:
+        async for outcome in embed_in_batches(
+            model,
+            normal,
+            failure_policy=failure_policy,
+            call_concurrency=call_concurrency,
+        ):
+            seen += 1
+            if isinstance(outcome, Done):
+                item, vector = outcome.value
+                kept.append(item)
+                vectors.append(vector)
+                sources.done(item.source)
+            else:
+                diagnostics.warn(
+                    f"skipped: {right_name} line {outcome.index + 1} ({outcome.reason})"
+                )
+                sources.skip(outcome.source, failed=outcome.failed)
+    except TooManyFailures as halt:
+        for position, item in enumerate((*normal[seen:], *oversized)):
+            sources.skip(item.source, failed=position == 0)
+        raise TooManyFailures(
+            halt.failed,
+            halt.total,
+            halt.last_reason,
+            source_counts=sources.counts,
+        ) from None
     for item in oversized:
         if whole:
             # --whole: the old refusal — reproducibility beats handling (D26 v2)
             why = refusal(estimate_tokens(item.text), model.ref.name, budget)
             diagnostics.warn(f"skipped: {right_name} line {item.source.index + 1} ({why})")
+            sources.skip(item.source, failed=False)
             continue
         try:
             pooled, side = await _chunked_side(model, item.text, budget)
         except ItemError as exc:
             diagnostics.warn(f"skipped: {right_name} line {item.source.index + 1} ({exc})")
+            sources.skip(item.source, failed=not isinstance(exc, UnsentError))
             continue
         chunked[len(kept)] = side
         kept.append(item)
         vectors.append(pooled)
+        sources.done(item.source)
         log.note(
             f"{right_name} line {item.source.index + 1}",
             "oversized → any-chunk judge",
             f"{len(side.chunks)} chunks pooled for blocking",
         )
-    return kept, build_index(vectors), chunked
+    return kept, build_index(vectors), chunked, sources.counts
 
 
 def preview_cost(total: int | None, k: int, index_size: int) -> None:

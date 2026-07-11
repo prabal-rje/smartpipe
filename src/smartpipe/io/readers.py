@@ -14,12 +14,12 @@ import concurrent.futures
 import contextlib
 import os
 import threading
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import ItemError, SetupFault, UsageFault
-from smartpipe.io import diagnostics
+from smartpipe.io import diagnostics, source_accounting
 from smartpipe.io.csvrows import CsvCutter, csv_file_items
 from smartpipe.io.items import Item, ItemSource, item_from_file, item_from_line
 from smartpipe.models.base import AudioData, ImageData, VideoData
@@ -27,11 +27,12 @@ from smartpipe.parsing.detect import FileKind, detect_kind, route
 from smartpipe.parsing.extract import MissingExtra, extract
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncIterator, Callable, Iterator, Sequence
     from typing import Literal, TextIO
 
     from smartpipe.io.inputs import InputSpec
-    from smartpipe.models.ocr import DocumentParser
+    from smartpipe.models.base import ModelRef
+    from smartpipe.models.ocr import DocumentParser, OcrPage
 
 __all__ = [
     "OcrIngest",
@@ -42,23 +43,93 @@ __all__ = [
     "ocr_eligible_count",
     "ocr_finite_paths",
     "ocr_parse_file",
+    "ocr_preflight",
     "ocr_route",
+    "read_right_items",
     "resolve_items",
     "stdin_items",
 ]
 
 _HEAD_BYTES = 8192
 _QUEUE_MAX = 1024  # lines buffered ahead of consumption — memory stays bounded
-_PREFLIGHT_FILES = 20  # above this many parseable files, say so before parsing (item 48)
+_PREFLIGHT_PAGES = 20  # above this many billable pages, say so before parsing (item 48)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OcrIngest:
-    """The ``ocr-model`` role at ingestion (item 40): the parser plus the
-    verb's degradation log, so every parsed page is disclosed per row."""
+    """Lazy, run-scoped ownership of OCR setup and attempts.
 
-    parser: DocumentParser
+    A text-only run never resolves the parser (and therefore never asks for a
+    cloud key). The wrapper also presents the ``DocumentParser`` protocol to
+    converters so ingestion and conversion cannot send the same image twice.
+    """
+
+    parser: DocumentParser | None
     log: diagnostics.DegradationLog
+    parser_factory: Callable[[], DocumentParser | None] | None = None
+    _resolved: bool = field(init=False, repr=False)
+    _failed_images: set[tuple[str, str]] = field(
+        default_factory=lambda: set[tuple[str, str]](), init=False, repr=False
+    )
+
+    def __post_init__(self) -> None:
+        self._resolved = self.parser is not None or self.parser_factory is None
+
+    @classmethod
+    def lazy(
+        cls,
+        parser_factory: Callable[[], DocumentParser | None],
+        log: diagnostics.DegradationLog,
+    ) -> OcrIngest:
+        return cls(parser=None, log=log, parser_factory=parser_factory)
+
+    def resolve_parser(self) -> DocumentParser | None:
+        if not self._resolved:
+            assert self.parser_factory is not None
+            self.parser = self.parser_factory()
+            self._resolved = True
+        return self.parser
+
+    @property
+    def ref(self) -> ModelRef:
+        parser = self.resolve_parser()
+        if parser is None:  # only callers following a successful parse ask for ref
+            raise RuntimeError("OCR parser reference requested while the role is unset")
+        return parser.ref
+
+    async def parse_image(self, image: ImageData) -> str:
+        parser = self.resolve_parser()
+        if parser is None:
+            raise ItemError("no OCR parser is configured")
+        text = await parser.parse_image(image)
+        if not text.strip():
+            raise ItemError("the OCR model returned no text")
+        return text.strip()
+
+    async def parse_ingest_image(self, image: ImageData, where: str) -> str:
+        try:
+            return await self.parse_image(image)
+        except ItemError:
+            self._failed_images.add((_image_digest(image), where))
+            raise
+
+    async def parse_conversion_image(self, image: ImageData, where: str) -> str:
+        key = (_image_digest(image), where)
+        if key in self._failed_images:
+            self._failed_images.remove(key)
+            raise ItemError("OCR already attempted for this image during ingestion")
+        return await self.parse_image(image)
+
+    async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+        parser = self.resolve_parser()
+        if parser is None:
+            raise ItemError("no OCR parser is configured")
+        pages = await parser.parse_pdf(path)
+        if not pages:
+            raise ItemError("the OCR model returned no pages")
+        if not any(page.markdown.strip() for page in pages):
+            raise ItemError("the OCR model returned no text")
+        return pages
 
 
 def ocr_route(kind: FileKind, as_mode: str | None) -> Literal["image", "pdf"] | None:
@@ -104,12 +175,15 @@ def resolve_items(
         paths = expand_globs(spec.patterns)  # UsageFault if no match
         if spec.as_mode in ("lines", "jsonl", "csv"):
             _refuse_uncuttable(paths, spec.as_mode)  # every matched file must honor it
-        if ocr is not None and _any_ocr_eligible(paths, spec.as_mode):
-            _ocr_preflight(paths, spec.as_mode, ocr)  # the >20-files heads-up (item 48)
+        if (
+            ocr is not None
+            and _any_ocr_eligible(paths, spec.as_mode)
+            and ocr_preflight(paths, spec.as_mode, ocr)
+        ):
             chained = None if stdin.isatty() else stdin
             return _ocr_path_items(paths, spec.as_mode, ocr, chained, stop), None
-        if _any_csv(paths, spec.as_mode):
-            # item 54: a csv in the mix streams row-at-a-time — no slurp, no total
+        if _any_row_cut(paths, spec.as_mode):
+            # Row-cut inputs stream one record at a time — no slurp, no fake total.
             chained = None if stdin.isatty() else stdin
             return _stream_path_items(paths, spec, chained, stop, ocr), None
         loaded = _path_items(paths, spec.as_mode)
@@ -121,7 +195,7 @@ def resolve_items(
     if spec.from_files:
         return from_files_items(stdin, stop=stop, as_mode=spec.as_mode, ocr=ocr), None
     if spec.as_mode == "file":
-        return _stdin_as_one_item(stdin, stop), None  # slurp: the whole pipe is one crate
+        return _stdin_as_one_item(stdin, stop, ocr), None  # whole pipe, normal OCR routing
     return stdin_items(
         stdin, stop=stop, as_mode=spec.as_mode, strict_rows=spec.strict_rows, ocr=ocr
     ), None
@@ -133,6 +207,14 @@ def _any_csv(paths: Sequence[Path], as_mode: str | None) -> bool:
     if as_mode == "csv":
         return True
     return as_mode is None and any(path.suffix.lower() in _CSV_SUFFIXES for path in paths)
+
+
+def _any_row_cut(paths: Sequence[Path], as_mode: str | None) -> bool:
+    if as_mode in ("lines", "jsonl", "csv"):
+        return True
+    return as_mode is None and any(
+        path.suffix.lower() in (*_JSONL_SUFFIXES, *_CSV_SUFFIXES) for path in paths
+    )
 
 
 async def _stream_path_items(
@@ -155,7 +237,7 @@ async def _stream_path_items(
             for item in csv_file_items(path):
                 yield item
         elif mode != "file":
-            for row in _text_rows(path, mode):
+            for row in _text_rows(path, mode, stop=stop):
                 yield row
         else:
             item = _load_file(path, ordinal, warned_extras)
@@ -182,10 +264,28 @@ def _any_ocr_eligible(paths: Sequence[Path], as_mode: str | None) -> bool:
 
 
 def ocr_eligible_count(paths: Sequence[Path], as_mode: str | None) -> int:
-    """How many named files a configured ocr-model would parse — the reader's
-    preflight arithmetic (item 48). Unreadable files count as not parseable;
-    they get their own skip warning at load time."""
-    return sum(1 for path in paths if _is_ocr_eligible(path, as_mode))
+    """Billable OCR pages in named inputs (images are one page)."""
+    from smartpipe.models.ocr import pdf_page_count
+
+    total = 0
+    for path in paths:
+        try:
+            with path.open("rb") as handle:
+                head = handle.read(_HEAD_BYTES)
+        except OSError:
+            continue
+        kind = detect_kind(path, head)
+        match ocr_route(kind, as_mode):
+            case "image":
+                total += 1
+            case "pdf":
+                try:
+                    total += pdf_page_count(path)
+                except ItemError:
+                    total += 1  # malformed input gets its typed load-time failure later
+            case None:
+                pass
+    return total
 
 
 def _is_ocr_eligible(path: Path, as_mode: str | None) -> bool:
@@ -197,15 +297,25 @@ def _is_ocr_eligible(path: Path, as_mode: str | None) -> bool:
     return ocr_route(detect_kind(path, head), as_mode) is not None
 
 
-def _ocr_preflight(paths: Sequence[Path], as_mode: str | None, ocr: OcrIngest) -> None:
+def ocr_preflight(paths: Sequence[Path], as_mode: str | None, ocr: OcrIngest) -> bool:
     """Item 48: a folder of scans through a paid parser deserves a heads-up
     BEFORE the first call — with the belt named. Shared by every verb whose
     path ingestion routes through the role (reader mode included)."""
+    parser = ocr.resolve_parser()
+    if parser is None:
+        return False
+    from smartpipe.models.ocr import OcrBilling, parser_billing
+
+    if parser_billing(parser) is not OcrBilling.PAGE:
+        return True
     count = ocr_eligible_count(paths, as_mode)
-    if count > _PREFLIGHT_FILES:
+    if count == 0:
+        return False
+    if count > _PREFLIGHT_PAGES:
         diagnostics.note(
-            f"~{count} pages will parse through {ocr.parser.ref} - --max-calls caps it"
+            f"~{count} billable pages will parse through {parser.ref} - --max-calls caps them"
         )
+    return True
 
 
 def ocr_finite_paths(spec: InputSpec, stdin: TextIO) -> bool:
@@ -235,18 +345,22 @@ async def ocr_parse_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item]
     route_to = ocr_route(kind, None)
     if route_to is None:
         return None
+    parser = ocr.resolve_parser()
+    if parser is None:
+        return None
     name = path.name
-    detail = f"parsed by {ocr.parser.ref}"
+    detail = f"parsed by {parser.ref}"
     try:
         if route_to == "image":
             from smartpipe.parsing.detect import image_mime
 
-            markdown = await ocr.parser.parse_image(
-                ImageData(data=path.read_bytes(), mime=image_mime(path))
+            markdown = await ocr.parse_ingest_image(
+                ImageData(data=path.read_bytes(), mime=image_mime(path)), str(path)
             )
             ocr.log.note(name, "document → markdown", detail)
             return [item_from_file(markdown, str(path), ordinal)]
-        pages = await ocr.parser.parse_pdf(path)
+        pages = await ocr.parse_pdf(path)
+        group = source_accounting.new_group(size=len(pages))
         items: list[Item] = []
         for page in pages:
             marker = name if len(pages) == 1 else f"{name} p.{page.index + 1}"
@@ -263,6 +377,7 @@ async def ocr_parse_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item]
                         cut="pages",
                         path=str(path),
                         label=marker,
+                        group=group,
                     ),
                 )
             )
@@ -292,7 +407,7 @@ async def _ocr_path_items(
                 yield row
             continue
         if mode != "file":
-            for row in _text_rows(path, mode):
+            for row in _text_rows(path, mode, stop=stop):
                 yield row
             continue
         parsed = await ocr_parse_file(path, ordinal, ocr)
@@ -339,10 +454,52 @@ async def _iter_list(items: Sequence[Item]) -> AsyncIterator[Item]:
         yield item
 
 
+class _InputOwner:
+    """Thread-safe owner for reader-created files and producer cancellation."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._paths: set[str] = set()
+        self.closed = threading.Event()
+
+    def claim(self, path: str) -> bool:
+        with self._lock:
+            if self.closed.is_set():
+                claimed = False
+            else:
+                self._paths.add(path)
+                claimed = True
+        if not claimed:
+            self._unlink(path)
+        return claimed
+
+    def release(self, path: str) -> None:
+        with self._lock:
+            self._paths.discard(path)
+        self._unlink(path)
+
+    def close(self) -> None:
+        self.closed.set()
+        with self._lock:
+            paths = tuple(self._paths)
+            self._paths.clear()
+        for path in paths:
+            self._unlink(path)
+
+    @staticmethod
+    def _unlink(path: str) -> None:
+        with contextlib.suppress(OSError):
+            Path(path).unlink()
+
+
 @dataclass(frozen=True, slots=True)
 class _StdinDocument:
     tmp_name: str
     kind: FileKind
+    owner: _InputOwner
+
+    def cleanup(self) -> None:
+        self.owner.release(self.tmp_name)
 
 
 # A queue message: ("line", text) · ("document", _StdinDocument) ·
@@ -374,14 +531,17 @@ async def _messages(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[
     """
     queue: asyncio.Queue[_Message] = asyncio.Queue(_QUEUE_MAX)
     loop = asyncio.get_running_loop()
+    owner = _InputOwner()
 
     def put(message: _Message) -> None:
+        if owner.closed.is_set():
+            return
         asyncio.run_coroutine_threadsafe(queue.put(message), loop).result()
 
     def pump_text_fd(fd: int, carry: bytes) -> None:
         buffer = bytearray(carry)
-        while True:
-            while (newline := buffer.find(0x0A)) != -1:
+        while not owner.closed.is_set():
+            while not owner.closed.is_set() and (newline := buffer.find(0x0A)) != -1:
                 line = bytes(buffer[: newline + 1])
                 del buffer[: newline + 1]
                 put(("line", line.decode("utf-8", errors="replace")))
@@ -396,23 +556,36 @@ async def _messages(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[
         import tempfile
 
         suffix = _KIND_SUFFIX.get(kind, "")
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
-            handle.write(head)
-            while chunk := os.read(fd, 65536):
-                handle.write(chunk)
-        put(("document", _StdinDocument(handle.name, kind)))
+        tmp_name: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+                tmp_name = handle.name
+                handle.write(head)
+                while not owner.closed.is_set() and (chunk := os.read(fd, 65536)):
+                    handle.write(chunk)
+            if not owner.claim(tmp_name):
+                return
+            put(("document", _StdinDocument(tmp_name, kind, owner)))
+        except BaseException:
+            if tmp_name is not None:
+                owner.release(tmp_name)
+            raise
 
     def collect_image(fd: int, head: bytes) -> None:
         data = bytearray(head)
-        while chunk := os.read(fd, 65536):
+        while not owner.closed.is_set() and (chunk := os.read(fd, 65536)):
             data += chunk
+        if owner.closed.is_set():
+            return
         mime = _magic_image_mime(bytes(data[:16]))
         put(("image", ImageData(data=bytes(data), mime=mime)))
 
     def collect_audio(fd: int, head: bytes, kind: FileKind) -> None:
         data = bytearray(head)
-        while chunk := os.read(fd, 65536):
+        while not owner.closed.is_set() and (chunk := os.read(fd, 65536)):
             data += chunk
+        if owner.closed.is_set():
+            return
         from smartpipe.parsing.detect import audio_mime
 
         suffix = _KIND_SUFFIX.get(kind, ".mp3")
@@ -420,13 +593,15 @@ async def _messages(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[
 
     def collect_video(fd: int, head: bytes) -> None:
         data = bytearray(head)
-        while chunk := os.read(fd, 65536):
+        while not owner.closed.is_set() and (chunk := os.read(fd, 65536)):
             data += chunk
+        if owner.closed.is_set():
+            return
         put(("video", VideoData(data=bytes(data), mime="video/mp4")))
 
     def pump_fd(fd: int) -> None:
-        head = os.read(fd, _HEAD_BYTES)  # one read — a live stream must not stall here
-        if not head:
+        head = _read_sniff_head(fd, owner)
+        if not head or owner.closed.is_set():
             return  # empty stdin
         kind = detect_kind(Path("<stdin>"), head)
         match route(kind):
@@ -468,18 +643,62 @@ async def _messages(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[
             # any of these means "stop pumping", never a crash or a stderr trace
             return
         finally:
-            sentinel = queue.put(None)  # blocking put — a full queue can't swallow EOF
-            try:
-                asyncio.run_coroutine_threadsafe(sentinel, loop).result()
-            except (RuntimeError, concurrent.futures.CancelledError):
-                sentinel.close()  # loop gone — don't leave a never-awaited coroutine
+            if not owner.closed.is_set():
+                sentinel = queue.put(None)  # blocking put — a full queue can't swallow EOF
+                try:
+                    asyncio.run_coroutine_threadsafe(sentinel, loop).result()
+                except (RuntimeError, concurrent.futures.CancelledError):
+                    sentinel.close()  # loop gone — don't leave a never-awaited coroutine
 
     threading.Thread(target=pump, name="smartpipe-stdin-pump", daemon=True).start()
-    while True:
-        message = await _next_or_stop(queue, stop)
-        if message is None:
-            return
-        yield message
+    try:
+        while True:
+            message = await _next_or_stop(queue, stop)
+            if message is None:
+                return
+            yield message
+    finally:
+        owner.close()
+
+
+_MAGIC_PREFIXES = (
+    b"%PDF",
+    b"PK\x03\x04",
+    b"ID3",
+    b"fLaC",
+    b"OggS",
+    b"RIFF",
+    b"\x89PNG\r\n\x1a\n",
+    b"\xff\xd8\xff",
+    b"GIF87a",
+    b"GIF89a",
+)
+
+
+def _read_sniff_head(fd: int, owner: _InputOwner) -> bytes:
+    """Accumulate until magic/text is decisive, EOF, or the sniff ceiling."""
+    head = bytearray()
+    while len(head) < _HEAD_BYTES and not owner.closed.is_set():
+        chunk = os.read(fd, _HEAD_BYTES - len(head))
+        if not chunk:
+            break
+        head += chunk
+        if _sniff_is_decisive(bytes(head)):
+            break
+    return bytes(head)
+
+
+def _sniff_is_decisive(head: bytes) -> bool:
+    if not head:
+        return False
+    if any(magic.startswith(head) for magic in _MAGIC_PREFIXES):
+        return False
+    if head.startswith(b"PK\x03\x04"):
+        return len(head) >= _HEAD_BYTES
+    kind = detect_kind(Path("<stdin>"), head)
+    if kind is FileKind.TEXT and b"\n" in head:
+        return True
+    return len(head) >= 12
 
 
 def _magic_image_mime(head: bytes) -> str:
@@ -581,7 +800,7 @@ async def stdin_items(
                     for item in pages:
                         yield item
                     continue
-            yield await asyncio.to_thread(_extract_stdin_document, payload.tmp_name, payload.kind)
+            yield await asyncio.to_thread(_extract_stdin_document, payload)
         elif tag == "image":
             assert isinstance(payload, ImageData)
             if ocr is not None:
@@ -633,14 +852,17 @@ async def _ocr_stdin_document(payload: _StdinDocument, ocr: OcrIngest) -> list[I
     """A redirected PDF through the ocr-model — ``None`` (spool intact) means
     the parse failed, disclosed, and the local ladder takes over."""
     path = Path(payload.tmp_name)
+    parser = ocr.resolve_parser()
+    if parser is None:
+        return None
     try:
-        pages = await ocr.parser.parse_pdf(path)
+        pages = await ocr.parse_pdf(path)
     except ItemError as exc:
         diagnostics.warn(f"ocr failed: <stdin> ({exc}) — falling back to local extraction")
         return None
-    with contextlib.suppress(OSError):
-        path.unlink()  # statelessness: the spool never outlives the run
-    detail = f"parsed by {ocr.parser.ref}"
+    payload.cleanup()
+    detail = f"parsed by {parser.ref}"
+    group = source_accounting.new_group(size=len(pages))
     items: list[Item] = []
     for page in pages:
         marker = "<stdin>" if len(pages) == 1 else f"<stdin> p.{page.index + 1}"
@@ -657,6 +879,7 @@ async def _ocr_stdin_document(payload: _StdinDocument, ocr: OcrIngest) -> list[I
                     cut="pages",
                     path="<stdin>",
                     label=marker,
+                    group=group,
                 ),
             )
         )
@@ -664,31 +887,39 @@ async def _ocr_stdin_document(payload: _StdinDocument, ocr: OcrIngest) -> list[I
 
 
 async def _ocr_stdin_image(payload: ImageData, ocr: OcrIngest) -> Item | None:
+    parser = ocr.resolve_parser()
+    if parser is None:
+        return None
     try:
-        markdown = await ocr.parser.parse_image(payload)
+        markdown = await ocr.parse_ingest_image(payload, "<stdin>")
     except ItemError as exc:
         diagnostics.warn(f"ocr failed: <stdin> ({exc}) — falling back to local extraction")
         return None
-    ocr.log.note("<stdin>", "document → markdown", f"parsed by {ocr.parser.ref}")
+    ocr.log.note("<stdin>", "document → markdown", f"parsed by {parser.ref}")
     return item_from_file(markdown, "<stdin>", 0)
 
 
-def _extract_stdin_document(tmp_name: str, kind: FileKind) -> Item:
+def _extract_stdin_document(payload: _StdinDocument) -> Item:
     from smartpipe.cli import screens
 
-    path = Path(tmp_name)
+    path = Path(payload.tmp_name)
     try:
-        extracted = extract(path, kind)
+        extracted = extract(path, payload.kind)
     except MissingExtra as exc:
         raise SetupFault(screens.stdin_document_failed(exc.guidance.splitlines()[0])) from exc
     except ItemError as exc:
         raise SetupFault(screens.stdin_document_failed(str(exc))) from exc
     finally:
-        with contextlib.suppress(OSError):
-            path.unlink()  # statelessness: the spool never outlives the run
+        payload.cleanup()
     if extracted.warning is not None:
         diagnostics.warn(f"<stdin>: {extracted.warning}")
     return item_from_file(extracted.text, "<stdin>", 0)
+
+
+def _image_digest(image: ImageData) -> str:
+    import hashlib
+
+    return hashlib.sha256(image.data).hexdigest()
 
 
 def _row_item(line: str, index: int, as_mode: str | None, *, origin: str | None) -> Item:
@@ -816,19 +1047,21 @@ def _path_items(paths: Sequence[Path], as_mode: str | None) -> list[Item]:
     return items
 
 
-def _text_rows(path: Path, mode: str) -> list[Item]:
+def _text_rows(path: Path, mode: str, *, stop: asyncio.Event | None = None) -> Iterator[Item]:
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line_index, line in enumerate(handle):
+                if stop is not None and stop.is_set():
+                    return
+                yield _row_item(line, line_index, mode, origin=str(path))
     except OSError as exc:
         diagnostics.warn(f"skipped: {path} (cannot read: {exc.strerror or exc})")
-        return []
-    return [
-        _row_item(line, line_index, mode, origin=str(path))
-        for line_index, line in enumerate(text.splitlines())
-    ]
+        source_accounting.record_ingestion_skip(failed=True)
 
 
-async def _stdin_as_one_item(stdin: TextIO, stop: asyncio.Event | None) -> AsyncIterator[Item]:
+async def _stdin_as_one_item(
+    stdin: TextIO, stop: asyncio.Event | None, ocr: OcrIngest | None
+) -> AsyncIterator[Item]:
     """--as file on stdin: slurp the whole pipe as ONE document item. A binary
     stdin already arrives as one item; text lines collect until EOF."""
     collected: list[str] = []
@@ -839,9 +1072,23 @@ async def _stdin_as_one_item(stdin: TextIO, stop: asyncio.Event | None) -> Async
             collected.append(payload)
         elif tag == "document":
             assert isinstance(payload, _StdinDocument)
-            yield await asyncio.to_thread(_extract_stdin_document, payload.tmp_name, payload.kind)
-        elif tag in ("image", "audio", "video"):
-            assert isinstance(payload, AudioData | ImageData | VideoData)
+            if ocr is not None and payload.kind is FileKind.PDF:
+                pages = await _ocr_stdin_document(payload, ocr)
+                if pages is not None:
+                    for item in pages:
+                        yield item
+                    continue
+            yield await asyncio.to_thread(_extract_stdin_document, payload)
+        elif tag == "image":
+            assert isinstance(payload, ImageData)
+            if ocr is not None:
+                parsed = await _ocr_stdin_image(payload, ocr)
+                if parsed is not None:
+                    yield parsed
+                    continue
+            yield replace(item_from_file("", "<stdin>", 0), media=(payload,))
+        elif tag in ("audio", "video"):
+            assert isinstance(payload, AudioData | VideoData)
             yield replace(item_from_file("", "<stdin>", 0), media=(payload,))
         else:  # fatal
             assert isinstance(payload, str)
@@ -863,6 +1110,8 @@ async def from_files_items(
     pre-validated as a set, so an uncuttable file refuses when it arrives)."""
     from pathlib import Path
 
+    from smartpipe.io import manifest
+
     warned_extras: set[str] = set()
     index = 0
     async for line in _lines(stdin, stop):
@@ -870,6 +1119,7 @@ async def from_files_items(
         if not name:
             continue
         path = Path(name)
+        manifest.guard_manifest_alias(path, role="input")
         if as_mode in ("lines", "jsonl", "csv"):
             _refuse_uncuttable([path], as_mode)
         mode = as_mode or _default_mode(path)
@@ -891,9 +1141,58 @@ async def from_files_items(
                 yield item
                 index += 1
             continue
-        for row in _text_rows(path, mode):
+        for row in _text_rows(path, mode, stop=stop):
             yield row
             index += 1
+
+
+async def read_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
+    """Load a finite right/build side without ever decoding binary as text."""
+    if str(path) == "-":
+        raise UsageFault("--right - reads nothing — stdin is already the left side")
+    from smartpipe.io import manifest
+
+    manifest.guard_manifest_alias(path, role="--right input")
+    if not path.exists():
+        raise UsageFault(f"no such file: {path}\n  --right needs a readable finite file.")
+    if not path.is_file():
+        raise UsageFault(f"cannot read right input: {path}\n  --right needs a regular file.")
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(_HEAD_BYTES)
+    except OSError as exc:
+        raise UsageFault(
+            f"cannot read right input: {path} ({exc.strerror or exc})\n"
+            "  --right needs a readable finite file."
+        ) from exc
+
+    kind = detect_kind(path, head)
+    if ocr is not None and ocr_route(kind, None) is not None:
+        parsed = await ocr_parse_file(path, 0, ocr)
+        if parsed is not None:
+            return parsed
+
+    if route(kind) != "text":
+        loaded = _load_file(path, 0, set())
+        return [] if loaded is None else [loaded]
+
+    try:
+        with path.open("r", encoding="utf-8", errors="strict") as handle:
+            return [
+                replace(item_from_line(line, index), source=ItemSource("file", path.name, index))
+                for index, line in enumerate(handle)
+                if line.strip()
+            ]
+    except UnicodeDecodeError as exc:
+        raise UsageFault(
+            f"right input {path} is not valid UTF-8 (byte {exc.start})\n"
+            "  Use a document/image file smartpipe recognizes, or convert the text to UTF-8."
+        ) from exc
+    except OSError as exc:
+        raise UsageFault(
+            f"cannot read right input: {path} ({exc.strerror or exc})\n"
+            "  --right needs a readable finite file."
+        ) from exc
 
 
 def file_items(paths: Sequence[Path]) -> list[Item]:
@@ -914,6 +1213,7 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
             head = handle.read(_HEAD_BYTES)
     except OSError as exc:
         diagnostics.warn(f"skipped: {path} (cannot read: {exc.strerror or exc})")
+        source_accounting.record_ingestion_skip(failed=True)
         return None
     kind = detect_kind(path, head)
     if route(kind) in ("audio", "video"):
@@ -925,6 +1225,7 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
             data = path.read_bytes()
         except OSError as exc:
             diagnostics.warn(f"skipped: {path} (cannot read: {exc.strerror or exc})")
+            source_accounting.record_ingestion_skip(failed=True)
             return None
         item = item_from_file("", str(path), index)
         media = (
@@ -939,9 +1240,11 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
         if exc.extra not in warned_extras:
             diagnostics.warn(exc.guidance)
             warned_extras.add(exc.extra)
+        source_accounting.record_ingestion_skip(failed=True)
         return None
     except ItemError as exc:
         diagnostics.warn(f"skipped: {path} ({exc})")
+        source_accounting.record_ingestion_skip(failed=True)
         return None
     if extracted.warning is not None:
         diagnostics.warn(f"{path}: {extracted.warning}")

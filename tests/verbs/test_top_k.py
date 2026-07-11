@@ -6,7 +6,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ExitCode, SetupFault, UsageFault
+from smartpipe.core.errors import (
+    CircuitOpenTransport,
+    ExitCode,
+    LateSetupFault,
+    RetryableError,
+    SetupFault,
+    SourceCounts,
+    UsageFault,
+)
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.models.base import ChatModel, ModelRef
 from smartpipe.verbs.top_k import TopKRequest, run_top_k
 
@@ -39,6 +48,9 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 2
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        return FailurePolicy(transport_limit=5, transport_screen=f"{provider} unavailable")
 
     def remote_transcriber(self, chat_ref: object | None = None) -> None:
         return None
@@ -200,6 +212,41 @@ async def test_empty_input_is_ok() -> None:
     code, out = await _run(_request("q", k=5), "", {"q": (1.0, 0.0)})
     assert code == ExitCode.OK
     assert out == ""
+
+
+async def test_finite_query_failure_is_a_late_setup_with_accepted_source_counts() -> None:
+    class QueryDown(FakeEmbed):
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            if list(texts) == ["q"]:
+                raise RetryableError("query rate limit")
+            return await super().embed(texts)
+
+    out = io.StringIO()
+    with pytest.raises(LateSetupFault, match="failed after bounded retries") as caught:
+        await run_top_k(
+            _request("q", k=1),
+            FakeContext(QueryDown({"a": (1.0, 0.0), "b": (0.0, 1.0)})),
+            stdin=io.StringIO("a\nb\n"),
+            stdout=out,
+        )
+
+    assert caught.value.source_counts == SourceCounts(succeeded=0, skipped=2, failed=0)
+    assert out.getvalue() == ""
+
+
+async def test_query_circuit_uses_the_resolved_provider_down_screen() -> None:
+    class QueryCircuit(FakeEmbed):
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            del texts
+            raise CircuitOpenTransport("open", trip_id=1, call_id=2)
+
+    with pytest.raises(LateSetupFault, match="ollama unavailable"):
+        await run_top_k(
+            _request("q", k=1),
+            FakeContext(QueryCircuit({})),
+            stdin=io.StringIO("a\n"),
+            stdout=io.StringIO(),
+        )
 
 
 def test_emit_jsonl_cut_file_rows_stay_records() -> None:

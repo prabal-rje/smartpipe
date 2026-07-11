@@ -11,8 +11,14 @@ import pytest
 import respx
 
 from smartpipe.config.credentials import OAuthCredential, load_oauth, save_oauth
-from smartpipe.core.errors import ItemError, SetupFault, TransportError
-from smartpipe.models.base import CompletionRequest, ImageData, ModelRef
+from smartpipe.core.errors import (
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    SetupFault,
+    TransportError,
+)
+from smartpipe.models.base import AudioData, CompletionRequest, ImageData, ModelRef
 from smartpipe.models.http_support import make_client
 from smartpipe.models.openai_codex import (
     CODEX_ENDPOINT,
@@ -21,6 +27,7 @@ from smartpipe.models.openai_codex import (
     build_payload,
 )
 from smartpipe.models.openai_oauth import ISSUER
+from smartpipe.models.retry import RetryPolicy
 from tests.helpers.wire import sent_header
 
 if TYPE_CHECKING:
@@ -29,6 +36,7 @@ if TYPE_CHECKING:
 
 FRESH_MS = int(time.time() * 1000) + 3_600_000
 STALE_MS = int(time.time() * 1000) - 1_000
+FAST = RetryPolicy(attempts=2, base_delay=0.0)
 
 
 def _sse(*events: dict[str, object]) -> str:
@@ -61,7 +69,11 @@ def _model(client: httpx.AsyncClient, store: Path, *, expires_ms: int = FRESH_MS
     )
     save_oauth(store, "openai", credential)
     return CodexChatModel(
-        ref=ModelRef("openai", "gpt-5.4"), client=client, store_path=store, credential=credential
+        ref=ModelRef("openai", "gpt-5.4"),
+        client=client,
+        store_path=store,
+        credential=credential,
+        retry=FAST,
     )
 
 
@@ -156,6 +168,21 @@ async def test_complete_pins_headers_and_endpoint(
     assert sent_header(route, "user-agent").startswith("smartpipe/")
 
 
+async def test_preflight_refuses_unsupported_media_before_the_wire(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    route = respx_mock.post(CODEX_ENDPOINT)
+    model = _model(client, tmp_path / "auth.json")
+    request = CompletionRequest(
+        system=None,
+        user="listen",
+        media=(AudioData(b"audio", "audio/wav"),),
+    )
+    with pytest.raises(ItemError, match="can't hear audio"):
+        model.preflight(request)
+    assert route.call_count == 0
+
+
 async def test_expired_token_refreshes_first_and_persists(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
@@ -203,9 +230,21 @@ async def test_refresh_failure_is_the_login_expired_screen(
 async def test_other_statuses_skip_the_item(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
-    respx_mock.post(CODEX_ENDPOINT).mock(return_value=httpx.Response(429, text="slow down"))
+    route = respx_mock.post(CODEX_ENDPOINT).mock(return_value=httpx.Response(429, text="slow down"))
     model = _model(client, tmp_path / "auth.json")
-    with pytest.raises(ItemError, match="429"):
+    with pytest.raises(RetryableError, match="429"):
+        await model.complete(CompletionRequest(system=None, user="hi"))
+    assert route.call_count == FAST.attempts
+
+
+async def test_schema_rejection_is_typed_for_packed_recovery(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    respx_mock.post(CODEX_ENDPOINT).mock(
+        return_value=httpx.Response(400, text="Invalid response_format json_schema")
+    )
+    model = _model(client, tmp_path / "auth.json")
+    with pytest.raises(SchemaRejected):
         await model.complete(CompletionRequest(system=None, user="hi"))
 
 
@@ -213,10 +252,36 @@ async def test_server_errors_are_transport_skips(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
     # 5xx is the wire failing, not the content — the circuit breaker counts it
-    respx_mock.post(CODEX_ENDPOINT).mock(return_value=httpx.Response(502, text="bad gateway"))
+    route = respx_mock.post(CODEX_ENDPOINT).mock(
+        return_value=httpx.Response(502, text="bad gateway")
+    )
     model = _model(client, tmp_path / "auth.json")
     with pytest.raises(TransportError, match="502"):
         await model.complete(CompletionRequest(system=None, user="hi"))
+    assert route.call_count == FAST.attempts
+
+
+async def test_rate_limit_retries_then_recovers(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    route = respx_mock.post(CODEX_ENDPOINT)
+    route.side_effect = [
+        httpx.Response(429, headers={"Retry-After": "0"}, text="slow down"),
+        httpx.Response(200, text=COMPLETED),
+    ]
+    model = _model(client, tmp_path / "auth.json")
+    assert await model.complete(CompletionRequest(system=None, user="hi")) == "hello"
+    assert route.call_count == 2
+
+
+async def test_connect_exhaustion_is_typed_transport(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    route = respx_mock.post(CODEX_ENDPOINT).mock(side_effect=httpx.ConnectTimeout("offline"))
+    model = _model(client, tmp_path / "auth.json")
+    with pytest.raises(TransportError, match="ChatGPT wire failed"):
+        await model.complete(CompletionRequest(system=None, user="hi"))
+    assert route.call_count == FAST.attempts
 
 
 async def test_refresh_is_single_flight_and_reuses_a_peer_rotation(

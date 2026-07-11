@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 
 import click
 
 from smartpipe.cli.input_options import ocr_model_option
+from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.io.inputs import InputSpec
 from smartpipe.io.items import item_record
@@ -45,14 +48,16 @@ __all__ = ["read_command"]
     "--max-calls",
     "max_calls",
     type=int,
-    help="Stop after N model calls (cost cap; only ocr-model parsing ever calls one).",
+    help="Stop after N billable units (model calls; dedicated OCR pages).",
 )
+@manifest_option
 def read_command(
     paths: tuple[str, ...],
     as_mode: str | None,
     bare: bool,
     ocr_model_flag: str | None,
     max_calls: int | None,
+    manifest_path: Path | None,
 ) -> None:
     """Emit the named files' items as JSONL records (reader mode).
 
@@ -69,42 +74,64 @@ def read_command(
     stderr. --max-calls caps that spend.
     """
     spec = InputSpec(patterns=paths, from_files=False, as_mode=as_mode)
-    code = asyncio.run(_run(spec, bare, ocr_model_flag, max_calls))
+    code = asyncio.run(_run(spec, bare, ocr_model_flag, max_calls, manifest_path))
     if code is not ExitCode.OK:
         raise SystemExit(int(code))
 
 
 async def _run(
-    spec: InputSpec, bare: bool, ocr_flag: str | None, max_calls: int | None
+    spec: InputSpec,
+    bare: bool,
+    ocr_flag: str | None,
+    max_calls: int | None,
+    manifest_path: Path | None,
 ) -> ExitCode:
     import os
 
-    from smartpipe.cli.interrupts import settle_budget
     from smartpipe.container import build_container
-    from smartpipe.io import diagnostics, readers
+    from smartpipe.io import diagnostics, readers, source_accounting
     from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
+    from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code
 
-    # --max-calls drains intake (the standard belt semantics); Ctrl-C keeps
-    # the reader's immediate exit — there is no in-flight work to drain.
-    stop = asyncio.Event()
-    async with build_container(os.environ, max_calls=max_calls, stop=stop) as container:
-        parser = container.document_parser(ocr_flag)  # None = today's free path, byte-identical
-        log = diagnostics.DegradationLog()
-        ocr = readers.OcrIngest(parser, log) if parser is not None else None
-        # the >20-files preflight note fires inside resolve_items (item 48) —
-        # one machinery, every verb, reader mode included
-        items, _total = readers.resolve_items(spec, sys.stdin, stop=stop, ocr=ocr)
-        # records for machines, always — reader mode's whole output IS the record
-        writer = make_writer(
-            WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, bare=bare), sys.stdout
-        )
-        produced = 0
-        try:
-            async for item in items:
-                writer.write_record(item_record(item))
-                produced += 1
-        finally:
-            writer.flush()
-            log.finish()
-        code = ExitCode.OK if produced else ExitCode.PARTIAL
-        return settle_budget(container.budget, code)
+    async with (
+        graceful_interrupts() as stop,
+        build_container(os.environ, max_calls=max_calls, stop=stop) as container,
+    ):
+        begin_manifest(manifest_path, verb="read")
+
+        async def consume() -> ExitCode:
+            log = diagnostics.DegradationLog()
+            ocr = readers.OcrIngest.lazy(lambda: container.document_parser(ocr_flag), log)
+            # the >20-pages preflight note fires inside resolve_items (item 48) —
+            # one machinery, every verb, reader mode included
+            items, _total = readers.resolve_items(spec, sys.stdin, stop=stop, ocr=ocr)
+            # records for machines, always — reader mode's whole output IS the record
+            writer = make_writer(
+                WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, bare=bare),
+                sys.stdout,
+            )
+            produced = 0
+            sources = source_accounting.SourceCounter()
+            try:
+                async for item in items:
+                    writer.write_record(item_record(item))
+                    produced += 1
+                    sources.done(item.source)
+            finally:
+                writer.flush()
+                log.finish()
+            counts = sources.counts
+            if stop.is_set():
+                diagnostics.interrupted_summary(processed=produced, skipped=counts.skipped)
+                return interrupted_exit_code(
+                    done=counts.succeeded,
+                    skipped=counts.skipped,
+                    failed=counts.failed,
+                )
+            return outcome_exit_code(
+                done=counts.succeeded,
+                skipped=counts.skipped,
+                failed=counts.failed,
+            )
+
+        return await settled(consume(), container.budget)

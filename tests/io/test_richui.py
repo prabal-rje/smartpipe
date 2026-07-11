@@ -46,6 +46,17 @@ def test_render_grid_colored_form_strips_to_the_plain_form() -> None:
     assert _strip_ansi(colored) == plain
 
 
+def test_term_dumb_does_not_shrink_an_explicit_unwrapped_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TERM", "dumb")
+    rows = ((Cell("model", UiStyle.DIM), Cell("x" * 90), Cell("(default)", UiStyle.DIM)),)
+    plain = render_grid(rows, color=False)
+    colored = render_grid(rows, color=True)
+    assert "…" not in _strip_ansi(colored)
+    assert _strip_ansi(colored) == plain
+
+
 def test_render_grid_rejects_ragged_rows() -> None:
     with pytest.raises(AssertionError, match="same number of cells"):
         render_grid(((Cell("a"), Cell("b")), (Cell("c"),)), color=False)

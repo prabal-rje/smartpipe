@@ -37,6 +37,18 @@ def test_reader_defaults_to_one_record_per_file(
     assert row["__source"] == {"path": "notes.txt", "as": "file"}
 
 
+def test_reader_empty_valid_row_file_is_a_clean_success(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "empty.jsonl").write_text("", encoding="utf-8")
+
+    code, out, _err = run_cli(["empty.jsonl"], stdin="")
+
+    assert code == 0
+    assert out == ""
+
+
 def test_a_glob_first_arg_makes_the_binary_the_reader(
     run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -190,7 +202,7 @@ def test_reader_max_calls_drains_intake_and_exits_partial(
         code, out, err = run_cli(["*.png", "--max-calls", "1"], stdin="")
     assert code == 1  # PARTIAL: the belt fired, completeness can't be trusted
     assert len(out.splitlines()) == 1  # intake stopped after the limit call
-    assert "stopped by --max-calls (1 calls made)" in err
+    assert "stopped by --max-calls (1 OCR page processed)" in err
 
 
 def test_reader_preflight_note_above_twenty_parseable_files(
@@ -208,7 +220,8 @@ def test_reader_preflight_note_above_twenty_parseable_files(
         code, _out, err = run_cli(["*.png", "--max-calls", "1"], stdin="")
     assert code == 1
     assert (
-        "note: ~21 pages will parse through mistral/mistral-ocr-latest - --max-calls caps it" in err
+        "note: ~21 billable pages will parse through mistral/mistral-ocr-latest "
+        "- --max-calls caps them" in err
     )
 
 
@@ -221,4 +234,6 @@ def test_reader_help_names_the_ocr_exception(
     assert code == 0
     assert "ocr-model" in out
     assert "--max-calls" in out
+    assert "dedicated OCR pages" in out
+    assert "--manifest PATH" in out
     assert "zero model calls - UNLESS" in out

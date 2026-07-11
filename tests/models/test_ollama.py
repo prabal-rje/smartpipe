@@ -6,7 +6,13 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from smartpipe.core.errors import ItemError, SetupFault, TransportError
+from smartpipe.core.errors import (
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    SetupFault,
+    TransportError,
+)
 from smartpipe.models.base import CompletionRequest, parse_model_ref
 from smartpipe.models.ollama import (
     OllamaChatModel,
@@ -149,11 +155,42 @@ async def test_429_with_retry_after_zero_recovers_via_the_hint(
     assert route.call_count == 2
 
 
+async def test_exhausted_rate_limit_is_a_typed_retryable_error(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    route = respx_mock.post(f"{HOST}/api/chat").mock(
+        return_value=httpx.Response(429, json={"error": "slow down"})
+    )
+    with pytest.raises(RetryableError, match="429"):
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))
+    assert route.call_count == 3
+
+
+async def test_schema_rejection_is_typed_for_packed_recovery(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    respx_mock.post(f"{HOST}/api/chat").mock(
+        return_value=httpx.Response(400, json={"error": "invalid format schema"})
+    )
+    with pytest.raises(SchemaRejected):
+        await _chat(client).complete(
+            CompletionRequest(system=None, user="x", json_schema={"type": "object"})
+        )
+
+
 async def test_unexpected_reply_shape_is_an_item_error(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:
     respx_mock.post(f"{HOST}/api/chat").mock(return_value=httpx.Response(200, json={"nope": 1}))
     with pytest.raises(ItemError, match="unexpected reply shape"):
+        await _chat(client).complete(CompletionRequest(system=None, user="x"))
+
+
+async def test_malformed_success_json_is_an_item_error(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    respx_mock.post(f"{HOST}/api/chat").mock(return_value=httpx.Response(200, text="not-json"))
+    with pytest.raises(ItemError, match="Ollama returned malformed JSON"):
         await _chat(client).complete(CompletionRequest(system=None, user="x"))
 
 
@@ -206,6 +243,13 @@ async def test_model_names_is_none_when_nothing_listens(
     respx_mock: respx.MockRouter, client: httpx.AsyncClient
 ) -> None:
     respx_mock.get(f"{HOST}/api/tags").mock(side_effect=httpx.ConnectError("refused"))
+    assert await ollama_model_names(client, HOST) is None
+
+
+async def test_model_names_is_none_when_success_body_is_not_json(
+    respx_mock: respx.MockRouter, client: httpx.AsyncClient
+) -> None:
+    respx_mock.get(f"{HOST}/api/tags").mock(return_value=httpx.Response(200, text="not-json"))
     assert await ollama_model_names(client, HOST) is None
 
 

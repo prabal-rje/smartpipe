@@ -9,7 +9,13 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from smartpipe.core.errors import SetupFault, TransportError
+from smartpipe.core.errors import (
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    SetupFault,
+    TransportError,
+)
 from smartpipe.core.jsontools import as_items, as_record
 from smartpipe.models.base import (
     CompletionRequest,
@@ -139,6 +145,31 @@ async def test_retry_after_is_honored_then_succeeds(
     assert route.call_count == 2
 
 
+async def test_exhausted_rate_limit_is_a_typed_retryable_error(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post(URL).mock(
+        return_value=httpx.Response(429, json={"error": {"message": "slow down"}})
+    )
+    with pytest.raises(RetryableError, match="429"):
+        await _model(client).complete(CompletionRequest(system=None, user="x"))
+    assert route.call_count == 2
+
+
+async def test_schema_rejection_is_typed_for_packed_recovery(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.post(URL).mock(
+        return_value=httpx.Response(
+            400, json={"error": {"message": "Invalid responseSchema: too many properties"}}
+        )
+    )
+    with pytest.raises(SchemaRejected):
+        await _model(client).complete(
+            CompletionRequest(system=None, user="x", json_schema={"type": "object"})
+        )
+
+
 def test_native_base_url_derives_from_the_compat_override() -> None:
     assert native_base_url({}) == BASE
     assert (
@@ -201,3 +232,20 @@ async def test_server_error_after_retries_is_a_transport_skip(
     with pytest.raises(TransportError, match="gemini error 503"):
         await _model(client).complete(CompletionRequest(system=None, user="x"))
     assert route.call_count == 2  # FAST retries exhausted first
+
+
+async def test_connect_exhaustion_is_a_transport_error(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post(URL).mock(side_effect=httpx.ConnectError("offline"))
+    with pytest.raises(TransportError, match="can't reach"):
+        await _model(client).complete(CompletionRequest(system=None, user="x"))
+    assert route.call_count == 2
+
+
+async def test_malformed_success_json_is_an_item_error(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.post(URL).mock(return_value=httpx.Response(200, text="not-json"))
+    with pytest.raises(ItemError, match="Gemini returned malformed JSON"):
+        await _model(client).complete(CompletionRequest(system=None, user="x"))

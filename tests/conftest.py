@@ -28,7 +28,7 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """No test may touch the developer's real ledger/cache state (D41 —
     live-caught: respx runs wrote to the real ~/.local/state), and every
     test starts with a fresh meter."""
-    from smartpipe.io import metering
+    from smartpipe.io import metering, source_accounting
 
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     # …nor the developer's real key store (the auth-login wave): every test
@@ -63,6 +63,7 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # from the developer's shell and undoes any in-process export at teardown
     monkeypatch.delenv("SMARTPIPE_LOCAL_ONLY", raising=False)
     metering.reset()
+    source_accounting.reset()
 
 
 @pytest.fixture

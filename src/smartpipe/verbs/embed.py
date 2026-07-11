@@ -19,14 +19,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import ExitCode
-from smartpipe.engine.runner import Done, FailurePolicy, run_ordered
-from smartpipe.io import diagnostics, readers, tty
+from smartpipe.engine.runner import Done, run_ordered
+from smartpipe.io import diagnostics, readers, source_accounting, tty
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source, project_content, source_record
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.io.writers import RenderMode, WriterConfig, make_writer
 from smartpipe.models.base import VideoData
 from smartpipe.verbs.common import (
+    ExecutionPolicySource,
     GeometryFence,
     embed_in_batches,
     ensure_text,
@@ -45,7 +46,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
     from smartpipe.models.ocr import DocumentParser
-    from smartpipe.models.stt import RemoteTranscriber
+    from smartpipe.models.stt import Transcriber
 
 __all__ = ["ChatSource", "EmbedContext", "EmbedRequest", "optional_chat", "run_embed"]
 
@@ -68,13 +69,12 @@ class EmbedRequest:
     ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion
 
 
-class EmbedContext(Protocol):
-    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> RemoteTranscriber | None: ...
+class EmbedContext(ExecutionPolicySource, Protocol):
+    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> Transcriber | None: ...
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
     async def chat_model(self, flag: str | None = None) -> ChatModel: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
     async def media_embedding_model(self, flag: str | None = None) -> EmbeddingModel | None: ...
-    def concurrency(self, flag: int | None = None) -> int: ...
 
 
 async def run_embed(
@@ -89,10 +89,10 @@ async def run_embed(
     media_model = await context.media_embedding_model(request.media_model_flag)
     fence = _fence(model, media_model)
     concurrency = context.concurrency(request.concurrency_flag)
+    failure_policy = context.failure_policy(model.ref.provider)
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    parser = context.document_parser(request.ocr_model_flag)
-    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     if (total is None or total > 0) and tty.stdout_is_tty():
         diagnostics.note(
@@ -111,17 +111,17 @@ async def run_embed(
         allow_paid=request.allow_captions,
         log=log,
         stt=context.remote_transcriber(converter_chat.ref if converter_chat else None),
-        ocr=parser,
+        ocr=ocr,
     )
 
     done = 0
     skipped = 0
+    failed = 0
+    sources = source_accounting.SourceCounter()
     # item 49(b): an OCR run reports total=None (page counts are unknown
     # pre-parse) but a files-only corpus is still FINITE — parse first
     # (pass one), then batch the embeds (pass two) instead of per-item calls
-    finite = total is not None or (
-        ocr is not None and readers.ocr_finite_paths(request.input, stdin)
-    )
+    finite = total is not None or readers.ocr_finite_paths(request.input, stdin)
     if finite:
         # finite --in corpus: chunked calls, run_ordered bypassed on purpose —
         # batching ≠ per-item workers (order from sequential chunks, isolation
@@ -132,7 +132,8 @@ async def run_embed(
         outcomes = embed_in_batches(
             model,
             collected,
-            failure_policy=FailurePolicy(),
+            failure_policy=failure_policy,
+            call_concurrency=concurrency,
             stop=stop,
             log=log,
             converter=converter,
@@ -148,8 +149,9 @@ async def run_embed(
             items_iter,
             worker,
             concurrency=concurrency,
-            failure_policy=FailurePolicy(),
+            failure_policy=failure_policy,
             stop=stop,
+            halt_sources=sources,
         )
     try:
         async for outcome in outcomes:
@@ -164,9 +166,12 @@ async def run_embed(
                     }
                 )
                 done += 1
+                sources.done(item.source)
             else:  # Skipped
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
                 skipped += 1
+                failed += int(outcome.failed)
+                sources.skip(outcome.source, failed=outcome.failed)
             spinner.advance()
     finally:
         spinner.finish()
@@ -174,8 +179,18 @@ async def run_embed(
         log.finish()
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped)
-        return interrupted_exit_code(done=done, skipped=skipped)
-    return outcome_exit_code(done=done, skipped=skipped)
+        return interrupted_exit_code(
+            done=done,
+            skipped=skipped,
+            failed=failed,
+            source_counts=sources.counts,
+        )
+    return outcome_exit_code(
+        done=done,
+        skipped=skipped,
+        failed=failed,
+        source_counts=sources.counts,
+    )
 
 
 async def optional_chat(context: ChatSource) -> ChatModel | None:

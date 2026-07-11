@@ -9,6 +9,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.writers import OutputFormat, RenderMode, WriterConfig, make_writer
 from smartpipe.models.base import CompletionRequest, ModelRef
 from smartpipe.verbs.filter import FilterRequest, run_filter
@@ -55,6 +56,14 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic order for assertions
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        from smartpipe.cli import screens
+
+        return FailurePolicy(
+            transport_limit=5,
+            transport_screen=screens.provider_down(provider, 5),
+        )
 
     def batching(self) -> BatchSettings | None:
         return None  # batching off: these tests pin the solo path byte-for-byte

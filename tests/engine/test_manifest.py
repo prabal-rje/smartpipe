@@ -16,7 +16,7 @@ def _build(**overrides: object) -> dict[str, object]:
         "prompt": "Extract {label}",
         "schema": {"type": "object"},
         "temperature": 0.0,
-        "counts": ItemCounts(succeeded=9, skipped=1),
+        "counts": ItemCounts(succeeded=9, skipped=1, failed=0),
         "tokens_in": 1200,
         "tokens_out": 340,
         "paid_conversions": 2,
@@ -62,12 +62,16 @@ def test_no_schema_stays_null() -> None:
     assert _build(schema=None)["schema"] is None
 
 
-def test_counts_record_failed_alongside_skipped() -> None:
-    # smartpipe's runner turns every per-item failure into a skip-and-warn,
-    # so `skipped` and `failed` name the same rows today; both are emitted
-    # so the schema stays stable if the taxonomy ever splits them.
-    document = _build(counts=ItemCounts(succeeded=7, skipped=3))
-    assert document["items"] == {"in": 10, "succeeded": 7, "skipped": 3, "failed": 3}
+def test_failed_is_an_explicit_subset_of_skipped() -> None:
+    document = _build(counts=ItemCounts(succeeded=7, skipped=3, failed=2))
+    assert document["items"] == {"in": 10, "succeeded": 7, "skipped": 3, "failed": 2}
+
+
+def test_counts_reject_failed_rows_outside_the_skipped_set() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="failed cannot exceed skipped"):
+        ItemCounts(succeeded=7, skipped=2, failed=3)
 
 
 def test_unreported_counts_stay_null() -> None:

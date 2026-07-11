@@ -50,7 +50,7 @@ Braces name a side's field - every brace must pick a side:
 | `--fields A,B` | Project output columns - [field paths](../concepts/structured-output.md#field-paths-reading-nested-data) reach the sides: `--fields left.id,right.name,__score` |
 | `--on 'left.K == right.K'` | Key-equality join (repeatable, AND-ed). Alone = free deterministic join; with a predicate = blocking. `K` is a [field path](../concepts/structured-output.md#field-paths-reading-nested-data) into each side's record (`left.order.sku`) |
 | `--output FORMAT` | `auto` · `json` · `csv` · `tsv` |
-| `--concurrency N` / `--max-calls N` | Parallel left items / hard cost ceiling |
+| `--concurrency N` / `--max-calls N` | Simultaneous outbound API calls / hard billable-unit ceiling |
 | `--ocr-model TEXT` | Parse ingested PDFs/images with a document parsing model - both sides, `--right` included ([the role](../concepts/models-and-providers.md#the-ocr-model-role)) |
 
 ## Output

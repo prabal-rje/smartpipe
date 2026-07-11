@@ -13,7 +13,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.core.errors import (
+    CircuitOpenTransport,
+    ExitCode,
+    ItemError,
+    RetryableError,
+    SourceCounts,
+    TransportError,
+    UsageFault,
+)
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.items import item_from_line
 from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
 from smartpipe.models.base import CompletionRequest, ModelRef
@@ -84,6 +93,14 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic transcripts
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        from smartpipe.cli import screens
+
+        return FailurePolicy(
+            transport_limit=5,
+            transport_screen=screens.provider_down(provider, 5),
+        )
 
     def document_parser(self, flag: str | None = None) -> None:
         return None
@@ -206,6 +223,25 @@ async def test_right_side_embeds_before_any_left_work(tmp_path: Path) -> None:
     judge = FakeJudge(matches=[])
     await _run(_request(_right_file(tmp_path, RIGHT_LINES)), "printer smoking\n", embed, judge)
     assert embed.calls[0] == ['{"name": "LaserJet 9"}', '{"name": "Espresso One"}'][:64]
+
+
+async def test_concurrency_is_validated_before_right_side_setup(tmp_path: Path) -> None:
+    class InvalidConcurrency(FakeContext):
+        def concurrency(self, flag: int | None = None) -> int:
+            raise UsageFault("invalid concurrency")
+
+    embed = FakeEmbed(TABLE)
+    context = InvalidConcurrency(embed, FakeJudge(matches=[]))
+
+    with pytest.raises(UsageFault, match="invalid concurrency"):
+        await run_join(
+            _request(_right_file(tmp_path, RIGHT_LINES)),
+            context,
+            stdin=io.StringIO("printer smoking\n"),
+            stdout=io.StringIO(),
+        )
+
+    assert embed.calls == []
 
 
 async def test_zero_matches_is_a_clean_zero(tmp_path: Path) -> None:
@@ -342,7 +378,7 @@ async def test_five_consecutive_pair_failures_halt_the_doomed_join(tmp_path: Pat
 
     embed = FakeEmbed(TABLE)
     judge = FakeJudge(matches=[], poison="Statement")  # poison hits EVERY judge call
-    with pytest.raises(TooManyFailures):
+    with pytest.raises(TooManyFailures) as excinfo:
         await _run(
             _request(_right_file(tmp_path, RIGHT_LINES * 3), k=2),
             "printer smoking\ncoffee is cold\nprinter smoking\n",
@@ -350,6 +386,140 @@ async def test_five_consecutive_pair_failures_halt_the_doomed_join(tmp_path: Pat
             judge,
         )
     assert len(judge.calls) == 5  # D18: stopped paying at the fifth consecutive
+    halt = excinfo.value
+    assert (halt.failed, halt.total) == (5, 5)  # display units stay judge pairs
+    assert halt.source_counts == SourceCounts(succeeded=8, skipped=1, failed=1)
+
+
+async def test_right_halt_counts_accepted_oversized_rows(tmp_path: Path) -> None:
+    from smartpipe.core.errors import TooManyFailures
+
+    normal = tuple(json.dumps({"name": f"poison {index}"}) for index in range(5))
+    oversized = json.dumps({"name": "huge", "text": "x" * 100_000})
+    right = _right_file(tmp_path, (*normal, oversized))
+
+    with pytest.raises(TooManyFailures) as excinfo:
+        await run_join(
+            _request(right),
+            FakeContext(FakeEmbed({}), FakeJudge(matches=[])),
+            stdin=io.StringIO("printer smoking\n"),
+            stdout=io.StringIO(),
+        )
+
+    assert excinfo.value.source_counts == SourceCounts(succeeded=0, skipped=6, failed=5)
+
+
+async def test_pair_halt_folds_prefetched_ocr_pages_to_one_left_source(tmp_path: Path) -> None:
+    from smartpipe.io.inputs import InputSpec
+    from smartpipe.models.base import ImageData
+    from smartpipe.models.ocr import OcrBilling, OcrPage
+
+    class PageParser:
+        ref = ModelRef("ollama", "vision-ocr")
+        billing = OcrBilling.MODEL_CALL
+
+        async def parse_image(self, image: ImageData) -> str:
+            raise AssertionError("the left input is a PDF")
+
+        async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+            del path
+            return tuple(OcrPage(index, "printer smoking") for index in range(6))
+
+    class OcrContext(FakeContext):
+        def document_parser(  # type: ignore[override]
+            self, flag: str | None = None
+        ) -> PageParser:
+            return PageParser()
+
+        def concurrency(self, flag: int | None = None) -> int:
+            return 3
+
+    left = tmp_path / "left.pdf"
+    left.write_bytes(b"%PDF-1.4 tiny")
+    right = _right_file(tmp_path, RIGHT_LINES * 4)
+    request = _request(
+        right,
+        k=5,
+        input=InputSpec(patterns=(str(left),), from_files=False),
+    )
+
+    from smartpipe.core.errors import TooManyFailures
+
+    with pytest.raises(TooManyFailures) as excinfo:
+        await run_join(
+            request,
+            OcrContext(FakeEmbed(TABLE), FakeJudge(matches=[], poison="Statement")),
+            stdin=io.StringIO(""),
+            stdout=io.StringIO(),
+        )
+
+    assert excinfo.value.source_counts == SourceCounts(succeeded=8, skipped=1, failed=1)
+
+
+async def test_retryable_pair_failure_is_owned_by_the_runner(tmp_path: Path) -> None:
+    class RetryableJudge:
+        ref = ModelRef("ollama", "retryable")
+
+        async def complete(self, request: CompletionRequest) -> str:
+            del request
+            raise RetryableError("retry ladder exhausted")
+
+    code = await run_join(
+        _request(_right_file(tmp_path, (RIGHT_LINES[0],))),
+        FakeContext(FakeEmbed(TABLE), RetryableJudge()),  # type: ignore[arg-type]
+        stdin=io.StringIO("printer smoking\n"),
+        stdout=io.StringIO(),
+    )
+
+    assert code is ExitCode.ALL_FAILED
+
+
+@pytest.mark.parametrize(
+    ("failure", "left_rows"),
+    (
+        (TransportError("provider down"), 5),
+        (CircuitOpenTransport("provider down", trip_id=17), 1),
+    ),
+)
+async def test_transport_pair_failures_reach_runner_failover(
+    tmp_path: Path,
+    failure: TransportError,
+    left_rows: int,
+) -> None:
+    class BrokenJudge:
+        ref = ModelRef("ollama", "primary")
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, request: CompletionRequest) -> str:
+            del request
+            self.calls += 1
+            raise failure
+
+    backup = FakeJudge(matches=[("printer smoking", "LaserJet 9")])
+    primary = BrokenJudge()
+
+    class FallbackContext(FakeContext):
+        def fallback_ref(  # type: ignore[override]
+            self, flag: str | None = None
+        ) -> ModelRef:
+            return ModelRef("ollama", "backup")
+
+        async def fallback_chat_model(self, ref: object) -> FakeJudge:
+            del ref
+            return backup
+
+    code = await run_join(
+        _request(_right_file(tmp_path, (RIGHT_LINES[0],))),
+        FallbackContext(FakeEmbed(TABLE), primary),  # type: ignore[arg-type]
+        stdin=io.StringIO("printer smoking\n" * left_rows),
+        stdout=io.StringIO(),
+    )
+
+    assert code is ExitCode.OK
+    assert primary.calls == left_rows
+    assert len(backup.calls) == left_rows
 
 
 def test_preview_lines(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -589,9 +759,30 @@ async def test_join_whole_refuses_oversized_sides(
         stdin=io.StringIO("my espresso tastes burnt\n"),
         stdout=out,
     )
-    assert code is ExitCode.OK  # left items judged against an EMPTY index: no matches
+    assert code is ExitCode.ALL_FAILED  # every build item was excluded; no result exists
     err = capsys.readouterr().err
     assert "token budget — split it first" in err  # the old refusal wording
+
+
+async def test_join_whole_left_exclusion_is_not_a_failed_submission(tmp_path: Path) -> None:
+    from smartpipe.io import manifest
+
+    target = tmp_path / "join.json"
+    manifest.reset()
+    manifest.begin(target, verb="join", argv=("join",))
+    right = _right_file(tmp_path, (RIGHT_LINES[0],))
+
+    code = await run_join(
+        _request(right, whole=True),
+        FakeContext(FakeEmbed(TABLE), FakeJudge(matches=[])),
+        stdin=io.StringIO("x" * 100_000 + "\n"),
+        stdout=io.StringIO(),
+    )
+    manifest.finish(code)
+
+    assert code is ExitCode.ALL_FAILED
+    document = json.loads(target.read_text(encoding="utf-8"))
+    assert document["items"] == {"in": 2, "succeeded": 1, "skipped": 1, "failed": 0}
 
 
 # --- join kinds (D38/11) -----------------------------------------------------------
@@ -643,6 +834,27 @@ async def test_anti_with_unmatched_file_is_a_usage_fault(tmp_path: Path) -> None
             "x\n",
             embed,
             judge,
+        )
+
+
+async def test_invalid_kind_fails_before_any_parser_or_model_resolution(tmp_path: Path) -> None:
+    class GuardContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> None:
+            raise AssertionError("invalid options must fail before parser setup")
+
+        async def embedding_model(self, flag: str | None = None) -> FakeEmbed:
+            raise AssertionError("invalid options must fail before embedding setup")
+
+        async def chat_model(self, flag: str | None = None) -> FakeJudge:
+            raise AssertionError("invalid options must fail before chat setup")
+
+    right = _right_file(tmp_path, RIGHT_LINES)
+    with pytest.raises(UsageFault, match="--kind takes"):
+        await run_join(
+            _request(right, kind="sideways"),
+            GuardContext(FakeEmbed(TABLE), FakeJudge(matches=[])),
+            stdin=io.StringIO("printer smoking\n"),
+            stdout=io.StringIO(),
         )
 
 
@@ -733,6 +945,26 @@ async def test_on_alone_is_a_free_key_equality_join(tmp_path: Path) -> None:
     ]
 
 
+async def test_key_join_manifest_counts_both_source_sides(tmp_path: Path) -> None:
+    from smartpipe.io import manifest
+
+    target = tmp_path / "join.json"
+    manifest.reset()
+    manifest.begin(target, verb="join", argv=("join",))
+    request = _on_request(tmp_path, ['{"sku": "A1"}', '{"sku": "B2"}'])
+
+    code = await run_join(
+        request,
+        _NoModels(),  # type: ignore[arg-type]
+        stdin=io.StringIO('{"sku": "A1"}\n{"sku": "ZZ"}\n'),
+        stdout=io.StringIO(),
+    )
+    manifest.finish(code)
+
+    document = json.loads(target.read_text(encoding="utf-8"))
+    assert document["items"] == {"in": 4, "succeeded": 4, "skipped": 0, "failed": 0}
+
+
 async def test_on_alone_supports_anti_kind(tmp_path: Path) -> None:
     request = _on_request(tmp_path, ['{"sku": "A1"}'], kind="anti")
     out = io.StringIO()
@@ -744,6 +976,36 @@ async def test_on_alone_supports_anti_kind(tmp_path: Path) -> None:
     )
     assert code is ExitCode.OK
     assert out.getvalue() == '{"sku": "ZZ"}\n'  # unmatched rows, verbatim
+
+
+async def test_on_alone_rejects_anti_with_unmatched_before_parser_setup(tmp_path: Path) -> None:
+    class GuardContext(_NoModels):
+        def document_parser(self, flag: str | None = None) -> None:
+            raise AssertionError("invalid options must fail before parser setup")
+
+    request = _on_request(tmp_path, ['{"sku": "A1"}'], kind="anti")
+    request = replace_dataclass(request, unmatched=tmp_path / "u.txt")
+    with pytest.raises(UsageFault, match="anti already puts unmatched"):
+        await run_join(
+            request,
+            GuardContext(),  # type: ignore[arg-type]
+            stdin=io.StringIO('{"sku": "ZZ"}\n'),
+            stdout=io.StringIO(),
+        )
+
+
+async def test_empty_embedded_right_index_does_not_embed_left(tmp_path: Path) -> None:
+    right = _right_file(tmp_path, ('{"name": "unknown catalog row"}',))
+    embed = FakeEmbed({"left poison": (1.0, 0.0)})
+    judge = FakeJudge(matches=[])
+
+    code, records, _judge = await _run(_request(right), "left poison\n", embed, judge)
+
+    assert code is not ExitCode.OK
+    assert records == []
+    assert embed.calls
+    assert all("left poison" not in text for call in embed.calls for text in call)
+    assert judge.calls == []
 
 
 async def test_bad_on_expression_is_a_usage_screen(tmp_path: Path) -> None:
@@ -869,15 +1131,23 @@ async def test_right_pdf_parses_through_the_configured_role(tmp_path: Path) -> N
     embed = FakeEmbed(TABLE)
     judge = FakeJudge(matches=[("printer smoking", "LaserJet 9")])
     out = io.StringIO()
+    from smartpipe.io import manifest
+
+    target = tmp_path / "join.json"
+    manifest.reset()
+    manifest.begin(target, verb="join", argv=("join",))
     code = await run_join(
         _request(right, predicate="ticket {left.text} concerns {right.text}"),
         OcrContext(embed, judge),
         stdin=io.StringIO("printer smoking\n"),
         stdout=out,
     )
+    manifest.finish(code)
     assert code is ExitCode.OK
     assert parser.pdf_calls  # the right side parsed through the role
     rows = [json.loads(line) for line in out.getvalue().splitlines()]
     assert len(rows) == 1
     assert rows[0]["left"] == {"text": "printer smoking"}
     assert rows[0]["right"] == {"text": "LaserJet 9"}  # a parsed PAGE is the right item
+    document = json.loads(target.read_text(encoding="utf-8"))
+    assert document["items"] == {"in": 2, "succeeded": 2, "skipped": 0, "failed": 0}

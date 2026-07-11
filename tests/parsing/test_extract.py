@@ -187,6 +187,39 @@ def test_whisper_size_env_override() -> None:
     assert whisper_size({"SMARTPIPE_WHISPER_MODEL": "small"}) == "small"
 
 
+def test_transcribe_audio_uses_its_resolved_size_not_ambient_environ(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartpipe.models.base import AudioData
+    from smartpipe.parsing import extract as extract_module
+
+    loaded: list[str] = []
+    fake_module = types.ModuleType("faster_whisper")
+
+    class Segment:
+        text = "hello"
+
+    class WhisperModel:
+        def __init__(self, size: str, *, device: str, compute_type: str) -> None:
+            del device, compute_type
+            loaded.append(size)
+
+        def transcribe(self, _audio: object) -> tuple[list[Segment], object]:
+            return [Segment()], object()
+
+    fake_module.WhisperModel = WhisperModel  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake_module)
+    monkeypatch.setenv("SMARTPIPE_WHISPER_MODEL", "large-v3")
+    monkeypatch.setattr(extract_module, "_WHISPER_CACHE", {})
+
+    transcript = extract_module.transcribe_audio(
+        AudioData(data=b"audio", mime="audio/wav"), model_size="small"
+    )
+
+    assert transcript == "hello"
+    assert loaded == ["small"]
+
+
 def test_text_files_normalize_crlf(tmp_path: Path) -> None:
     # a Windows-authored file must yield clean text on every platform
     crlf = tmp_path / "win.txt"

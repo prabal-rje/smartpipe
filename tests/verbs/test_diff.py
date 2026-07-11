@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.models.base import CompletionRequest, ModelRef
 from smartpipe.verbs.diff import DiffRequest, run_diff
 
@@ -57,6 +58,9 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 2
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        return FailurePolicy(transport_limit=5, transport_screen=f"{provider} unavailable")
 
     def document_parser(self, flag: str | None = None) -> None:
         return None
@@ -111,6 +115,24 @@ async def test_all_includes_shared_themes(tmp_path: Path) -> None:
 async def test_empty_side_is_a_usage_fault(tmp_path: Path) -> None:
     with pytest.raises(UsageFault, match="BOTH sides"):
         await _run("", RIGHT, tmp_path)
+
+
+async def test_bad_top_fails_before_right_read_or_model_setup(tmp_path: Path) -> None:
+    class GuardContext(FakeContext):
+        def document_parser(self, flag: str | None = None) -> None:
+            raise AssertionError("invalid options must fail before parser setup")
+
+        async def embedding_model(self, flag: str | None = None) -> FakeEmbedding:
+            raise AssertionError("invalid options must fail before embedding setup")
+
+    missing = tmp_path / "missing.log"
+    with pytest.raises(UsageFault, match="--top must be >= 1"):
+        await run_diff(
+            DiffRequest(right=missing, top=0),
+            GuardContext(),
+            stdin=io.StringIO(LEFT),
+            stdout=io.StringIO(),
+        )
 
 
 # --- the ocr-model role at ingestion (item 48) ---------------------------------------

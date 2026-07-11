@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 import click
 
 from smartpipe.cli.interrupts import settle_budget
-from smartpipe.core.errors import ExitCode, TooManyFailures
+from smartpipe.core.errors import ExitCode, LateSetupFault, SourceCounts, TooManyFailures
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -46,15 +46,57 @@ def begin_manifest(path: Path | None, *, verb: str, prompt: str | None = None) -
 
 async def settled(work: Awaitable[ExitCode], budget: CallBudget | None) -> ExitCode:
     """Await the verb, settle the belt, write the manifest, return the code."""
-    from smartpipe.io import manifest
+    from smartpipe.io import manifest, source_accounting
 
     try:
         code = await work
+    except LateSetupFault as fault:
+        combined = source_accounting.settle(fault.source_counts) or fault.source_counts
+        manifest.replace_counts(combined)
+        manifest.finish(ExitCode.SETUP)
+        raise LateSetupFault(str(fault), source_counts=combined) from None
     except TooManyFailures as halt:
-        # results streamed before the halt - record what the halt knows
-        manifest.record_counts(done=halt.total - halt.failed, skipped=halt.failed)
+        counts = halt.source_counts
+        if counts is None:
+            # Backward compatibility for direct callers that still carry only
+            # the legacy display totals plus an optional consumed-input count.
+            cancelled = halt.consumed - halt.total
+            done = halt.total - halt.failed
+            skipped = halt.failed + cancelled
+            failed = halt.failed
+        else:
+            done = counts.succeeded
+            skipped = counts.skipped
+            failed = counts.failed
+        base = SourceCounts(succeeded=done, skipped=skipped, failed=failed)
+        combined = source_accounting.settle(base) or base
+        manifest.replace_counts(combined)
         manifest.finish(ExitCode.ALL_FAILED)
+        raise TooManyFailures(
+            halt.failed,
+            halt.total,
+            halt.last_reason,
+            source_counts=combined,
+        ) from None
+    except BaseException:
+        source_accounting.discard()
+        manifest.abandon()
         raise
+    dropped = source_accounting.pending_ingestion()
+    combined = source_accounting.settle()
+    if combined is not None:
+        manifest.replace_counts(combined)
+        if dropped.total:
+            code = _combined_exit(code, combined)
     code = settle_budget(budget, code)
     manifest.finish(code)
     return code
+
+
+def _combined_exit(code: ExitCode, counts: SourceCounts) -> ExitCode:
+    """Reconcile the verb's status with sources rejected before item creation."""
+    if code in (ExitCode.ALL_FAILED, ExitCode.INTERRUPTED):
+        return code
+    if not counts.succeeded:
+        return ExitCode.ALL_FAILED
+    return ExitCode.PARTIAL

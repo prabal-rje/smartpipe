@@ -19,7 +19,7 @@ import asyncio
 import sys
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.core.errors import ExitCode, ItemError, SourceCounts, UsageFault
 from smartpipe.engine.graphkg import (
     EdgeAssertion,
     assertion_surface_counts,
@@ -39,10 +39,10 @@ from smartpipe.engine.prompts import (
     to_instruction,
 )
 from smartpipe.engine.runner import Done, run_ordered
-from smartpipe.io import diagnostics, readers
+from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.items import Item, ItemSource, describe_source, project_content
 from smartpipe.models.base import AudioData, ImageData, VideoData
-from smartpipe.verbs.common import breaker_policy, interrupted_exit_code, outcome_exit_code
+from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code
 from smartpipe.verbs.graph import (
     FastScan,
     GraphModelContext,
@@ -135,6 +135,7 @@ async def run_full(
     stop: asyncio.Event | None,
     ask: Callable[[str], bool] | None,
     budget: CallBudget | None,
+    concurrency: int,
 ) -> ExitCode:
     assert request.focus is not None  # dispatched here on exactly that
     labels = parse_entities(request.entities) if request.entities is not None else None
@@ -146,8 +147,7 @@ async def run_full(
     instruction = to_instruction(tokens)
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 40)
-    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     read_bar = stage("read")
     read_bar.start(total)
@@ -157,18 +157,34 @@ async def run_full(
         read_bar.advance()
     read_bar.finish()
     if not items:
-        return ExitCode.OK
+        return outcome_exit_code(done=0, skipped=0, failed=0)
 
     chunks: list[Item] = []
-    skipped = 0
-    for item in items:
+    chunk_owners: list[int] = []
+    expected_chunks: dict[int, int] = {}
+    empty_sources: set[int] = set()
+    failed_sources: set[int] = set()
+    for owner, item in enumerate(items):
         try:
-            chunks.extend(await _chunk_item(item))
+            made = await _chunk_item(item)
         except ItemError as exc:
             diagnostics.warn(f"skipped: {describe_source(item.source)} ({exc})")
-            skipped += 1
+            failed_sources.add(owner)
+            continue
+        if not made:
+            empty_sources.add(owner)
+            continue
+        expected_chunks[owner] = len(made)
+        chunks.extend(made)
+        chunk_owners.extend([owner] * len(made))
     if not chunks:
-        return outcome_exit_code(done=0, skipped=skipped) if skipped else ExitCode.OK
+        source_counts = _source_counts(items, succeeded=empty_sources, failed=failed_sources)
+        return outcome_exit_code(
+            done=len(empty_sources),
+            skipped=len(items) - len(empty_sources),
+            failed=len(failed_sources),
+            source_counts=source_counts,
+        )
 
     # the pre-flight cost plan (ledger 66f): the note prints BEFORE any spend
     belt = budget.limit if budget is not None else None
@@ -183,6 +199,9 @@ async def run_full(
     if belt_short:
         asker = ask if ask is not None else tty_asker(stdin)
         if asker is not None and not asker(CONFIRM_PARTIAL):
+            from smartpipe.io import manifest
+
+            manifest.abandon()
             return ExitCode.OK  # declined at the plan: nothing spent
 
     model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
@@ -192,24 +211,32 @@ async def run_full(
 
     assertions: list[EdgeAssertion] = []
     done = 0
+    chunk_skipped = 0
+    completed_chunks: dict[int, int] = {}
     extract_bar = stage("extract")
     extract_bar.start(len(chunks))
     outcomes = run_ordered(
         _iter_items(chunks),
         worker,
-        concurrency=context.concurrency(request.concurrency_flag),
-        failure_policy=breaker_policy(model.ref.provider),
+        concurrency=concurrency,
+        failure_policy=context.failure_policy(model.ref.provider),
         stop=stop,
     )
     try:
+        outcome_position = 0
         async for outcome in outcomes:
+            owner = chunk_owners[outcome_position]
+            outcome_position += 1
             if isinstance(outcome, Done):
                 chunk, result = outcome.value
                 assertions.extend(chunk_assertions(result, spine_ref(chunk.source)))
                 done += 1
+                completed_chunks[owner] = completed_chunks.get(owner, 0) + 1
             else:  # Skipped — the union has no third case
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
-                skipped += 1
+                chunk_skipped += 1
+                if outcome.failed:
+                    failed_sources.add(owner)
             extract_bar.advance()
     finally:
         extract_bar.finish()
@@ -236,12 +263,29 @@ async def run_full(
         f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
         f"{len(kept):,} edges · {receipt_tail()}"
     )
-    if belt_partial:
-        return ExitCode.PARTIAL  # a belted drain never reads as a clean run
+    ok_sources = empty_sources | {
+        owner
+        for owner, expected in expected_chunks.items()
+        if completed_chunks.get(owner, 0) == expected and owner not in failed_sources
+    }
+    skipped_sources = len(items) - len(ok_sources)
+    source_counts = _source_counts(items, succeeded=ok_sources, failed=failed_sources)
     if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
-        diagnostics.interrupted_summary(processed=done, skipped=skipped)
-        return interrupted_exit_code(done=done, skipped=skipped)
-    return outcome_exit_code(done=done, skipped=skipped)
+        diagnostics.interrupted_summary(processed=done, skipped=chunk_skipped)
+        return interrupted_exit_code(
+            done=len(ok_sources),
+            skipped=skipped_sources,
+            failed=len(failed_sources),
+            partial=True,
+            source_counts=source_counts,
+        )
+    return outcome_exit_code(
+        done=len(ok_sources),
+        skipped=skipped_sources,
+        failed=len(failed_sources),
+        partial=belt_partial,
+        source_counts=source_counts,
+    )
 
 
 def tty_asker(stdin: TextIO) -> Callable[[str], bool] | None:
@@ -390,6 +434,22 @@ async def _iter_items(items: Sequence[Item]) -> AsyncIterator[Item]:
         yield item
 
 
+def _source_counts(
+    items: Sequence[Item],
+    *,
+    succeeded: set[int],
+    failed: set[int],
+) -> SourceCounts:
+    """Fold paid graph chunk outcomes back onto their accepted sources."""
+    sources = source_accounting.SourceCounter()
+    for owner, item in enumerate(items):
+        if owner in succeeded:
+            sources.done(item.source)
+        else:
+            sources.skip(item.source, failed=owner in failed)
+    return sources.counts
+
+
 # --- HYBRID: --name-top N ----------------------------------------------------------
 
 
@@ -403,6 +463,7 @@ async def run_hybrid(
     transcriber: Callable[[AudioData], str],
     clock: Callable[[], float],
     budget: CallBudget | None,
+    concurrency: int,
 ) -> ExitCode:
     assert request.name_top is not None  # dispatched here on exactly that
     relations = parse_relations(request.relations)
@@ -410,7 +471,7 @@ async def run_hybrid(
         request, context, stdin=stdin, stop=stop, transcriber=transcriber, clock=clock
     )
     if scan is None:
-        return ExitCode.OK
+        return outcome_exit_code(done=0, skipped=0, failed=0)
     kept, _pruned = prune_edges(scan.edges, request.min_weight)
     want = min(request.name_top, len(kept))
     candidates = kept[:want]  # already sorted heaviest first — the N strongest
@@ -439,8 +500,8 @@ async def run_hybrid(
         outcomes = run_ordered(
             _iter_items(asks),
             worker,
-            concurrency=context.concurrency(request.concurrency_flag),
-            failure_policy=breaker_policy(model.ref.provider),
+            concurrency=concurrency,
+            failure_policy=context.failure_policy(model.ref.provider),
             stop=stop,
         )
         try:
@@ -473,12 +534,20 @@ async def run_hybrid(
         f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
         f"{len(renamed):,} edges · {len(named):,} named · {receipt_tail()}"
     )
-    if belt_short:
-        return ExitCode.PARTIAL  # a belted run never reads as complete (D18)
     if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
         diagnostics.interrupted_summary(processed=len(scan.gathered), skipped=scan.skipped)
-        return interrupted_exit_code(done=len(scan.gathered), skipped=scan.skipped)
-    return outcome_exit_code(done=len(scan.gathered), skipped=scan.skipped + naming_skips)
+        return interrupted_exit_code(
+            done=len(scan.gathered),
+            skipped=scan.skipped,
+            failed=scan.failed,
+            partial=bool(naming_skips),
+        )
+    return outcome_exit_code(
+        done=len(scan.gathered),
+        skipped=scan.skipped,
+        failed=scan.failed,
+        partial=belt_short or bool(naming_skips),
+    )
 
 
 def _naming_schema(relations: tuple[str, ...] | None) -> dict[str, object]:
@@ -564,7 +633,7 @@ async def run_adopt(
         f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
         f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
     )
-    return ExitCode.OK
+    return outcome_exit_code(done=len(assertions), skipped=0, failed=0)
 
 
 def _adopt_assertion(item: Item) -> EdgeAssertion:

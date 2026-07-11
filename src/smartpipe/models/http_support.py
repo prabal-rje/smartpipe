@@ -15,7 +15,28 @@ if TYPE_CHECKING:
 
     import httpx
 
-__all__ = ["default_timeout", "is_retryable_http", "make_client", "retry_after_seconds"]
+__all__ = [
+    "decode_json_response",
+    "default_timeout",
+    "is_retryable_http",
+    "make_client",
+    "retry_after_seconds",
+]
+
+
+def decode_json_response(response: httpx.Response, *, provider: str) -> object:
+    """Decode a successful provider reply without leaking ``Any`` or ``ValueError``.
+
+    A 2xx proves the endpoint answered, but malformed JSON remains an expected
+    per-item provider failure. Translating it here keeps adapters out of BUG 70.
+    """
+    from smartpipe.core.errors import ItemError
+
+    try:
+        decoded: object = response.json()
+    except ValueError as exc:
+        raise ItemError(f"{provider} returned malformed JSON") from exc
+    return decoded
 
 
 def default_timeout() -> httpx.Timeout:
@@ -25,10 +46,16 @@ def default_timeout() -> httpx.Timeout:
     return httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0)
 
 
-def make_client() -> httpx.AsyncClient:
+def make_client(*, trust_env: bool = True) -> httpx.AsyncClient:
+    """Build the shared transport with an explicit ambient-proxy posture.
+
+    Human-only support commands keep httpx's conventional environment proxy
+    support. The composition root disables it under ``--local-only`` so a
+    loopback model request cannot be diverted through HTTP(S)_PROXY.
+    """
     import httpx
 
-    return httpx.AsyncClient(timeout=default_timeout())
+    return httpx.AsyncClient(timeout=default_timeout(), trust_env=trust_env)
 
 
 def retry_after_seconds(exc: Exception, *, now: Callable[[], float] = time.time) -> float | None:

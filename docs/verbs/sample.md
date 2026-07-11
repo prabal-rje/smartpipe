@@ -1,7 +1,7 @@
 # sample - the same N random rows, every run
 
-Keep N random rows. **Free - never calls a model.** Reservoir sampling: one
-pass, constant memory, input order preserved in the output.
+Keep N random rows. **Free - never calls a model.** Without `--by`, reservoir
+sampling is one pass with O(N) memory; output order is preserved.
 
 ```bash
 cat huge.jsonl \
@@ -32,10 +32,15 @@ smartpipe sample 10 --by label < labeled.jsonl
 # → sample: 10 of 1,000 (seed 0, 3 strata by 'label')
 ```
 
-One seeded reservoir per stratum, then proportional allocation with
+Exact stratification spools rows to an owned temporary SQLite store, counts
+typed strata, then holds only the final N selected payloads in memory. The
+store is removed on success, failure, or interruption, so a million unique
+values cannot turn RAM into O(input). Proportional allocation uses
 largest-remainder rounding, so the total is **exactly N** and a 70/20/10
 corpus yields a 7/2/1 sample instead of whatever a plain random draw happens
-to hit. Deterministic under the same seed semantics; output keeps input
+to hit. Equal remainders use a seed-derived stable tie order rather than
+first-seen order. Values are type-tagged (`1`, `1.0`, `true`, and `"1"` are
+different strata). Deterministic under the same seed semantics; output keeps input
 order. Rows missing the field (plain text rows included) sample as their own
 `null` stratum - the same null-group convention as `summarize` - and one
 stderr note counts them. Proportional means proportional: a value too rare

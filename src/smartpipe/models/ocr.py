@@ -12,13 +12,18 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from enum import Enum
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import httpx
 
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, RetryableError, SetupFault, TransportError
 from smartpipe.models.base import CompletionRequest, ImageData
-from smartpipe.models.http_support import is_retryable_http, retry_after_seconds
+from smartpipe.models.http_support import (
+    decode_json_response,
+    is_retryable_http,
+    retry_after_seconds,
+)
 from smartpipe.models.retry import RetryPolicy, with_retries
 from smartpipe.parsing.extract import EmbeddedMedia, embedded_images, pdf_page_texts
 
@@ -32,8 +37,11 @@ __all__ = [
     "OCR_SYSTEM",
     "DocumentParser",
     "MistralOcrParser",
+    "OcrBilling",
     "OcrPage",
     "VisionOcrParser",
+    "parser_billing",
+    "pdf_page_count",
 ]
 
 OCR_SYSTEM = (
@@ -53,6 +61,13 @@ class OcrPage:
     markdown: str
 
 
+class OcrBilling(Enum):
+    """How a document parser consumes the shared outbound-call budget."""
+
+    MODEL_CALL = "model-call"
+    PAGE = "page"
+
+
 class DocumentParser(Protocol):
     """The ``ocr-model`` seam: one page-image → markdown, one PDF → pages."""
 
@@ -62,6 +77,31 @@ class DocumentParser(Protocol):
     async def parse_image(self, image: ImageData) -> str: ...
 
     async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]: ...
+
+
+@runtime_checkable
+class _BillingMetadata(Protocol):
+    @property
+    def billing(self) -> OcrBilling: ...
+
+
+@runtime_checkable
+class _WrappedParser(Protocol):
+    @property
+    def inner(self) -> DocumentParser: ...
+
+
+def parser_billing(parser: DocumentParser) -> OcrBilling:
+    """Read billing posture through transparent parser wrappers.
+
+    Legacy third-party parsers without metadata use the ordinary model-call
+    posture; only an explicit page posture may claim or reserve OCR pages.
+    """
+    if isinstance(parser, _BillingMetadata):
+        return parser.billing
+    if isinstance(parser, _WrappedParser):
+        return parser_billing(parser.inner)
+    return OcrBilling.MODEL_CALL
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +118,10 @@ class MistralOcrParser:
     api_key: str
     base_url: str = "https://api.mistral.ai"
     retry: RetryPolicy = field(default_factory=RetryPolicy)
+
+    @property
+    def billing(self) -> OcrBilling:
+        return OcrBilling.PAGE
 
     async def parse_image(self, image: ImageData) -> str:
         from smartpipe.io import metering
@@ -108,7 +152,7 @@ class MistralOcrParser:
                 f"{self.base_url}/v1/ocr", json=payload, headers=headers
             )
             response.raise_for_status()
-            return response.json()
+            return decode_json_response(response, provider="Mistral OCR")
 
         try:
             parsed = await with_retries(
@@ -125,13 +169,19 @@ class MistralOcrParser:
                     "  Mistral document parsing uses MISTRAL_API_KEY — set it and retry\n"
                     "  (create one at console.mistral.ai), or unset ocr-model."
                 ) from exc
+            if status == 429:
+                raise RetryableError(f"ocr error {status}: {exc.response.text[:200]}") from exc
+            if status >= 500:
+                raise TransportError(f"ocr error {status}: {exc.response.text[:200]}") from exc
             raise ItemError(f"ocr error {status}: {exc.response.text[:200]}") from exc
         except httpx.HTTPError as exc:
-            raise ItemError(f"ocr request failed ({exc})") from exc
+            raise TransportError(f"ocr request failed ({exc})") from exc
         record = as_record(parsed)
         rows = as_items(record.get("pages")) if record is not None else None
         if rows is None:
             raise ItemError("the OCR endpoint returned an unexpected shape")
+        if not rows:
+            raise ItemError("the OCR endpoint returned no pages")
         pages: list[OcrPage] = []
         for position, row in enumerate(rows):
             entry = as_record(row)
@@ -163,6 +213,10 @@ class VisionOcrParser:
     chat: ChatModel
     page_texts: Callable[[Path], list[str]] = pdf_page_texts
     page_images: Callable[[Path], EmbeddedMedia] = embedded_images
+
+    @property
+    def billing(self) -> OcrBilling:
+        return OcrBilling.MODEL_CALL
 
     @property
     def ref(self) -> ModelRef:
@@ -199,7 +253,26 @@ class VisionOcrParser:
                 continue
             read = await self.parse_image(by_page[number])
             pages.append(OcrPage(index=number - 1, markdown=_merge(layer, read)))
+        if not pages:
+            raise ItemError("the PDF contains no pages")
         return tuple(pages)
+
+
+def pdf_page_count(path: Path) -> int:
+    """Count a PDF's billable pages without extracting or uploading it.
+
+    Mistral's dedicated OCR wire charges per page. This local admission check
+    therefore has to finish before the request body is built or sent.
+    """
+    try:
+        from pypdf import PdfReader
+
+        count = len(PdfReader(str(path)).pages)
+    except Exception as exc:
+        raise ItemError(f"{path.name} couldn't be counted as a PDF ({exc})") from exc
+    if count < 1:
+        raise ItemError(f"{path.name} contains no pages")
+    return count
 
 
 def _pdf_image_page(where: str) -> int | None:

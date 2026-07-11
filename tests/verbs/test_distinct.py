@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ExitCode
+from smartpipe.core.errors import ExitCode, ItemError
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.models.base import ModelRef
 
 if True:  # runtime import for the Protocol annotation
@@ -48,6 +49,9 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 2
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        return FailurePolicy(transport_limit=5, transport_screen=f"{provider} unavailable")
 
     def document_parser(self, flag: str | None = None) -> None:
         return None
@@ -109,6 +113,26 @@ async def test_empty_input_is_ok_and_silent() -> None:
     assert context.embedder.seen == []
 
 
+async def test_all_unexamined_rows_are_kept_but_exit_nonzero() -> None:
+    class FailedEmbedding(FakeEmbedding):
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            raise ItemError(f"could not embed {len(texts)} rows")
+
+    class FailedContext(FakeContext):
+        def __init__(self) -> None:
+            self.embedder = FailedEmbedding()
+
+    out = io.StringIO()
+    code = await run_distinct(
+        DistinctRequest(),
+        FailedContext(),
+        stdin=io.StringIO("one\ntwo\nthree\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.ALL_FAILED
+    assert out.getvalue() == "one\ntwo\nthree\n"
+
+
 async def test_bad_threshold_is_a_usage_fault() -> None:
     import pytest
 
@@ -121,7 +145,9 @@ async def test_bad_threshold_is_a_usage_fault() -> None:
 # --- native media embeddings (D39/04) ----------------------------------------------
 
 
-async def test_image_only_items_route_natively_no_captions() -> None:
+async def test_image_only_items_route_natively_no_captions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import base64
     import contextlib
     import io as io_module
@@ -130,6 +156,9 @@ async def test_image_only_items_route_natively_no_captions() -> None:
     from smartpipe.core.errors import ExitCode
     from smartpipe.models.base import ImageData
     from smartpipe.models.base import ImageData as ImagePart
+    from smartpipe.verbs import common
+
+    monkeypatch.setattr(common, "_native_noted", False)
 
     class MediaEmbedder:
         """jina-shaped: embed_parts marks it media-capable."""
@@ -159,6 +188,9 @@ async def test_image_only_items_route_natively_no_captions() -> None:
 
         def concurrency(self, flag: int | None = None) -> int:
             return 2
+
+        def failure_policy(self, provider: str) -> FailurePolicy:
+            return FailurePolicy(transport_limit=5, transport_screen=f"{provider} unavailable")
 
         def document_parser(self, flag: str | None = None) -> None:
             return None

@@ -9,11 +9,11 @@ more wires can land behind the same seam.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import httpx
 
-from smartpipe.core.errors import ItemError, SetupFault
+from smartpipe.core.errors import ItemError, RetryableError, SetupFault, TransportError
 from smartpipe.io import metering
 from smartpipe.models.http_support import is_retryable_http, retry_after_seconds
 from smartpipe.models.retry import RetryPolicy, with_retries
@@ -21,7 +21,7 @@ from smartpipe.models.retry import RetryPolicy, with_retries
 if TYPE_CHECKING:
     from smartpipe.models.base import AudioData, ModelRef
 
-__all__ = ["RemoteTranscriber"]
+__all__ = ["RemoteTranscriber", "Transcriber"]
 
 _EXTENSIONS = {
     "audio/mpeg": "mp3",
@@ -32,6 +32,13 @@ _EXTENSIONS = {
     "audio/webm": "webm",
     "audio/flac": "flac",
 }
+
+
+class Transcriber(Protocol):
+    @property
+    def ref(self) -> ModelRef: ...
+
+    async def transcribe(self, audio: AudioData) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +67,7 @@ class RemoteTranscriber:
             return response.text
 
         try:
-            return (
+            text = (
                 await with_retries(
                     self.retry,
                     attempt,
@@ -68,6 +75,8 @@ class RemoteTranscriber:
                     delay_hint=retry_after_seconds,
                 )
             ).strip()
+            metering.add_conversion()
+            return text
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             if status in (401, 403):
@@ -75,6 +84,10 @@ class RemoteTranscriber:
                     "error: the STT wire rejected the API key\n"
                     "  Remote transcription uses OPENAI_API_KEY — set it and retry."
                 ) from exc
+            if status == 429:
+                raise RetryableError(f"stt error {status}: {exc.response.text[:200]}") from exc
+            if status >= 500:
+                raise TransportError(f"stt error {status}: {exc.response.text[:200]}") from exc
             raise ItemError(f"stt error {status}: {exc.response.text[:200]}") from exc
         except httpx.HTTPError as exc:
-            raise ItemError(f"stt request failed ({exc})") from exc
+            raise TransportError(f"stt request failed ({exc})") from exc

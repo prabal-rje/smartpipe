@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.engine.runner import FailurePolicy
+from smartpipe.io import manifest
 from smartpipe.models.base import ModelRef
 from smartpipe.models.budget import CallBudget, budgeted_chat
 from smartpipe.verbs.graph import GraphRequest, run_graph
@@ -78,6 +80,14 @@ class PaidContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return self.concurrency_value
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        from smartpipe.cli import screens
+
+        return FailurePolicy(
+            transport_limit=5,
+            transport_screen=screens.provider_down(provider, 5),
+        )
 
 
 PEOPLE = {"Ann": "person", "Bob": "person", "Acme": "company"}
@@ -356,6 +366,48 @@ async def test_belt_census_wording_and_partial_graph(
         "note: belt hit — 1 of 3 chunks extracted; the graph is partial "
         "(rerun raises the belt; cache makes it cheap)"
     ) in err
+
+
+async def test_full_manifest_counts_sources_not_extraction_chunks(tmp_path: object) -> None:
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    target = tmp_path / "graph.json"
+    manifest.reset()
+    manifest.begin(target, verb="graph", argv=("graph",))
+    long_text = " ".join(f"word{n}" for n in range(3_000))
+    code, _out = await _run(
+        GraphRequest(focus="pays"),
+        _context(FakeChat(default=triples(("Ann", "pays", "Bob")))),
+        f"{long_text}\n",
+    )
+    manifest.finish(code)
+    document = json.loads(target.read_text(encoding="utf-8"))
+    assert document["items"] == {"in": 1, "succeeded": 1, "skipped": 0, "failed": 0}
+
+
+async def test_belt_remainder_is_skipped_but_not_failed_in_manifest(tmp_path: object) -> None:
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    target = tmp_path / "graph-belt.json"
+    manifest.reset()
+    manifest.begin(target, verb="graph", argv=("graph",))
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    chat = FakeChat([triples(("Ann", "pays", "Bob"))])
+    context = _context(budgeted_chat(chat, budget))
+    context.concurrency_value = 3  # admit the remainder so it becomes typed Unsent
+    code, _out = await _run(
+        GraphRequest(focus="pays"),
+        context,
+        "one Ann Bob\ntwo Ann Bob\nthree Ann Bob\n",
+        stop=stop,
+        budget=budget,
+    )
+    manifest.finish(code)
+    document = json.loads(target.read_text(encoding="utf-8"))
+    assert document["items"] == {"in": 3, "succeeded": 1, "skipped": 2, "failed": 0}
 
 
 async def test_full_receipt_embeds_the_run_meter_when_tokens_flowed(
@@ -685,7 +737,7 @@ async def test_full_mode_interrupt_drains_and_reports(
     code, out = await _run(
         GraphRequest(focus="pays"), _context(chat), "one Ann\ntwo Ann\nthree Ann\n", stop=stop
     )
-    assert code is ExitCode.OK  # 1 processed, 0 skipped: the drain summary tells the rest
+    assert code is ExitCode.PARTIAL  # two consumed source rows were never attempted
     assert len(_edges(out)) == 1
     assert "done: interrupted — 1 processed · 0 skipped" in capsys.readouterr().err
 

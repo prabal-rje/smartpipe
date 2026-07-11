@@ -6,7 +6,8 @@ import io
 import json
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ExitCode
+from smartpipe.core.errors import ExitCode, ItemError
+from smartpipe.engine.runner import FailurePolicy
 from smartpipe.models.base import CompletionRequest, ModelRef
 from smartpipe.verbs.cluster import ClusterRequest, run_cluster
 
@@ -56,6 +57,9 @@ class FakeContext:
 
     def concurrency(self, flag: int | None = None) -> int:
         return 2
+
+    def failure_policy(self, provider: str) -> FailurePolicy:
+        return FailurePolicy(transport_limit=5, transport_screen=f"{provider} unavailable")
 
     def document_parser(self, flag: str | None = None) -> None:
         return None
@@ -184,6 +188,28 @@ async def test_without_chat_clusters_are_numbered_and_noted() -> None:
     _code, rows, err = await _run(None)
     assert [row["cluster"] for row in rows] == ["cluster 1", "cluster 2"]
     assert "no chat model" in err
+
+
+async def test_all_embedding_failures_exit_nonzero() -> None:
+    class FailedEmbedding:
+        ref = ModelRef("ollama", "failed-embed")
+
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            raise ItemError(f"could not embed {len(texts)} rows")
+
+    class FailedContext(FakeContext):
+        async def embedding_model(self, flag: str | None = None) -> FailedEmbedding:  # type: ignore[override]
+            return FailedEmbedding()
+
+    out = io.StringIO()
+    code = await run_cluster(
+        ClusterRequest(),
+        FailedContext(NamesClusters()),
+        stdin=io.StringIO("one\ntwo\nthree\n"),
+        stdout=out,
+    )
+    assert code is ExitCode.ALL_FAILED
+    assert out.getvalue() == ""
 
 
 async def test_explode_rows_keep_their_carried_spine() -> None:

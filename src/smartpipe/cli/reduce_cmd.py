@@ -52,7 +52,12 @@ __all__ = ["reduce_command"]
     "--model", "model_flag", shell_complete=complete_chat_models, help="Model for this run."
 )
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
-@click.option("--max-calls", "max_calls", type=int, help="Stop after N model calls (cost cap).")
+@click.option(
+    "--max-calls",
+    "max_calls",
+    type=int,
+    help="Stop after N billable units (model calls; dedicated OCR pages).",
+)
 @manifest_option
 @click.option("--verbose", is_flag=True, help="Show the chunking tree on stderr.")
 @click.option("--window", type=int, help="Stream mode: reduce every N lines (tumbling).")

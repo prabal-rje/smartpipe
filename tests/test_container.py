@@ -12,6 +12,7 @@ from smartpipe.container import AppContainer, build_container
 from smartpipe.core.errors import SetupFault
 from smartpipe.io.writers import OutputFormat
 from smartpipe.models.anthropic_adapter import AnthropicChatModel
+from smartpipe.models.base import ModelRef
 from smartpipe.models.ollama import OllamaChatModel
 from smartpipe.models.openai_compat import OpenAIChatModel, OpenAIEmbeddingModel
 from smartpipe.models.retry import RetryPolicy
@@ -33,9 +34,11 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 def _wire(model: object) -> object:
     """The provider adapter under the default-on coalescer (item 62) — these
     construction tests assert the WIRE; the batching tests assert the wrapper."""
+    from smartpipe.models.admission import AdmittedChatModel
     from smartpipe.models.coalesce import CoalescingChatModel
 
-    return model.inner if isinstance(model, CoalescingChatModel) else model
+    coalesced = model.inner if isinstance(model, CoalescingChatModel) else model
+    return coalesced.inner if isinstance(coalesced, AdmittedChatModel) else coalesced
 
 
 def _container(
@@ -80,10 +83,16 @@ async def test_openai_without_key_is_setup_fault(client: httpx.AsyncClient) -> N
 async def test_builds_anthropic_chat(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
-    container = _container(client, config=Config(model="claude-opus-4-8"))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    container = _container(
+        client,
+        env={"ANTHROPIC_API_KEY": "sk-ant-injected"},
+        config=Config(model="claude-opus-4-8"),
+    )
     model = _wire(await container.chat_model())
     assert isinstance(model, AnthropicChatModel)
+    assert model.client.api_key == "sk-ant-injected"
+    assert getattr(model.client, "_client", None) is client
 
 
 async def test_flag_overrides_config(client: httpx.AsyncClient) -> None:
@@ -132,9 +141,12 @@ async def test_embed_defaults_to_local_nomic(client: httpx.AsyncClient) -> None:
 
 
 async def test_embed_openai(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedEmbeddingModel
+
     container = _container(client, env={"OPENAI_API_KEY": "sk-x"})
     model = await container.embedding_model("text-embedding-3-small")
-    assert isinstance(model, OpenAIEmbeddingModel)
+    assert isinstance(model, AdmittedEmbeddingModel)
+    assert isinstance(model.inner, OpenAIEmbeddingModel)
 
 
 async def test_embed_anthropic_is_a_helpful_setup_fault(client: httpx.AsyncClient) -> None:
@@ -234,6 +246,88 @@ async def test_build_container_yields_and_closes_client() -> None:
     assert held.is_closed
 
 
+async def test_build_container_resolves_breaker_policy_from_its_env_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A later ambient mutation cannot change one invocation's policy."""
+    monkeypatch.setenv("SMARTPIPE_BREAKER", "99")
+    env = {
+        "SMARTPIPE_BREAKER": "2",
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+    }
+
+    async with build_container(env) as container:
+        policy = container.failure_policy("ollama")
+
+    assert policy.transport_limit == 2
+    assert "2 consecutive transport failures" in policy.transport_screen
+    assert "99" not in policy.transport_screen
+
+
+async def test_build_container_rejects_an_invalid_breaker_before_the_run(
+    tmp_path: Path,
+) -> None:
+    from smartpipe.core.errors import UsageFault
+
+    env = {
+        "SMARTPIPE_BREAKER": "many",
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+    }
+    with pytest.raises(UsageFault, match="SMARTPIPE_BREAKER must be a whole number"):
+        async with build_container(env):
+            pass
+
+
+async def test_build_container_does_not_retain_the_prior_whisper_choice(
+    tmp_path: Path,
+) -> None:
+    from smartpipe.parsing.extract import configured_whisper_size
+
+    base = {
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+    }
+    async with build_container({**base, "SMARTPIPE_WHISPER_MODEL": "small"}):
+        assert configured_whisper_size() == "small"
+    assert configured_whisper_size() == "tiny"
+
+    async with build_container(base):
+        assert configured_whisper_size() == "tiny"
+
+
+async def test_build_container_resets_disclosures_for_each_invocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from types import SimpleNamespace
+
+    from smartpipe.verbs import common
+
+    monkeypatch.setattr(common, "_ambiguous_dates_seen", 0)
+    monkeypatch.setattr(common, "_native_noted", False)
+    env = {
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+    }
+    model = SimpleNamespace(ref=ModelRef("local", "joint"))
+
+    async with build_container(env):
+        for position in range(6):
+            common.note_ambiguous_temporal(f"first-run ambiguity {position}")
+        common.note_native_once(model)
+    async with build_container(env):
+        common.note_ambiguous_temporal("second-run first ambiguity")
+        common.note_native_once(model)
+
+    stderr = capsys.readouterr().err
+    assert "second-run first ambiguity" in stderr
+    assert stderr.count("media embedded natively (local/joint)") == 2
+
+
 async def test_build_container_notes_rung_zero_repairs_once(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -303,12 +397,15 @@ async def test_mistral_without_key_is_setup_fault(client: httpx.AsyncClient) -> 
 
 
 async def test_embed_mistral(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedEmbeddingModel
+
     container = _container(
         client, env={"MISTRAL_API_KEY": "mk-x"}, config=Config(embed_model="mistral-embed")
     )
     model = await container.embedding_model()
-    assert isinstance(model, OpenAIEmbeddingModel)
-    assert model.base_url == "https://api.mistral.ai"
+    assert isinstance(model, AdmittedEmbeddingModel)
+    assert isinstance(model.inner, OpenAIEmbeddingModel)
+    assert model.inner.base_url == "https://api.mistral.ai"
 
 
 async def test_mistral_base_url_override(client: httpx.AsyncClient) -> None:
@@ -359,6 +456,7 @@ def test_stt_role_unset_is_none(client: httpx.AsyncClient) -> None:
 
 
 def test_stt_role_builds_the_openai_wire(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedTranscriber
     from smartpipe.models.stt import RemoteTranscriber
 
     container = _container(
@@ -367,8 +465,39 @@ def test_stt_role_builds_the_openai_wire(client: httpx.AsyncClient) -> None:
         config=Config(stt_model="openai/whisper-1"),
     )
     transcriber = container.remote_transcriber()
-    assert isinstance(transcriber, RemoteTranscriber)
+    assert isinstance(transcriber, AdmittedTranscriber)
+    assert isinstance(transcriber.inner, RemoteTranscriber)
     assert transcriber.ref.name == "whisper-1"
+
+
+async def test_stt_role_wears_the_shared_max_calls_belt(
+    respx_mock: respx.MockRouter,
+    client: httpx.AsyncClient,
+) -> None:
+    import asyncio
+
+    from smartpipe.core.errors import UnsentError
+    from smartpipe.models.base import AudioData
+    from smartpipe.models.budget import CallBudget
+
+    route = respx_mock.post("https://api.openai.com/v1/audio/transcriptions").mock(
+        return_value=httpx.Response(200, text="hello")
+    )
+    container = AppContainer(
+        env={"OPENAI_API_KEY": "sk-x", "SMARTPIPE_STT_MODEL": "openai/whisper-1"},
+        config=Config(),
+        http_client=client,
+        retry=FAST,
+        budget=CallBudget(limit=1, stop=asyncio.Event()),
+    )
+    transcriber = container.remote_transcriber()
+    assert transcriber is not None
+
+    assert await transcriber.transcribe(AudioData(b"one", "audio/wav")) == "hello"
+    with pytest.raises(UnsentError, match="call budget"):
+        await transcriber.transcribe(AudioData(b"two", "audio/wav"))
+
+    assert route.call_count == 1
 
 
 def test_stt_env_overrides_config(client: httpx.AsyncClient) -> None:
@@ -522,13 +651,15 @@ def test_ocr_role_unset_is_none(client: httpx.AsyncClient) -> None:
 
 
 def test_ocr_role_mistral_rides_the_dedicated_wire(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedDocumentParser
     from smartpipe.models.ocr import MistralOcrParser
 
     container = _container(
         client, env={"MISTRAL_API_KEY": "mk-x"}, config=Config(ocr_model="mistral-ocr-latest")
     )
     parser = container.document_parser()
-    assert isinstance(parser, MistralOcrParser)
+    assert isinstance(parser, AdmittedDocumentParser)
+    assert isinstance(parser.inner, MistralOcrParser)
     assert str(parser.ref) == "mistral/mistral-ocr-latest"
 
 
@@ -604,13 +735,16 @@ def test_batching_size_env_is_validated_loudly(client: httpx.AsyncClient) -> Non
 
     with pytest.raises(UsageFault, match="SMARTPIPE_BATCH_SIZE"):
         _container(client, env={"SMARTPIPE_BATCH_SIZE": "1"}).batching()
+    with pytest.raises(UsageFault, match=r"2\.\.12"):
+        _container(client, env={"SMARTPIPE_BATCH_SIZE": "13"}).batching()
     with pytest.raises(UsageFault, match="SMARTPIPE_BATCH_WINDOW_MS"):
         _container(client, env={"SMARTPIPE_BATCH_WINDOW_MS": "soon"}).batching()
 
 
 async def test_coalescer_sits_inside_the_cache(client: httpx.AsyncClient) -> None:
-    # cache → coalescer → wire: hits never enqueue; fan-out replies are cached
+    # cache → coalescer → admission → wire: hits never enqueue; fan-out replies are cached
     # per item in the same shape the solo path caches (item 62 §5)
+    from smartpipe.models.admission import AdmittedChatModel
     from smartpipe.models.cache import CachingChatModel
     from smartpipe.models.coalesce import CoalescingChatModel
 
@@ -622,16 +756,20 @@ async def test_coalescer_sits_inside_the_cache(client: httpx.AsyncClient) -> Non
     model = await container.chat_model()
     assert isinstance(model, CachingChatModel)
     assert isinstance(model.inner, CoalescingChatModel)
-    assert isinstance(model.inner.inner, OllamaChatModel)
+    assert isinstance(model.inner.inner, AdmittedChatModel)
+    assert isinstance(model.inner.inner.inner, OllamaChatModel)
     assert container.coalescers == [model.inner]
 
 
 async def test_coalescer_absent_when_batching_off(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedChatModel
+
     container = _container(
         client, env={"SMARTPIPE_BATCH": "off"}, config=Config(model="ollama/qwen3:8b")
     )
     model = await container.chat_model()
-    assert isinstance(model, OllamaChatModel)  # byte-identical wiring to today
+    assert isinstance(model, AdmittedChatModel)
+    assert isinstance(model.inner, OllamaChatModel)
     assert container.coalescers == []
 
 
@@ -643,13 +781,122 @@ async def test_batch_receipt_notes_once_per_run(capsys: pytest.CaptureFixture[st
         model = await container.chat_model("ollama/qwen3:8b")
         assert isinstance(model, CoalescingChatModel)
         model.packed_calls = 42
-        model.batched_items = 500
+        model.packed_items = 500
+        model.solo_recoveries = 3
         assert isinstance(model.settings, BatchSettings)
     stderr = capsys.readouterr().err
-    assert "note: batched 500 items into 42 calls" in stderr
+    assert "note: batching: 500 items in 42 packed calls · 3 solo recoveries" in stderr
 
 
 async def test_no_batch_note_when_nothing_batched(capsys: pytest.CaptureFixture[str]) -> None:
     async with build_container({"OPENAI_API_KEY": "sk-x"}) as container:
         await container.chat_model("ollama/qwen3:8b")  # built, but nothing flew packed
     assert "batched" not in capsys.readouterr().err
+
+
+async def test_cache_receipt_names_item_misses_not_calls(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from smartpipe.models.cache import CachingChatModel
+
+    async with build_container({"XDG_CACHE_HOME": str(tmp_path)}) as container:
+        inner = OllamaChatModel(
+            ref=ModelRef("ollama", "fake"),
+            client=container.http_client,
+            host="http://localhost:11434",
+            retry=FAST,
+        )
+        cached = CachingChatModel(inner, tmp_path)
+        cached.hits = 2
+        cached.misses = 7
+        container.caches.append(cached)
+    assert "cache: 2 hits · 7 misses" in capsys.readouterr().err
+
+
+def test_concurrency_configures_the_shared_outbound_policy_once(
+    client: httpx.AsyncClient,
+) -> None:
+    container = _container(client)
+    assert container.concurrency(1) == 1
+    assert container.call_policy.concurrency == 1
+    assert container.concurrency(1) == 1  # idempotent reads are safe
+    with pytest.raises(RuntimeError, match="already configured"):
+        container.concurrency(2)
+
+
+async def test_container_closes_coalescers_before_the_http_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartpipe.models.coalesce import CoalescingChatModel
+
+    observed: list[bool] = []
+    original = CoalescingChatModel.aclose
+
+    async def recording_close(model: CoalescingChatModel) -> None:
+        observed.append(not client.is_closed)
+        await original(model)
+
+    monkeypatch.setattr(CoalescingChatModel, "aclose", recording_close)
+    async with build_container({}) as container:
+        client = container.http_client
+        await container.chat_model("ollama/qwen3:8b")
+    assert observed == [True]
+    assert client.is_closed
+
+
+def test_graph_internal_models_are_resolved_and_disclosed_at_the_composition_root(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartpipe.io import manifest
+    from smartpipe.models.local_ner import GlinerEntityFinder
+
+    recorded: list[tuple[str, str]] = []
+
+    def record_model(role: str, ref: str) -> None:
+        recorded.append((role, ref))
+
+    monkeypatch.setattr(
+        manifest,
+        "record_model",
+        record_model,
+    )
+    container = _container(client, env={"SMARTPIPE_NER_PRECISION": "fp32"})
+
+    finder = container.entity_finder(("person",))
+    embedder = container.fold_embedder()
+
+    assert isinstance(finder, GlinerEntityFinder)
+    assert finder.precision == "fp32"
+    assert str(embedder.ref) == "local/nomic-embed-text-v1.5"
+    assert recorded == [
+        ("ner", "local/gliner-small-v2.1@fp32"),
+        ("fold_embed", "local/nomic-embed-text-v1.5"),
+    ]
+
+
+async def test_local_only_disables_ambient_proxies_on_the_shared_transport(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[bool] = []
+
+    def client_factory(*, trust_env: bool = True) -> httpx.AsyncClient:
+        observed.append(trust_env)
+        return httpx.AsyncClient(trust_env=trust_env)
+
+    monkeypatch.setattr("smartpipe.container.make_client", client_factory)
+    env = {
+        "SMARTPIPE_LOCAL_ONLY": "1",
+        "HTTP_PROXY": "http://proxy.invalid:8080",
+        "HTTPS_PROXY": "http://proxy.invalid:8080",
+        "NO_PROXY": "",
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+    }
+
+    async with build_container(env):
+        pass
+
+    assert observed == [False]

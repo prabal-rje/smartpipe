@@ -9,12 +9,24 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ItemError, SetupFault, TransportError
+from smartpipe.core.errors import (
+    CircuitOpenTransport,
+    ItemError,
+    RetryableError,
+    SchemaRejected,
+    SetupFault,
+    TransportError,
+    UnsentError,
+)
 from smartpipe.engine.coalesce import BatchSettings
 from smartpipe.engine.schema import shorthand_to_schema
 from smartpipe.models.base import BatchHint, CompletionRequest, ImageData, ModelRef
 from smartpipe.models.budget import CallBudget, budgeted_chat
-from smartpipe.models.coalesce import STOPPED_BEFORE_SEND, CoalescingChatModel
+from smartpipe.models.coalesce import (
+    STOPPED_BEFORE_SEND,
+    CoalescingChatModel,
+    OutboundCallPolicy,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -65,12 +77,17 @@ def _coalescer(
     size: int = 4,
     window: float = 0.005,
     stop: asyncio.Event | None = None,
+    concurrency: int = 4,
+    breaker_limit: int = 5,
 ) -> CoalescingChatModel:
     from smartpipe.models.base import ChatModel
 
     model: ChatModel = inner  # type: ignore[assignment]
     return CoalescingChatModel(
-        model, settings=BatchSettings(size=size, window_seconds=window), stop=stop
+        model,
+        settings=BatchSettings(size=size, window_seconds=window),
+        stop=stop,
+        calls=OutboundCallPolicy(concurrency=concurrency, breaker_limit=breaker_limit),
     )
 
 
@@ -86,7 +103,7 @@ async def test_k_reached_flies_one_packed_call() -> None:
         "batched:row3",
     ]
     assert model.packed_calls == 1
-    assert model.batched_items == 4
+    assert model.packed_items == 4
 
 
 async def test_window_flushes_a_partial_group() -> None:
@@ -166,6 +183,7 @@ async def test_token_budget_splits_a_group() -> None:
         typed,
         settings=BatchSettings(size=10, window_seconds=0.005),
         budget_tokens=100,  # pinned via the seam — no 20k-char payloads needed
+        calls=OutboundCallPolicy(concurrency=4),
     )
     wide = "x" * 150  # ≈46 tokens per submission: two fit, the third overflows
     await asyncio.gather(*(model.complete(_request(wide + str(n))) for n in range(3)))
@@ -182,7 +200,8 @@ async def test_missing_key_reruns_only_the_named_item() -> None:
     assert json.loads(replies[0])["vendor"] == "batched:row0"
     assert json.loads(replies[1])["vendor"] == "solo:row1"
     assert json.loads(replies[2])["vendor"] == "batched:row2"
-    assert model.batched_items == 2  # the salvaged pair; the re-run is not "batched"
+    assert model.packed_items == 3  # all members attempted on the packed wire
+    assert model.solo_recoveries == 1
 
 
 async def test_invalid_key_salvages_the_valid_ones() -> None:
@@ -219,6 +238,30 @@ async def test_unreadable_packed_reply_reruns_everyone_solo() -> None:
         "solo:row1",
         "solo:row2",
     ]
+    assert model.packed_calls == 1
+    assert model.packed_items == 3
+    assert model.solo_recoveries == 3
+
+
+async def test_packed_schema_rejection_reruns_every_member_solo_once() -> None:
+    class PackedShapeRejected(PackedFake):
+        async def complete(self, request: CompletionRequest) -> str:
+            if 'id="r' in request.user:
+                self.calls.append(request)
+                raise SchemaRejected("packed response schema rejected")
+            return await super().complete(request)
+
+    inner = PackedShapeRejected()
+    model = _coalescer(inner, size=3, concurrency=2)
+    replies = await asyncio.gather(*(model.complete(_request(f"row{n}")) for n in range(3)))
+    assert len(inner.calls) == 4  # one rejected pack + one solo per member, exactly once
+    assert [json.loads(reply)["vendor"] for reply in replies] == [
+        "solo:row0",
+        "solo:row1",
+        "solo:row2",
+    ]
+    assert model.packed_calls == 1
+    assert model.solo_recoveries == 3
 
 
 class DownFake:
@@ -233,14 +276,41 @@ class DownFake:
         raise TransportError("connection refused")
 
 
-async def test_failed_packed_call_reruns_solo_so_skips_are_real_calls() -> None:
+async def test_failed_packed_transport_fans_out_without_amplification() -> None:
     inner = DownFake()
     model = _coalescer(inner, size=3)
     outcomes = await asyncio.gather(
         *(model.complete(_request(f"row{n}")) for n in range(3)), return_exceptions=True
     )
-    assert inner.calls == 4  # 1 failed packed call + 3 real solo failures
+    assert inner.calls == 1  # the packed call's bounded ladder is the one real failure
     assert all(isinstance(outcome, TransportError) for outcome in outcomes)
+    assert model.packed_calls == 1  # failed attempts remain visible in the receipt
+    assert model.packed_items == 3
+    assert model.solo_recoveries == 0
+
+
+async def test_exhausted_packed_429_fans_out_without_solo_retry_ladders() -> None:
+    class RateLimited:
+        ref = ModelRef("openai", "limited")
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls += 1
+            raise RetryableError("openai error 429: slow down")
+
+    inner = RateLimited()
+    model = _coalescer(inner, size=3)
+    outcomes = await asyncio.gather(
+        *(model.complete(_request(f"row{n}")) for n in range(3)), return_exceptions=True
+    )
+
+    assert inner.calls == 1
+    assert all(isinstance(outcome, RetryableError) for outcome in outcomes)
+    assert {outcome.call_id for outcome in outcomes if isinstance(outcome, RetryableError)} == {1}
+    assert model.packed_calls == 1
+    assert model.solo_recoveries == 0
 
 
 class FatalFake:
@@ -304,7 +374,7 @@ async def test_stop_before_submit_never_enqueues() -> None:
     stop = asyncio.Event()
     stop.set()
     model = _coalescer(inner, stop=stop)
-    with pytest.raises(ItemError, match="not sent"):
+    with pytest.raises(UnsentError, match="not sent"):
         await model.complete(_request("a"))
     assert inner.calls == []
 
@@ -321,7 +391,11 @@ async def test_stop_during_the_window_fails_queued_items_without_a_call() -> Non
 
     typed: ChatModel = inner  # type: ignore[assignment]
     model = CoalescingChatModel(
-        typed, settings=BatchSettings(size=10, window_seconds=1.0), stop=stop, sleep=held_sleep
+        typed,
+        settings=BatchSettings(size=10, window_seconds=1.0),
+        stop=stop,
+        sleep=held_sleep,
+        calls=OutboundCallPolicy(concurrency=4),
     )
     waiters = [asyncio.create_task(model.complete(_request(f"row{n}"))) for n in range(2)]
     await asyncio.sleep(0)  # let both enqueue
@@ -368,7 +442,10 @@ async def test_a_late_timer_never_redispatches_a_flown_group() -> None:
     inner = PackedFake()
     typed: ChatModel = inner  # type: ignore[assignment]
     model = CoalescingChatModel(
-        typed, settings=BatchSettings(size=2, window_seconds=9.0), sleep=stubborn_sleep
+        typed,
+        settings=BatchSettings(size=2, window_seconds=9.0),
+        sleep=stubborn_sleep,
+        calls=OutboundCallPolicy(concurrency=4),
     )
     first = asyncio.create_task(model.complete(_request("a")))
     for _ in range(3):
@@ -477,6 +554,96 @@ async def test_a_cancelled_waiter_never_breaks_the_fatal_fanout() -> None:
         await kept
     with pytest.raises(asyncio.CancelledError):
         await doomed
+
+
+async def test_all_cancelled_waiters_are_removed_before_the_window_flies() -> None:
+    inner = PackedFake()
+    model = _coalescer(inner, size=10, window=0.01)
+    waiters = [asyncio.create_task(model.complete(_request(f"row{n}"))) for n in range(2)]
+    await asyncio.sleep(0)  # both submissions are queued under the open window
+    for waiter in waiters:
+        waiter.cancel()
+    await asyncio.gather(*waiters, return_exceptions=True)
+    await asyncio.sleep(0.02)
+    assert inner.calls == []
+    assert model.pending_groups == 0
+
+
+async def test_close_resolves_queued_items_and_joins_their_timer() -> None:
+    gate = asyncio.Event()
+
+    async def held_sleep(_seconds: float) -> None:
+        await gate.wait()
+
+    inner = PackedFake()
+    from smartpipe.models.base import ChatModel
+
+    typed: ChatModel = inner  # type: ignore[assignment]
+    model = CoalescingChatModel(
+        typed,
+        settings=BatchSettings(size=10, window_seconds=60.0),
+        sleep=held_sleep,
+        calls=OutboundCallPolicy(concurrency=1),
+    )
+    waiters = [asyncio.create_task(model.complete(_request(f"row{n}"))) for n in range(2)]
+    await asyncio.sleep(0)
+    await model.aclose()
+    outcomes = await asyncio.gather(*waiters, return_exceptions=True)
+    assert all(isinstance(outcome, ItemError) for outcome in outcomes)
+    assert inner.calls == []
+    assert model.pending_tasks == 0
+
+
+def test_outbound_policy_configuration_is_one_time_and_idempotent() -> None:
+    calls = OutboundCallPolicy(concurrency=4)
+    calls.configure(concurrency=1, breaker_limit=3)
+    calls.configure(concurrency=1, breaker_limit=3)
+    with pytest.raises(RuntimeError, match="already configured"):
+        calls.configure(concurrency=2, breaker_limit=3)
+
+
+async def test_outbound_policy_reuses_one_trip_id_and_stops_new_calls() -> None:
+    policy = OutboundCallPolicy(concurrency=1, breaker_limit=2)
+    ref = ModelRef("ollama", "down")
+    calls = 0
+
+    async def down() -> str:
+        nonlocal calls
+        calls += 1
+        raise TransportError("connection refused")
+
+    with pytest.raises(TransportError) as first:
+        await policy.execute(ref, down)
+    assert not isinstance(first.value, CircuitOpenTransport)
+    with pytest.raises(CircuitOpenTransport) as tripped:
+        await policy.execute(ref, down)
+    with pytest.raises(CircuitOpenTransport) as already_open:
+        await policy.execute(ref, down)
+    assert already_open.value.trip_id == tripped.value.trip_id
+    assert first.value.series_id == tripped.value.trip_id
+    assert calls == 2
+
+
+async def test_outbound_policy_resets_on_a_nontransport_response_and_keys_by_ref() -> None:
+    policy = OutboundCallPolicy(concurrency=1, breaker_limit=2)
+    primary = ModelRef("ollama", "primary")
+    fallback = ModelRef("ollama", "fallback")
+
+    async def down() -> str:
+        raise TransportError("connection refused")
+
+    async def declined() -> str:
+        raise ItemError("content declined")
+
+    with pytest.raises(TransportError) as before_reset:
+        await policy.execute(primary, down)
+    with pytest.raises(ItemError):
+        await policy.execute(primary, declined)
+    with pytest.raises(TransportError) as after_reset:
+        await policy.execute(primary, down)
+    assert not isinstance(after_reset.value, CircuitOpenTransport)
+    assert before_reset.value.series_id != after_reset.value.series_id
+    assert await policy.execute(fallback, lambda: asyncio.sleep(0, result="ok")) == "ok"
 
 
 def test_ref_mirrors_the_inner_wire() -> None:

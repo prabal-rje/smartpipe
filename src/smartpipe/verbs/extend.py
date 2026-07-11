@@ -13,21 +13,20 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.core.errors import ExcludedError, ExitCode, ItemError, UsageFault
 from smartpipe.engine.chunking import is_context_overflow
-from smartpipe.engine.coalesce import max_group
+from smartpipe.engine.coalesce import max_group, worker_capacity
 from smartpipe.engine.fieldpath import validate_field
 from smartpipe.engine.prompts import parse_prompt, plan_map, to_instruction
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.engine.schema import load_schema
-from smartpipe.io import diagnostics, readers
+from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source, source_record
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.verbs.common import (
     ModelSlot,
     WindowGate,
-    breaker_policy,
     interrupted_exit_code,
     make_failover,
     outcome_exit_code,
@@ -103,8 +102,7 @@ async def run_extend(
         items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop)
         return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
     log = diagnostics.DegradationLog()
-    parser = context.document_parser(request.ocr_model_flag)  # the ocr-model role (item 40)
-    ocr = readers.OcrIngest(parser, log) if parser is not None else None
+    ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     model = await context.chat_model(request.model_flag)
     slot = ModelSlot(model)
@@ -121,13 +119,12 @@ async def run_extend(
     )
     concurrency = context.concurrency(request.concurrency_flag)
     batching = context.batching()  # item 62: eligible items coalesce into shared calls
-    coalescing = batching is not None and max_group(plan.schema, batching.size) >= 2
+    group_size = 1 if batching is None else max_group(plan.schema, batching.size)
+    coalescing = group_size >= 2
     # Batching multiplexes many items onto few calls, so intake widens to fill a
     # group; `wire` keeps every SOLO path (media, oversized) at the documented
     # max-parallel-calls contract regardless of that boost.
-    workers = (
-        max(concurrency, batching.size) if batching is not None and coalescing else concurrency
-    )
+    workers = worker_capacity(call_concurrency=concurrency, group_size=group_size)
     wire = asyncio.Semaphore(concurrency)
 
     tally = None
@@ -150,10 +147,16 @@ async def run_extend(
 
     async def worker(item: Item) -> tuple[Item, Mapping[str, object]]:
         current = slot.current  # captured per item: the failover swaps wholesale
-        over = await gate.budget_for_oversized(item.text, item.media)
+        over = await gate.budget_for_oversized(
+            item.text,
+            item.media,
+            provider=current.ref.provider,
+            model_name=current.ref.name,
+            window=partial(context.context_window, current.ref),
+        )
         if over is not None and request.whole:
             # --whole: the old D26 refusal — reproducibility beats handling
-            raise ItemError(gate.refusal(over))
+            raise ExcludedError(gate.refusal(over))
         if over is not None:
             # D26 v2: extract per chunk, then ONE merge call against the same
             # schema. Oversized items never batch (item 62 §7) — solo, wire-gated.
@@ -201,7 +204,7 @@ async def run_extend(
         slot.tally(str(current.ref))
         return item, result
 
-    policy = breaker_policy(model.ref.provider)
+    policy = context.failure_policy(model.ref.provider)
     failover = (
         make_failover(
             slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
@@ -211,6 +214,8 @@ async def run_extend(
     )
     done = 0
     skipped = 0
+    failed = 0
+    sources = source_accounting.SourceCounter()
     overwritten: set[str] = set()  # disclosed once per field
     outcomes = run_ordered(
         items_iter,
@@ -219,6 +224,7 @@ async def run_extend(
         failure_policy=policy,
         stop=stop,
         failover=failover,
+        halt_sources=sources,
     )
     try:
         async for outcome in outcomes:
@@ -240,9 +246,12 @@ async def run_extend(
                         tally.add(row)
                         spinner.extra = tally.live_segment()
                 done += 1
+                sources.done(item.source)
             else:  # Skipped
                 diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
                 skipped += 1
+                failed += int(outcome.failed)
+                sources.skip(outcome.source, failed=outcome.failed)
             spinner.advance()
     finally:
         spinner.finish()
@@ -254,8 +263,18 @@ async def run_extend(
         diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped)
-        return interrupted_exit_code(done=done, skipped=skipped)
-    return outcome_exit_code(done=done, skipped=skipped)
+        return interrupted_exit_code(
+            done=done,
+            skipped=skipped,
+            failed=failed,
+            source_counts=sources.counts,
+        )
+    return outcome_exit_code(
+        done=done,
+        skipped=skipped,
+        failed=failed,
+        source_counts=sources.counts,
+    )
 
 
 def base_fields(item: Item) -> dict[str, object]:

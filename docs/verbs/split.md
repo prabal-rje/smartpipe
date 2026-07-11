@@ -67,7 +67,7 @@ smartpipe split --media 'decks/*.pptx' \
 | `--media` | extract embedded images as items instead (doesn't combine with `--by`) |
 | `--max-tokens N` | shorthand for `--by tokens:N` |
 | `--ocr-model TEXT` | Parse ingested PDFs/images with a document parsing model ([the role](../concepts/models-and-providers.md#the-ocr-model-role)) |
-| `--max-calls N` | cap OCR parsing calls - the one way split ever calls a model |
+| `--max-calls N` | cap OCR spend - API calls normally; dedicated Mistral OCR reserves one unit per billable page |
 | `FILES…`, `--from-files` | the usual [file inputs](../inputs/files.md) |
 
 ## When you need it
@@ -82,6 +82,8 @@ for `split` when you want the chunking *visible* and the chunk results
 
 split is free - zero model calls - UNLESS an [`ocr-model`](../concepts/models-and-providers.md#the-ocr-model-role) is
 configured: then PDFs and images parse through it before cutting, disclosed
-per row, and `--max-calls` caps that spend. `--by pages` keeps its exact page
+per row, and `--max-calls` caps that spend. A page-billed multi-page PDF is
+counted before upload and is not sent unless the remaining belt covers it.
+`--by pages` keeps its exact page
 grouping and provenance with the parsed pages. `--media` never consults the
 role - it extracts embedded images, and there is no text to parse.
