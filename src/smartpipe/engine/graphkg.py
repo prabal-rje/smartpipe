@@ -403,15 +403,23 @@ def fold_assertions(
     canonical: Mapping[str, str],
     *,
     cap: int = _SOURCE_CAP,
+    should_stop: Callable[[], bool] | None = None,
 ) -> tuple[GraphEdge, ...]:
     """Directed, relation-keyed edges: weights sum per canonical
     (source, relation, target) fold key, provenance refs dedupe and cap,
-    heaviest first. A pair folding onto one node is a self-loop — dropped."""
+    heaviest first. A pair folding onto one node is a self-loop — dropped.
+
+    ``should_stop`` (B1 review) is the same injected stop the other two trio
+    members poll: this one runs under ``to_thread`` too, so without it a Ctrl-C
+    here could only escape via the watchdog hard-exit. A stop request breaks
+    cleanly and folds every assertion seen so far into the result (clean partial)."""
     weights: dict[tuple[str, str, str], int] = {}
     kept_refs: dict[tuple[str, str, str], list[SpineRef]] = {}
     seen_refs: dict[tuple[str, str, str], set[SpineRef]] = {}
     hidden: dict[tuple[str, str, str], int] = {}
     for assertion in assertions:
+        if should_stop is not None and should_stop():
+            break  # salvage what folded so far — the caller writes the partial graph
         source = canonical.get(assertion.source, assertion.source)
         target = canonical.get(assertion.target, assertion.target)
         if source == target:

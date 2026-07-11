@@ -358,7 +358,9 @@ async def run_full(
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)
-    folded_edges = await asyncio.to_thread(fold_assertions, assertions, canonical)
+    folded_edges = await asyncio.to_thread(
+        fold_assertions, assertions, canonical, should_stop=should_stop
+    )
     kept, _ = prune_edges(folded_edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
@@ -801,7 +803,9 @@ async def run_adopt(
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)
-    folded_edges = await asyncio.to_thread(fold_assertions, assertions, canonical)
+    folded_edges = await asyncio.to_thread(
+        fold_assertions, assertions, canonical, should_stop=should_stop
+    )
     kept, pruned = prune_edges(folded_edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
@@ -810,6 +814,11 @@ async def run_adopt(
         f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
         f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
     )
+    if stop is not None and stop.is_set():
+        # B1 review: a drained Ctrl-C during the fold salvaged a partial graph on
+        # stdout — say so and exit INTERRUPTED/PARTIAL, never OK (like run_full/hybrid).
+        diagnostics.interrupted_summary(processed=len(assertions), skipped=0)
+        return interrupted_exit_code(done=len(assertions), skipped=0, failed=0, partial=True)
     return outcome_exit_code(done=len(assertions), skipped=0, failed=0)
 
 

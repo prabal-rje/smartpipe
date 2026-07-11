@@ -784,6 +784,36 @@ async def test_adopt_canonicalizes_near_duplicate_names() -> None:
     assert (edge["source"], edge["target"], edge["weight"]) == ("Acme Corp", "Ann", 2)
 
 
+async def test_adopt_drained_stop_exits_partial_not_ok(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """B1 review: a drained Ctrl-C during adopt's fold must exit PARTIAL, never OK —
+    like full/hybrid/fast mode already do. run_adopt used to return OK unconditionally,
+    so an interrupted adopt run looked clean."""
+    rows = (
+        '{"subject": "Ann", "relation": "pays", "object": "Bob"}\n'
+        '{"subject": "Cid", "relation": "pays", "object": "Dan"}\n'
+    )
+    stop = asyncio.Event()
+
+    def should_stop() -> bool:
+        stop.set()  # the fold's first cooperative check trips the run-level drain
+        return True
+
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(),
+        _context(FakeChat()),
+        stdin=io.StringIO(rows),
+        stdout=out,
+        stop=stop,
+        should_stop=should_stop,
+        clock=lambda: 0.0,
+    )
+    assert code is ExitCode.PARTIAL  # NOT OK — the drained fold is a partial (was the bug)
+    assert "interrupted" in capsys.readouterr().err
+
+
 async def test_mixed_stdin_refuses_before_any_output() -> None:
     rows = '{"source": "Ann", "target": "Bob"}\nplain text line\n'
     with pytest.raises(UsageFault, match="line 2 isn't an edge record") as caught:

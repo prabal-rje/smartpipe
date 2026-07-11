@@ -377,6 +377,28 @@ def test_fold_surfaces_should_stop_leaves_unclustered_names_on_their_own_node() 
     assert folded == {"Acme Corp": "Acme Corp", "Acme Corporation": "Acme Corporation"}
 
 
+def test_fold_assertions_should_stop_returns_the_partial_folded_so_far() -> None:
+    """B1 review: fold_assertions runs under to_thread too, so it honors the same
+    cooperative stop as its trio siblings — a Ctrl-C mid-fold breaks cleanly and keeps
+    the assertions folded so far (never blocking the drain until a watchdog hard-exit)."""
+    assertions = [_assertion("A", "pays", "B", line=n) for n in range(1, 11)]
+    seen = 0
+
+    def should_stop() -> bool:
+        nonlocal seen
+        seen += 1
+        return seen > 3  # let three assertions fold, then ask to stop
+
+    (edge,) = fold_assertions(assertions, {}, should_stop=should_stop)
+    assert edge.weight == 3  # exactly the first three folded — a clean partial
+
+
+def test_fold_assertions_should_stop_never_set_folds_everything() -> None:
+    assertions = [_assertion("A", "pays", "B", line=n) for n in range(1, 6)]
+    (edge,) = fold_assertions(assertions, {}, should_stop=lambda: False)
+    assert edge.weight == 5
+
+
 def test_fold_surfaces_progress_advances_per_label_group() -> None:
     counts = (
         SurfaceCount(name="Acme Corp", label="company", count=3),
