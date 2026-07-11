@@ -30,6 +30,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   concern).
 
 ### Fixed
+- **A sustained rate-limit storm is now paced, not burned through.** The
+  outbound-call policy (`OutboundCallPolicy`, shared by the embed/OCR/STT wires)
+  had no cross-call cooldown: a ref that returned `429` was retried immediately on
+  its next admission, so a dedicated wire could exhaust its whole ladder in ~2 s.
+  Two fixes work together. (1) **Per-ref cooldown (A5.2):** a `429` carrying a
+  server `Retry-After` now threads that hint onto the exhausted `RetryableError`
+  (a new typed `retry_after` field) all the way to the policy, which records a
+  per-ref "not-before" floor and makes that ref's *next* admission wait it out —
+  keyed per `ModelRef` (a hot ref never stalls a different one), clamped to the
+  60 s abuse ceiling, extended-never-shrunk when concurrent `429`s disagree, and
+  driven by an injected clock/sleep so it is deterministic under test. The wait
+  happens outside the concurrency gate, so a cooling ref frees its slot for the
+  other roles sharing the policy. (2) **Longer dedicated OCR ladder (A5.3):** the
+  paid Mistral OCR wire is now built with its own frozen `OCR_RETRY_POLICY`
+  (`attempts=5`, cap ~30 s) instead of the default 3-attempt chat ladder — a page
+  parse is far cheaper to wait on than to re-buy, since every retry avoids a fresh
+  paid conversion. The default chat ladder is untouched.
 - **Paid Mistral OCR conversions are now banked across runs — a rerun re-reads
   them for free instead of re-paying.** The `ocr-model` document wire
   (`MistralOcrParser`, charged per page) had no cache layer, so every rerun

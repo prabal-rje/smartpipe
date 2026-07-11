@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from smartpipe.models.base import ChatModel, ModelRef
 
 __all__ = [
+    "OCR_RETRY_POLICY",
     "OCR_SYSTEM",
     "DocumentParser",
     "MistralOcrParser",
@@ -53,6 +54,13 @@ OCR_SYSTEM = (
 
 _VISION_MAX_TOKENS = 4096
 _THIN_TEXT = 64  # under this, a page's text layer reads as a scan (D39/03)
+
+# A5.3: the paid Mistral OCR wire gets a dedicated, LONGER ladder than the default
+# chat one — five attempts with a 30 s cap. A page parse is cheap to WAIT on relative
+# to RE-BUYING it: every retry avoids a fresh paid conversion, so a sustained 429 storm
+# is ridden out (paced by A5.2's per-ref cooldown) rather than burned through in ~2 s.
+# Built once, frozen, wired into the OCR construction path only (never the chat ladder).
+OCR_RETRY_POLICY = RetryPolicy(attempts=5, base_delay=0.5, max_delay=30.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,7 +181,13 @@ class MistralOcrParser:
             # wire body — a 429/5xx JSON blob dumped verbatim buried the load-bearing
             # lines. The status code stays; the body is dropped.
             if status == 429:
-                raise RetryableError(f"ocr error {status}: rate limited") from exc
+                # A5.2: carry the server's Retry-After onto the exhausted fault so the
+                # shared admission policy paces this ref's NEXT call — not just this
+                # wire's internal ladder (which already consumed the hint per attempt).
+                raise RetryableError(
+                    f"ocr error {status}: rate limited",
+                    retry_after=retry_after_seconds(exc),
+                ) from exc
             if status >= 500:
                 raise TransportError(f"ocr error {status}: server error") from exc
             raise ItemError(f"ocr error {status}: request rejected") from exc

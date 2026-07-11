@@ -674,6 +674,25 @@ def test_ocr_role_mistral_rides_the_dedicated_wire(client: httpx.AsyncClient) ->
     assert str(parser.ref) == "mistral/mistral-ocr-latest"
 
 
+def test_ocr_mistral_wire_gets_the_dedicated_longer_ladder(client: httpx.AsyncClient) -> None:
+    """A5.3: the composition root wires the dedicated OCR ladder (attempts=5,
+    cap ~30s) into the paid wire — NOT the default chat ladder — because a page
+    parse is cheaper to wait on than to re-buy."""
+    from smartpipe.models.admission import AdmittedDocumentParser
+    from smartpipe.models.ocr import OCR_RETRY_POLICY, MistralOcrParser
+
+    container = _container(
+        client, env={"MISTRAL_API_KEY": "mk-x"}, config=Config(ocr_model="mistral-ocr-latest")
+    )
+    parser = container.document_parser()
+    assert isinstance(parser, AdmittedDocumentParser)
+    assert isinstance(parser.inner, MistralOcrParser)
+    assert parser.inner.retry is OCR_RETRY_POLICY  # the frozen preset, not container.retry
+    assert parser.inner.retry.attempts == 5
+    assert parser.inner.retry.max_delay == 30.0
+    assert parser.inner.retry is not container.retry  # the default chat ladder is untouched
+
+
 def test_ocr_role_mistral_without_key_is_setup_fault(client: httpx.AsyncClient) -> None:
     container = _container(client, config=Config(ocr_model="mistral-ocr-latest"))
     with pytest.raises(SetupFault, match="MISTRAL_API_KEY"):

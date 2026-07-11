@@ -332,14 +332,17 @@ class AppContainer:
         if ref.provider == "mistral":
             from smartpipe.models.admission import admitted_parser
             from smartpipe.models.budget import budgeted_parser
-            from smartpipe.models.ocr import MistralOcrParser
+            from smartpipe.models.ocr import OCR_RETRY_POLICY, MistralOcrParser
 
             parser = MistralOcrParser(
                 ref=ref,
                 client=self.http_client,
                 api_key=require_api_key(self.env, ref.name, MISTRAL_WIRE),
                 base_url=resolve_base_url(self.env, MISTRAL_WIRE),
-                retry=self.retry,
+                # A5.3: the paid wire gets the dedicated longer ladder (attempts=5,
+                # cap ~30s), NOT the default chat retry — a page is cheaper to wait
+                # on than to re-buy. Composition root decides the degree of protection.
+                retry=OCR_RETRY_POLICY,
             )
             # item 48: the dedicated OCR wire wears the belt too — one charge
             # per page (the vision rung below is budgeted via its chat)

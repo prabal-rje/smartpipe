@@ -94,6 +94,12 @@ class RetryableError(ItemError):
     groups one consecutive availability streak through its breaker trip;
     ``call_id`` identifies the single actual call whose failure may fan out to
     several coalesced item waiters.
+
+    ``retry_after`` carries a server-supplied backoff (a ``Retry-After`` header,
+    in seconds) THROUGH the exhausted ladder to the run-scoped outbound policy,
+    which honours it as a per-ref cooldown floor for that ref's next admission
+    (A5.2). ``None`` when the server gave no hint. The value is unclamped here —
+    the policy clamps a hostile ask, exactly as ``with_retries`` clamps the sleep.
     """
 
     def __init__(
@@ -102,9 +108,11 @@ class RetryableError(ItemError):
         *,
         series_id: int | None = None,
         call_id: int | None = None,
+        retry_after: float | None = None,
     ) -> None:
         self.series_id = series_id
         self.call_id = call_id
+        self.retry_after = retry_after
         super().__init__(message)
 
 
@@ -125,8 +133,9 @@ class TransportError(RetryableError):
         *,
         series_id: int | None = None,
         call_id: int | None = None,
+        retry_after: float | None = None,
     ) -> None:
-        super().__init__(message, series_id=series_id, call_id=call_id)
+        super().__init__(message, series_id=series_id, call_id=call_id, retry_after=retry_after)
 
 
 class CircuitOpenTransport(TransportError):
