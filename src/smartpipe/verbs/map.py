@@ -49,6 +49,7 @@ from smartpipe.verbs.common import (
     note_ambiguous_temporal,
     outcome_exit_code,
     resolve_schema,
+    warn_unenforced_schema,
 )
 from smartpipe.verbs.oversize import machine_cut, transform_oversized, transform_resplit
 
@@ -456,6 +457,10 @@ async def _attempt(
             # a second failure → Skipped
             return validate_and_coerce(repaired, plan.schema, note=note_ambiguous_temporal)
         except ItemError as second_error:
+            # A3: the wire held a schema and still violated it twice — name the
+            # cause once per run, so a run of skips reads as "wrong model", not
+            # a mystery. Class-specific wording (loose wire vs strict) inside.
+            warn_unenforced_schema(model)
             if not keep_invalid:
                 raise
             # --keep-invalid: the failure becomes data — one valid row the user

@@ -20,6 +20,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   real work (a `--max-calls 1` run does its one real call unprobed). An
   availability fault at canary time (belt/429/breaker) propagates as itself and
   is never mistaken for a capability verdict.
+- **A model that keeps breaking the reply schema now says so, once.** When a
+  schema-attached request comes back violating its schema even after the one
+  paid repair rung — so the item skips — `map` (and `graph`, whose chunks flow
+  through it) prints one loud stderr line per run naming the model. A loose wire
+  that only advises the schema (ollama's `format`, which many cloud models
+  ignore) is told it "likely ignores constrained decoding"; a strict-enforcing
+  wire (openai, mistral) doing the same is flagged as a possible provider-side
+  regression. A run of skips now reads as "wrong model" instead of a mystery.
 - **A fail-fast halt no longer throws away everything already extracted.** When
   the failure policy trips mid-extraction (too many chunks failed the schema),
   `graph` full mode now folds and writes the edges it already has to stdout,

@@ -63,6 +63,7 @@ __all__ = [
     "resolve_schema",
     "row_embedder",
     "transcribe",
+    "warn_unenforced_schema",
 ]
 
 T = TypeVar("T")
@@ -482,13 +483,16 @@ def batched(items: Sequence[T], size: int) -> Iterator[tuple[T, ...]]:
 
 
 _native_noted = False  # one disclosure per invocation, not per item
+_unenforced_schema_warned = False  # A3: one schema-enforcement warning per invocation
+_LOOSE_SCHEMA_PROVIDERS = frozenset({"ollama"})  # attach the schema as advisory, not enforced
 
 
 def reset_run_disclosures() -> None:
     """Reset stderr disclosure caps at one invocation boundary."""
-    global _ambiguous_dates_seen, _native_noted
+    global _ambiguous_dates_seen, _native_noted, _unenforced_schema_warned
     _ambiguous_dates_seen = 0
     _native_noted = False
+    _unenforced_schema_warned = False
 
 
 def note_native_once(model: object) -> None:
@@ -501,6 +505,33 @@ def note_native_once(model: object) -> None:
         diagnostics.note(
             f"media embedded natively ({getattr(ref, 'provider', '?')}/{getattr(ref, 'name', '?')})"
             " — no captions"
+        )
+
+
+def warn_unenforced_schema(model: object) -> None:
+    """A3: one loud line per run when a schema-attached request comes back
+    violating its schema even after the one repair rung. For a wire whose schema
+    is advisory (ollama's ``format``) this is the expected miss of many cloud
+    models; for a strict-enforcing wire the same event is surprising enough to
+    read as a provider-side regression. Graph inherits this automatically — its
+    chunks flow through ``map_one``."""
+    global _unenforced_schema_warned
+    if _unenforced_schema_warned:
+        return
+    _unenforced_schema_warned = True
+    ref = getattr(model, "ref", None)
+    provider = getattr(ref, "provider", "?")
+    name = f"{provider}/{getattr(ref, 'name', '?')}"
+    if provider in _LOOSE_SCHEMA_PROVIDERS:
+        diagnostics.warn(
+            f"{name} was asked to enforce the reply schema but its reply violates it "
+            "— this model likely ignores constrained decoding (cloud models often do); "
+            "a stricter --model, or graph's schema canary, catches this early."
+        )
+    else:
+        diagnostics.warn(
+            f"{name} returned a reply that violates the schema its wire enforces "
+            "— possibly a provider-side API regression."
         )
 
 

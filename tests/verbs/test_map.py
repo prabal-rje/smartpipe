@@ -201,6 +201,62 @@ async def test_rung_zero_repairs_a_fenced_reply_with_zero_extra_calls() -> None:
     assert deterministic_repairs() == 1  # and it is disclosed once per run
 
 
+# --- A3: the unenforced-schema warning (one loud line per run) ----------------
+
+
+async def test_unenforced_schema_warns_once_naming_the_loose_wire(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.verbs import common
+
+    monkeypatch.setattr(common, "_unenforced_schema_warned", False)
+    # both the reply AND its repair violate the attached schema → the item skips,
+    # and the run names the model that failed to hold the shape, once.
+    code, _out, _model = await _run("Extract {v}", "x\n", ["bad once", "bad twice"])
+    assert code == ExitCode.ALL_FAILED
+    err = capsys.readouterr().err
+    assert "ollama/fake" in err
+    assert "likely ignores constrained decoding" in err
+
+
+async def test_unenforced_schema_warns_only_once_across_many_failures(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.verbs import common
+
+    monkeypatch.setattr(common, "_unenforced_schema_warned", False)
+    # three items, every attempt wrong-shaped → the warning is a heads-up, not a flood
+    await _run("Extract {v}", "a\nb\nc\n", ["no", "no", "no", "no", "no", "no"])
+    assert capsys.readouterr().err.count("likely ignores constrained decoding") == 1
+
+
+async def test_strict_wire_schema_violation_flags_a_possible_regression(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.verbs import common
+
+    monkeypatch.setattr(common, "_unenforced_schema_warned", False)
+    model = FakeChat(replies=["bad once", "bad twice"])
+    model.ref = ModelRef("openai", "gpt-5.4-nano")  # a wire that DOES enforce the schema
+    context = FakeContext(model=model)
+    out = io.StringIO()
+    await run_map(_request("Extract {v}"), context, stdin=io.StringIO("x\n"), stdout=out)
+    err = capsys.readouterr().err
+    assert "openai/gpt-5.4-nano" in err
+    assert "regression" in err
+
+
+async def test_a_held_schema_never_triggers_the_unenforced_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.verbs import common
+
+    monkeypatch.setattr(common, "_unenforced_schema_warned", False)
+    # a conforming reply: no failure, so no warning
+    await _run("Extract {v}", "x\n", ['{"v": "held"}'])
+    assert "constrained decoding" not in capsys.readouterr().err
+
+
 # --- --keep-invalid -------------------------------------------------------------
 
 
