@@ -1299,6 +1299,12 @@ async def test_full_mode_failover_switches_to_the_backup(
     err = capsys.readouterr().err
     assert "switching to openai/gpt-4o-mini for the rest of the run" in err
     assert "answers: openai/gpt-4o-mini" in err  # the receipt keeps the swap visible
+    # the "nothing lost" claim is load-bearing: the primary answered only its
+    # breaker window, the backup answered every held + remaining chunk, and no
+    # chunk fell through to a skip (mirrors test_map's failover-switch assertions).
+    assert len(primary.extraction_calls) == 2  # the breaker window, then never again
+    assert len(backup.calls) == 6  # the held window replayed onto the backup + the rest
+    assert "skipped" not in err
 
 
 async def test_full_mode_failover_on_a_dead_backup_dies_loudly() -> None:
@@ -1327,3 +1333,8 @@ async def test_full_mode_failover_on_a_dead_backup_dies_loudly() -> None:
             context,
             "one Ann\ntwo Ann\nthree Ann\nfour Ann\nfive Ann\nsix Ann\n",
         )
+    # both wires were actually tried before the honest death: the primary ran its
+    # breaker window, the swap landed on the backup, and the backup's own failures
+    # tripped it too — not a silent give-up (mirrors test_map's dead-backup counts).
+    assert len(primary.extraction_calls) == 2  # the breaker window on the primary
+    assert len(backup.calls) == 2  # the held window replayed onto the dead backup
