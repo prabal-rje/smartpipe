@@ -12,6 +12,7 @@ from smartpipe.core.errors import (
     CircuitOpenTransport,
     ItemError,
     RetryableError,
+    SetupFault,
     UnsentError,
 )
 from smartpipe.io import diagnostics
@@ -296,18 +297,20 @@ async def test_isolated_rate_limit_degrades_with_the_honest_reason(
     assert "ocr failed" not in err  # nor the old content-failure wording
 
 
-async def test_breaker_open_propagates_instead_of_masquerading_as_fallback(
+async def test_breaker_open_stops_the_run_at_setup_never_a_fallback(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A run-scoped breaker verdict condemns the WHOLE run: the fault propagates
-    out of ingestion, no local text is produced, and no fallback line is printed."""
+    """A run-scoped breaker verdict condemns the WHOLE run: the fault is converted
+    to a SETUP fault (the wire is down — rerun later) so it flows through every
+    per-file ``except ItemError`` and stops cleanly, never masquerading as a
+    fallback and never surfacing as a raw item error (which would read as a BUG)."""
     (tmp_path / "scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
     items, _total = resolve_items(
         InputSpec(patterns=(str(tmp_path / "scan.png"),), from_files=False),
         _TtyStdin(),
         ocr=_ingest(RaisingParser(CircuitOpenTransport("ocr wire down", trip_id=1))),
     )
-    with pytest.raises(CircuitOpenTransport):
+    with pytest.raises(SetupFault, match="circuit opened"):
         await _drain(items)
     assert "falling back" not in capsys.readouterr().err
 
@@ -360,8 +363,26 @@ def test_ocr_fallback_note_classifies_each_availability_tier() -> None:
         ocr_fallback_note(ItemError("corrupt page"), where="f")
         == "ocr failed: f (corrupt page) — falling back to local extraction"
     )
-    # ordering proof: the systemic subclass wins over its RetryableError base
-    assert isinstance(CircuitOpenTransport("down", trip_id=1), RetryableError)
+    # the `is None` on CircuitOpenTransport above IS the ordering proof: it is an
+    # IS-A RetryableError, so returning None only holds if the systemic check runs
+    # first — no separate tautological isinstance assertion needed.
+
+
+def test_raise_ocr_wire_stop_converts_the_breaker_but_re_raises_the_belt() -> None:
+    """The systemic re-raise: a tripped breaker becomes a clean SETUP fault (naming
+    the file + 'rerun later'), while belt exhaustion re-raises AS ITSELF so the
+    belt-stop machinery keeps its own partial/salvage exit semantics."""
+    from smartpipe.io.readers import raise_ocr_wire_stop
+
+    with pytest.raises(SetupFault, match="circuit opened") as breaker:
+        raise_ocr_wire_stop(CircuitOpenTransport("down", trip_id=1), where="report.pdf")
+    assert "report.pdf" in str(breaker.value)  # the stop names the offending file
+    assert isinstance(breaker.value.__cause__, CircuitOpenTransport)  # chained from the trip
+
+    belt = UnsentError("the page belt is exhausted")
+    with pytest.raises(UnsentError) as caught:
+        raise_ocr_wire_stop(belt, where="report.pdf")
+    assert caught.value is belt  # the same belt fault, untouched (not converted)
 
 
 async def test_each_parsed_row_is_disclosed(

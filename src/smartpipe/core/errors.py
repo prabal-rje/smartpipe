@@ -171,7 +171,13 @@ def is_systemic_availability_fault(fault: ItemError) -> bool:
     """A fault that condemns the WHOLE run, not one item: the run-scoped breaker
     concluded the wire is down, or the page belt is exhausted. Neither may be
     relabeled as a per-file 'falling back to local extraction'; the run must
-    surface the truth and stop (A1's salvage keeps what was already extracted)."""
+    surface the truth and stop (A1's salvage keeps what was already extracted).
+
+    Deliberately NOT the whole ``TransportError``/``RetryableError`` family: a
+    plain ladder that exhausted on ONE file (a bounded 429 or 5xx) is isolated,
+    not systemic — it degrades that file and feeds the breaker streak, so a
+    sustained storm still trips ``CircuitOpenTransport`` and stops the run here.
+    Widening this to all transport faults would make one unlucky file fatal."""
     return isinstance(fault, (CircuitOpenTransport, UnsentError))
 
 

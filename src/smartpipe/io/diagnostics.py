@@ -16,6 +16,7 @@ from smartpipe.core.errors import (
     SempipeError,
     SetupFault,
     TooManyFailures,
+    UnsentError,
     UsageFault,
 )
 from smartpipe.io import tty
@@ -127,6 +128,13 @@ def die(fault: SempipeError, *, debug: bool = False) -> NoReturn:
         case SetupFault():
             raise SystemExit(int(ExitCode.SETUP))
         case TooManyFailures():
+            raise SystemExit(int(ExitCode.ALL_FAILED))
+        case UnsentError():
+            # A read-phase belt exhaustion (--max-calls hit mid-OCR, A5.1) escapes
+            # the reader as itself and is caught per-item by every streaming verb;
+            # a whole-set verb (graph) reads into a list, so it can reach here with
+            # nothing produced yet. Stop ALL_FAILED with the belt truth, never the
+            # BUG screen a stray item error would otherwise get.
             raise SystemExit(int(ExitCode.ALL_FAILED))
         case _:
             # ItemError (or the bare base) reaching die() is a programming error:

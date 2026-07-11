@@ -1338,3 +1338,40 @@ async def test_full_mode_failover_on_a_dead_backup_dies_loudly() -> None:
     # tripped it too — not a silent give-up (mirrors test_map's dead-backup counts).
     assert len(primary.extraction_calls) == 2  # the breaker window on the primary
     assert len(backup.calls) == 2  # the held window replayed onto the dead backup
+
+
+async def test_full_mode_ocr_breaker_during_read_stops_at_setup_not_a_bug(
+    tmp_path: object,
+) -> None:
+    """A5.1 (completion): when the configured OCR wire's breaker concludes it is
+    DOWN during the read phase of a paid graph run, the fault stops the run as a
+    SetupFault (which ``die`` maps to SETUP, exit 2) — NOT the internal-BUG screen
+    (exit 70) that a raw item error escaping run_full's read loop would produce.
+    This is the graph-verb end of the exit-70 defect the reader conversion closes."""
+    from pathlib import Path
+
+    from smartpipe.core.errors import CircuitOpenTransport
+    from smartpipe.io.inputs import InputSpec
+    from tests.io.test_ocr_ingest import RaisingParser
+
+    assert isinstance(tmp_path, Path)
+    (tmp_path / "scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    class _OcrDown(PaidContext):
+        def document_parser(self, flag: str | None = None) -> RaisingParser:  # type: ignore[override]
+            return RaisingParser(CircuitOpenTransport("ocr wire down", trip_id=1))
+
+    context = _OcrDown(
+        chat=FakeChat([triples(("Ann", "pays", "Bob"))]),  # clears the schema canary
+        finder=FakeFinder(PEOPLE),
+        embedder=FakeEmbedder({}),
+    )
+    with pytest.raises(SetupFault, match="circuit opened"):
+        await _run(
+            GraphRequest(
+                focus="who pays whom",
+                ocr_model_flag="mistral/mistral-ocr-latest",
+                input=InputSpec(patterns=(str(tmp_path / "scan.png"),), from_files=False),
+            ),
+            context,
+        )

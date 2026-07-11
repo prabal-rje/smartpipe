@@ -278,7 +278,7 @@ async def _pdf_pages(path: PathType, ocr: OcrIngest | None) -> list[str]:
         except ItemError as exc:
             note = readers.ocr_fallback_note(exc, where=path.name)
             if note is None:
-                raise
+                readers.raise_ocr_wire_stop(exc, where=path.name)
             diagnostics.warn(note)
         else:
             detail = f"parsed by {parser.ref}"

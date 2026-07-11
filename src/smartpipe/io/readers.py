@@ -16,9 +16,10 @@ import os
 import threading
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 from smartpipe.core.errors import (
+    CircuitOpenTransport,
     ItemError,
     RetryableError,
     SetupFault,
@@ -52,6 +53,7 @@ __all__ = [
     "ocr_parse_file",
     "ocr_preflight",
     "ocr_route",
+    "raise_ocr_wire_stop",
     "read_right_items",
     "resolve_items",
     "stdin_items",
@@ -352,6 +354,27 @@ def ocr_fallback_note(fault: ItemError, *, where: str) -> str | None:
     return f"ocr failed: {where} ({fault}) — falling back to local extraction"
 
 
+def raise_ocr_wire_stop(fault: ItemError, *, where: str) -> NoReturn:
+    """A SYSTEMIC OCR fault (``ocr_fallback_note`` returned None) stops the run
+    CLEANLY — never masquerading as a fallback, and never reaching the top as a
+    raw item error (which ``die`` would treat as an internal BUG, exit 70).
+
+    A tripped breaker (``CircuitOpenTransport``) becomes a ``SetupFault``: the wire
+    is down, rerun later. Being a ``SetupFault`` rather than an ``ItemError``, it
+    flows through every per-file ``except ItemError`` untouched — so no verb grinds
+    the rest of the corpus as per-file skips — and lands at the single exit-code
+    site as SETUP (2); a read-phase stop has produced nothing, so the manifest is
+    abandoned, not finalized. Belt exhaustion (``UnsentError``) re-raises AS ITSELF,
+    preserving the belt-stop machinery's partial/salvage exit semantics (its
+    consumer catches it; only the raw-crash escape is closed at ``die``)."""
+    if isinstance(fault, CircuitOpenTransport):
+        raise SetupFault(
+            f"the OCR wire is rate-limited and its circuit opened — stopping at {where}; "
+            "rerun later to resume (already-extracted work is kept)"
+        ) from fault
+    raise fault
+
+
 async def ocr_parse_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item] | None:
     """The named file through the configured parser — ``None`` means "not
     OCR's case, or the parse failed (disclosed)": the caller falls back to
@@ -405,7 +428,7 @@ async def ocr_parse_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item]
     except ItemError as exc:
         note = ocr_fallback_note(exc, where=name)
         if note is None:
-            raise
+            raise_ocr_wire_stop(exc, where=name)
         diagnostics.warn(note)
         return None
 
@@ -883,7 +906,7 @@ async def _ocr_stdin_document(payload: _StdinDocument, ocr: OcrIngest) -> list[I
     except ItemError as exc:
         note = ocr_fallback_note(exc, where="<stdin>")
         if note is None:
-            raise
+            raise_ocr_wire_stop(exc, where="<stdin>")
         diagnostics.warn(note)
         return None
     payload.cleanup()
@@ -921,7 +944,7 @@ async def _ocr_stdin_image(payload: ImageData, ocr: OcrIngest) -> Item | None:
     except ItemError as exc:
         note = ocr_fallback_note(exc, where="<stdin>")
         if note is None:
-            raise
+            raise_ocr_wire_stop(exc, where="<stdin>")
         diagnostics.warn(note)
         return None
     ocr.log.note("<stdin>", "document → markdown", f"parsed by {parser.ref}")

@@ -525,26 +525,31 @@ async def test_by_pages_rate_limit_degrades_with_the_honest_reason(
     assert "ocr failed" not in err and "429" not in err
 
 
-async def test_by_pages_systemic_breaker_is_not_masqueraded_as_a_fallback(
+async def test_by_pages_systemic_breaker_stops_the_run_without_grinding_the_corpus(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A5.1: when the run-scoped breaker concludes the OCR wire is down, the fault
-    is NOT relabeled as a per-file fallback: no 'falling back' line, no degraded
-    local garbage, and the run stops (every source failed, exit 3)."""
-    from smartpipe.core.errors import CircuitOpenTransport
+    """A5.1 (completion): a run-scoped breaker verdict SHORT-CIRCUITS the whole
+    ``--by pages`` run — it is converted to a SETUP fault that flows past the
+    per-file ``except ItemError``, so the verb stops at the FIRST file instead of
+    grinding every remaining PDF into a bogus per-file skip. No fallback line, no
+    local garbage, and the second PDF is never even opened."""
+    from smartpipe.core.errors import CircuitOpenTransport, SetupFault
     from smartpipe.io.inputs import InputSpec
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "r.pdf").write_bytes(minimal_pdf(["alpha page", "beta page"]))
+    (tmp_path / "a.pdf").write_bytes(minimal_pdf(["alpha page", "beta page"]))
+    (tmp_path / "b.pdf").write_bytes(minimal_pdf(["gamma page", "delta page"]))
     out = io.StringIO()
-    code = await run_split(
-        SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),
-        _OcrContext(RaisingParser(CircuitOpenTransport("ocr wire down", trip_id=1))),
-        stdin=_TtyStdin(),
-        stdout=out,
-    )
-    assert code is ExitCode.ALL_FAILED  # the run stops with the truth
+    parser = RaisingParser(CircuitOpenTransport("ocr wire down", trip_id=1))
+    with pytest.raises(SetupFault, match="circuit opened"):
+        await run_split(
+            SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),
+            _OcrContext(parser),
+            stdin=_TtyStdin(),
+            stdout=out,
+        )
     assert out.getvalue() == ""  # it did NOT degrade to local garbage
+    assert len(parser.pdf_calls) == 1  # stopped at the first file; b.pdf never opened
     err = capsys.readouterr().err
     assert "falling back" not in err  # never masquerades as a per-file fallback
-    assert "skipped: r.pdf" in err  # the file is dropped and counted, not degraded
+    assert "skipped:" not in err  # NOT ground into per-file skips — it stops cleanly

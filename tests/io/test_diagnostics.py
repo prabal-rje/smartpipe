@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from smartpipe.core.errors import SetupFault, TooManyFailures, UsageFault
+from smartpipe.core.errors import SetupFault, TooManyFailures, UnsentError, UsageFault
 from smartpipe.io import diagnostics
 
 
@@ -48,6 +48,20 @@ def test_die_too_many_failures_exits_3(capsys: pytest.CaptureFixture[str]) -> No
         diagnostics.die(fault)
     assert _exit_code(excinfo) == 3
     assert "61 of 100" in capsys.readouterr().err
+
+
+def test_die_read_phase_belt_exhaustion_exits_3_not_bug(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A5.1: a page belt (--max-calls) exhausted mid-read escapes a whole-set verb
+    as a raw UnsentError; die maps it to ALL_FAILED (3) with the belt truth, never
+    the BUG screen (70) a stray item error would otherwise get."""
+    with pytest.raises(SystemExit) as excinfo:
+        diagnostics.die(UnsentError("stopped by --max-calls (0 OCR pages processed)"))
+    assert _exit_code(excinfo) == 3
+    err = capsys.readouterr().err
+    assert "stopped by --max-calls" in err
+    assert "bug in smartpipe" not in err  # not the internal-error screen
 
 
 def test_die_with_debug_appends_traceback(capsys: pytest.CaptureFixture[str]) -> None:

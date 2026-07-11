@@ -104,11 +104,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   "falling back to local extraction" path is now two-tier: an isolated file whose
   429 retry ladder exhausted still degrades to local extraction, but with an honest
   `ocr rate-limited: <file>` (the raw wire body is no longer dumped). A SYSTEMIC
-  availability fault never masquerades as a fallback: when the breaker concludes the
-  OCR wire is down, or the page belt is exhausted, the fault propagates and the run
-  stops with the truth (A1's salvage keeps what was already extracted). A pilot run
-  degraded a whole scanned corpus to near-garbage local text under a sustained rate
-  limit, and reported belt exhaustion mid-read as "ocr failed … falling back".
+  availability fault never masquerades as a fallback — and never crashes as an
+  internal bug: when the breaker concludes the OCR wire is down, the run stops at
+  SETUP (exit 2) with the truth ("rate-limited … rerun later"), converted to a
+  setup fault that flows cleanly past every per-file handler so no verb grinds the
+  rest of the corpus into bogus skips; a page belt exhausted mid-read stops
+  ALL_FAILED (exit 3) with the belt truth rather than the internal-error screen a
+  stray item error would trigger. A pilot run degraded a whole scanned corpus to
+  near-garbage local text under a sustained rate limit, and reported belt
+  exhaustion mid-read as "ocr failed … falling back".
 
 ## [1.5.1] — 2026-07-10
 
