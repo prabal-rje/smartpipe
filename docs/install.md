@@ -20,7 +20,7 @@ otherwise it sets up [uv](https://docs.astral.sh/uv) and runs
 `uv tool install smartpipe-cli`. Either way it ends by checking
 `smartpipe --version`, and it tells you exactly which commands it runs.
 To pin a version, set `SMARTPIPE_VERSION` first (uv installs only):
-`SMARTPIPE_VERSION=1.5.0`. Rerunning the one-liner on a machine that already
+`SMARTPIPE_VERSION=1.5.1`. Rerunning the one-liner on a machine that already
 has smartpipe is safe - it upgrades the existing install (Homebrew or uv)
 instead of failing.
 

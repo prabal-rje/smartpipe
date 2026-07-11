@@ -62,7 +62,7 @@ _SCREENS: dict[str, str] = {
     "cloud_model_missing": screens.cloud_model_missing("gpt-4o-mini-typo", "api.openai.com"),
     "schema_rejected": screens.schema_rejected("api.openai.com", "missing required property"),
     "provider_down": screens.provider_down("ollama", 5),
-    "update_available": screens.update_available("1.5.0", "1.4.0"),
+    "update_available": screens.update_available("1.5.1", "1.5.0"),
     "update_plan": screens.update_plan("uv tool", "uv tool upgrade smartpipe-cli", "1.4.0"),
     "update_done": screens.update_done("uv tool upgrade smartpipe-cli"),
     "update_failed": screens.update_failed("uv tool upgrade smartpipe-cli", 1),

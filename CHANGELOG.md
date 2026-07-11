@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-07-10
+
 ### Fixed
 - **The audit boundaries now fail closed.** `--local-only` accepts only
   canonical loopback endpoints and ignores ambient proxy settings, so model
@@ -25,6 +27,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   succeeded/skipped/failed subset laws without inflating one document into
   many sources. Empty OCR, empty valid inputs, all-skipped runs, and partial
   whole-set results have explicit tested outcomes.
+- **Concurrent cache misses are single-flight per request.** Repeated identical
+  items in one run now share one model result instead of racing multiple
+  packed answers into the same cache key; an all-hit rerun is byte-identical,
+  and cancelling one waiter cannot cancel the shared fill.
+- **Strict time-bin summaries validate the source field.** A `.sem` stage using
+  `summarize 'count() by bin(ts, 1h)'` no longer emits correct rows and then
+  faults because the generated `ts_bin` output alias was absent from its
+  inputs.
 
 ### Changed
 - **One run-scoped policy now owns outbound behavior.** Chat, embeddings,
