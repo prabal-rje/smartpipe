@@ -253,7 +253,9 @@ async def test_all_blank_ocr_pdf_pages_fall_back_to_local_extraction(
     def local_extract(_path: Path, _kind: FileKind) -> Extracted:
         return Extracted("LOCAL TEXT")
 
-    def no_figures(_path: Path, _kind: FileKind, _text: str) -> tuple[ImageData, ...]:
+    def no_figures(
+        _path: Path, _kind: FileKind, _text: str, _census: readers.FigureCensus
+    ) -> tuple[ImageData, ...]:
         return ()
 
     monkeypatch.setattr(readers, "extract", local_extract)

@@ -73,6 +73,72 @@ def test_real_text_keeps_the_plainfigure_note() -> None:
     assert "scanned" not in note
 
 
+async def test_figure_census_rolls_up_a_large_run(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """B4: one ``note:`` per figure-bearing file drowns a big corpus. The first
+    few announce verbatim (a small run is unchanged), then a single rollup closes
+    the run instead of 50 near-identical lines."""
+    from pathlib import Path
+
+    from smartpipe.io import readers
+    from smartpipe.models.base import ImageData
+    from smartpipe.parsing import extract as extract_mod
+    from smartpipe.parsing.extract import EmbeddedImage, EmbeddedMedia, Extracted
+
+    assert isinstance(tmp_path, Path)
+    for i in range(50):
+        (tmp_path / f"doc{i:02d}.pdf").write_bytes(b"%PDF-1.4 tiny")
+
+    def fake_extract(path: object, kind: object) -> Extracted:
+        return Extracted(text="a genuine text layer " * 5)  # >64 chars: the plain branch
+
+    def fake_embedded(path: object) -> EmbeddedMedia:
+        img = ImageData(data=b"\x89PNGpayload", mime="image/png")
+        return EmbeddedMedia(images=(EmbeddedImage(image=img, where="p.1 img.1"),), dropped_small=0)
+
+    monkeypatch.setattr(readers, "extract", fake_extract)
+    monkeypatch.setattr(extract_mod, "embedded_images", fake_embedded)
+
+    items = readers.file_items(sorted(tmp_path.glob("*.pdf")))
+    assert len(items) == 50 and all(item.media for item in items)  # every figure still attached
+    err = capsys.readouterr().err
+    verbatim = [line for line in err.splitlines() if line.endswith("figure attached")]
+    assert len(verbatim) == 5  # _FIGURE_NOTE_CAP: first N verbatim, then suppressed
+    assert err.count("more figure notes follow") == 1  # exactly one suppression line
+    assert "note: figures attached: 50 files · 50 figures" in err  # the single rollup
+
+
+async def test_figure_census_small_run_is_unchanged(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A handful of files still print one verbatim note apiece and NO rollup."""
+    from pathlib import Path
+
+    from smartpipe.io import readers
+    from smartpipe.models.base import ImageData
+    from smartpipe.parsing import extract as extract_mod
+    from smartpipe.parsing.extract import EmbeddedImage, EmbeddedMedia, Extracted
+
+    assert isinstance(tmp_path, Path)
+    for i in range(3):
+        (tmp_path / f"doc{i}.pdf").write_bytes(b"%PDF-1.4 tiny")
+
+    def fake_extract(path: object, kind: object) -> Extracted:
+        return Extracted(text="a genuine text layer " * 5)
+
+    def fake_embedded(path: object) -> EmbeddedMedia:
+        img = ImageData(data=b"\x89PNGx", mime="image/png")
+        return EmbeddedMedia(images=(EmbeddedImage(image=img, where="p.1 img.1"),), dropped_small=0)
+
+    monkeypatch.setattr(readers, "extract", fake_extract)
+    monkeypatch.setattr(extract_mod, "embedded_images", fake_embedded)
+    readers.file_items(sorted(tmp_path.glob("*.pdf")))
+    err = capsys.readouterr().err
+    assert err.count("figure attached") == 3  # one verbatim note per file
+    assert "figures attached:" not in err  # no rollup for a small run
+
+
 # --- the kind census (wave 2, item 20) ---------------------------------------------
 
 

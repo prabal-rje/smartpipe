@@ -88,11 +88,14 @@ _DEGRADE_CAP = 5  # per conversion kind: first rows verbatim, then the rollup
 
 
 class DegradationLog:
-    """Per-run ledger of poor-man's conversions (D27): every degraded row is
-    announced (capped per kind), and one rollup line closes the run."""
+    """Per-run ledger of poor-man's conversions (D27) and per-item skips (B4):
+    every degraded row and every skip is announced (capped per kind/reason), and
+    one rollup line per bucket closes the run — so a corpus of identical outcomes
+    stops repeating one absolute-path line apiece."""
 
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
+        self.skips: dict[str, int] = {}
 
     def note(self, where: str, kind: str, detail: str) -> None:
         count = self.counts.get(kind, 0) + 1
@@ -102,12 +105,39 @@ class DegradationLog:
         elif count == _DEGRADE_CAP + 1:
             warn(f"more {kind} rows follow (suppressed; the rollup lands at the end)")
 
+    def skip(self, where: str, reason: str) -> None:
+        """Bucket a per-item skip the way ``note`` buckets a degrade: the first
+        ``_DEGRADE_CAP`` per reason PREFIX print verbatim (full reason kept), then
+        one suppression line, then ``finish`` rolls the rest up. Keying on the
+        prefix (the human phrase before any echoed instance) collapses a run of
+        identical failures that differ only in the blob or the source path (B4)."""
+        key = _reason_key(reason)
+        count = self.skips.get(key, 0) + 1
+        self.skips[key] = count
+        if count <= _DEGRADE_CAP:
+            warn(f"skipped: {where} ({reason})")
+        elif count == _DEGRADE_CAP + 1:
+            warn(f"more {key} skips follow (suppressed; the rollup lands at the end)")
+
     def finish(self) -> None:
-        if not self.counts:
-            return
-        ranked = sorted(self.counts.items(), key=lambda pair: -pair[1])
-        marks = " · ".join(f"{kind} ×{count:,}" for kind, count in ranked)  # noqa: RUF001 — the pinned rollup mark
-        note(f"degraded: {marks}")
+        _rollup("degraded", self.counts)
+        _rollup("skipped", self.skips)
+
+
+def _reason_key(reason: str) -> str:
+    """The stable head of a skip reason — the human phrase before any echoed
+    instance/data (split at the first colon), so identical failures bucket
+    together regardless of the blob that follows."""
+    head = reason.split(":", 1)[0].strip()
+    return head or reason.strip()
+
+
+def _rollup(label: str, counts: dict[str, int]) -> None:
+    if not counts:
+        return
+    ranked = sorted(counts.items(), key=lambda pair: -pair[1])
+    marks = " · ".join(f"{name} ×{count:,}" for name, count in ranked)  # noqa: RUF001 — the pinned rollup mark
+    note(f"{label}: {marks}")
 
 
 def report_error(screen: str) -> None:

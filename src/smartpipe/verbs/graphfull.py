@@ -247,7 +247,7 @@ async def run_full(
         try:
             made = await _chunk_item(item)
         except ItemError as exc:
-            diagnostics.warn(f"skipped: {describe_source(item.source)} ({exc})")
+            log.skip(describe_source(item.source), str(exc))  # B4: bucketed, not one line/chunk
             failed_sources.add(owner)
             continue
         if not made:
@@ -257,6 +257,7 @@ async def run_full(
         chunks.extend(made)
         chunk_owners.extend([owner] * len(made))
     if not chunks:
+        log.finish()  # flush any chunk-skip rollup (B4) — no extraction phase to do it
         source_counts = _source_counts(items, succeeded=empty_sources, failed=failed_sources)
         return outcome_exit_code(
             done=len(empty_sources),
@@ -292,6 +293,7 @@ async def run_full(
             from smartpipe.io import manifest
 
             manifest.abandon()
+            log.finish()  # flush any chunk-skip rollup (B4) before the declined-plan exit
             return ExitCode.OK  # declined at the plan: nothing spent
 
     async def worker(chunk: Item) -> tuple[Item, str | Mapping[str, object]]:
@@ -329,7 +331,7 @@ async def run_full(
                 done += 1
                 completed_chunks[owner] = completed_chunks.get(owner, 0) + 1
             else:  # Skipped — the union has no third case
-                diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
+                log.skip(describe_source(outcome.source), outcome.reason)  # B4: bucketed
                 chunk_skipped += 1
                 if outcome.failed:
                     failed_sources.add(owner)
@@ -654,9 +656,7 @@ async def run_hybrid(
                     named[edge.source, edge.target] = relation
                 else:  # Skipped — that edge keeps co-occurs, nothing lost
                     naming_skips += 1
-                    diagnostics.warn(
-                        f"skipped: {describe_source(outcome.source)} ({outcome.reason})"
-                    )
+                    log.skip(describe_source(outcome.source), outcome.reason)  # B4: bucketed
                 name_bar.advance()
         except TooManyFailures:
             # the naming model failed the schema on too many edges. Unlike full

@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from smartpipe.models.ocr import DocumentParser, OcrPage
 
 __all__ = [
+    "FigureCensus",
     "OcrIngest",
     "ensure_not_a_tty",
     "figure_note",
@@ -237,6 +238,7 @@ async def _stream_path_items(
     row-at-a-time (a 10 GB export must not materialize); every other file
     loads exactly as ``_path_items`` would."""
     warned_extras: set[str] = set()
+    census = FigureCensus()
     ordinal = 0
     for path in paths:
         if stop is not None and stop.is_set():
@@ -249,10 +251,11 @@ async def _stream_path_items(
             for row in _text_rows(path, mode, stop=stop):
                 yield row
         else:
-            item = _load_file(path, ordinal, warned_extras)
+            item = _load_file(path, ordinal, warned_extras, census)
             if item is not None:
                 yield item
                 ordinal += 1
+    census.finish()  # roll up the figure notes once the file loop is done (B4)
     if stdin is not None:
         _note_stdin_transition()
         async for item in stdin_items(
@@ -443,6 +446,7 @@ async def _ocr_path_items(
     """Path ingestion with the ocr-model set: PDF/image crates parse through
     the role (one item per page); everything else loads exactly as before."""
     warned_extras: set[str] = set()
+    census = FigureCensus()
     ordinal = 0
     for path in paths:
         if stop is not None and stop.is_set():
@@ -458,7 +462,7 @@ async def _ocr_path_items(
             continue
         parsed = await ocr_parse_file(path, ordinal, ocr)
         if parsed is None:
-            item = _load_file(path, ordinal, warned_extras)
+            item = _load_file(path, ordinal, warned_extras, census)
             if item is not None:
                 yield item
                 ordinal += 1
@@ -466,6 +470,7 @@ async def _ocr_path_items(
         for item in parsed:
             yield item
         ordinal += 1
+    census.finish()  # roll up the figure notes once the file loop is done (B4)
     if stdin is not None:
         _note_stdin_transition()
         async for item in stdin_items(stdin, stop=stop, as_mode=as_mode, ocr=ocr):
@@ -1086,16 +1091,18 @@ def _path_items(paths: Sequence[Path], as_mode: str | None) -> list[Item]:
     routes any csv-bearing run through the streaming path instead."""
     items: list[Item] = []
     warned_extras: set[str] = set()
+    census = FigureCensus()
     ordinal = 0
     for path in paths:
         mode = as_mode or _default_mode(path)
         if mode == "file":
-            item = _load_file(path, ordinal, warned_extras)
+            item = _load_file(path, ordinal, warned_extras, census)
             if item is not None:
                 items.append(item)
                 ordinal += 1
             continue
         items.extend(_text_rows(path, mode))
+    census.finish()  # roll up the figure notes once the file loop is done (B4)
     return items
 
 
@@ -1165,6 +1172,7 @@ async def from_files_items(
     from smartpipe.io import manifest
 
     warned_extras: set[str] = set()
+    census = FigureCensus()
     index = 0
     async for line in _lines(stdin, stop):
         name = line.strip()
@@ -1188,7 +1196,7 @@ async def from_files_items(
                         yield item
                     index += 1
                     continue
-            item = _load_file(path, index, warned_extras)
+            item = _load_file(path, index, warned_extras, census)
             if item is not None:
                 yield item
                 index += 1
@@ -1196,6 +1204,7 @@ async def from_files_items(
         for row in _text_rows(path, mode, stop=stop):
             yield row
             index += 1
+    census.finish()  # roll up the figure notes once the filename stream is done (B4)
 
 
 async def read_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
@@ -1225,7 +1234,8 @@ async def read_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
             return parsed
 
     if route(kind) != "text":
-        loaded = _load_file(path, 0, set())
+        # one right-side file never floods; a fresh census announces it verbatim
+        loaded = _load_file(path, 0, set(), FigureCensus())
         return [] if loaded is None else [loaded]
 
     try:
@@ -1251,15 +1261,19 @@ def file_items(paths: Sequence[Path]) -> list[Item]:
     """Each file is one item. Unreadable, unparseable, or missing-dependency files
     are skipped with a warning (spec §6.3) — the run never crashes on a bad file."""
     warned_extras: set[str] = set()
+    census = FigureCensus()
     items: list[Item] = []
     for index, path in enumerate(paths):
-        item = _load_file(path, index, warned_extras)
+        item = _load_file(path, index, warned_extras, census)
         if item is not None:
             items.append(item)
+    census.finish()  # roll up the figure notes once the file loop is done (B4)
     return items
 
 
-def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
+def _load_file(
+    path: Path, index: int, warned_extras: set[str], census: FigureCensus
+) -> Item | None:
     try:
         with path.open("rb") as handle:
             head = handle.read(_HEAD_BYTES)
@@ -1303,7 +1317,7 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
     item = item_from_file(extracted.text, str(path), index)
     if extracted.image is not None:
         return replace(item, media=(extracted.image,))  # map sends it to a vision model
-    figures = _document_figures(path, kind, extracted.text)
+    figures = _document_figures(path, kind, extracted.text, census)
     if figures:
         return replace(item, media=figures)
     return item
@@ -1311,16 +1325,49 @@ def _load_file(path: Path, index: int, warned_extras: set[str]) -> Item | None:
 
 _FIGURE_CAP = 8  # request-size and cost sanity per document item (D32)
 _FIGURE_KINDS = {FileKind.PDF, FileKind.DOCX, FileKind.PPTX, FileKind.XLSX}
+_FIGURE_NOTE_CAP = 5  # per-file figure notes shown verbatim before the rollup (B4)
 
 
 _THIN_TEXT = 64  # under this many chars, a figure-bearing document reads as a scan
 
 
-def _document_figures(path: Path, kind: FileKind, text: str) -> tuple[ImageData, ...]:
+class FigureCensus:
+    """Per-run ledger for the embedded-figure notes (B4). The first
+    ``_FIGURE_NOTE_CAP`` figure-bearing files announce verbatim (so a small run is
+    byte-identical to before), then one suppression line, then ``finish`` rolls
+    the rest into a single tally — a 200-file corpus stops printing 200
+    near-identical ``note:`` lines. Mirrors ``DegradationLog``'s first-N-then-
+    rollup shape; the aggregate wording differs because figures tally files."""
+
+    def __init__(self) -> None:
+        self.files = 0
+        self.figures = 0
+        self.capped = 0
+
+    def record(self, message: str, *, kept: int, capped: int) -> None:
+        self.files += 1
+        self.figures += kept
+        self.capped += capped
+        if self.files <= _FIGURE_NOTE_CAP:
+            diagnostics.note(message)
+        elif self.files == _FIGURE_NOTE_CAP + 1:
+            diagnostics.note("more figure notes follow (suppressed; the rollup lands at the end)")
+
+    def finish(self) -> None:
+        if self.files <= _FIGURE_NOTE_CAP:
+            return  # a small run already announced each file verbatim — nothing to roll up
+        tail = f" ({self.capped:,} capped)" if self.capped else ""
+        diagnostics.note(f"figures attached: {self.files:,} files · {self.figures:,} figures{tail}")
+
+
+def _document_figures(
+    path: Path, kind: FileKind, text: str, census: FigureCensus
+) -> tuple[ImageData, ...]:
     """D32: a document item carries its embedded figures by default — capped,
-    icon-floored, announced once per file. D39/03: when the text layer is
-    THIN, the announcement says so — a scanned document routed to the vision
-    path must never look like silent emptiness."""
+    icon-floored, announced once per file (bucketed through ``census`` so a large
+    corpus rolls up — B4). D39/03: when the text layer is THIN, the announcement
+    says so — a scanned document routed to the vision path must never look like
+    silent emptiness."""
     if kind not in _FIGURE_KINDS:
         return ()
     from smartpipe.parsing.extract import MissingExtra, embedded_images
@@ -1334,7 +1381,11 @@ def _document_figures(path: Path, kind: FileKind, text: str) -> tuple[ImageData,
         return ()
     kept = media.images[:_FIGURE_CAP]
     capped = total - len(kept)
-    diagnostics.note(figure_note(path.name, len(text.strip()), len(kept), capped))
+    census.record(
+        figure_note(path.name, len(text.strip()), len(kept), capped),
+        kept=len(kept),
+        capped=capped,
+    )
     return tuple(found.image for found in kept)
 
 

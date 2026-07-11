@@ -80,23 +80,44 @@ async def test_401_names_the_key(respx_mock: respx.MockRouter) -> None:
 async def test_wire_error_is_an_item_error(respx_mock: respx.MockRouter) -> None:
     respx_mock.post(URL).mock(return_value=httpx.Response(422, text="bad document"))
     async with httpx.AsyncClient() as client:
-        with pytest.raises(ItemError, match="422"):
+        with pytest.raises(ItemError, match="422") as excinfo:
             await _parser(client).parse_image(ImageData(b"x", "image/png"))
+    # B4: keep the status, drop the raw wire body — a human reason, not a JSON dump.
+    assert "bad document" not in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
-    ("status", "fault"),
-    ((429, RetryableError), (503, TransportError)),
+    ("status", "fault", "reason"),
+    ((429, RetryableError, "rate limited"), (503, TransportError, "server error")),
 )
 async def test_exhausted_transient_faults_reach_shared_admission(
     respx_mock: respx.MockRouter,
     status: int,
     fault: type[ItemError],
+    reason: str,
 ) -> None:
     respx_mock.post(URL).mock(return_value=httpx.Response(status, text="try later"))
     async with httpx.AsyncClient() as client:
-        with pytest.raises(fault):
+        with pytest.raises(fault) as excinfo:
             await _parser(client).parse_image(ImageData(b"x", "image/png"))
+    # B4: the message renders the HUMAN reason, never the raw wire body.
+    message = str(excinfo.value)
+    assert reason in message and str(status) in message
+    assert "try later" not in message
+
+
+async def test_429_body_is_never_dumped_into_the_message(respx_mock: respx.MockRouter) -> None:
+    """B4: a 429 whose JSON body could be a paragraph of wire detail collapses to
+    the honest 'rate limited' — the body is dropped, the status kept."""
+    respx_mock.post(URL).mock(
+        return_value=httpx.Response(429, json={"detail": "quota_exhausted_marker_xyz"})
+    )
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RetryableError) as excinfo:
+            await _parser(client).parse_image(ImageData(b"x", "image/png"))
+    message = str(excinfo.value)
+    assert message == "ocr error 429: rate limited"
+    assert "quota_exhausted_marker_xyz" not in message
 
 
 async def test_unexpected_shape_is_an_item_error(respx_mock: respx.MockRouter) -> None:

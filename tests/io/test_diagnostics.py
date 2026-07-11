@@ -97,6 +97,46 @@ def test_internal_error_with_debug_shows_traceback(capsys: pytest.CaptureFixture
     assert "Rerun with --debug" not in err
 
 
+def test_degradation_log_buckets_repeated_skips(capsys: pytest.CaptureFixture[str]) -> None:
+    """B4: a flood of same-reason skips (one absolute-path line per chunk) collapses
+    to the first-N verbatim, one suppression line, then a rollup — the same shape
+    the degrade ledger uses, keyed by the reason PREFIX before the echoed instance."""
+    log = diagnostics.DegradationLog()
+    for i in range(8):
+        log.skip(f"corpus/chunk-{i}", f"output does not match the schema: instance {i}")
+    log.finish()
+    err = capsys.readouterr().err
+    verbatim = [line for line in err.splitlines() if line.startswith("⚠ skipped:")]
+    assert len(verbatim) == 5  # _DEGRADE_CAP: first N verbatim, keeping the full reason
+    # the verbatim line keeps the FULL reason (only the rollup collapses to the prefix)
+    assert verbatim[0] == "⚠ skipped: corpus/chunk-0 (output does not match the schema: instance 0)"
+    assert err.count("skips follow") == 1  # exactly one suppression line
+    assert "note: skipped: output does not match the schema ×8" in err  # the rollup  # noqa: RUF001
+
+
+def test_degradation_log_skip_rollup_ranks_reasons(capsys: pytest.CaptureFixture[str]) -> None:
+    """Distinct reason prefixes bucket independently and rank heaviest-first."""
+    log = diagnostics.DegradationLog()
+    for i in range(3):
+        log.skip(f"a-{i}", f"model did not return valid JSON: {i}")
+    for i in range(2):
+        log.skip(f"b-{i}", "the model named no relation")
+    log.finish()
+    err = capsys.readouterr().err
+    rollup = "note: skipped: model did not return valid JSON ×3 · the model named no relation ×2"  # noqa: RUF001
+    assert rollup in err
+
+
+def test_degradation_log_finish_still_rolls_up_degrades(capsys: pytest.CaptureFixture[str]) -> None:
+    """The existing degrade rollup is untouched by the new skip bucket."""
+    log = diagnostics.DegradationLog()
+    log.note("scan.pdf", "document → markdown", "parsed by mistral")
+    log.finish()
+    err = capsys.readouterr().err
+    assert "note: degraded: document → markdown ×1" in err  # noqa: RUF001 — the pinned rollup mark
+    assert "skipped:" not in err  # no skips this run
+
+
 def test_error_prefix_is_red_only_on_tty(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

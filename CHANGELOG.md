@@ -55,6 +55,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   thinking it had hung. `graph`'s projected-grind note now keys its "(progress
   below; Ctrl-C is safe)" clause on whether the bar is actually animating, so a
   fully-piped run (no bar) no longer promises progress it won't display.
+- **Note floods no longer bury the load-bearing lines.** Three high-volume
+  diagnostics now collapse the way the degrade ledger already does - the first few
+  print verbatim, then one rollup closes the run. Embedded-figure notes route
+  through a per-run `FigureCensus`, so a 200-file corpus ends with one
+  `figures attached: N files · M figures` line instead of N near-identical `note:`
+  lines (a small run is unchanged). `graph`'s per-chunk skip warnings bucket
+  through the run's `DegradationLog` keyed by the reason prefix, so a run of
+  identical schema failures rolls up to `skipped: <reason> ×N` instead of
+  repeating one absolute-path line per chunk. The schema-mismatch message now
+  truncates the echoed model reply (~160 chars) while keeping the pinned
+  "does not match the schema" phrasing and jsonschema's own reason. And the OCR
+  wire's 429/5xx errors render a human reason ("rate limited" / "server error")
+  with the status code, never the raw JSON wire body.
 - **`graph` honors `--fallback-model` - the failover was dead weight before.**
   Both paid modes (a focus prompt for extraction, `--name-top` for naming) now run
   on the composed resilient chat wire, so a provider-down primary trips the breaker

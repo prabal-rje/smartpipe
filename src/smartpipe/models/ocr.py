@@ -169,11 +169,14 @@ class MistralOcrParser:
                     "  Mistral document parsing uses MISTRAL_API_KEY — set it and retry\n"
                     "  (create one at console.mistral.ai), or unset ocr-model."
                 ) from exc
+            # B4: the message carries the HUMAN reason for the status, never the raw
+            # wire body — a 429/5xx JSON blob dumped verbatim buried the load-bearing
+            # lines. The status code stays; the body is dropped.
             if status == 429:
-                raise RetryableError(f"ocr error {status}: {exc.response.text[:200]}") from exc
+                raise RetryableError(f"ocr error {status}: rate limited") from exc
             if status >= 500:
-                raise TransportError(f"ocr error {status}: {exc.response.text[:200]}") from exc
-            raise ItemError(f"ocr error {status}: {exc.response.text[:200]}") from exc
+                raise TransportError(f"ocr error {status}: server error") from exc
+            raise ItemError(f"ocr error {status}: request rejected") from exc
         except httpx.HTTPError as exc:
             raise TransportError(f"ocr request failed ({exc})") from exc
         record = as_record(parsed)
