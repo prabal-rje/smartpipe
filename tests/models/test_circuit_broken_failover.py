@@ -15,6 +15,8 @@ means the replay routes to the backup with no caller branching.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable
 
 from smartpipe.core.errors import CircuitOpenTransport, TransportError
@@ -83,6 +85,51 @@ async def test_circuit_broken_reproduces_the_wholesale_switch_numbers() -> None:
         "ollama looks down (5 consecutive transport failures) — "
         "switching to openai/gpt-4o-mini for the rest of the run"
     ]
+
+
+async def test_concurrent_trips_announce_the_switch_only_once() -> None:
+    """Under concurrency, several in-flight primary calls can each reach the trip
+    in the SAME window (each captured ``on_fallback=False`` before the swap). The
+    pinned "switching to …" line must fire exactly once — not once per tripped
+    call. The old ``run_ordered`` set ``failover_pending = None`` after its single
+    ``await switch()``, so the hook ran once; the decorator must match that."""
+    breaker = Breaker(limit=2)
+    notices: list[str] = []
+    arrivals = 0
+    release = asyncio.Event()
+
+    async def primary() -> str:
+        nonlocal arrivals
+        arrivals += 1
+        await release.wait()  # hold every call in flight until they all arrive
+        raise TransportError("primary down")
+
+    async def backup() -> str:
+        return "B"
+
+    guarded = circuit_broken(
+        breaker,
+        ref=PRIMARY,
+        fallback_factory=_ready(backup),
+        fallback_ref=BACKUP,
+        announce=notices.append,
+    )(primary)
+
+    async def call() -> None:
+        # the trip / a sacrificial pre-trip failure — the runner replays
+        with contextlib.suppress(CircuitOpenTransport, TransportError):
+            await guarded()
+
+    tasks = [asyncio.create_task(call()) for _ in range(4)]
+    while arrivals < 4:  # let all four park in flight before any of them fails
+        await asyncio.sleep(0)
+    release.set()  # now they fail together; streaks 2/3/4 each reach the limit
+    await asyncio.gather(*tasks)
+
+    assert notices == [
+        "ollama looks down (2 consecutive transport failures) — "
+        "switching to openai/gpt-4o-mini for the rest of the run"
+    ]  # ONE announce, not one per concurrently-tripped call
 
 
 async def test_circuit_broken_honest_death_when_the_backup_is_also_down() -> None:

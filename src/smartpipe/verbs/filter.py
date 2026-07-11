@@ -151,6 +151,11 @@ async def run_filter(
     async def worker(item: Item) -> tuple[Item, bool]:
         # `model` is the resilient stack; the breaker routes to the fallback
         # underneath it, so the worker calls one plain model and never swaps.
+        # Capture the ANSWERING ref at entry (mirrors the old `current = slot.current`):
+        # after a swap the oversize gate must size for the fallback's window, and the
+        # receipt must count under the wire that answers — not the dead primary.
+        answering = wired.answering_ref()
+
         async def judge_chunk(chunk: str) -> bool:
             return await _judge(
                 model, tokens, replace(item, text=chunk), log, converter, whole=False
@@ -159,9 +164,9 @@ async def run_filter(
         over = await gate.budget_for_oversized(
             item.text,
             item.media,
-            provider=model.ref.provider,
-            model_name=model.ref.name,
-            window=partial(context.context_window, model.ref),
+            provider=answering.provider,
+            model_name=answering.name,
+            window=partial(context.context_window, answering),
         )
         if over is None:
             try:
@@ -204,7 +209,7 @@ async def run_filter(
                     where=describe_source(item.source),
                     estimate=over.estimate,
                 )
-        wired.tally()  # count the answer under the model that answered it (item 11)
+        wired.tally(answering)  # count under the wire captured at entry (item 11)
         return item, matched
 
     policy = context.failure_policy(model.ref.provider)

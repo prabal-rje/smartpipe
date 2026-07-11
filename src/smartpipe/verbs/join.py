@@ -235,6 +235,9 @@ async def run_join(
     async def worker(item: Item) -> tuple[Item, tuple[tuple[int, float], ...]]:
         # `chat` is the resilient stack; the breaker routes to the fallback
         # underneath it, so the worker calls one plain model and never swaps.
+        # Capture the ANSWERING ref at entry (mirrors the old `current = slot.current`)
+        # so the receipt counts under the wire that answers, not the dead primary.
+        answering = wired.answering_ref()
         block: list[int] | None = None
         if on_pairs is not None and right_blocks is not None:
             key = _key_of(item, tuple(left for left, _right in on_pairs))
@@ -255,7 +258,7 @@ async def run_join(
             stop=stop,
             block=block,
         )
-        wired.tally()  # count the answer under the model that answered it (item 11)
+        wired.tally(answering)  # count under the wire captured at entry (item 11)
         return item, matches
 
     policy = context.failure_policy(chat.ref.provider)

@@ -198,12 +198,16 @@ async def run_map(
     async def worker(item: Item) -> tuple[Item, str | Mapping[str, object]]:
         # `model` is the resilient stack; the breaker routes to the fallback
         # underneath it, so the worker calls one plain model and never swaps.
+        # Capture the ANSWERING ref at entry (mirrors the old `current = slot.current`):
+        # after a swap the oversize gate must size for the fallback's window, and the
+        # receipt must count under the wire that answers — not the dead primary.
+        answering = wired.answering_ref()
         over = await gate.budget_for_oversized(
             item.text,
             item.media,
-            provider=model.ref.provider,
-            model_name=model.ref.name,
-            window=partial(context.context_window, model.ref),
+            provider=answering.provider,
+            model_name=answering.name,
+            window=partial(context.context_window, answering),
         )
         if over is not None and request.whole:
             # --whole: the old D26 refusal — reproducibility beats handling
@@ -252,7 +256,7 @@ async def run_map(
                         keep_invalid=request.keep_invalid,
                         cause=exc,
                     )
-        wired.tally()  # count the answer under the model that answered it (item 11)
+        wired.tally(answering)  # count under the wire captured at entry (item 11)
         return item, result
 
     policy = context.failure_policy(model.ref.provider)

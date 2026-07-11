@@ -236,13 +236,19 @@ def circuit_broken(
                 tripped = breaker.record_transport_failure(target_ref, exc)
                 if tripped is None:
                     raise  # streak below the limit — re-raise the stamped fault
-                if not on_fb and fallback_factory is not None:
-                    # First trip on the primary: build the backup LAZILY, then swap
-                    # the shared route wholesale. An unusable fallback (missing key)
-                    # is noted and the run dies honestly — the backup is never called.
+                if not on_fb and fallback_factory is not None and not state.switched:
+                    # First trip on the primary: CLAIM the swap synchronously (so a
+                    # concurrent trip in the same window sees the claim and does NOT
+                    # re-announce — the pinned "switching to …" line fires once, as the
+                    # old run_ordered's single ``await switch()`` did), then build the
+                    # backup LAZILY and swap the shared route wholesale. An unusable
+                    # fallback (missing key) releases the claim, is noted, and the run
+                    # dies honestly — the backup is never called.
+                    state.switched = True  # claim before the await; a concurrent trip observes it
                     try:
                         fallback_target = await fallback_factory()
                     except SetupFault as unusable:
+                        state.switched = False  # release: nobody swapped, honest death
                         first = str(unusable).splitlines()[0].removeprefix("error: ")
                         note(f"fallback model unusable — {first}")
                         raise CircuitOpenTransport(
@@ -257,7 +263,6 @@ def circuit_broken(
                         f"switching to {fallback_ref} for the rest of the run"
                     )
                     state.on_fallback = True
-                    state.switched = True
                 raise CircuitOpenTransport(
                     tripped.message,
                     trip_id=tripped.trip_id,
@@ -460,9 +465,13 @@ class WiredChat:
             return self.fallback_ref
         return self.primary_ref
 
-    def tally(self) -> None:
-        """Count one answered item under the model that answered it (item 11)."""
-        label = str(self.answering_ref())
+    def tally(self, answering: ModelRef | None = None) -> None:
+        """Count one answered item under the model that answered it (item 11).
+
+        Pass the ref captured at worker ENTRY (mirroring the old ``slot.current``
+        capture) so a trip on another concurrent item mid-call cannot re-attribute
+        this answer to the wrong wire; omit it to read the route at tally time."""
+        label = str(answering if answering is not None else self.answering_ref())
         self._counts[label] = self._counts.get(label, 0) + 1
 
     def receipt(self) -> str:

@@ -665,6 +665,40 @@ async def test_failover_receipt_splits_counts_by_model(
     assert "answers: ollama/fake ×3 · openai/gpt-4o-mini ×3" in capsys.readouterr().err  # noqa: RUF001
 
 
+async def test_oversize_gate_keys_on_the_fallback_window_after_a_swap() -> None:
+    """After the breaker swaps, the oversize gate must size chunks for the model
+    that WILL answer (the fallback), not the dead primary — the old worker keyed
+    the gate on ``slot.current.ref``. Here a 128k-window primary (openai) fits a
+    ~30k-token item that the 8k-window fallback (ollama) does not: keying the
+    replayed item on the primary would size it for 128k and overflow the 8k
+    fallback. The context_window spy fires only when an item exceeds the STATIC
+    budget for the ref the gate is keyed on — so pre-swap primary items never
+    probe, and the fallback ref appears iff the replay keyed on the fallback."""
+    probed: list[ModelRef] = []
+
+    class SpyContext(FailoverContext):
+        async def context_window(self, ref: object) -> int | None:
+            assert isinstance(ref, ModelRef)
+            probed.append(ref)
+            return 10_000_000  # widen so the item ultimately fits — we assert the KEY, not chunking
+
+    primary = DownModel(replies=[])
+    primary.ref = ModelRef("openai", "gpt-4o")  # 128k static window: the big item fits, no probe
+    backup = FakeChat(replies=["B"])
+    backup.ref = ModelRef("ollama", "fake")  # 8k static window: the big item does NOT fit
+    context = SpyContext(primary, backup, breaker_limit=2)
+
+    big = "a" * 120_000  # ~30k tokens: over ollama's ~4.3k budget, under openai's ~76k
+    out = io.StringIO()
+    code = await run_map(
+        _request("x"), context, stdin=io.StringIO(f"{big}\n{big}\n{big}\n{big}\n"), stdout=out
+    )
+    assert code == ExitCode.OK
+    assert out.getvalue() == "B\n" * 4  # nothing lost: the window re-ran on the fallback
+    assert backup.ref in probed  # the replayed items sized for the FALLBACK's window
+    assert primary.ref not in probed  # the big item fit the primary's 128k window — never probed
+
+
 async def test_failover_on_a_dead_backup_dies_loudly(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
