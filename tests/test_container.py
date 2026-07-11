@@ -34,11 +34,11 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 def _wire(model: object) -> object:
     """The provider adapter under the default-on coalescer (item 62) — these
     construction tests assert the WIRE; the batching tests assert the wrapper."""
-    from smartpipe.models.admission import AdmittedChatModel
     from smartpipe.models.coalesce import CoalescingChatModel
+    from smartpipe.models.resilience import ResilientChatModel
 
     coalesced = model.inner if isinstance(model, CoalescingChatModel) else model
-    return coalesced.inner if isinstance(coalesced, AdmittedChatModel) else coalesced
+    return coalesced.inner if isinstance(coalesced, ResilientChatModel) else coalesced
 
 
 def _container(
@@ -742,11 +742,11 @@ def test_batching_size_env_is_validated_loudly(client: httpx.AsyncClient) -> Non
 
 
 async def test_coalescer_sits_inside_the_cache(client: httpx.AsyncClient) -> None:
-    # cache → coalescer → admission → wire: hits never enqueue; fan-out replies are cached
-    # per item in the same shape the solo path caches (item 62 §5)
-    from smartpipe.models.admission import AdmittedChatModel
+    # cache → coalescer → rate_limit+breaker → wire: hits never enqueue; fan-out replies
+    # are cached per item in the same shape the solo path caches (item 62 §5)
     from smartpipe.models.cache import CachingChatModel
     from smartpipe.models.coalesce import CoalescingChatModel
+    from smartpipe.models.resilience import ResilientChatModel
 
     container = _container(
         client,
@@ -756,19 +756,19 @@ async def test_coalescer_sits_inside_the_cache(client: httpx.AsyncClient) -> Non
     model = await container.chat_model()
     assert isinstance(model, CachingChatModel)
     assert isinstance(model.inner, CoalescingChatModel)
-    assert isinstance(model.inner.inner, AdmittedChatModel)
+    assert isinstance(model.inner.inner, ResilientChatModel)
     assert isinstance(model.inner.inner.inner, OllamaChatModel)
     assert container.coalescers == [model.inner]
 
 
 async def test_coalescer_absent_when_batching_off(client: httpx.AsyncClient) -> None:
-    from smartpipe.models.admission import AdmittedChatModel
+    from smartpipe.models.resilience import ResilientChatModel
 
     container = _container(
         client, env={"SMARTPIPE_BATCH": "off"}, config=Config(model="ollama/qwen3:8b")
     )
     model = await container.chat_model()
-    assert isinstance(model, AdmittedChatModel)
+    assert isinstance(model, ResilientChatModel)
     assert isinstance(model.inner, OllamaChatModel)
     assert container.coalescers == []
 

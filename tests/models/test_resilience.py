@@ -11,6 +11,8 @@ it re-expresses: ``retried`` ↔ the adapters' ``with_retries``; ``Breaker`` /
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 import pytest
 
@@ -22,10 +24,12 @@ from smartpipe.core.errors import (
     TransportError,
     UnsentError,
 )
-from smartpipe.models.base import ModelRef
+from smartpipe.models.admission import supports_deferred_chat
+from smartpipe.models.base import CompletionRequest, ModelRef
 from smartpipe.models.resilience import (
     Breaker,
     Cooldown,
+    ResilientChatModel,
     circuit_broken,
     rate_limited,
     retried,
@@ -38,6 +42,10 @@ BACKUP = ModelRef("openai", "gpt-4o-mini")
 
 async def _nosleep(_seconds: float) -> None:
     return None
+
+
+def _request(user: str = "hi") -> CompletionRequest:
+    return CompletionRequest(system=None, user=user)
 
 
 # --- retried ------------------------------------------------------------------
@@ -355,3 +363,119 @@ def test_cooldown_records_the_last_hint() -> None:
     assert cooldown.last_hint is None
     cooldown.penalize(2.0)
     assert cooldown.last_hint == 2.0
+
+
+# --- ResilientChatModel -------------------------------------------------------
+
+
+@dataclass(slots=True)
+class _ScriptedChat:
+    """A chat adapter whose ``complete`` runs an injected script per call."""
+
+    ref: ModelRef
+    script: Callable[[CompletionRequest], Awaitable[str]]
+
+    async def complete(self, request: CompletionRequest) -> str:
+        return await self.script(request)
+
+
+def _resilient(
+    chat: _ScriptedChat, *, breaker: Breaker, concurrency: int = 4
+) -> ResilientChatModel:
+    return ResilientChatModel(chat, breaker=breaker, concurrency=concurrency, cooldown=Cooldown())
+
+
+async def test_resilient_chat_is_a_deferred_chat_model() -> None:
+    async def ok(_request: CompletionRequest) -> str:
+        return "ok"
+
+    model = _resilient(_ScriptedChat(PRIMARY, ok), breaker=Breaker(limit=5))
+    # the coalescer nests OUTSIDE it precisely because it admits the deferred shape
+    assert supports_deferred_chat(model)
+    assert model.ref == PRIMARY
+
+
+async def test_resilient_chat_completes_both_entry_points() -> None:
+    async def echo(request: CompletionRequest) -> str:
+        return request.user.upper()
+
+    model = _resilient(_ScriptedChat(PRIMARY, echo), breaker=Breaker(limit=5))
+    assert await model.complete(_request("hi")) == "HI"
+    # the deferred twin builds its request only after admission, then completes
+    assert await model.complete_deferred(lambda: _request("yo")) == "YO"
+
+
+async def test_resilient_chat_deferred_none_is_the_lazy_cancellation_seam() -> None:
+    calls = 0
+
+    async def counted(_request: CompletionRequest) -> str:
+        nonlocal calls
+        calls += 1
+        return "sent"
+
+    model = _resilient(_ScriptedChat(PRIMARY, counted), breaker=Breaker(limit=5))
+    # a factory that yields None means every waiter cancelled — no adapter call
+    assert await model.complete_deferred(lambda: None) is None
+    assert calls == 0
+
+
+async def test_resilient_chat_shares_one_breaker_across_both_entry_points() -> None:
+    breaker = Breaker(limit=3)
+
+    async def down(_request: CompletionRequest) -> str:
+        raise TransportError("openai error 503")
+
+    model = _resilient(_ScriptedChat(PRIMARY, down), breaker=breaker)
+    # two solo failures, then a deferred failure trips at the shared limit of 3
+    with pytest.raises(TransportError):
+        await model.complete(_request())
+    with pytest.raises(TransportError):
+        await model.complete(_request())
+    with pytest.raises(CircuitOpenTransport) as tripped:
+        await model.complete_deferred(lambda: _request())
+    assert tripped.value.series_id is not None
+    assert tripped.value.call_id == 3  # one streak, three calls, however they arrived
+    # the circuit is open now: a fourth call is refused without touching the wire
+    with pytest.raises(CircuitOpenTransport):
+        await model.complete(_request())
+
+
+async def test_resilient_chat_bounds_concurrency_across_both_entry_points() -> None:
+    active = 0
+    peak = 0
+    release = asyncio.Event()
+    started = asyncio.Semaphore(0)
+
+    async def work(_request: CompletionRequest) -> str:
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        started.release()
+        try:
+            await release.wait()
+            return "done"
+        finally:
+            active -= 1
+
+    model = _resilient(_ScriptedChat(PRIMARY, work), breaker=Breaker(limit=5), concurrency=2)
+
+    async def solo() -> str:
+        return await model.complete(_request())
+
+    async def deferred() -> str | None:
+        return await model.complete_deferred(lambda: _request())
+
+    # a mix of both entry points must share ONE gate: at most two in flight
+    tasks = [
+        asyncio.create_task(solo()),
+        asyncio.create_task(deferred()),
+        asyncio.create_task(solo()),
+        asyncio.create_task(deferred()),
+    ]
+    for _ in range(2):
+        await started.acquire()
+    await asyncio.sleep(0)
+    assert peak == 2
+    release.set()
+    await asyncio.gather(*tasks)
+    assert peak == 2

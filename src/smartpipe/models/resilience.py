@@ -23,16 +23,18 @@ from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 from smartpipe.core.errors import CircuitOpenTransport, RetryableError, UnsentError
 from smartpipe.engine.runner import DEFAULT_BREAKER_LIMIT
+from smartpipe.models.base import preflight_chat
 from smartpipe.models.retry import RetryPolicy, with_retries
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from smartpipe.models.base import ModelRef
+    from smartpipe.models.base import ChatModel, CompletionRequest, ModelRef
 
 __all__ = [
     "Breaker",
     "Cooldown",
+    "ResilientChatModel",
     "circuit_broken",
     "rate_limited",
     "retried",
@@ -233,6 +235,83 @@ def circuit_broken(
     return decorate
 
 
+class ResilientChatModel:
+    """A chat model made resilient by COMPOSED combinators — the composition-root
+    replacement for ``AdmittedChatModel`` (``models/admission.py``).
+
+    It routes both entry points (the solo ``complete`` and the coalescer's lazy
+    ``complete_deferred``) through ONE shared ``rate_limited`` gate and ONE shared
+    ``circuit_broken`` breaker, so an exhausted retry ladder is a single per-ref
+    streak increment however the call arrived — and a coalesced flight of K waiters
+    behind one packed ``call_id`` still counts once. It implements the
+    ``DeferredChatModel`` shape structurally (``ref``/``complete``/
+    ``complete_deferred``) so the coalescer nests OUTSIDE it and never re-admits.
+
+    Stage 3 wires the breaker + concurrency gate only; the wholesale fallback swap
+    (retiring ``make_failover``) lands on the shared ``_Route`` in a later stage.
+    """
+
+    __slots__ = ("_complete", "_complete_deferred", "_inner")
+
+    # Declared so the composed-decorator types survive (``rate_limited``'s type
+    # parameters live only in its return, so pyright cannot re-infer them at the
+    # application site — the annotations pin what each entry point resolves to).
+    _inner: ChatModel
+    _complete: Callable[[CompletionRequest], Awaitable[str]]
+    _complete_deferred: Callable[[Callable[[], CompletionRequest | None]], Awaitable[str | None]]
+
+    def __init__(
+        self,
+        inner: ChatModel,
+        *,
+        breaker: Breaker,
+        concurrency: int,
+        cooldown: Cooldown,
+    ) -> None:
+        self._inner = inner
+        # ONE semaphore and ONE route shared by both entry points: the solo and
+        # deferred paths must count against the same concurrency budget and, once
+        # fallback lands, swap together.
+        semaphore = asyncio.Semaphore(concurrency)
+        route = _Route()
+
+        async def deferred(request: Callable[[], CompletionRequest | None]) -> str | None:
+            # Build the packed/solo request only after admission is granted, so a
+            # coalescer can drop cancelled waiters or honor a stop while it sat
+            # behind the gate — exactly ``AdmittedChatModel.complete_deferred``.
+            prepared = request()
+            if prepared is None:
+                return None
+            preflight_chat(inner, prepared)
+            return await inner.complete(prepared)
+
+        self._complete = rate_limited(
+            concurrency=concurrency, cooldown=cooldown, semaphore=semaphore
+        )(circuit_broken(breaker, ref=inner.ref, route=route)(inner.complete))
+        self._complete_deferred = rate_limited(
+            concurrency=concurrency, cooldown=cooldown, semaphore=semaphore
+        )(circuit_broken(breaker, ref=inner.ref, route=route)(deferred))
+
+    @property
+    def ref(self) -> ModelRef:
+        return self._inner.ref
+
+    @property
+    def inner(self) -> ChatModel:
+        """The wrapped (budget → adapter) chat model — the construction tests
+        peel the wire the same way they peel ``AdmittedChatModel.inner``."""
+        return self._inner
+
+    async def complete(self, request: CompletionRequest) -> str:
+        preflight_chat(self._inner, request)  # OUTSIDE the gate, like admission
+        return await self._complete(request)
+
+    async def complete_deferred(
+        self, request: Callable[[], CompletionRequest | None]
+    ) -> str | None:
+        return await self._complete_deferred(request)
+
+
 @dataclass(slots=True)
 class Cooldown:
     """A server-backoff seam the rate limiter carries for the A5.2 rung.
@@ -254,21 +333,25 @@ def rate_limited(
     concurrency: int,
     cooldown: Cooldown,
     retry_after: Callable[[BaseException], float | None] | None = None,
+    semaphore: asyncio.Semaphore | None = None,
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Bound the number of in-flight calls with a shared semaphore — the
     combinator that RE-EXPRESSES the concurrency half of ``admitted_chat``.
 
     ``retry_after`` (when a wire supplies a ``Retry-After`` hint) feeds the
     ``cooldown`` seam without gating yet; the semaphore is the live protection.
+    Inject ``semaphore`` to SHARE one gate across several decorated callables
+    (a chat model's ``complete`` and its deferred twin must count against the
+    same concurrency budget); omit it for an independent per-decorator gate.
     """
     if concurrency < 1:
         raise ValueError(f"call concurrency must be >= 1, got {concurrency}")
-    semaphore = asyncio.Semaphore(concurrency)
+    gate = asyncio.Semaphore(concurrency) if semaphore is None else semaphore
 
     def decorate(fn: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
         @wraps(fn)
         async def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
-            async with semaphore:
+            async with gate:
                 if retry_after is None:
                     return await fn(*args, **kwargs)
                 try:

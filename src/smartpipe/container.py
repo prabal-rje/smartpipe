@@ -116,12 +116,22 @@ class AppContainer:
 
     def _wrap_chat(self, model: ChatModel) -> ChatModel:
         wired = model if self.budget is None else budgeted_chat(model, self.budget)
-        from smartpipe.models.admission import admitted_chat
+        # The chat wire is made resilient by COMPOSED combinators at the root
+        # (the doctrine): the breaker + concurrency gate that ``OutboundCallPolicy``
+        # used to own are now a standalone ``Breaker`` and a ``rate_limited`` gate,
+        # stacked by ``ResilientChatModel``. Embed/OCR/STT keep ``admitted_*`` —
+        # this decomposition is chat-only (failover is a chat concern).
+        from smartpipe.models.resilience import Breaker, Cooldown, ResilientChatModel
 
-        wired = admitted_chat(wired, self.call_policy)
+        wired = ResilientChatModel(
+            wired,
+            breaker=Breaker(limit=self.call_policy.breaker_limit),
+            concurrency=self.call_policy.concurrency,
+            cooldown=Cooldown(),
+        )
         settings = self.batching()
         if settings is not None:
-            # cache → coalescer → admission → budget → adapter: hits never
+            # cache → coalescer → rate_limit+breaker → budget → adapter: hits never
             # enqueue, and one packed flight is one charged call (item 62 §5/§9)
             from smartpipe.models.coalesce import CoalescingChatModel
 
