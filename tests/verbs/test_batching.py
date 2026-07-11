@@ -251,6 +251,9 @@ async def test_batch_six_concurrency_one_makes_three_sequential_calls() -> None:
 
 
 async def test_batch_workers_fill_every_concurrent_api_call_slot() -> None:
+    concurrency = 3
+    all_slots_active = asyncio.Event()
+
     class PeakPacked(PackedCapable):
         def __init__(self) -> None:
             super().__init__(_extract)
@@ -260,14 +263,16 @@ async def test_batch_workers_fill_every_concurrent_api_call_slot() -> None:
         async def complete(self, request: CompletionRequest) -> str:
             self.active += 1
             self.peak = max(self.peak, self.active)
-            await asyncio.sleep(0.01)
+            if self.active == concurrency:
+                all_slots_active.set()
             try:
+                await asyncio.wait_for(all_slots_active.wait(), timeout=5.0)
                 return await super().complete(request)
             finally:
                 self.active -= 1
 
     inner = PeakPacked()
-    context = BatchContext(inner, size=6, concurrency=3, enabled=True)
+    context = BatchContext(inner, size=6, concurrency=concurrency, enabled=True)
     context.model = _wrap(inner, context)
     out = io.StringIO()
     request = MapRequest(
@@ -275,7 +280,7 @@ async def test_batch_workers_fill_every_concurrent_api_call_slot() -> None:
         schema_path=None,
         model_flag=None,
         output=OutputFormat.AUTO,
-        concurrency_flag=3,
+        concurrency_flag=concurrency,
     )
 
     code = await run_map(
@@ -287,7 +292,7 @@ async def test_batch_workers_fill_every_concurrent_api_call_slot() -> None:
 
     assert code == ExitCode.OK
     assert len(inner.calls) == 3
-    assert inner.peak == 3
+    assert inner.peak == concurrency
     assert len(out.getvalue().splitlines()) == 18
 
 
