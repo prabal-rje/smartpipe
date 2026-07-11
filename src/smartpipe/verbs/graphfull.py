@@ -19,7 +19,7 @@ import asyncio
 import sys
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ExitCode, ItemError, SourceCounts, UsageFault
+from smartpipe.core.errors import ExitCode, ItemError, SourceCounts, TooManyFailures, UsageFault
 from smartpipe.engine.graphkg import (
     EdgeAssertion,
     assertion_surface_counts,
@@ -222,6 +222,7 @@ async def run_full(
         failure_policy=context.failure_policy(model.ref.provider),
         stop=stop,
     )
+    halted: TooManyFailures | None = None
     try:
         outcome_position = 0
         async for outcome in outcomes:
@@ -238,6 +239,8 @@ async def run_full(
                 if outcome.failed:
                     failed_sources.add(owner)
             extract_bar.advance()
+    except TooManyFailures as exc:
+        halted = exc  # the failure policy tripped mid-extraction — salvage, then re-raise
     finally:
         extract_bar.finish()
         log.finish()
@@ -253,6 +256,14 @@ async def run_full(
     if request.save is not None:
         save_graph(request.save, nodes, kept, top=request.top)
 
+    ok_sources = empty_sources | {
+        owner
+        for owner, expected in expected_chunks.items()
+        if completed_chunks.get(owner, 0) == expected and owner not in failed_sources
+    }
+    skipped_sources = len(items) - len(ok_sources)
+    source_counts = _source_counts(items, succeeded=ok_sources, failed=failed_sources)
+
     belt_partial = budget is not None and budget.exhausted and done < len(chunks)
     if belt_partial:
         diagnostics.note(
@@ -263,13 +274,19 @@ async def run_full(
         f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
         f"{len(kept):,} edges · {receipt_tail()}"
     )
-    ok_sources = empty_sources | {
-        owner
-        for owner, expected in expected_chunks.items()
-        if completed_chunks.get(owner, 0) == expected and owner not in failed_sources
-    }
-    skipped_sources = len(items) - len(ok_sources)
-    source_counts = _source_counts(items, succeeded=ok_sources, failed=failed_sources)
+    if halted is not None:
+        # the failure policy tripped mid-extraction: the fold + write above
+        # SALVAGED every chunk that landed before it (run B lost 7 extractions and
+        # 943 paid OCR pages to this exact gap). Re-raise carrying the verb's
+        # FILE-unit counts — the runner halts on chunks, but the manifest accounts
+        # sources — so settled() finalizes ALL_FAILED on the same books a clean
+        # exit shows, with the salvaged edges already on stdout (ux.md exit-3 screen).
+        raise TooManyFailures(
+            halted.failed,
+            halted.total,
+            halted.last_reason,
+            source_counts=source_counts,
+        )
     if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
         diagnostics.interrupted_summary(processed=done, skipped=chunk_skipped)
         return interrupted_exit_code(
@@ -478,6 +495,7 @@ async def run_hybrid(
 
     named: dict[tuple[str, str], str] = {}
     naming_skips = 0
+    naming_halted = False
     if candidates:
         model = await context.chat_model(request.model_flag)
         plan = MapPlan("structured", _naming_schema(relations), MAP_JSON_SYSTEM)
@@ -516,6 +534,16 @@ async def run_hybrid(
                         f"skipped: {describe_source(outcome.source)} ({outcome.reason})"
                     )
                 name_bar.advance()
+        except TooManyFailures:
+            # the naming model failed the schema on too many edges. Unlike full
+            # mode, the FREE co-occurrence graph is already whole — only the
+            # enhancement stopped. Salvage it below (unnamed edges keep co-occurs)
+            # and exit PARTIAL: the sources all succeeded, so ALL_FAILED would lie.
+            naming_halted = True
+            diagnostics.note(
+                "naming stopped early — too many edges failed the schema; "
+                "the strongest remain co-occurs"
+            )
         finally:
             name_bar.finish()
             log.finish()
@@ -534,6 +562,13 @@ async def run_hybrid(
         f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
         f"{len(renamed):,} edges · {len(named):,} named · {receipt_tail()}"
     )
+    if naming_halted:  # the co-occurrence graph was salvaged above — partial, not fatal
+        return outcome_exit_code(
+            done=len(scan.gathered),
+            skipped=scan.skipped,
+            failed=scan.failed,
+            partial=True,
+        )
     if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
         diagnostics.interrupted_summary(processed=len(scan.gathered), skipped=scan.skipped)
         return interrupted_exit_code(

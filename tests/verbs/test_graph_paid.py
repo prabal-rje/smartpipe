@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.core.errors import ExitCode, SourceCounts, TooManyFailures, UsageFault
 from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io import manifest
 from smartpipe.models.base import ModelRef
@@ -61,6 +61,7 @@ class PaidContext:
     finder: FakeFinder
     embedder: FakeEmbedder
     concurrency_value: int = 1  # sequential: deterministic call order under test
+    halt_min_sample: int = 20  # lower it to trip the >50 % halt on a few chunks
     finder_labels: tuple[str, ...] = ()
     chat_resolutions: int = field(default=0)
 
@@ -87,6 +88,7 @@ class PaidContext:
         return FailurePolicy(
             transport_limit=5,
             transport_screen=screens.provider_down(provider, 5),
+            min_sample=self.halt_min_sample,
         )
 
 
@@ -252,6 +254,90 @@ async def test_full_mode_skips_invalid_replies_and_exits_partial(
     assert code is ExitCode.PARTIAL
     assert len(_edges(out)) == 1
     assert "skipped: line 2" in capsys.readouterr().err
+
+
+# --- A1: a fail-fast halt salvages what was already extracted ------------------------
+
+
+async def test_full_mode_halt_salvages_the_extracted_edges() -> None:
+    """The >50 % failure halt must still write the edges from the chunks that DID
+    succeed before it tripped — run B discarded 7 good extractions and 943 paid
+    OCR pages to this exact gap. The run still exits ALL_FAILED, not empty-handed."""
+    chat = FakeChat(
+        by_content={"Ann pays Bob": triples(("Ann", "pays", "Bob")), "junk": "not json"}
+    )
+    context = _context(chat)
+    context.halt_min_sample = 2  # trip the ratio on three chunks, not twenty
+    out = io.StringIO()
+    with pytest.raises(TooManyFailures) as excinfo:
+        await run_graph(
+            GraphRequest(focus="pays"),
+            context,
+            stdin=io.StringIO("Ann pays Bob\njunk one\njunk two\n"),
+            stdout=out,
+            stop=None,
+            clock=lambda: 0.0,
+            ask=None,
+            budget=None,
+        )
+    edges = _edges(out.getvalue())
+    assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in edges)  # salvaged
+    # file-unit accounting for the manifest: one good source, two failed
+    assert excinfo.value.source_counts == SourceCounts(succeeded=1, skipped=2, failed=2)
+
+
+async def test_full_mode_halt_reraises_file_unit_not_chunk_unit_counts() -> None:
+    """The halt's manifest denominator counts SOURCE FILES, not extraction chunks:
+    one over-split file that fails is one skipped source, never its chunk count."""
+    chat = FakeChat(
+        by_content={"Ann pays Bob": triples(("Ann", "pays", "Bob")), "static": "not json"}
+    )
+    context = _context(chat)
+    context.halt_min_sample = 2
+    big_junk = "static " * 1500  # ~2,600 est. tokens → two chunks, both invalid
+    out = io.StringIO()
+    with pytest.raises(TooManyFailures) as excinfo:
+        await run_graph(
+            GraphRequest(focus="pays"),
+            context,
+            stdin=io.StringIO(f"Ann pays Bob\n{big_junk}\n"),
+            stdout=out,
+            stop=None,
+            clock=lambda: 0.0,
+            ask=None,
+            budget=None,
+        )
+    # one good file + one failed (two-chunk) file: file-unit (1,1,1), NOT chunk (1,2,2)
+    assert excinfo.value.source_counts == SourceCounts(succeeded=1, skipped=1, failed=1)
+    assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in _edges(out.getvalue()))
+
+
+async def test_hybrid_naming_halt_keeps_the_co_occurrence_graph_and_exits_partial(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A naming fail-fast leaves the free co-occurrence graph fully intact, so the
+    run salvages it as co-occurs and exits PARTIAL — never ALL_FAILED: the sources
+    all succeeded, only the naming enhancement stopped early."""
+    chat = FakeChat(default='{"relation": ""}')  # every naming call names nothing → fails
+    context = _context(chat)
+    context.halt_min_sample = 2
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(focus="who", name_top=2),
+        context,
+        stdin=io.StringIO("Ann met Bob\nAnn met Bob\nAnn met Acme\n"),
+        stdout=out,
+        stop=None,
+        clock=lambda: 0.0,
+        ask=None,
+        budget=None,
+    )
+    assert code is ExitCode.PARTIAL
+    assert [(e["source"], e["target"], e["relation"]) for e in _edges(out.getvalue())] == [
+        ("Ann", "Bob", "co-occurs"),
+        ("Acme", "Ann", "co-occurs"),
+    ]
+    assert "naming stopped early" in capsys.readouterr().err
 
 
 # --- the pre-flight cost plan (pinned wordings, ledger 66f) --------------------------

@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Fixed
+- **A fail-fast halt no longer throws away everything already extracted.** When
+  the failure policy trips mid-extraction (too many chunks failed the schema),
+  `graph` full mode now folds and writes the edges it already has to stdout,
+  then exits ALL_FAILED (3) carrying that salvaged graph, instead of
+  propagating past the writer and leaving a 0-byte file. A pilot run lost 7
+  good extractions and 943 paid OCR pages to this exact gap. Hybrid mode
+  salvages too: the free co-occurrence graph is already whole, so a naming-model
+  collapse stops only the naming pass and exits PARTIAL (1) with the strongest
+  edges kept as co-occurs.
 - **A failed OCR upload no longer eats a later document's page belt.** The
   dedicated OCR wire reserves a document's full page count against
   `--max-calls` before uploading, so an over-belt PDF never uploads partially.
