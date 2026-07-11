@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from functools import wraps
 from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
-from smartpipe.core.errors import CircuitOpenTransport, RetryableError, UnsentError
+from smartpipe.core.errors import CircuitOpenTransport, RetryableError, SetupFault, UnsentError
 from smartpipe.engine.runner import DEFAULT_BREAKER_LIMIT
 from smartpipe.models.base import preflight_chat
 from smartpipe.models.retry import RetryPolicy, with_retries
@@ -35,6 +35,7 @@ __all__ = [
     "Breaker",
     "Cooldown",
     "ResilientChatModel",
+    "WiredChat",
     "circuit_broken",
     "rate_limited",
     "retried",
@@ -139,7 +140,10 @@ class Breaker:
         fault.call_id = call_id
         streak = self._streaks.get(key, 0) + 1
         self._streaks[key] = streak
-        if self.limit > 0 and streak >= self.limit:
+        # A CircuitOpenTransport IS already an open-circuit verdict (the inner wire
+        # concluded it is down) — trip NOW, without waiting for the streak to reach
+        # the limit. A plain transport fault trips only at the configured threshold.
+        if (self.limit > 0 and streak >= self.limit) or isinstance(fault, CircuitOpenTransport):
             opened = self._open.get(key)
             if opened is None:
                 opened = _OpenCircuit(series_id, str(fault))
@@ -167,9 +171,10 @@ def circuit_broken(
     breaker: Breaker,
     *,
     ref: ModelRef,
-    fallback: Callable[P, Awaitable[R]] | None = None,
+    fallback_factory: Callable[[], Awaitable[Callable[P, Awaitable[R]]]] | None = None,
     fallback_ref: ModelRef | None = None,
     announce: Callable[[str], None] = _noop,
+    note: Callable[[str], None] = _noop,
     is_transport: Callable[[BaseException], bool] = _is_transport,
     route: _Route | None = None,
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
@@ -179,28 +184,45 @@ def circuit_broken(
 
     On each call it invokes the current target; a success resets the streak. A
     transport error (``is_transport``) increments the per-ref streak; at
-    ``streak >= limit`` it either (a) announces, swaps current→fallback if a fresh
-    fallback exists, and raises ``CircuitOpenTransport`` (the signal the runner
-    already replays on), or (b) with no fresh fallback raises ``CircuitOpenTransport``
-    unchanged — honest death. A non-transport ``ItemError``
-    (capability/``ExcludedError``) passes through after resetting the streak;
-    ``UnsentError`` passes through leaving the streak untouched (an unsent call
-    proves nothing about the wire).
+    ``streak >= limit`` it either (a) builds the fallback LAZILY through
+    ``fallback_factory`` (keys/login are checked HERE, exactly as make_failover's
+    ``switch()`` — an unusable fallback is ``note``-d and the run dies honestly),
+    announces, swaps the shared ``route`` current→fallback, and raises
+    ``CircuitOpenTransport`` with ``switched=True`` (the runner replays its held
+    window onto the now-swapped target); or (b) with no fresh fallback raises
+    ``CircuitOpenTransport`` with ``switched=False`` — honest death. A non-transport
+    ``ItemError`` (capability/``ExcludedError``) passes through after resetting the
+    streak; ``UnsentError`` passes through leaving the streak untouched (an unsent
+    call proves nothing about the wire). ``fallback_factory`` is invoked at most
+    once per decorated callable; the built target is reused for every later call.
     """
     state = _Route() if route is None else route
 
     def decorate(primary: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+        fallback_target: Callable[P, Awaitable[R]] | None = None
+
         @wraps(primary)
         async def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
-            if state.on_fallback and fallback is not None:
-                target = fallback
+            nonlocal fallback_target
+            on_fb = state.on_fallback and fallback_factory is not None
+            if on_fb:
+                if fallback_target is None:
+                    assert fallback_factory is not None  # narrowed by ``on_fb``
+                    # The shared route already swapped (another entry point tripped);
+                    # materialise THIS path's target from the memoised backup adapter.
+                    fallback_target = await fallback_factory()
+                target = fallback_target
                 target_ref = ref if fallback_ref is None else fallback_ref
             else:
                 target = primary
                 target_ref = ref
             opened = breaker.opened(target_ref)
             if opened is not None:
-                raise CircuitOpenTransport(opened.message, trip_id=opened.trip_id)
+                raise CircuitOpenTransport(
+                    opened.message,
+                    trip_id=opened.trip_id,
+                    switched=state.switched and not on_fb,
+                )
             try:
                 reply = await target(*args, **kwargs)
             except asyncio.CancelledError:
@@ -214,7 +236,21 @@ def circuit_broken(
                 tripped = breaker.record_transport_failure(target_ref, exc)
                 if tripped is None:
                     raise  # streak below the limit — re-raise the stamped fault
-                if not state.on_fallback and fallback is not None:
+                if not on_fb and fallback_factory is not None:
+                    # First trip on the primary: build the backup LAZILY, then swap
+                    # the shared route wholesale. An unusable fallback (missing key)
+                    # is noted and the run dies honestly — the backup is never called.
+                    try:
+                        fallback_target = await fallback_factory()
+                    except SetupFault as unusable:
+                        first = str(unusable).splitlines()[0].removeprefix("error: ")
+                        note(f"fallback model unusable — {first}")
+                        raise CircuitOpenTransport(
+                            tripped.message,
+                            trip_id=tripped.trip_id,
+                            call_id=exc.call_id,
+                            switched=False,
+                        ) from exc
                     announce(
                         f"{ref.provider} looks down "
                         f"({breaker.limit} consecutive transport failures) — "
@@ -223,7 +259,10 @@ def circuit_broken(
                     state.on_fallback = True
                     state.switched = True
                 raise CircuitOpenTransport(
-                    tripped.message, trip_id=tripped.trip_id, call_id=exc.call_id
+                    tripped.message,
+                    trip_id=tripped.trip_id,
+                    call_id=exc.call_id,
+                    switched=state.switched and not on_fb,
                 ) from exc
             else:
                 if reply is not None:
@@ -247,16 +286,21 @@ class ResilientChatModel:
     ``DeferredChatModel`` shape structurally (``ref``/``complete``/
     ``complete_deferred``) so the coalescer nests OUTSIDE it and never re-admits.
 
-    Stage 3 wires the breaker + concurrency gate only; the wholesale fallback swap
-    (retiring ``make_failover``) lands on the shared ``_Route`` in a later stage.
+    The wholesale fallback swap (retiring ``make_failover``) rides the shared
+    ``_Route``: when ``fallback_factory`` is supplied, the breaker's trip builds the
+    backup adapter ONCE (lazily, both entry points share it), swaps ``route``, and
+    the runner replays its held window onto the backup. The composition root reads
+    ``.route`` to keep the answered-per-model receipt (item 11) honest.
     """
 
-    __slots__ = ("_complete", "_complete_deferred", "_inner")
+    __slots__ = ("_complete", "_complete_deferred", "_fallback_ref", "_inner", "_route")
 
     # Declared so the composed-decorator types survive (``rate_limited``'s type
     # parameters live only in its return, so pyright cannot re-infer them at the
     # application site — the annotations pin what each entry point resolves to).
     _inner: ChatModel
+    _route: _Route
+    _fallback_ref: ModelRef | None
     _complete: Callable[[CompletionRequest], Awaitable[str]]
     _complete_deferred: Callable[[Callable[[], CompletionRequest | None]], Awaitable[str | None]]
 
@@ -267,13 +311,49 @@ class ResilientChatModel:
         breaker: Breaker,
         concurrency: int,
         cooldown: Cooldown,
+        fallback_factory: Callable[[], Awaitable[ChatModel]] | None = None,
+        fallback_ref: ModelRef | None = None,
+        announce: Callable[[str], None] = _noop,
+        note: Callable[[str], None] = _noop,
     ) -> None:
         self._inner = inner
+        self._fallback_ref = fallback_ref
         # ONE semaphore and ONE route shared by both entry points: the solo and
         # deferred paths must count against the same concurrency budget and, once
         # fallback lands, swap together.
         semaphore = asyncio.Semaphore(concurrency)
         route = _Route()
+        self._route = route
+
+        # The backup ADAPTER (budget → provider) is built once, on the first trip,
+        # and memoised so both entry points share it — keys/login are checked here,
+        # so an unusable fallback surfaces as circuit_broken's "unusable" note.
+        backup_holder: list[ChatModel] = []
+        backup_lock = asyncio.Lock()
+
+        async def ensure_backup() -> ChatModel:
+            async with backup_lock:
+                if not backup_holder:
+                    assert fallback_factory is not None  # armed ⟹ factory present
+                    backup_holder.append(await fallback_factory())
+                return backup_holder[0]
+
+        async def build_fb_complete() -> Callable[[CompletionRequest], Awaitable[str]]:
+            return (await ensure_backup()).complete
+
+        async def build_fb_deferred() -> Callable[
+            [Callable[[], CompletionRequest | None]], Awaitable[str | None]
+        ]:
+            backup = await ensure_backup()
+
+            async def deferred_fb(request: Callable[[], CompletionRequest | None]) -> str | None:
+                prepared = request()
+                if prepared is None:
+                    return None
+                preflight_chat(backup, prepared)
+                return await backup.complete(prepared)
+
+            return deferred_fb
 
         async def deferred(request: Callable[[], CompletionRequest | None]) -> str | None:
             # Build the packed/solo request only after admission is granted, so a
@@ -285,12 +365,33 @@ class ResilientChatModel:
             preflight_chat(inner, prepared)
             return await inner.complete(prepared)
 
+        armed = fallback_factory is not None
         self._complete = rate_limited(
             concurrency=concurrency, cooldown=cooldown, semaphore=semaphore
-        )(circuit_broken(breaker, ref=inner.ref, route=route)(inner.complete))
+        )(
+            circuit_broken(
+                breaker,
+                ref=inner.ref,
+                fallback_factory=build_fb_complete if armed else None,
+                fallback_ref=fallback_ref,
+                announce=announce,
+                note=note,
+                route=route,
+            )(inner.complete)
+        )
         self._complete_deferred = rate_limited(
             concurrency=concurrency, cooldown=cooldown, semaphore=semaphore
-        )(circuit_broken(breaker, ref=inner.ref, route=route)(deferred))
+        )(
+            circuit_broken(
+                breaker,
+                ref=inner.ref,
+                fallback_factory=build_fb_deferred if armed else None,
+                fallback_ref=fallback_ref,
+                announce=announce,
+                note=note,
+                route=route,
+            )(deferred)
+        )
 
     @property
     def ref(self) -> ModelRef:
@@ -302,6 +403,15 @@ class ResilientChatModel:
         peel the wire the same way they peel ``AdmittedChatModel.inner``."""
         return self._inner
 
+    @property
+    def route(self) -> _Route:
+        """The shared swap state, read by the composition root for the receipt."""
+        return self._route
+
+    @property
+    def fallback_ref(self) -> ModelRef | None:
+        return self._fallback_ref
+
     async def complete(self, request: CompletionRequest) -> str:
         preflight_chat(self._inner, request)  # OUTSIDE the gate, like admission
         return await self._complete(request)
@@ -310,6 +420,57 @@ class ResilientChatModel:
         self, request: Callable[[], CompletionRequest | None]
     ) -> str | None:
         return await self._complete_deferred(request)
+
+
+@dataclass(frozen=True, slots=True)
+class WiredChat:
+    """One verb's resilient chat model plus the seam the receipt reads — the
+    composition-root replacement for ``verbs/common.py::ModelSlot``.
+
+    The verb calls ``model`` (a plain ``ChatModel`` whose resilient stack swaps to
+    the fallback UNDERNEATH it) and never branches on failover. ``route`` is the
+    shared swap state ``circuit_broken`` flips on a trip; ``switched`` /
+    ``answering_ref`` read it so the answered-per-model receipt (item 11) stays
+    honest without the verb holding a mutable slot. ``armed`` tells the runner
+    whether to hold its window for a replay at all. The model/route/refs are
+    fixed once wired (frozen); only the answered tally accumulates.
+    """
+
+    model: ChatModel
+    route: _Route
+    primary_ref: ModelRef
+    fallback_ref: ModelRef | None
+    _counts: dict[str, int] = field(default_factory=dict[str, int])
+
+    @property
+    def armed(self) -> bool:
+        """Whether a fallback is configured — the runner holds its window for a
+        replay only when a swap could land somewhere."""
+        return self.fallback_ref is not None
+
+    @property
+    def switched(self) -> bool:
+        """Whether the breaker tripped and swapped to the fallback this run."""
+        return self.route.switched
+
+    def answering_ref(self) -> ModelRef:
+        """The ref that answers RIGHT NOW — the fallback once the route swapped,
+        else the primary. Read per item at tally time (mirrors ``slot.current.ref``)."""
+        if self.route.on_fallback and self.fallback_ref is not None:
+            return self.fallback_ref
+        return self.primary_ref
+
+    def tally(self) -> None:
+        """Count one answered item under the model that answered it (item 11)."""
+        label = str(self.answering_ref())
+        self._counts[label] = self._counts.get(label, 0) + 1
+
+    def receipt(self) -> str:
+        split = " · ".join(
+            f"{label} ×{count}"  # noqa: RUF001 — the pinned count mark (D27 rollup style)
+            for label, count in self._counts.items()
+        )
+        return f"answers: {split}"
 
 
 @dataclass(slots=True)

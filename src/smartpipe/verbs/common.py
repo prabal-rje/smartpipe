@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from smartpipe.io.items import Item
-    from smartpipe.models.base import ChatModel, EmbeddingModel, MediaData
+    from smartpipe.models.base import EmbeddingModel, MediaData
 
 __all__ = [
     "AUDIO_NEEDS_TEXT",
@@ -44,7 +44,6 @@ __all__ = [
     "IMAGE_NEEDS_MAP",
     "ExecutionPolicySource",
     "GeometryFence",
-    "ModelSlot",
     "Oversize",
     "WindowGate",
     "batched",
@@ -52,7 +51,6 @@ __all__ = [
     "embed_in_batches",
     "ensure_text",
     "interrupted_exit_code",
-    "make_failover",
     "media_embedder",
     "native_route",
     "note_ambiguous_temporal",
@@ -77,59 +75,6 @@ class ExecutionPolicySource(Protocol):
     def concurrency(self, flag: int | None = None) -> int: ...
 
     def failure_policy(self, provider: str) -> FailurePolicy: ...
-
-
-@dataclass(slots=True)
-class ModelSlot:
-    """The run's current chat model, swappable WHOLESALE by the failover (item
-    11) — never per-item interleaving. The tally counts answered items per
-    model so the end receipt keeps the seam visible."""
-
-    current: ChatModel
-    counts: dict[str, int] = dataclasses_field(default_factory=dict[str, int])
-    switched: bool = False
-
-    def tally(self, label: str) -> None:
-        self.counts[label] = self.counts.get(label, 0) + 1
-
-    def receipt(self) -> str:
-        split = " · ".join(
-            f"{label} ×{count}"  # noqa: RUF001 — the pinned count mark (D27 rollup style)
-            for label, count in self.counts.items()
-        )
-        return f"answers: {split}"
-
-
-def make_failover(
-    slot: ModelSlot,
-    resolve: Callable[[], Awaitable[ChatModel]],
-    *,
-    limit: int,
-) -> Callable[[], Awaitable[bool]]:
-    """The verb-side failover hook: build the configured fallback at switch
-    time (keys/login checked here), swap the slot wholesale, announce loudly.
-    An unusable fallback returns False — the runner then dies on the ordinary
-    provider-down screen, with the reason already noted."""
-
-    async def switch() -> bool:
-        from smartpipe.core.errors import SempipeError
-
-        provider = slot.current.ref.provider
-        try:
-            fallback = await resolve()
-        except SempipeError as fault:
-            first = str(fault).splitlines()[0].removeprefix("error: ")
-            diagnostics.note(f"fallback model unusable — {first}")
-            return False
-        slot.current = fallback
-        slot.switched = True
-        diagnostics.warn(
-            f"{provider} looks down ({limit} consecutive transport failures) — "
-            f"switching to {fallback.ref} for the rest of the run"
-        )
-        return True
-
-    return switch
 
 
 def outcome_exit_code(

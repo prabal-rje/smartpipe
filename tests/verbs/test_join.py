@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
     from smartpipe.io.writers import TextSink
     from smartpipe.models.base import ChatModel
+    from smartpipe.models.resilience import WiredChat
 
 
 class FakeEmbed:
@@ -85,11 +86,35 @@ class FakeContext:
     async def embedding_model(self, flag: str | None = None) -> FakeEmbed:
         return self.embed
 
-    def fallback_ref(self, flag: str | None = None) -> None:
+    def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
         return None  # no failover configured in these tests
 
     async def fallback_chat_model(self, ref: object) -> ChatModel:
         raise AssertionError("fallback never resolved without a configured ref")
+
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        # Compose the run's resilient stack from THIS fake's fallback wiring, so a
+        # subclass overriding fallback_ref/fallback_chat_model (FallbackContext)
+        # flows through unchanged — the seam the migrated verb runs on.
+        from tests.helpers.wiring import build_wired
+
+        limit = self.failure_policy(self.judge.ref.provider).transport_limit
+        ref = self.fallback_ref(fallback_flag)
+        if ref is None:
+            return build_wired(self.judge, concurrency=self.concurrency(), breaker_limit=limit)
+
+        async def fallback() -> ChatModel:
+            return await self.fallback_chat_model(ref)
+
+        return build_wired(
+            self.judge,
+            concurrency=self.concurrency(),
+            breaker_limit=limit,
+            fallback_factory=fallback,
+            fallback_ref=ref,
+        )
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1  # deterministic transcripts
@@ -865,6 +890,11 @@ class _NoModels:
     """--on alone must resolve neither model."""
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
+        raise AssertionError("--on alone never resolves a chat model")
+
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
         raise AssertionError("--on alone never resolves a chat model")
 
     def fallback_ref(self, flag: str | None = None) -> None:

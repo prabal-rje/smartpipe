@@ -476,17 +476,24 @@ async def test_breaker_zero_disables() -> None:
 
 
 async def test_failover_reruns_the_window_and_the_rest_on_model_b() -> None:
+    # The worker plays the resilience decorator: its breaker trips at the limit
+    # (raising CircuitOpenTransport(switched=True) and flipping to the backup),
+    # after which every call — the replayed window and all later intake — answers
+    # on model B.
     switched = False
+    fails = 0
 
     async def worker(item: Item) -> str:
-        if not switched and item.source.index >= 3:
-            raise TransportError("connect timeout after retries")
-        return f"{'B' if switched else 'A'}:{item.source.index}"
-
-    async def failover() -> bool:
-        nonlocal switched
-        switched = True
-        return True
+        nonlocal switched, fails
+        if switched:
+            return f"B:{item.source.index}"
+        if item.source.index < 3:
+            return f"A:{item.source.index}"
+        fails += 1
+        if fails >= 3:  # the breaker limit — trip, announce, swap
+            switched = True
+            raise CircuitOpenTransport("connect timeout", trip_id=1, switched=True)
+        raise TransportError("connect timeout after retries")
 
     items = [_item(i) for i in range(10)]
     outcomes = [
@@ -496,7 +503,7 @@ async def test_failover_reruns_the_window_and_the_rest_on_model_b() -> None:
             worker,
             concurrency=1,
             failure_policy=_breaker_policy(),
-            failover=failover,
+            fallback_armed=True,
         )
     ]
     # every item answered, in order — the buffered window (3,4,5) by model B
@@ -506,23 +513,25 @@ async def test_failover_reruns_the_window_and_the_rest_on_model_b() -> None:
 
 
 async def test_packed_429_waiters_count_as_one_actual_call_and_replay_on_fallback() -> None:
-    switched = False
+    # First attempt fails on the primary; a replayed item (in ``seen``) answers on
+    # the backup. The breaker trips once — the ``switch_count`` guard counts the
+    # decorator's single announce-and-swap.
+    seen: set[int] = set()
     switch_count = 0
 
     async def worker(item: Item) -> str:
-        if switched:
-            return f"B:{item.source.index}"
-        if item.source.index < 3:
+        nonlocal switch_count
+        index = item.source.index
+        if index in seen:
+            return f"B:{index}"
+        seen.add(index)
+        if index < 3:
             # Three waiters behind one packed actual call.
             raise RetryableError("429", series_id=17, call_id=101)
         # The second actual call reaches the policy threshold and opens.
-        raise CircuitOpenTransport("429", trip_id=17, call_id=102)
-
-    async def failover() -> bool:
-        nonlocal switched, switch_count
-        switched = True
-        switch_count += 1
-        return True
+        if switch_count == 0:
+            switch_count += 1
+        raise CircuitOpenTransport("429", trip_id=17, call_id=102, switched=True)
 
     outcomes = [
         outcome
@@ -531,7 +540,7 @@ async def test_packed_429_waiters_count_as_one_actual_call_and_replay_on_fallbac
             worker,
             concurrency=6,
             failure_policy=_breaker_policy(limit=2),
-            failover=failover,
+            fallback_armed=True,
         )
     ]
 
@@ -581,7 +590,9 @@ async def test_one_packed_transport_call_does_not_trip_item_failure_rules() -> N
 
 
 async def test_failover_replays_the_held_window_concurrently() -> None:
-    switched = False
+    # First attempt fails on the primary (packed waiters + the trip); the replay of
+    # every held item (in ``seen``) runs concurrently on the backup.
+    seen: set[int] = set()
     active = 0
     peak = 0
     concurrent_replay = asyncio.Event()
@@ -589,22 +600,19 @@ async def test_failover_replays_the_held_window_concurrently() -> None:
 
     async def worker(item: Item) -> str:
         nonlocal active, peak
-        if not switched:
-            if item.source.index < 3:
+        index = item.source.index
+        if index not in seen:
+            seen.add(index)
+            if index < 3:
                 raise RetryableError("429", series_id=17, call_id=101)
-            raise CircuitOpenTransport("429", trip_id=17, call_id=102)
+            raise CircuitOpenTransport("429", trip_id=17, call_id=102, switched=True)
         active += 1
         peak = max(peak, active)
         if active >= 2:
             concurrent_replay.set()
         await release_replay.wait()
         active -= 1
-        return f"B:{item.source.index}"
-
-    async def failover() -> bool:
-        nonlocal switched
-        switched = True
-        return True
+        return f"B:{index}"
 
     async def collect() -> list[ItemOutcome[str]]:
         return [
@@ -614,7 +622,7 @@ async def test_failover_replays_the_held_window_concurrently() -> None:
                 worker,
                 concurrency=4,
                 failure_policy=_breaker_policy(limit=2),
-                failover=failover,
+                fallback_armed=True,
             )
         ]
 
@@ -637,7 +645,7 @@ async def test_failover_replays_the_held_window_concurrently() -> None:
 
 
 async def test_failover_coalesces_late_same_series_replays() -> None:
-    switched = False
+    seen: set[int] = set()
     primary_started = 0
     all_primary_started = asyncio.Event()
     release_primary = asyncio.Event()
@@ -648,15 +656,17 @@ async def test_failover_coalesces_late_same_series_replays() -> None:
 
     async def worker(item: Item) -> str:
         nonlocal active, peak, primary_started
-        if not switched:
+        index = item.source.index
+        if index not in seen:
+            seen.add(index)
             primary_started += 1
             if primary_started == 4:
                 all_primary_started.set()
             await release_primary.wait()
-            if item.source.index == 0:
-                raise CircuitOpenTransport("429", trip_id=17, call_id=102)
+            if index == 0:
+                raise CircuitOpenTransport("429", trip_id=17, call_id=102, switched=True)
             raise RetryableError("429", series_id=17, call_id=101)
-        if item.source.index == 0:
+        if index == 0:
             return "B:0"
         active += 1
         peak = max(peak, active)
@@ -664,12 +674,7 @@ async def test_failover_coalesces_late_same_series_replays() -> None:
             concurrent_replay.set()
         await release_replay.wait()
         active -= 1
-        return f"B:{item.source.index}"
-
-    async def failover() -> bool:
-        nonlocal switched
-        switched = True
-        return True
+        return f"B:{index}"
 
     async def collect() -> list[ItemOutcome[str]]:
         return [
@@ -679,7 +684,7 @@ async def test_failover_coalesces_late_same_series_replays() -> None:
                 worker,
                 concurrency=4,
                 failure_policy=_breaker_policy(limit=2),
-                failover=failover,
+                fallback_armed=True,
             )
         ]
 
@@ -704,11 +709,16 @@ async def test_failover_coalesces_late_same_series_replays() -> None:
 
 
 async def test_failover_declined_flushes_the_window_then_dies() -> None:
-    async def worker(item: Item) -> str:
-        raise TransportError("boom")
+    # A fallback is armed, but the decorator declines the swap (nothing usable): it
+    # trips with switched=False, so the held window flushes, then the run dies.
+    fails = 0
 
-    async def failover() -> bool:
-        return False  # nothing configured / fallback unusable
+    async def worker(item: Item) -> str:
+        nonlocal fails
+        fails += 1
+        if fails >= 3:  # the breaker limit — trip, but no live fallback
+            raise CircuitOpenTransport("boom", trip_id=1, switched=False)
+        raise TransportError("boom")
 
     items = [_item(i) for i in range(5)]
     seen: list[ItemOutcome[str]] = []
@@ -718,7 +728,7 @@ async def test_failover_declined_flushes_the_window_then_dies() -> None:
             worker,
             concurrency=1,
             failure_policy=_breaker_policy(),
-            failover=failover,
+            fallback_armed=True,
         ):
             seen.append(outcome)
     assert len(seen) == 3  # the held window was still reported before death
@@ -726,15 +736,27 @@ async def test_failover_declined_flushes_the_window_then_dies() -> None:
 
 
 async def test_breaker_on_the_fallback_dies_loudly() -> None:
+    # Both providers are down. The primary trips (switched=True, one swap); the
+    # replayed window then trips on the backup (switched=False) and the run dies —
+    # one fallback, never a chain.
     switches = 0
+    primary_fails = 0
+    backup_fails = 0
+    on_backup = False
 
     async def worker(item: Item) -> str:
-        raise TransportError("boom")  # both providers down
-
-    async def failover() -> bool:
-        nonlocal switches
-        switches += 1
-        return True
+        nonlocal switches, primary_fails, backup_fails, on_backup
+        if not on_backup:
+            primary_fails += 1
+            if primary_fails >= 3:
+                on_backup = True
+                switches += 1
+                raise CircuitOpenTransport("boom", trip_id=1, switched=True)
+            raise TransportError("boom")
+        backup_fails += 1
+        if backup_fails >= 3:
+            raise CircuitOpenTransport("boom", trip_id=2, switched=False)
+        raise TransportError("boom")
 
     items = [_item(i) for i in range(12)]
     seen: list[ItemOutcome[str]] = []
@@ -744,7 +766,7 @@ async def test_breaker_on_the_fallback_dies_loudly() -> None:
             worker,
             concurrency=1,
             failure_policy=_breaker_policy(),
-            failover=failover,
+            fallback_armed=True,
         ):
             seen.append(outcome)
     assert switches == 1  # one fallback, then honest death — never a chain
@@ -757,9 +779,6 @@ async def test_window_flushes_in_order_when_the_wire_answers_again() -> None:
             raise TransportError("blip")
         return "ok"
 
-    async def failover() -> bool:  # pragma: no cover — the streak never reaches 3
-        raise AssertionError("failover consulted below the threshold")
-
     items = [_item(i) for i in range(4)]
     outcomes = [
         outcome
@@ -768,7 +787,7 @@ async def test_window_flushes_in_order_when_the_wire_answers_again() -> None:
             worker,
             concurrency=1,
             failure_policy=_breaker_policy(),
-            failover=failover,
+            fallback_armed=True,
         )
     ]
     assert [outcome.index for outcome in outcomes] == [0, 1, 2, 3]  # order held
@@ -781,9 +800,6 @@ async def test_trailing_window_flushes_at_end_of_input() -> None:
             raise TransportError("blip")
         return "ok"
 
-    async def failover() -> bool:  # pragma: no cover — the streak never reaches 3
-        raise AssertionError("failover consulted below the threshold")
-
     items = [_item(i) for i in range(4)]
     outcomes = [
         outcome
@@ -792,7 +808,7 @@ async def test_trailing_window_flushes_at_end_of_input() -> None:
             worker,
             concurrency=1,
             failure_policy=_breaker_policy(),
-            failover=failover,
+            fallback_armed=True,
         )
     ]
     assert [outcome.index for outcome in outcomes] == [0, 1, 2, 3]

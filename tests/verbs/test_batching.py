@@ -31,7 +31,6 @@ from smartpipe.io.writers import (
     make_writer,
 )
 from smartpipe.models.base import CompletionRequest, ModelRef
-from smartpipe.models.coalesce import CoalescingChatModel, OutboundCallPolicy
 from smartpipe.verbs.extend import ExtendRequest, run_extend
 from smartpipe.verbs.filter import FilterRequest, run_filter
 from smartpipe.verbs.map import MapRequest, run_map
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
 
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel
+    from smartpipe.models.resilience import WiredChat
 
 _BLOCK = re.compile(r'<input id="(r\d+)">\n(.*?)\n</input>', re.DOTALL)
 
@@ -93,15 +93,20 @@ class BatchContext:
         *,
         size: int = 4,
         concurrency: int = 4,
+        breaker_limit: int = 5,
         settings: BatchSettings | None = None,
         enabled: bool = True,
     ) -> None:
         self.model = model
         self.concurrency_value = concurrency
+        self.breaker_limit = breaker_limit
         self.settings = (
             settings if settings is not None else BatchSettings(size=size, window_seconds=60.0)
         )
         self.enabled = enabled
+        # the run's drain event, shared with run_map's `stop`: the container sets
+        # it on the coalescer at construction so cancelled waiters drop on Ctrl-C.
+        self.stop: asyncio.Event | None = None
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
         return self.model
@@ -112,6 +117,39 @@ class BatchContext:
     async def fallback_chat_model(self, ref: object) -> ChatModel:
         raise AssertionError("fallback never resolved without a configured ref")
 
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        # The container's wiring for these tests: the run's breaker + concurrency
+        # gate around the raw wire, then the shared OUTER coalescer (batching on).
+        # A subclass overriding fallback_ref/fallback_chat_model (FallbackContext)
+        # flows through, so the failover swaps to the RAW fallback the outer
+        # coalescer re-packs the replayed window onto (Option B layering).
+        from tests.helpers.wiring import build_wired
+
+        ref = self.fallback_ref(fallback_flag)
+        if ref is None:
+            return build_wired(
+                self.model,
+                concurrency=self.concurrency_value,
+                breaker_limit=self.breaker_limit,
+                batching=self.batching(),
+                stop=self.stop,
+            )
+
+        async def fallback() -> ChatModel:
+            return await self.fallback_chat_model(ref)
+
+        return build_wired(
+            self.model,
+            concurrency=self.concurrency_value,
+            breaker_limit=self.breaker_limit,
+            fallback_factory=fallback,
+            fallback_ref=ref,
+            batching=self.batching(),
+            stop=self.stop,
+        )
+
     def concurrency(self, flag: int | None = None) -> int:
         return self.concurrency_value
 
@@ -119,8 +157,8 @@ class BatchContext:
         from smartpipe.cli import screens
 
         return FailurePolicy(
-            transport_limit=5,
-            transport_screen=screens.provider_down(provider, 5),
+            transport_limit=self.breaker_limit,
+            transport_screen=screens.provider_down(provider, self.breaker_limit),
         )
 
     def batching(self) -> BatchSettings | None:
@@ -149,16 +187,6 @@ class BatchContext:
         return make_writer(WriterConfig(mode=mode, color=False, width=80, fields=fields), stdout)
 
 
-def _wrap(model: ChatModel, context: BatchContext) -> ChatModel:
-    """The container's wiring for these tests: the coalescer around the wire."""
-    assert context.settings is not None
-    return CoalescingChatModel(
-        model,
-        settings=context.settings,
-        calls=OutboundCallPolicy(concurrency=context.concurrency_value),
-    )
-
-
 def _extract(body: str, _request: CompletionRequest) -> object:
     return {"shout": body.upper()}
 
@@ -181,8 +209,6 @@ async def _run_map(
 ) -> tuple[ExitCode, str, PackedCapable]:
     inner = PackedCapable(answer)
     context = BatchContext(inner, size=size, enabled=enabled)
-    model: ChatModel = _wrap(inner, context) if enabled else inner  # type: ignore[assignment]
-    context.model = model
     out = io.StringIO()
     request = MapRequest(
         prompt=prompt,
@@ -228,8 +254,6 @@ async def test_batch_six_concurrency_one_makes_three_sequential_calls() -> None:
 
     inner = PeakPacked()
     context = BatchContext(inner, size=6, concurrency=1, enabled=True)
-    model: ChatModel = _wrap(inner, context)  # type: ignore[assignment]
-    context.model = model
     out = io.StringIO()
     request = MapRequest(
         prompt="Extract {shout}",
@@ -273,7 +297,6 @@ async def test_batch_workers_fill_every_concurrent_api_call_slot() -> None:
 
     inner = PeakPacked()
     context = BatchContext(inner, size=6, concurrency=concurrency, enabled=True)
-    context.model = _wrap(inner, context)
     out = io.StringIO()
     request = MapRequest(
         prompt="Extract {shout}",
@@ -313,8 +336,6 @@ async def test_filter_batches_judgments_and_keeps_the_subset() -> None:
     async def run(enabled: bool) -> tuple[str, int]:
         inner = PackedCapable(_judge_keep)
         context = BatchContext(inner, size=3, enabled=enabled)
-        model: ChatModel = _wrap(inner, context) if enabled else inner  # type: ignore[assignment]
-        context.model = model
         out = io.StringIO()
         request = FilterRequest(
             condition="worth keeping", invert=False, model_flag=None, concurrency_flag=None
@@ -339,8 +360,6 @@ async def test_filter_interpolated_conditions_ride_inside_blocks() -> None:
     )
     inner = PackedCapable(_judge_keep)
     context = BatchContext(inner, size=2, enabled=True)
-    model: ChatModel = _wrap(inner, context)  # type: ignore[assignment]
-    context.model = model
     out = io.StringIO()
     request = FilterRequest(
         condition="{name} sounds friendly", invert=False, model_flag=None, concurrency_flag=None
@@ -361,8 +380,6 @@ async def test_extend_merges_batched_fields_onto_the_records() -> None:
     async def run(enabled: bool) -> tuple[str, int]:
         inner = PackedCapable(_extract)
         context = BatchContext(inner, size=2, enabled=enabled)
-        model: ChatModel = _wrap(inner, context) if enabled else inner  # type: ignore[assignment]
-        context.model = model
         out = io.StringIO()
         request = ExtendRequest(
             prompt="Add {shout}",
@@ -400,8 +417,6 @@ async def test_keep_invalid_still_works_for_solo_retried_items() -> None:
 
     inner = BadSecond(_extract)
     context = BatchContext(inner, size=3, enabled=True)
-    model: ChatModel = _wrap(inner, context)  # type: ignore[assignment]
-    context.model = model
     out = io.StringIO()
     request = MapRequest(
         prompt="Extract {shout}",
@@ -432,13 +447,7 @@ async def test_one_packed_failure_does_not_multiply_retry_ladders() -> None:
             raise TransportError("connection refused")
 
     inner = Down()
-    context = BatchContext(inner, size=6, concurrency=1, enabled=True)  # type: ignore[arg-type]
-    model: ChatModel = CoalescingChatModel(  # type: ignore[arg-type]
-        inner,
-        settings=context.settings,
-        calls=OutboundCallPolicy(concurrency=1, breaker_limit=5),
-    )
-    context.model = model
+    context = BatchContext(inner, size=6, concurrency=1, breaker_limit=5, enabled=True)  # type: ignore[arg-type]
     request = MapRequest(
         prompt="Extract {shout}",
         schema_path=None,
@@ -465,10 +474,7 @@ async def test_one_packed_trip_replays_every_waiter_once_on_fallback() -> None:
     primary = Down()
     fallback = PackedCapable(_extract)
     fallback.ref = ModelRef("ollama", "fallback")
-    policy = OutboundCallPolicy(concurrency=1, breaker_limit=2)
     settings = BatchSettings(size=4, window_seconds=60.0)
-    primary_model = CoalescingChatModel(primary, settings=settings, calls=policy)  # type: ignore[arg-type]
-    fallback_model = CoalescingChatModel(fallback, settings=settings, calls=policy)  # type: ignore[arg-type]
 
     class FallbackContext(BatchContext):
         def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
@@ -476,9 +482,11 @@ async def test_one_packed_trip_replays_every_waiter_once_on_fallback() -> None:
 
         async def fallback_chat_model(self, ref: object) -> ChatModel:
             assert ref == fallback.ref
-            return fallback_model
+            # RAW adapter (no coalescer of its own): the shared outer coalescer
+            # sits OUTSIDE the breaker and re-packs the replayed window onto it.
+            return fallback
 
-    context = FallbackContext(primary_model, settings=settings, concurrency=1)
+    context = FallbackContext(primary, settings=settings, concurrency=1, breaker_limit=2)  # type: ignore[arg-type]
     out = io.StringIO()
     code = await run_map(
         MapRequest(
@@ -529,10 +537,7 @@ async def test_reverse_transport_completion_replays_the_whole_breaker_series() -
     primary = ReverseDown()
     fallback = PackedCapable(_extract)
     fallback.ref = ModelRef("ollama", "fallback")
-    policy = OutboundCallPolicy(concurrency=2, breaker_limit=2)
     settings = BatchSettings(size=2, window_seconds=60.0)
-    primary_model = CoalescingChatModel(primary, settings=settings, calls=policy)  # type: ignore[arg-type]
-    fallback_model = CoalescingChatModel(fallback, settings=settings, calls=policy)  # type: ignore[arg-type]
 
     class FallbackContext(BatchContext):
         def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
@@ -540,9 +545,10 @@ async def test_reverse_transport_completion_replays_the_whole_breaker_series() -
 
         async def fallback_chat_model(self, ref: object) -> ChatModel:
             assert ref == fallback.ref
-            return fallback_model
+            # RAW adapter: the shared outer coalescer re-packs the replay onto it.
+            return fallback
 
-    context = FallbackContext(primary_model, settings=settings, concurrency=2)
+    context = FallbackContext(primary, settings=settings, concurrency=2, breaker_limit=2)  # type: ignore[arg-type]
     out = io.StringIO()
     code = await run_map(
         MapRequest(
@@ -622,13 +628,7 @@ async def test_interrupt_drains_the_inflight_batch() -> None:
     inner = Held(_extract)
     stop = asyncio.Event()
     context = BatchContext(inner, size=3, concurrency=3, enabled=True)
-    model: ChatModel = CoalescingChatModel(  # type: ignore[arg-type]
-        inner,
-        settings=context.settings,
-        stop=stop,
-        calls=OutboundCallPolicy(concurrency=3),
-    )
-    context.model = model
+    context.stop = stop  # the coalescer drains cancelled waiters against this event
     out = io.StringIO()
     request = MapRequest(
         prompt="Extract {shout}",

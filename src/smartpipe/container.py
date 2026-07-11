@@ -57,7 +57,7 @@ from smartpipe.models.resolve import resolve_chat_ref, resolve_embed_ref
 from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Mapping, Sequence
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 
     import httpx
 
@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     from smartpipe.models.admission import OutboundCallPolicy
     from smartpipe.models.base import ChatModel, EmbeddingModel
     from smartpipe.models.ocr import DocumentParser
+    from smartpipe.models.resilience import ResilientChatModel, WiredChat
     from smartpipe.models.stt import Transcriber
 
 __all__ = ["AppContainer", "build_container"]
@@ -102,6 +103,32 @@ class AppContainer:
         manifest.record_model("chat", str(resolved.ref))
         return self._wrap_chat(self._build_chat(resolved.ref))
 
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        """The composed resilient chat model a per-item verb runs on (item 11):
+        the primary wire wrapped in the run's breaker + concurrency gate with the
+        configured fallback armed LAZILY underneath it. The failover swaps by
+        itself on a provider-down trip — the verb calls one plain ``ChatModel``
+        (``wired.model``) and never branches on the wire's health; ``wired.route``
+        keeps the answered-per-model receipt honest. The fallback ref resolves
+        HERE, before a cent is spent (an embedding-model fallback is refused at
+        this line, exactly as ``fallback_ref``'s eager fence)."""
+        from smartpipe.models.resilience import WiredChat
+
+        resolved = await resolve_chat_ref(flag, self.env, self.config, self.probe_ollama)
+        if resolved.notice is not None:
+            diagnostics.note(resolved.notice)
+        manifest.record_model("chat", str(resolved.ref))
+        fallback = self.fallback_ref(fallback_flag)  # embedder/fence refused here, pre-spend
+        resilient = self._resilient_chat_core(self._build_chat(resolved.ref), fallback_ref=fallback)
+        return WiredChat(
+            model=self._wrap_outer(resilient),
+            route=resilient.route,
+            primary_ref=resolved.ref,
+            fallback_ref=fallback,
+        )
+
     def batching(self) -> BatchSettings | None:
         """The run's coalescing posture (item 62): SMARTPIPE_BATCH > config
         ``batching`` > ON (the product pitch is seamless cost reduction).
@@ -115,24 +142,66 @@ class AppContainer:
         )
 
     def _wrap_chat(self, model: ChatModel) -> ChatModel:
-        wired = model if self.budget is None else budgeted_chat(model, self.budget)
-        # The chat wire is made resilient by COMPOSED combinators at the root
-        # (the doctrine): the breaker + concurrency gate that ``OutboundCallPolicy``
-        # used to own are now a standalone ``Breaker`` and a ``rate_limited`` gate,
-        # stacked by ``ResilientChatModel``. Embed/OCR/STT keep ``admitted_*`` —
-        # this decomposition is chat-only (failover is a chat concern).
+        """The no-fallback resilient chat build (solo ``chat_model``, the vision
+        OCR wire): the breaker + concurrency-gate core with no failover, plus the
+        shared outer coalescer/cache."""
+        return self._wrap_outer(self._resilient_chat_core(model))
+
+    def _resilient_chat_core(
+        self, model: ChatModel, *, fallback_ref: ModelRef | None = None
+    ) -> ResilientChatModel:
+        """Budget the wire, then wrap it in the run's breaker + concurrency gate
+        as a standalone ``ResilientChatModel`` — the doctrine: robustness is
+        COMPOSED combinators at the root, not something the caller reasons about.
+        The breaker + gate that ``OutboundCallPolicy`` used to own are now a
+        standalone ``Breaker`` and a ``rate_limited`` gate stacked here; embed/
+        OCR/STT keep ``admitted_*`` (this decomposition is chat-only, because
+        failover is a chat concern). When ``fallback_ref`` is set, the breaker's
+        trip builds that model LAZILY (through ``_build_fallback_adapter``) and
+        swaps to it wholesale — announced on stderr, the receipt reading ``.route``.
+        """
         from smartpipe.models.resilience import Breaker, Cooldown, ResilientChatModel
 
-        wired = ResilientChatModel(
+        wired = model if self.budget is None else budgeted_chat(model, self.budget)
+        fallback_factory: Callable[[], Awaitable[ChatModel]] | None = None
+        if fallback_ref is not None:
+            target = fallback_ref
+
+            async def build_fallback() -> ChatModel:
+                return self._build_fallback_adapter(target)
+
+            fallback_factory = build_fallback
+        return ResilientChatModel(
             wired,
             breaker=Breaker(limit=self.call_policy.breaker_limit),
             concurrency=self.call_policy.concurrency,
             cooldown=Cooldown(),
+            fallback_factory=fallback_factory,
+            fallback_ref=fallback_ref,
+            announce=diagnostics.warn,
+            note=diagnostics.note,
         )
+
+    def _build_fallback_adapter(self, ref: ModelRef) -> ChatModel:
+        """The failover model as a RAW budgeted adapter — no coalescer/cache of
+        its own. The shared coalescer sits OUTSIDE the breaker and re-packs the
+        replayed window onto whatever the breaker routes to, so the fallback must
+        not double-coalesce; the budget belt is shared. Keys/login are checked
+        HERE (on the first trip), so an unusable fallback surfaces as
+        ``circuit_broken``'s honest 'unusable' note and the run dies loudly."""
+        manifest.record_model("chat_fallback", str(ref))
+        adapter = self._build_chat(ref)
+        return adapter if self.budget is None else budgeted_chat(adapter, self.budget)
+
+    def _wrap_outer(self, model: ChatModel) -> ChatModel:
+        """Wrap a resilient chat core in the run's OUTER layers — the coalescer
+        (batching) then the cache — shared by every chat build. The layering is
+        load-bearing: cache → coalescer → breaker+gate → budget → adapter, so a
+        hit never enqueues, one packed flight is one charged call (item 62 §5/§9),
+        and a replayed window re-packs onto the swapped fallback target."""
+        wired = model
         settings = self.batching()
         if settings is not None:
-            # cache → coalescer → rate_limit+breaker → budget → adapter: hits never
-            # enqueue, and one packed flight is one charged call (item 62 §5/§9)
             from smartpipe.models.coalesce import CoalescingChatModel
 
             wired = CoalescingChatModel(
@@ -173,14 +242,6 @@ class AppContainer:
                 "  Pick a chat fallback, or drop the setting."
             )
         return ref
-
-    async def fallback_chat_model(self, ref: ModelRef) -> ChatModel:
-        """The failover model, built at SWITCH time through the normal wire —
-        keys/login are checked here, so a fallback with missing credentials
-        surfaces as the ordinary SetupFault (the caller notes it and dies on
-        the provider-down screen)."""
-        manifest.record_model("chat_fallback", str(ref))
-        return self._wrap_chat(self._build_chat(ref))
 
     async def context_window(self, ref: ModelRef) -> int | None:
         """The model's context window: env override > one cached live probe > None

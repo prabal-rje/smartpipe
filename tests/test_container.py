@@ -571,20 +571,31 @@ def test_fallback_refuses_embedding_models(client: httpx.AsyncClient, embedder: 
         _container(client).fallback_ref(embedder)
 
 
-async def test_fallback_chat_model_builds_the_normal_wire(client: httpx.AsyncClient) -> None:
-    container = _container(client, env={"OPENAI_API_KEY": "sk-test"})
-    ref = container.fallback_ref("gpt-4o-mini")
-    assert ref is not None
-    model = _wire(await container.fallback_chat_model(ref))
-    assert isinstance(model, OpenAIChatModel)
+async def test_resilient_chat_model_wires_primary_and_arms_fallback(
+    client: httpx.AsyncClient,
+) -> None:
+    # the composed resilient chat a per-item verb runs on: the primary wired
+    # with the configured fallback ARMED (built lazily only on a trip). The
+    # WiredChat carries an honest receipt seam — nothing has switched yet.
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-test"},
+        config=Config(model="gpt-4o-mini", fallback_model="gpt-4o"),
+    )
+    wired = await container.resilient_chat_model()
+    assert str(wired.primary_ref) == "openai/gpt-4o-mini"
+    assert wired.fallback_ref is not None and str(wired.fallback_ref) == "openai/gpt-4o"
+    assert wired.switched is False  # no trip, so the receipt reads the primary
 
 
-async def test_fallback_chat_model_missing_key_is_setup_fault(client: httpx.AsyncClient) -> None:
-    container = _container(client)
-    ref = container.fallback_ref("gpt-4o-mini")
-    assert ref is not None
-    with pytest.raises(SetupFault):
-        await container.fallback_chat_model(ref)
+async def test_resilient_chat_model_without_a_configured_fallback(
+    client: httpx.AsyncClient,
+) -> None:
+    container = _container(client, config=Config(model="ollama/qwen3:8b"))
+    wired = await container.resilient_chat_model()
+    assert str(wired.primary_ref) == "ollama/qwen3:8b"
+    assert wired.fallback_ref is None
+    assert wired.switched is False
 
 
 # --- the media-embed-model role (item 40) ---------------------------------------

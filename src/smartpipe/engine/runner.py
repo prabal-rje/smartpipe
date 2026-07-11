@@ -92,6 +92,7 @@ class Skipped:
     transport_series: int | None = None  # one completion-ordered policy streak
     transport_call: int | None = None  # one actual call may fan to K item waiters
     circuit_trip: int | None = None  # one real-call trip may fan to K packed waiters
+    circuit_switched: bool = False  # the decorator swapped to a live fallback (else honest death)
     failed: bool = True  # False means accepted but intentionally not submitted
 
 
@@ -136,7 +137,7 @@ async def run_ordered(
     concurrency: int,
     failure_policy: FailurePolicy,
     stop: asyncio.Event | None = None,
-    failover: Callable[[], Awaitable[bool]] | None = None,
+    fallback_armed: bool = False,
     halt_sources: HaltSourceCounter | None = None,
 ) -> AsyncIterator[ItemOutcome[R]]:
     """``stop`` (set by the interrupt shell) halts *intake*: no new workers spawn,
@@ -147,13 +148,16 @@ async def run_ordered(
     blocks the emission of already-completed outcomes — the streaming property
     (a live stream can pause mid-flow; results must still come out).
 
-    ``failover`` (fallback-model): while it is armed, transport skips are HELD
-    rather than emitted — they may yet be answered. At the breaker threshold the
-    hook runs once: True means the caller switched models, so the held window
-    re-runs through ``worker`` (in order) and the run continues; False (nothing
-    configured / fallback unusable) flushes the held skips and dies on the
-    provider-down screen. One fallback, then honest death — a second trip goes
-    through the ordinary breaker path above.
+    ``fallback_armed`` (fallback-model): while it is set, transport skips are HELD
+    rather than emitted — they may yet be answered by a fallback. The resilience
+    decorator (``models/resilience.py``) owns the swap: at its breaker threshold it
+    announces, swaps ``complete`` to the backup, and raises a
+    ``CircuitOpenTransport`` whose ``switched`` flag the runner reads. ``True``
+    means a live backup is armed, so the held window re-runs through ``worker`` (in
+    order, re-routed to the backup) and the run continues; ``False`` (nothing
+    configured, an unusable fallback, or the backup itself died) flushes the held
+    skips and dies on the provider-down screen. One fallback, then honest death —
+    a replay-time trip is converted to that same screen.
     """
     item_iter = aiter(items)
     pending: dict[int, asyncio.Task[ItemOutcome[R]]] = {}
@@ -175,23 +179,12 @@ async def run_ordered(
     transport_streak = 0
     transport_calls: set[int] = set()
     ever_succeeded = False
-    failover_pending = failover if failure_policy.transport_limit > 0 else None
+    # HELD transport skips (the streak below the breaker limit) are buffered while a
+    # fallback is armed, because the decorator may yet answer them on the backup.
+    hold_transport = fallback_armed and failure_policy.transport_limit > 0
     window: list[tuple[Item, Skipped]] = []  # the held transport streak
     handled_trips: set[int] = set()
     late_replays: list[Item] = []
-
-    def availability_calls(held: list[tuple[Item, Skipped]]) -> int:
-        """Count actual failed calls, not coalesced item waiters.
-
-        Policy-owned outcomes carry a call id shared by every waiter behind one
-        packed flight. Legacy/unadmitted workers carry no id, so each outcome
-        remains one call for backward-compatible direct runner use.
-        """
-        identified = {
-            skip.transport_call for _item, skip in held if skip.transport_call is not None
-        }
-        unidentified = sum(skip.transport_call is None for _item, skip in held)
-        return len(identified) + unidentified
 
     def stopping() -> bool:
         return stop is not None and stop.is_set()
@@ -417,56 +410,25 @@ async def run_ordered(
                 window.clear()
                 intake_allowed.clear()  # freeze primary intake before collecting this trip
                 held.extend(await collect_trip_waiters(trip_id))
-                if failover_pending is None:
+                if not outcome.circuit_switched:
+                    # No live fallback: nothing configured, an unusable one, or the
+                    # backup itself died. The decorator already noted any reason;
+                    # flush the held window, then die on the provider-down screen.
                     async for held_skip in report_skips(held):
                         yield held_skip
                     raise SetupFault(failure_policy.transport_screen)
-                switch = failover_pending
-                failover_pending = None  # one fallback, then honest death
-                try:
-                    switched = await switch()
-                except SetupFault:
-                    async for held_skip in report_skips(held):
-                        yield held_skip
-                    raise
-                if not switched:
-                    async for held_skip in report_skips(held):
-                        yield held_skip
-                    raise SetupFault(failure_policy.transport_screen)
+                # The decorator announced + swapped to a live backup; replay the held
+                # window, which re-routes to the fallback through the shared route.
                 handled_trips.add(trip_id)
                 async for retry in replay([held_item for held_item, _held_skip in held]):
                     yield retry
                 intake_allowed.set()
                 continue
-            if failover_pending is not None and isinstance(outcome, Skipped) and outcome.transport:
+            if hold_transport and isinstance(outcome, Skipped) and outcome.transport:
+                # Below the breaker limit: buffer the streak. The decorator trips at
+                # its own limit and marks that item with ``circuit_trip`` (Path B
+                # above), so a held streak only ever accumulates here.
                 window.append((item, outcome))
-                if availability_calls(window) < failure_policy.transport_limit:
-                    continue
-                switch = failover_pending
-                failover_pending = None  # one fallback, then honest death
-                held = list(window)
-                window.clear()
-                intake_allowed.clear()  # replay owns the outbound-call window
-                try:
-                    switched = await switch()
-                except SetupFault:
-                    async for held_skip in report_skips(held):
-                        yield held_skip
-                    raise
-                if not switched:
-                    # the window still reports, but no halt rule may outrun the
-                    # provider-down screen — this death IS the breaker's verdict
-                    async for held_skip in report_skips(held):
-                        yield held_skip
-                    raise SetupFault(failure_policy.transport_screen)
-                handled_trips.update(
-                    held_skip.transport_series
-                    for _held_item, held_skip in held
-                    if held_skip.transport_series is not None
-                )
-                async for retry in replay([held_item for held_item, _held_skip in held]):
-                    yield retry
-                intake_allowed.set()
                 continue
             for _held_item, held_skip in window:  # the wire answered — flush the streak
                 yield held_skip
@@ -566,5 +528,6 @@ async def _run_one(worker: Callable[[Item], Awaitable[R]], item: Item) -> ItemOu
             transport_series=exc.series_id if isinstance(exc, RetryableError) else None,
             transport_call=exc.call_id if isinstance(exc, RetryableError) else None,
             circuit_trip=exc.trip_id if isinstance(exc, CircuitOpenTransport) else None,
+            circuit_switched=exc.switched if isinstance(exc, CircuitOpenTransport) else False,
             failed=not isinstance(exc, (ExcludedError, UnsentError)),
         )

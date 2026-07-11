@@ -15,12 +15,25 @@ means the replay routes to the backup with no caller branching.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from smartpipe.core.errors import CircuitOpenTransport, TransportError
 from smartpipe.models.base import ModelRef
 from smartpipe.models.resilience import Breaker, circuit_broken
 
 PRIMARY = ModelRef("ollama", "fake")
 BACKUP = ModelRef("openai", "gpt-4o-mini")
+
+
+def _ready(
+    target: Callable[[], Awaitable[str]],
+) -> Callable[[], Awaitable[Callable[[], Awaitable[str]]]]:
+    """Wrap an already-built target as circuit_broken's lazy fallback factory."""
+
+    async def build() -> Callable[[], Awaitable[str]]:
+        return target
+
+    return build
 
 
 async def test_circuit_broken_reproduces_the_wholesale_switch_numbers() -> None:
@@ -44,7 +57,7 @@ async def test_circuit_broken_reproduces_the_wholesale_switch_numbers() -> None:
     guarded = circuit_broken(
         breaker,
         ref=PRIMARY,
-        fallback=backup,
+        fallback_factory=_ready(backup),
         fallback_ref=BACKUP,
         announce=notices.append,
     )(primary)
@@ -89,7 +102,9 @@ async def test_circuit_broken_honest_death_when_the_backup_is_also_down() -> Non
         backup_calls += 1
         raise TransportError("backup down too")
 
-    guarded = circuit_broken(breaker, ref=PRIMARY, fallback=backup, fallback_ref=BACKUP)(primary)
+    guarded = circuit_broken(
+        breaker, ref=PRIMARY, fallback_factory=_ready(backup), fallback_ref=BACKUP
+    )(primary)
 
     window: list[int] = []
     died = False

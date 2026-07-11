@@ -48,6 +48,17 @@ def _request(user: str = "hi") -> CompletionRequest:
     return CompletionRequest(system=None, user=user)
 
 
+def _ready(
+    target: Callable[[], Awaitable[str]],
+) -> Callable[[], Awaitable[Callable[[], Awaitable[str]]]]:
+    """Wrap an already-built target as circuit_broken's lazy fallback factory."""
+
+    async def build() -> Callable[[], Awaitable[str]]:
+        return target
+
+    return build
+
+
 # --- retried ------------------------------------------------------------------
 
 
@@ -207,7 +218,7 @@ async def test_circuit_broken_swaps_to_a_fresh_fallback_and_announces() -> None:
     guarded = circuit_broken(
         breaker,
         ref=PRIMARY,
-        fallback=backup,
+        fallback_factory=_ready(backup),
         fallback_ref=BACKUP,
         announce=notices.append,
     )(primary)
@@ -254,7 +265,9 @@ async def test_circuit_broken_dies_when_the_fallback_also_trips() -> None:
     async def backup() -> str:
         raise TransportError("backup down too")
 
-    guarded = circuit_broken(breaker, ref=PRIMARY, fallback=backup, fallback_ref=BACKUP)(primary)
+    guarded = circuit_broken(
+        breaker, ref=PRIMARY, fallback_factory=_ready(backup), fallback_ref=BACKUP
+    )(primary)
     with pytest.raises(CircuitOpenTransport):
         await guarded()  # primary trips at limit 1, swaps to backup
     with pytest.raises(CircuitOpenTransport):

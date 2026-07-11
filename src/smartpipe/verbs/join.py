@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, replace
-from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import (
@@ -52,12 +51,10 @@ from smartpipe.io.items import describe_source, source_record
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.verbs.common import (
     ExecutionPolicySource,
-    ModelSlot,
     embed_budget,
     embed_in_batches,
     ensure_text,
     interrupted_exit_code,
-    make_failover,
     outcome_exit_code,
 )
 from smartpipe.verbs.convert import Converter, make_converter
@@ -75,6 +72,7 @@ if TYPE_CHECKING:
     from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
     from smartpipe.models.ocr import DocumentParser
+    from smartpipe.models.resilience import WiredChat
     from smartpipe.models.stt import Transcriber
 
 __all__ = ["JoinContext", "JoinRequest", "PairBook", "run_join"]
@@ -111,9 +109,9 @@ class JoinContext(ExecutionPolicySource, Protocol):
     """The first verb that needs BOTH models — the container already has both."""
 
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
-    async def chat_model(self, flag: str | None = None) -> ChatModel: ...
-    def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
-    async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat: ...
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel: ...
     def writer(
         self,
@@ -197,9 +195,11 @@ async def run_join(
             failed=right_counts.failed,
             input_count=right_counts.total,
         )
-    chat = await context.chat_model(request.model_flag)
-    slot = ModelSlot(chat)
-    fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
+    # The resilient stack: the primary wire + breaker + gate, the configured
+    # fallback armed underneath it (embed-ref fallbacks refused here, pre-spend).
+    # `chat` IS the resilient callable — the breaker swaps to the backup inside it.
+    wired = await context.resilient_chat_model(request.model_flag, request.fallback_flag)
+    chat = wired.model
     spinner = make_stderr_spinner()
     # the arbiter: result writes pause the status line, so they never interleave
     writer = context.writer(
@@ -233,7 +233,8 @@ async def run_join(
     spinner.start(total=total)
 
     async def worker(item: Item) -> tuple[Item, tuple[tuple[int, float], ...]]:
-        current = slot.current  # captured per item: the failover swaps wholesale
+        # `chat` is the resilient stack; the breaker routes to the fallback
+        # underneath it, so the worker calls one plain model and never swaps.
         block: list[int] | None = None
         if on_pairs is not None and right_blocks is not None:
             key = _key_of(item, tuple(left for left, _right in on_pairs))
@@ -244,7 +245,7 @@ async def run_join(
             log=log,
             converter=converter,
             embed_model=embed_model,
-            chat=current,
+            chat=chat,
             tokens=tokens,
             index=index,
             kept_right=kept_right,
@@ -254,17 +255,10 @@ async def run_join(
             stop=stop,
             block=block,
         )
-        slot.tally(str(current.ref))
+        wired.tally()  # count the answer under the model that answered it (item 11)
         return item, matches
 
     policy = context.failure_policy(chat.ref.provider)
-    failover = (
-        make_failover(
-            slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
-        )
-        if fallback is not None
-        else None
-    )
     done = 0
     left_sources = source_accounting.SourceCounter()
     outcomes = run_ordered(
@@ -273,7 +267,7 @@ async def run_join(
         concurrency=concurrency,
         failure_policy=policy,
         stop=stop,
-        failover=failover,
+        fallback_armed=wired.armed,
     )
     matched_pairs = 0
     unmatched_count = 0
@@ -345,8 +339,8 @@ async def run_join(
         )
     elif request.kind != "inner":
         diagnostics.note(f"join: {matched_pairs} matched · {unmatched_count} unmatched")
-    if slot.switched:
-        diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
+    if wired.switched:
+        diagnostics.note(wired.receipt())  # the seam stays visible (item 11)
     if avoided[0]:
         diagnostics.note(f"join --on: {avoided[0]:,} pairs never considered (equality blocking)")
     counts = source_accounting.add_counts(right_counts, left_sources.counts)

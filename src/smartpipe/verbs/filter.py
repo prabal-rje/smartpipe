@@ -36,11 +36,9 @@ from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.io.writers import OutputFormat
 from smartpipe.verbs.common import (
     ExecutionPolicySource,
-    ModelSlot,
     WindowGate,
     ensure_text,
     interrupted_exit_code,
-    make_failover,
     outcome_exit_code,
     prepend,
 )
@@ -57,6 +55,7 @@ if TYPE_CHECKING:
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, ModelRef
     from smartpipe.models.ocr import DocumentParser
+    from smartpipe.models.resilience import WiredChat
     from smartpipe.models.stt import Transcriber
 
 __all__ = ["FilterContext", "FilterRequest", "run_filter"]
@@ -80,9 +79,9 @@ class FilterRequest:
 class FilterContext(ExecutionPolicySource, Protocol):
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> Transcriber | None: ...
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
-    async def chat_model(self, flag: str | None = None) -> ChatModel: ...
-    def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
-    async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def batching(self) -> BatchSettings | None: ...
     def writer(
@@ -103,9 +102,11 @@ async def run_filter(
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
-    model = await context.chat_model(request.model_flag)
-    slot = ModelSlot(model)
-    fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
+    # The resilient stack: the primary wire + breaker + gate, the configured
+    # fallback armed underneath it (embed-ref fallbacks refused here, pre-spend).
+    # `model` IS the resilient callable — the breaker swaps to the backup inside it.
+    wired = await context.resilient_chat_model(request.model_flag, request.fallback_flag)
+    model = wired.model
     spinner = make_stderr_spinner()
     # the arbiter: result writes pause the status line, so they never interleave
     writer = context.writer(OutputFormat.AUTO, structured=False, stdout=spinner.guard(stdout))
@@ -148,29 +149,29 @@ async def run_filter(
     )
 
     async def worker(item: Item) -> tuple[Item, bool]:
-        current = slot.current  # captured per item: the failover swaps wholesale
-
+        # `model` is the resilient stack; the breaker routes to the fallback
+        # underneath it, so the worker calls one plain model and never swaps.
         async def judge_chunk(chunk: str) -> bool:
             return await _judge(
-                current, tokens, replace(item, text=chunk), log, converter, whole=False
+                model, tokens, replace(item, text=chunk), log, converter, whole=False
             )
 
         over = await gate.budget_for_oversized(
             item.text,
             item.media,
-            provider=current.ref.provider,
-            model_name=current.ref.name,
-            window=partial(context.context_window, current.ref),
+            provider=model.ref.provider,
+            model_name=model.ref.name,
+            window=partial(context.context_window, model.ref),
         )
         if over is None:
             try:
                 if batching is not None and not item.media:
                     # coalescible (item 62) — the shared flight is the call,
                     # budgeted downstream; no wire gate here
-                    matched = await _judge(current, tokens, item, log, converter, batch=True)
+                    matched = await _judge(model, tokens, item, log, converter, batch=True)
                 else:
                     async with wire:  # media rides solo (item 62 §7), wire-gated
-                        matched = await _judge(current, tokens, item, log, converter)
+                        matched = await _judge(model, tokens, item, log, converter)
             except ItemError as exc:
                 if (
                     request.whole
@@ -203,17 +204,10 @@ async def run_filter(
                     where=describe_source(item.source),
                     estimate=over.estimate,
                 )
-        slot.tally(str(current.ref))
+        wired.tally()  # count the answer under the model that answered it (item 11)
         return item, matched
 
     policy = context.failure_policy(model.ref.provider)
-    failover = (
-        make_failover(
-            slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
-        )
-        if fallback is not None
-        else None
-    )
     judged = 0
     matches = 0
     skipped = 0
@@ -225,7 +219,7 @@ async def run_filter(
         concurrency=workers,
         failure_policy=policy,
         stop=stop,
-        failover=failover,
+        fallback_armed=wired.armed,
         halt_sources=sources,
     )
     try:
@@ -249,8 +243,8 @@ async def run_filter(
         spinner.finish()
         writer.flush()
         log.finish()
-    if slot.switched:
-        diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
+    if wired.switched:
+        diagnostics.note(wired.receipt())  # the seam stays visible (item 11)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=judged, skipped=skipped)
         return interrupted_exit_code(

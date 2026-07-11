@@ -42,10 +42,8 @@ from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.models.base import AudioData, VideoData
 from smartpipe.verbs.common import (
     ExecutionPolicySource,
-    ModelSlot,
     WindowGate,
     interrupted_exit_code,
-    make_failover,
     note_ambiguous_temporal,
     outcome_exit_code,
     resolve_schema,
@@ -65,6 +63,7 @@ if TYPE_CHECKING:
     from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, MediaData, ModelRef
     from smartpipe.models.ocr import DocumentParser
+    from smartpipe.models.resilience import WiredChat
 
 __all__ = ["MapContext", "MapRequest", "invalid_row", "map_one", "print_dry_run", "run_map"]
 
@@ -98,9 +97,9 @@ class MapContext(ExecutionPolicySource, Protocol):
     """The slice of the container ``map`` needs — a DI seam so tests inject fakes."""
 
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
-    async def chat_model(self, flag: str | None = None) -> ChatModel: ...
-    def fallback_ref(self, flag: str | None = None) -> ModelRef | None: ...
-    async def fallback_chat_model(self, ref: ModelRef) -> ChatModel: ...
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat: ...
     async def context_window(self, ref: ModelRef) -> int | None: ...
     def batching(self) -> BatchSettings | None: ...
     def writer(
@@ -136,9 +135,12 @@ async def run_map(
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
-    model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
-    slot = ModelSlot(model)
-    fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
+    # The resilient stack: the primary wire + breaker + gate, with the configured
+    # fallback armed underneath it (embed-ref fallbacks refused here, pre-spend).
+    # `model` IS the resilient callable — the failover swaps to the backup inside
+    # it, so the worker never branches on the wire's health (item 11).
+    wired = await context.resilient_chat_model(request.model_flag, request.fallback_flag)
+    model = wired.model  # may have emitted a note / SetupFault during resolution
     structured = plan.mode == "structured"
     spinner = make_stderr_spinner()
     # the arbiter: result writes pause the status line, so they never interleave
@@ -194,13 +196,14 @@ async def run_map(
     )
 
     async def worker(item: Item) -> tuple[Item, str | Mapping[str, object]]:
-        current = slot.current  # captured per item: the failover swaps wholesale
+        # `model` is the resilient stack; the breaker routes to the fallback
+        # underneath it, so the worker calls one plain model and never swaps.
         over = await gate.budget_for_oversized(
             item.text,
             item.media,
-            provider=current.ref.provider,
-            model_name=current.ref.name,
-            window=partial(context.context_window, current.ref),
+            provider=model.ref.provider,
+            model_name=model.ref.name,
+            window=partial(context.context_window, model.ref),
         )
         if over is not None and request.whole:
             # --whole: the old D26 refusal — reproducibility beats handling
@@ -210,12 +213,12 @@ async def run_map(
             # Oversized items never batch (item 62 §7) — solo, wire-gated.
             async with wire:
                 result: str | Mapping[str, object] = await transform_oversized(
-                    current, plan, instruction, item, over, keep_invalid=request.keep_invalid
+                    model, plan, instruction, item, over, keep_invalid=request.keep_invalid
                 )
         else:
             attempt = partial(
                 map_one,
-                current,
+                model,
                 plan,
                 instruction,
                 item,
@@ -242,24 +245,17 @@ async def run_map(
                 # — halve and retry; user cuts stay per-item errors
                 async with wire:
                     result = await transform_resplit(
-                        current,
+                        model,
                         plan,
                         instruction,
                         item,
                         keep_invalid=request.keep_invalid,
                         cause=exc,
                     )
-        slot.tally(str(current.ref))
+        wired.tally()  # count the answer under the model that answered it (item 11)
         return item, result
 
     policy = context.failure_policy(model.ref.provider)
-    failover = (
-        make_failover(
-            slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
-        )
-        if fallback is not None
-        else None
-    )
     done = 0
     skipped = 0
     failed = 0
@@ -270,7 +266,7 @@ async def run_map(
         concurrency=workers,
         failure_policy=policy,
         stop=stop,
-        failover=failover,
+        fallback_armed=wired.armed,
         halt_sources=sources,
     )
     try:
@@ -305,8 +301,8 @@ async def run_map(
         log.finish()
     if tally is not None and tally.counts:
         diagnostics.note(tally.final_line())
-    if slot.switched:
-        diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
+    if wired.switched:
+        diagnostics.note(wired.receipt())  # the seam stays visible (item 11)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped)
         return interrupted_exit_code(

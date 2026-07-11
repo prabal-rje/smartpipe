@@ -134,10 +134,25 @@ class CircuitOpenTransport(TransportError):
     ``trip_id`` identifies one run-scoped breaker event. A packed flight may
     fan this marker to several item waiters, but the runner switches providers
     once for the shared event and replays each affected item exactly once.
+
+    ``switched`` records whether the resilience decorator swapped to a live
+    fallback for this trip. ``True`` means a backup is now armed and the runner
+    should replay the held window onto it; ``False`` means no fallback was
+    available (none configured, an unusable one, or the backup itself died) and
+    the run must die on the provider-down screen. It is the single signal the
+    runner branches on, replacing the retired verb-side failover hook.
     """
 
-    def __init__(self, message: str, *, trip_id: int, call_id: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        trip_id: int,
+        call_id: int | None = None,
+        switched: bool = False,
+    ) -> None:
         self.trip_id = trip_id
+        self.switched = switched
         super().__init__(message, series_id=trip_id, call_id=call_id)
 
 

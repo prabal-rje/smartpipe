@@ -6,17 +6,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Changed
-- **The chat wire's breaker and concurrency gate are now composed as
+- **The chat wire's breaker, concurrency gate, and failover are now composed as
   decorators at the composition root.** A new `models/resilience.py` provides
   native-Python resilience combinators (`retried`, `circuit_broken`,
-  `rate_limited`) plus the `Breaker`/`Cooldown` collaborators, and the
-  container stacks them into a `ResilientChatModel` — the per-ref transport
-  streak, trip signal, and concurrency semaphore that `OutboundCallPolicy`
-  owned for chat now live in first-class wrappers the root composes. Behavior
-  is unchanged: this is an internal decomposition (embed/OCR/STT keep the
-  shared admission policy). Retiring caller-handled failover
-  (`make_failover`/`run_ordered`'s `failover=`) rides a later change once the
-  fallback's composition is settled.
+  `rate_limited`) plus the `Breaker`/`Cooldown` collaborators, and the container
+  stacks them into a `ResilientChatModel` — the per-ref transport streak, trip
+  signal, and concurrency semaphore that `OutboundCallPolicy` owned for chat now
+  live in first-class wrappers the root composes. The provider-down failover
+  rides the same stack: `circuit_broken(*, fallback_factory=…)` owns the trip
+  AND the wholesale swap — on the breaker opening it builds the configured
+  fallback lazily and routes every later call to it for the rest of the run,
+  raising `CircuitOpenTransport(switched=…)` so the runner replays the held
+  in-flight window onto the swapped target. Per-item verbs (`map`, `extend`,
+  `filter`, `join`) now ask the container for one `resilient_chat_model()` and
+  run on the returned `WiredChat` — a plain `ChatModel` plus an honest
+  answered-per-model receipt — and never branch on the wire's health. This
+  retires the caller-handled failover machinery wholesale: `verbs/common.py`'s
+  `ModelSlot` and `make_failover`, and `run_ordered`'s `failover=`/`switch()`
+  seam (the runner keeps its held-window replay, now reading
+  `CircuitOpenTransport.switched` instead of driving the swap itself). Behavior
+  is preserved end to end — the failover contract's tests still pass byte for
+  byte; embed/OCR/STT keep the shared admission policy (failover is a chat
+  concern).
 
 ### Fixed
 - **`graph` proves the model can hold the schema before spending on OCR.**

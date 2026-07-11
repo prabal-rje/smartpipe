@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel
+    from smartpipe.models.resilience import WiredChat
 
 
 # --- fakes --------------------------------------------------------------------
@@ -61,6 +62,35 @@ class FakeContext:
 
     async def fallback_chat_model(self, ref: object) -> ChatModel:
         raise AssertionError("fallback never resolved without a configured ref")
+
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        # Compose the run's resilient stack from THIS fake's fallback wiring, so a
+        # subclass overriding fallback_ref/fallback_chat_model (FailoverContext,
+        # KeylessContext) flows through unchanged — the seam the migrated verb runs on.
+        from tests.helpers.wiring import build_wired
+
+        ref = self.fallback_ref(fallback_flag)
+        if ref is None:
+            return build_wired(
+                self.model,
+                concurrency=self.concurrency_value,
+                breaker_limit=self.breaker_limit,
+                batching=self.batching(),
+            )
+
+        async def fallback() -> ChatModel:
+            return await self.fallback_chat_model(ref)
+
+        return build_wired(
+            self.model,
+            concurrency=self.concurrency_value,
+            breaker_limit=self.breaker_limit,
+            fallback_factory=fallback,
+            fallback_ref=ref,
+            batching=self.batching(),
+        )
 
     def concurrency(self, flag: int | None = None) -> int:
         return self.concurrency_value
