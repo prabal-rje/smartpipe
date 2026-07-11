@@ -19,6 +19,7 @@ from smartpipe.models.local_ner import (
     NER_REPO,
     GlinerEntityFinder,
     NerEngine,
+    hf_implicit_token_env,
     ner_precision,
     span_grid,
     split_words,
@@ -245,6 +246,21 @@ def test_finder_loads_the_precision_injected_by_the_composition_root(
 
     finder.find("Alice")
     assert observed == ["fp32"]
+
+
+# --- the huggingface_hub warning knob (B5) -------------------------------------
+
+
+def test_hf_implicit_token_env_disables_the_unauthenticated_warning() -> None:
+    env: dict[str, str] = {}
+    hf_implicit_token_env(env)
+    assert env["HF_HUB_DISABLE_IMPLICIT_TOKEN"] == "1"
+
+
+def test_hf_implicit_token_env_never_overrides_a_configured_choice() -> None:
+    env = {"HF_HUB_DISABLE_IMPLICIT_TOKEN": "0"}
+    hf_implicit_token_env(env)
+    assert env["HF_HUB_DISABLE_IMPLICIT_TOKEN"] == "0"
 
 
 # --- the live wire (owner-run; CI always skips) --------------------------------

@@ -12,6 +12,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   When that upload then fails — a 429 ladder exhausted, the breaker open — the
   reservation is now refunded, because those pages were never converted; a dead
   document can no longer starve the documents that come after it.
+- **The huggingface_hub "set a HF_TOKEN" warning stays off stderr.** The first
+  `graph --fast` run downloads the local NER weights through huggingface_hub,
+  which printed an unauthenticated-request warning straight to stderr. smartpipe
+  now sets that warning's own documented toggle
+  (`HF_HUB_DISABLE_IMPLICIT_TOKEN`) the same per-library way onnxruntime's log
+  level is pinned, so diagnostics own stderr — never the hub's chatter.
 
 ## [1.5.1] — 2026-07-10
 

@@ -13,6 +13,7 @@ loads once per instance and is injected in tests, so CI never downloads a thing.
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
@@ -22,7 +23,7 @@ from smartpipe.engine.graphkg import EntitySpan
 from smartpipe.io import diagnostics
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Mapping, MutableMapping, Sequence
 
 __all__ = [
     "MAX_SPAN_WIDTH",
@@ -33,6 +34,7 @@ __all__ = [
     "NerEngine",
     "NerSession",
     "NerTokenizer",
+    "hf_implicit_token_env",
     "ner_precision",
     "span_grid",
     "split_words",
@@ -275,9 +277,19 @@ def _pick_spans(
     return sorted(picked)
 
 
+def hf_implicit_token_env(env: MutableMapping[str, str]) -> None:
+    """Silence huggingface_hub's "unauthenticated requests / set a HF_TOKEN"
+    stderr warning the house way — its own documented toggle, set before the
+    import reads it (the same per-library approach as onnxruntime's
+    ``log_severity_level`` below). ``setdefault`` never overrides an operator who
+    deliberately configured the flag; stderr belongs to ``io/diagnostics``."""
+    env.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+
+
 def _load_engine(  # pragma: no cover — the live wire; CI never downloads models
     precision: str,
 ) -> NerEngine:
+    hf_implicit_token_env(os.environ)
     try:
         import onnxruntime
         from huggingface_hub import hf_hub_download
