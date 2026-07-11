@@ -245,13 +245,19 @@ async def run_full(
         extract_bar.finish()
         log.finish()
 
+    # Salvage runs through the SAME fold/write path a clean exit takes: the
+    # already-extracted assertions are folded, pruned, and written below BEFORE any
+    # halt re-raise. The fold is a prerequisite (edges need canonical names), so if
+    # the fold wire itself fails here the resulting SetupFault is fatal for a clean
+    # run too — it is orthogonal to A1's extraction-halt salvage, not a regression
+    # of it (fold-path resilience is tracked separately as B1).
     counts = assertion_surface_counts(assertions)
     vectors = await fold_vectors(context, [surface.name for surface in counts])
     canonical = fold_surfaces(counts, vectors)
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = build_nodes(counts, canonical)
-    kept, _pruned = prune_edges(fold_assertions(assertions, canonical), request.min_weight)
+    kept, _ = prune_edges(fold_assertions(assertions, canonical), request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
         save_graph(request.save, nodes, kept, top=request.top)
@@ -286,7 +292,7 @@ async def run_full(
             halted.total,
             halted.last_reason,
             source_counts=source_counts,
-        )
+        ) from halted
     if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
         diagnostics.interrupted_summary(processed=done, skipped=chunk_skipped)
         return interrupted_exit_code(
@@ -489,7 +495,7 @@ async def run_hybrid(
     )
     if scan is None:
         return outcome_exit_code(done=0, skipped=0, failed=0)
-    kept, _pruned = prune_edges(scan.edges, request.min_weight)
+    kept, _ = prune_edges(scan.edges, request.min_weight)
     want = min(request.name_top, len(kept))
     candidates = kept[:want]  # already sorted heaviest first — the N strongest
 

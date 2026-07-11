@@ -312,6 +312,49 @@ async def test_full_mode_halt_reraises_file_unit_not_chunk_unit_counts() -> None
     assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in _edges(out.getvalue()))
 
 
+async def test_full_mode_halt_settles_the_manifest_at_all_failed(tmp_path: object) -> None:
+    """A1's central claim, exercised end to end THROUGH ``settled`` — the seam it was
+    built for. Prior halt tests only read ``excinfo.value.source_counts``; this drives
+    the halt through the CLI boundary and asserts the manifest it writes records
+    FILE-unit counts at exit ``all_failed``, with the salvaged edge already on stdout."""
+    from pathlib import Path
+
+    from smartpipe.cli.manifest_option import settled
+    from smartpipe.io import source_accounting
+
+    assert isinstance(tmp_path, Path)
+    target = tmp_path / "halt.json"
+    source_accounting.reset()  # the composition root arms this once per run
+    manifest.reset()
+    manifest.begin(target, verb="graph", argv=("graph",))
+    chat = FakeChat(
+        by_content={"Ann pays Bob": triples(("Ann", "pays", "Bob")), "junk": "not json"}
+    )
+    context = _context(chat)
+    context.halt_min_sample = 2  # trip the ratio on three chunks
+    out = io.StringIO()
+    work = run_graph(
+        GraphRequest(focus="pays"),
+        context,
+        stdin=io.StringIO("Ann pays Bob\njunk one\njunk two\n"),
+        stdout=out,
+        stop=None,
+        clock=lambda: 0.0,
+        ask=None,
+        budget=None,
+    )
+    with pytest.raises(TooManyFailures) as excinfo:
+        await settled(work, None)  # the boundary writes the manifest, then re-raises
+
+    assert excinfo.value.source_counts == SourceCounts(succeeded=1, skipped=2, failed=2)
+    document = json.loads(target.read_text(encoding="utf-8"))
+    assert document["run"]["exit_status"] == "all_failed"
+    assert document["run"]["exit_code"] == int(ExitCode.ALL_FAILED)
+    # file-unit books, NOT the runner's chunk-unit halt display (2 of 3 items)
+    assert document["items"] == {"in": 3, "succeeded": 1, "skipped": 2, "failed": 2}
+    assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in _edges(out.getvalue()))
+
+
 async def test_hybrid_naming_halt_keeps_the_co_occurrence_graph_and_exits_partial(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
