@@ -37,10 +37,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   with nothing banked. A new `CachingDocumentParser` now wraps that wire
   OUTERMOST — `cache → admission → budget → parser`, mirroring the chat cache — so
   a hit short-circuits before admission gates it or the page belt meters it. Both
-  paid methods cache: `parse_image` keys on the image bytes, `parse_pdf` on the
-  file's bytes, each under the OCR model's `provider/name` and a route tag so an
-  image hash never collides with a pdf hash; the page tuple round-trips
-  byte-identical. It rides the same posture (`SMARTPIPE_CACHE`), directory, and
+  paid methods cache: `parse_image` keys on the image bytes and mime, `parse_pdf`
+  on the file's bytes, each under the OCR model's `provider/name` and a route tag
+  so an image hash never collides with a pdf hash (nor one image format with
+  another); the page tuple round-trips byte-identical. Banking is best-effort — an
+  unwritable cache dir or a full disk never sinks a run that already paid for its
+  pages. It rides the same posture (`SMARTPIPE_CACHE`), directory, and
   daily TTL/LRU sweep as the chat cache, and its hits join the once-per-run
   `cache: N hits · M misses` receipt. (Vision-OCR page images already rode the
   chat cache; this closes the dedicated Mistral document wire.)

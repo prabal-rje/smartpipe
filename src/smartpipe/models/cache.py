@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import os
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -127,7 +128,9 @@ class CachingDocumentParser:
         return self.inner.ref
 
     async def parse_image(self, image: ImageData) -> str:
-        key = ocr_cache_key(self.inner.ref, "image", image.data)
+        # A7 review: the mime rides the request body (``_data_url``), so it rides the
+        # key too — the same bytes under a different format is a different conversion.
+        key = ocr_cache_key(self.inner.ref, f"image:{image.mime}", image.data)
         path = self.directory / key[:2] / f"{key}.json"
         stored = _read(path)
         if stored is not None:
@@ -169,10 +172,18 @@ def _read(path: Path) -> str | None:
 
 
 def _write(path: Path, reply: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Bank a reply best-effort. A cache write is never the user's problem (mirrors
+    ``_read``'s OSError swallow): an unwritable dir or a full disk must not sink a run
+    that already produced — and, on the paid OCR wire, already PAID for — its result
+    (A7 review). On failure the half-written temp is cleaned up, nothing is banked."""
     scratch = path.with_suffix(".tmp")
-    scratch.write_text(json.dumps({"reply": reply}, ensure_ascii=False), encoding="utf-8")
-    os.replace(scratch, path)  # atomic on POSIX — never a half-written entry
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        scratch.write_text(json.dumps({"reply": reply}, ensure_ascii=False), encoding="utf-8")
+        os.replace(scratch, path)  # atomic on POSIX — never a half-written entry
+    except OSError:
+        with suppress(OSError):
+            scratch.unlink(missing_ok=True)  # don't leave a half-written temp behind
 
 
 def _dump_pages(pages: tuple[OcrPage, ...]) -> str:

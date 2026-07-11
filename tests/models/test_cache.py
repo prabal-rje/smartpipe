@@ -308,3 +308,38 @@ async def test_corrupt_page_entry_is_a_miss_not_a_crash(tmp_path: Path) -> None:
 async def test_ocr_cache_ref_passes_through(tmp_path: Path) -> None:
     cached = CachingDocumentParser(CountingParser(), tmp_path)
     assert str(cached.ref) == "mistral/mistral-ocr-latest"  # disclosure reads the wire's identity
+
+
+async def test_image_cache_keys_on_the_mime_not_just_bytes(tmp_path: Path) -> None:
+    """A7 review: the OCR request body embeds the image mime (``_data_url``), so the
+    same bytes under a different mime is a different conversion — it must MISS, never
+    hand back the other format's banked reply."""
+    inner = CountingParser()
+    cached = CachingDocumentParser(inner, tmp_path)
+    png = await cached.parse_image(ImageData(b"samebytes", "image/png"))
+    jpeg = await cached.parse_image(ImageData(b"samebytes", "image/jpeg"))
+    assert inner.image_calls == 2  # mime flips the key — the wire ran once per format
+    assert png != jpeg  # each format kept its own paid reply; no cross-serving
+
+
+async def test_a_cache_write_failure_never_sinks_a_paid_conversion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A7 review: the OCR pages are already PAID for by the time ``_write`` runs. A
+    disk-full / unwritable-dir ``OSError`` while banking them must not propagate and
+    discard the conversion — the cache is never the user's problem (mirrors ``_read``)."""
+    import smartpipe.models.cache as cache_mod
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(cache_mod.os, "replace", _boom)
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(minimal_pdf(["one"]))
+    inner = CountingParser()
+    cached = CachingDocumentParser(inner, tmp_path / "cache")
+    pages = await cached.parse_pdf(pdf)  # the write fails, but the paid pages come back
+    assert pages == (OcrPage(0, "page-one-1"), OcrPage(1, "café ☕ 世界\n\n# H"))
+    assert (cached.hits, cached.misses) == (0, 1)
+    await cached.parse_pdf(pdf)  # nothing banked → the rerun re-parses, no false hit
+    assert inner.pdf_calls == 2
