@@ -6,6 +6,7 @@ test at the bottom runs only when the model is already in the HF cache.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -27,7 +28,7 @@ from smartpipe.models.local_ner import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Generator, Mapping, Sequence
 
 
 # --- pure preprocessing ------------------------------------------------------
@@ -246,6 +247,74 @@ def test_finder_loads_the_precision_injected_by_the_composition_root(
 
     finder.find("Alice")
     assert observed == ["fp32"]
+
+
+# --- the pre-warm seam: load() up front so the download shows a status line ----
+
+
+def test_load_with_an_injected_engine_never_downloads(monkeypatch: pytest.MonkeyPatch) -> None:
+    import smartpipe.models.local_ner as local_ner
+
+    def explode(precision: str) -> NerEngine:
+        del precision
+        raise AssertionError("an injected engine must never trigger a download")
+
+    monkeypatch.setattr(local_ner, "_load_engine", explode)
+    finder = GlinerEntityFinder(
+        labels=("person",),
+        engine=NerEngine(session=FakeSession({}, num_classes=1), tokenizer=FakeTokenizer()),
+    )
+    finder.load()  # no raise: the injected engine short-circuits the load
+
+
+def test_load_triggers_exactly_one_engine_load_then_reuses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import smartpipe.models.local_ner as local_ner
+
+    expected = NerEngine(session=FakeSession({}, num_classes=1), tokenizer=FakeTokenizer())
+    loads: list[str] = []
+
+    def load(precision: str) -> NerEngine:
+        loads.append(precision)
+        return expected
+
+    monkeypatch.setattr(local_ner, "_announced", True)
+    monkeypatch.setattr(local_ner, "_load_engine", load)
+    finder = GlinerEntityFinder(labels=("person",), precision="q8")
+
+    finder.load()
+    finder.load()  # the second call reuses the engine loaded by the first
+    assert loads == ["q8"]
+    assert finder.engine is expected
+
+
+def test_load_quiet_silences_hub_progress_around_the_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import smartpipe.models.local_ner as local_ner
+
+    entered: list[bool] = []
+
+    @contextmanager
+    def fake_silence() -> Generator[None]:
+        entered.append(True)
+        yield
+
+    expected = NerEngine(session=FakeSession({}, num_classes=1), tokenizer=FakeTokenizer())
+
+    def load(precision: str) -> NerEngine:
+        del precision
+        return expected
+
+    monkeypatch.setattr(local_ner, "_announced", True)
+    monkeypatch.setattr(local_ner, "_load_engine", load)
+    monkeypatch.setattr(local_ner, "_hf_progress_silenced", fake_silence)
+    finder = GlinerEntityFinder(labels=("person",))
+
+    finder.load(quiet=True)
+    assert entered == [True]  # the caller owns the row, so hub chatter is suppressed
+    assert finder.engine is expected
 
 
 # --- the huggingface_hub warning knob (B5) -------------------------------------

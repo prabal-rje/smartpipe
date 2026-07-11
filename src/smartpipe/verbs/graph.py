@@ -58,6 +58,7 @@ from smartpipe.verbs.common import (
     batched,
     ensure_text,
     outcome_exit_code,
+    spin_pending,
 )
 from smartpipe.verbs.common import transcribe as whisper_transcribe
 
@@ -286,6 +287,13 @@ async def scan_corpus(
         return None
 
     finder = context.entity_finder(labels)
+    if labels:  # empty labels never load the model (find short-circuits) — skip the ~190 MB pull
+        warm_bar = make_stderr_spinner()
+        await spin_pending(
+            warm_bar,
+            "preparing local NER model",
+            asyncio.to_thread(finder.load, quiet=warm_bar.enabled),
+        )
     log = diagnostics.DegradationLog()
     gathered: list[ItemEntities] = []
     no_free_text = 0

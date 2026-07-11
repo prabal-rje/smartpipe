@@ -86,6 +86,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   and leads the survivors with one model per provider so a long openai list
   can't crowd out anthropic/gemini/etc. The dedicated `mistral-ocr-latest` wire
   and the picked vision chat model still lead the menu as their own rows.
+- **`graph --fast`/`--hybrid` no longer look hung while the local NER model
+  loads.** The one-time weights download and ONNX session init happened silently
+  inside the first per-item NER call, with no smartpipe-owned feedback. A
+  caller-owned `preparing local NER model` status line now covers that load up
+  front, under the same final-stage TTY gate as every other bar; huggingface_hub's
+  own download bar is deferred to when the spinner is gated off (a piped stdout),
+  so the two never fight over the terminal row.
 
 ## [1.5.1] — 2026-07-10
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 import os
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
@@ -23,7 +24,7 @@ from smartpipe.engine.graphkg import EntitySpan
 from smartpipe.io import diagnostics
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, MutableMapping, Sequence
+    from collections.abc import Generator, Mapping, MutableMapping, Sequence
 
 __all__ = [
     "MAX_SPAN_WIDTH",
@@ -150,6 +151,19 @@ class GlinerEntityFinder:
     window_words: int = MAX_TEXT_WORDS
     engine: NerEngine | None = field(default=None, repr=False)  # injected in tests
 
+    def load(self, *, quiet: bool = False) -> None:
+        """Pull the weights and build the session up front (the ``EntityFinder``
+        pre-warm seam) so the one-time download shows a caller-owned status line
+        instead of a silent block inside the first ``find``. ``quiet`` suppresses
+        huggingface_hub's own progress bar because the caller owns the row."""
+        if self.engine is not None:
+            return  # injected (tests) or already loaded — nothing to download
+        if quiet:
+            with _hf_progress_silenced():
+                self._load()
+        else:
+            self._load()
+
     def find(self, text: str) -> tuple[EntitySpan, ...]:
         if not self.labels:
             return ()
@@ -275,6 +289,24 @@ def _pick_spans(
             continue  # flat NER: ranges never overlap
         picked.append((first, last, label_index))
     return sorted(picked)
+
+
+@contextmanager
+def _hf_progress_silenced() -> Generator[None]:  # pragma: no cover — live wire only
+    """Quiet huggingface_hub's own tqdm download bar for the duration of a load:
+    the caller (the ``preparing local NER model`` spinner) owns the terminal row,
+    so two progress animations must not fight over it. Defensive — a hub without
+    the toggle (or absent entirely) just yields."""
+    try:
+        from huggingface_hub.utils.tqdm import disable_progress_bars, enable_progress_bars
+    except ImportError:
+        yield
+        return
+    disable_progress_bars()
+    try:
+        yield
+    finally:
+        enable_progress_bars()
 
 
 def hf_implicit_token_env(env: MutableMapping[str, str]) -> None:

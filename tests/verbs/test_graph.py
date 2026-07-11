@@ -29,9 +29,15 @@ class FakeFinder:
         self.known = known  # name -> label
         self.poison = poison
         self.calls: list[str] = []
+        self.events: list[str] = []  # "load"/"find" in call order — the pre-warm pin
+
+    def load(self, *, quiet: bool = False) -> None:
+        del quiet
+        self.events.append("load")
 
     def find(self, text: str) -> tuple[EntitySpan, ...]:
         self.calls.append(text)
+        self.events.append("find")
         if self.poison is not None and self.poison in text:
             raise ItemError("the local NER model returned an unexpected shape")
         found = [
@@ -181,6 +187,30 @@ async def test_entities_dial_reaches_the_finder() -> None:
     context = _context(PEOPLE)
     await _run(GraphRequest(fast=True, entities="person, vessel"), context, "Ann met Bob\n")
     assert context.finder_labels == ("person", "vessel")
+
+
+async def test_scan_pre_warms_the_model_before_the_first_find() -> None:
+    # the load's download/session-init shows a caller-owned status line instead
+    # of a silent block inside the per-item loop (reads as "hung" otherwise)
+    context = _context(PEOPLE)
+    await _run(GraphRequest(fast=True), context, "Ann met Bob\n")
+    assert context.finder.events[0] == "load"
+    assert context.finder.events.index("load") < context.finder.events.index("find")
+
+
+async def test_scan_without_labels_never_pays_for_the_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartpipe.verbs import graph as graph_module
+
+    def no_labels(raw: str | None) -> tuple[str, ...]:
+        del raw
+        return ()
+
+    monkeypatch.setattr(graph_module, "parse_entities", no_labels)
+    context = _context(PEOPLE)
+    await _run(GraphRequest(fast=True), context, "Ann met Bob\n")
+    assert "load" not in context.finder.events  # no labels → no ~190 MB pull
 
 
 # --- the free co-occurrence path ------------------------------------------------

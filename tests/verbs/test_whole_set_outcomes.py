@@ -53,6 +53,9 @@ class _Finder:
         del text
         return ()
 
+    def load(self, *, quiet: bool = False) -> None:
+        del quiet
+
 
 class _Context:
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel:

@@ -85,6 +85,12 @@ class EntityFinder(Protocol):
     """The NER seam: implementations live in ``models/``; tests inject fakes."""
 
     def find(self, text: str) -> tuple[EntitySpan, ...]: ...
+    def load(self, *, quiet: bool = False) -> None:
+        """Trigger the one-time model load up front so the download/session-init
+        shows a caller-owned status instead of a silent block. ``quiet`` asks the
+        implementation to suppress its own third-party progress chatter because
+        the caller owns the terminal row."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclasses_field
 from typing import TYPE_CHECKING, Protocol, TypeVar, assert_never
@@ -31,11 +32,11 @@ from smartpipe.models.base import AudioData, ImageData, MediaEmbeddingModel, Vid
 from smartpipe.verbs.convert import AUDIO_NEEDS_TEXT, Converter
 
 if TYPE_CHECKING:
-    import asyncio
     from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
     from pathlib import Path
 
     from smartpipe.io.items import Item
+    from smartpipe.io.progress import Spinner
     from smartpipe.models.base import EmbeddingModel, MediaData
 
 __all__ = [
@@ -60,6 +61,7 @@ __all__ = [
     "reset_run_disclosures",
     "resolve_schema",
     "row_embedder",
+    "spin_pending",
     "transcribe",
     "warn_unenforced_schema",
 ]
@@ -67,6 +69,29 @@ __all__ = [
 T = TypeVar("T")
 
 EMBED_BATCH_SIZE = 64  # texts per embed call on finite corpora (plan/post-1.0/06)
+_PENDING_TICK_S = 0.1  # the pending-spinner cadence (matches the redraw floor)
+
+
+async def spin_pending(
+    spinner: Spinner,
+    message: str,
+    awaitable: Awaitable[T],
+    *,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> T:
+    """Animate ``spinner`` with ``message`` while ``awaitable`` runs, then return
+    its result — the caller-owned status row for a blocking wait (a model load).
+    The injectable ``sleep`` keeps the cadence deterministic in tests."""
+    task = asyncio.ensure_future(awaitable)
+    spinner.message = message
+    spinner.start(None)
+    try:
+        while not task.done():
+            spinner.tick()
+            await sleep(_PENDING_TICK_S)
+    finally:
+        spinner.finish()
+    return await task
 
 
 class ExecutionPolicySource(Protocol):

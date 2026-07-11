@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 __all__ = [
     "Spinner",
     "make_stderr_spinner",
+    "render_pending",
     "render_unknown",
     "set_stage_label",
     "stage_label",
@@ -67,6 +68,12 @@ def render_unknown(
     return line
 
 
+def render_pending(frame: str, message: str) -> str:
+    """An indeterminate wait line: the spinner frame then a caller-owned message
+    (no count, no rate — nothing is being iterated, just held)."""
+    return f"{frame} {message}"
+
+
 @dataclass(slots=True)
 class Spinner:
     stream: TextIO
@@ -77,6 +84,7 @@ class Spinner:
     matched: int | None = None  # filter's status-line segment
     extra: str | None = None  # map's live --tally segment
     label: str | None = None  # pipeline stage name — prefixes the line like receipts
+    message: str | None = None  # the indeterminate-wait caption drawn by tick()
     _done: int = 0
     _start: float = 0.0
     _last_draw: float = field(default=-1.0)
@@ -100,6 +108,28 @@ class Spinner:
             return
         self._last_draw = now
         self._draw(now)
+
+    def tick(self) -> None:
+        """Redraw the indeterminate ``message`` line, cycling the frame — the
+        animation for a blocking wait (a model load) where nothing is being
+        iterated. Throttled like ``advance`` and never touches ``_done``, so a
+        pending wait is not miscounted as progress."""
+        if not self.enabled:
+            return
+        now = self.clock()
+        if now - self._last_draw < _MIN_REDRAW_S:
+            return
+        self._last_draw = now
+        frame = self._next_frame()
+        line = render_pending(frame, self.message or "")
+        if self._color():
+            line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
+        if self.label is not None:
+            line = f"[{self.label}] {line}"
+        self._line = line
+        self.stream.write(f"\r{line}{_CLEAR_LINE}")
+        self.stream.flush()
+        self._drew = True
 
     def finish(self) -> None:
         if self.enabled and self._drew:
@@ -135,10 +165,14 @@ class Spinner:
 
         return self.enabled and not os.environ.get("NO_COLOR")
 
-    def _draw(self, now: float) -> None:
+    def _next_frame(self) -> str:
         frames = _ASCII if self.ascii_only else _BRAILLE
         frame = frames[self._frame % len(frames)]
         self._frame += 1
+        return frame
+
+    def _draw(self, now: float) -> None:
+        frame = self._next_frame()
         elapsed = max(now - self._start, 1e-9)
         rate = self._done / elapsed
         color = self._color()

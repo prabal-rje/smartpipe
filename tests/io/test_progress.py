@@ -8,6 +8,7 @@ from smartpipe.io import tty
 from smartpipe.io.progress import (
     Spinner,
     make_stderr_spinner,
+    render_pending,
     render_unknown,
     set_stage_label,
     stage_label,
@@ -23,6 +24,10 @@ def test_render_unknown_shows_rate() -> None:
 def test_render_unknown_carries_matched_and_extra_segments() -> None:
     line = render_unknown("⠋", done=9, rate=3.0, matched=4, extra="bug 3 · praise 1")
     assert line == "⠋ Processing [9] 3.0/s · 4 matched · bug 3 · praise 1"
+
+
+def test_render_pending_is_frame_then_message() -> None:
+    assert render_pending("⠋", "preparing local NER model") == "⠋ preparing local NER model"
 
 
 def test_draw_appends_the_live_metering_segment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,6 +161,61 @@ def test_unknown_total_spinner_shows_running_count_and_rate() -> None:
     spinner.advance()
     assert "Processing [1]" in stream.getvalue()
     assert "/s" in stream.getvalue()
+
+
+# --- the pending tick: a caller-owned status row for a blocking wait -----------
+
+
+def test_tick_draws_the_pending_line_without_counting_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    stream = io.StringIO()
+    clock = _Clock()
+    spinner = Spinner(
+        stream=stream, enabled=True, ascii_only=True, clock=clock, message="preparing"
+    )
+    spinner.start(total=None)
+    clock.t = 1.0
+    spinner.tick()
+    assert stream.getvalue() == "\r- preparing\x1b[K"
+    assert spinner._done == 0  # pyright: ignore[reportPrivateUsage] — a wait is not progress
+
+
+def test_tick_colorizes_the_frame_like_the_unknown_bar() -> None:
+    stream = io.StringIO()
+    clock = _Clock()
+    spinner = Spinner(
+        stream=stream, enabled=True, ascii_only=True, clock=clock, message="preparing"
+    )
+    spinner.start(total=None)
+    clock.t = 1.0
+    spinner.tick()
+    assert stream.getvalue() == "\r\x1b[36m-\x1b[0m preparing\x1b[K"
+
+
+def test_tick_wears_the_stage_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    stream = io.StringIO()
+    clock = _Clock()
+    spinner = Spinner(
+        stream=stream, enabled=True, ascii_only=True, clock=clock, message="warming", label="graph"
+    )
+    spinner.start(total=None)
+    clock.t = 1.0
+    spinner.tick()
+    assert stream.getvalue() == "\r[graph] - warming\x1b[K"
+
+
+def test_disabled_spinner_tick_writes_nothing() -> None:
+    stream = io.StringIO()
+    spinner = Spinner(
+        stream=stream, enabled=False, ascii_only=True, clock=_Clock(), message="preparing"
+    )
+    spinner.start(total=None)
+    for _ in range(5):
+        spinner.tick()
+    assert stream.getvalue() == ""
 
 
 # --- terminal arbiter: results must never land under the status line -----------
