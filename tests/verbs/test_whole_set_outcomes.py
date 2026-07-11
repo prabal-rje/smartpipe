@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
     from smartpipe.io.writers import ResultWriter
     from smartpipe.models.base import EmbeddingModel
+    from smartpipe.models.resilience import WiredChat
 
 
 class _FailedEmbedding:
@@ -65,6 +66,16 @@ class _Context:
     async def chat_model(self, flag: str | None = None) -> _FailedChat:
         del flag
         return _FailedChat()
+
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        # graph exercises this context only in --fast (free) mode, so the paid seam
+        # is never actually driven here; a real WiredChat keeps the type honest.
+        del flag, fallback_flag
+        from tests.helpers.wiring import build_wired
+
+        return build_wired(_FailedChat(), concurrency=1, breaker_limit=5)
 
     async def context_window(self, ref: ModelRef) -> int | None:
         del ref

@@ -17,6 +17,7 @@ from smartpipe.core.errors import (
     SetupFault,
     SourceCounts,
     TooManyFailures,
+    TransportError,
     UsageFault,
 )
 from smartpipe.engine.runner import FailurePolicy
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from smartpipe.models.base import ChatModel, CompletionRequest
+    from smartpipe.models.resilience import WiredChat
 
 
 _CANARY_MARK = "Alice pays Bob for the shipment."  # mirrors graphfull._CANARY_SNIPPET
@@ -77,6 +79,8 @@ class PaidContext:
     chat: ChatModel
     finder: FakeFinder
     embedder: FakeEmbedder
+    backup: ChatModel | None = None  # A4: the configured --fallback-model target
+    breaker_limit: int = 5  # kept == failure_policy.transport_limit (the breaker invariant)
     concurrency_value: int = 1  # sequential: deterministic call order under test
     halt_min_sample: int = 20  # lower it to trip the >50 % halt on a few chunks
     finder_labels: tuple[str, ...] = ()
@@ -90,8 +94,49 @@ class PaidContext:
         return self.embedder
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
+        # Retained for any construction that still peeks at the plain wire; the
+        # migrated paid modes run on resilient_chat_model instead (A4).
         self.chat_resolutions += 1
         return self.chat
+
+    def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
+        return self.backup.ref if self.backup is not None else None
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        assert self.backup is not None
+        return self.backup
+
+    def batching(self) -> None:
+        return None
+
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        # Compose THIS fake's fallback wiring into the WiredChat seam the migrated
+        # paid modes run on — mirrors test_map.FakeContext.resilient_chat_model.
+        from tests.helpers.wiring import build_wired
+
+        self.chat_resolutions += 1
+        ref = self.fallback_ref(fallback_flag)
+        if ref is None:
+            return build_wired(
+                self.chat,
+                concurrency=self.concurrency_value,
+                breaker_limit=self.breaker_limit,
+                batching=None,
+            )
+
+        async def fallback() -> ChatModel:
+            return await self.fallback_chat_model(ref)
+
+        return build_wired(
+            self.chat,
+            concurrency=self.concurrency_value,
+            breaker_limit=self.breaker_limit,
+            fallback_factory=fallback,
+            fallback_ref=ref,
+            batching=None,
+        )
 
     def document_parser(self, flag: str | None = None) -> None:
         return None
@@ -103,8 +148,8 @@ class PaidContext:
         from smartpipe.cli import screens
 
         return FailurePolicy(
-            transport_limit=5,
-            transport_screen=screens.provider_down(provider, 5),
+            transport_limit=self.breaker_limit,
+            transport_screen=screens.provider_down(provider, self.breaker_limit),
             min_sample=self.halt_min_sample,
         )
 
@@ -1210,3 +1255,75 @@ async def test_empty_input_at_belt_of_one_spends_nothing() -> None:
     assert code is ExitCode.OK
     assert out == ""
     assert chat.calls == []  # not even the probe fired
+
+
+# --- A4: --fallback-model failover into both paid modes (item 11) --------------------
+
+
+class CanaryThenDown(FakeChat):
+    """Passes the A2 schema canary (a fixed synthetic snippet), then dies on the
+    wire for every REAL chunk — a primary that proved the schema but went down."""
+
+    async def complete(self, request: CompletionRequest) -> str:
+        self.calls.append(request)
+        if _CANARY_MARK in request.user:
+            return triples(("Alice", "pays", "Bob"))  # the canary passes
+        raise TransportError("ollama error 503: overloaded")  # every real chunk fails
+
+
+async def test_full_mode_failover_switches_to_the_backup(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A4: the primary clears the canary, then every real extraction call dies on
+    # the wire. The breaker trips and swaps WHOLESALE to the configured fallback,
+    # replaying the held window onto it — the same seam map/extend/filter/join use.
+    backup = FakeChat([triples(("Ann", "pays", "Bob"))])
+    backup.ref = ModelRef("openai", "gpt-4o-mini")
+    primary = CanaryThenDown()
+    context = PaidContext(
+        chat=primary,
+        finder=FakeFinder(PEOPLE),
+        embedder=FakeEmbedder({}),
+        backup=backup,
+        breaker_limit=2,
+        concurrency_value=4,  # a held window before the trip, like map's switch test
+    )
+    code, out = await _run(
+        GraphRequest(focus="who pays whom"),
+        context,
+        "one Ann Bob\ntwo Ann Bob\nthree Ann Bob\nfour Ann Bob\nfive Ann Bob\nsix Ann Bob\n",
+    )
+    assert code is ExitCode.OK  # the held window re-ran on the backup — nothing lost
+    edges = _edges(out)
+    assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in edges)  # backup answered
+    err = capsys.readouterr().err
+    assert "switching to openai/gpt-4o-mini for the rest of the run" in err
+    assert "answers: openai/gpt-4o-mini" in err  # the receipt keeps the swap visible
+
+
+async def test_full_mode_failover_on_a_dead_backup_dies_loudly() -> None:
+    # A4: the primary clears the canary then dies, and the configured fallback is
+    # ALSO down. One window on the primary, one on the backup, then honest death on
+    # the provider-down screen — never a silent empty graph.
+    class AlwaysDown(FakeChat):
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls.append(request)
+            raise TransportError("openai error 503: overloaded")
+
+    backup = AlwaysDown()
+    backup.ref = ModelRef("openai", "gpt-4o-mini")
+    primary = CanaryThenDown()
+    context = PaidContext(
+        chat=primary,
+        finder=FakeFinder(PEOPLE),
+        embedder=FakeEmbedder({}),
+        backup=backup,
+        breaker_limit=2,
+        concurrency_value=1,  # sequential: a deterministic two-window death
+    )
+    with pytest.raises(SetupFault, match="looks down"):
+        await _run(
+            GraphRequest(focus="who pays whom"),
+            context,
+            "one Ann\ntwo Ann\nthree Ann\nfour Ann\nfive Ann\nsix Ann\n",
+        )

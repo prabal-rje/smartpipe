@@ -30,6 +30,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   concern).
 
 ### Fixed
+- **`graph` honors `--fallback-model` - the failover was dead weight before.**
+  Both paid modes (a focus prompt for extraction, `--name-top` for naming) now run
+  on the composed resilient chat wire, so a provider-down primary trips the breaker
+  and swaps to the configured fallback WHOLESALE, replaying the held window onto
+  it - the same `switching to <model> for the rest of the run` line and
+  answered-per-model receipt the per-item verbs print. A pilot run configured a
+  `fallback-model` that `graph` silently ignored; now it engages.
 - **`graph` proves the model can hold the schema before spending on OCR.**
   Both paid modes now fire one synthetic extraction ("Alice pays Bob for the
   shipment.") through the compiled schema before any ingestion — full mode

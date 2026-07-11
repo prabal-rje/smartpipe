@@ -70,9 +70,10 @@ if TYPE_CHECKING:
     from smartpipe.engine.graphkg import EntityFinder, GraphEdge, GraphNode, SurfaceCount
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item, ItemSource
-    from smartpipe.models.base import AudioData, ChatModel, EmbeddingModel
+    from smartpipe.models.base import AudioData, EmbeddingModel
     from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
+    from smartpipe.models.resilience import WiredChat
 
 __all__ = [
     "DEFAULT_ENTITIES",
@@ -111,6 +112,7 @@ class GraphRequest:
     save: str | None = None
     top: int | None = None  # display-format hub cap
     model_flag: str | None = None  # --model: the extraction/naming chat wire (G2)
+    fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
     concurrency_flag: int | None = None  # --concurrency (G2)
     ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (G2)
     input: InputSpec = STDIN
@@ -125,10 +127,14 @@ class GraphContext(Protocol):
 
 
 class GraphModelContext(GraphContext, ExecutionPolicySource, Protocol):
-    """The paid half's seam (G2): everything ``--fast`` has, plus the chat
-    wire and its dials — the same accessors ``map`` composes with."""
+    """The paid half's seam (G2): everything ``--fast`` has, plus the composed
+    resilient chat wire and its dials — the same accessors ``map`` composes with.
+    The paid modes run on the returned ``WiredChat`` (breaker + concurrency gate
+    with the configured fallback armed underneath), never on a plain chat model."""
 
-    async def chat_model(self, flag: str | None = None) -> ChatModel: ...
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat: ...
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
 
 

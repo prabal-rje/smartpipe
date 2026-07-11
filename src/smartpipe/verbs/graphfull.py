@@ -213,7 +213,13 @@ async def run_full(
     instruction = to_instruction(tokens)
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
-    model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
+    # The resilient stack: primary wire + breaker + concurrency gate, the configured
+    # fallback armed lazily underneath (item 11). `model` IS the resilient callable —
+    # a provider-down trip swaps to the backup inside it and the worker never branches
+    # on the wire's health; the canary below runs on the primary, and a swap during it
+    # is fine. An embed-ref fallback is refused at this line, pre-spend.
+    wired = await context.resilient_chat_model(request.model_flag, request.fallback_flag)
+    model = wired.model  # may have emitted a note / SetupFault during resolution
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
     if total != 0 and _canary_affordable(budget):
@@ -289,7 +295,13 @@ async def run_full(
             return ExitCode.OK  # declined at the plan: nothing spent
 
     async def worker(chunk: Item) -> tuple[Item, str | Mapping[str, object]]:
-        return chunk, await map_one(model, plan, instruction, chunk, log)
+        # Capture the answering ref at entry (mirrors map's `slot.current`): after a
+        # swap the receipt must count under the wire that answered, not the dead
+        # primary. Graph's chunks are pre-cut, so `answering`'s only use is the tally.
+        answering = wired.answering_ref()
+        result = await map_one(model, plan, instruction, chunk, log)
+        wired.tally(answering)  # count one answered chunk under the wire captured at entry
+        return chunk, result
 
     assertions: list[EdgeAssertion] = []
     done = 0
@@ -303,6 +315,7 @@ async def run_full(
         concurrency=concurrency,
         failure_policy=context.failure_policy(model.ref.provider),
         stop=stop,
+        fallback_armed=wired.armed,
     )
     halted: TooManyFailures | None = None
     try:
@@ -362,6 +375,8 @@ async def run_full(
         f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
         f"{len(kept):,} edges · {receipt_tail()}"
     )
+    if wired.switched:
+        diagnostics.note(wired.receipt())  # the failover seam stays visible (item 11)
     if halted is not None:
         # the failure policy tripped mid-extraction: the fold + write above
         # SALVAGED every chunk that landed before it (run B lost 7 extractions and
@@ -585,7 +600,12 @@ async def run_hybrid(
     naming_skips = 0
     naming_halted = False
     if candidates:
-        model = await context.chat_model(request.model_flag)
+        # The resilient stack (item 11): primary naming wire + breaker + gate, the
+        # configured fallback armed lazily underneath. `model` IS the resilient
+        # callable — a provider-down trip swaps to the backup and the worker never
+        # branches on health; the canary below runs on the primary.
+        wired = await context.resilient_chat_model(request.model_flag, request.fallback_flag)
+        model = wired.model
         plan = MapPlan("structured", _naming_schema(relations), MAP_JSON_SYSTEM)
         instruction = _naming_instruction(request.focus)
         log = diagnostics.DegradationLog()
@@ -604,6 +624,7 @@ async def run_hybrid(
             )
 
         async def worker(item: Item) -> tuple[int, str]:
+            answering = wired.answering_ref()  # captured at entry, like map's slot.current
             result = await map_one(model, plan, instruction, item, log)
             from collections.abc import Mapping as MappingABC
 
@@ -611,6 +632,7 @@ async def run_hybrid(
             relation = result.get("relation")
             if not isinstance(relation, str) or not relation.strip():
                 raise ItemError("the model named no relation")
+            wired.tally(answering)  # count one named edge under the wire captured at entry
             return item.source.index, relation.strip()
 
         asks = [_naming_item(position, edge, scan) for position, edge in enumerate(candidates)]
@@ -622,6 +644,7 @@ async def run_hybrid(
             concurrency=concurrency,
             failure_policy=context.failure_policy(model.ref.provider),
             stop=stop,
+            fallback_armed=wired.armed,
         )
         try:
             async for outcome in outcomes:
@@ -648,6 +671,8 @@ async def run_hybrid(
         finally:
             name_bar.finish()
             log.finish()
+        if wired.switched:
+            diagnostics.note(wired.receipt())  # the failover seam stays visible (item 11)
 
     belt_short = budget is not None and budget.exhausted and len(named) < want
     if belt_short:

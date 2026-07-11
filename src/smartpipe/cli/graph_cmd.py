@@ -85,6 +85,12 @@ __all__ = ["graph_command"]
     shell_complete=complete_chat_models,
     help="Model for the extraction/naming calls (e.g. ollama/qwen3:8b).",
 )
+@click.option(
+    "--fallback-model",
+    "fallback_flag",
+    shell_complete=complete_chat_models,
+    help="Chat model to switch to if the primary looks down (circuit breaker).",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option(
     "--max-calls",
@@ -106,6 +112,7 @@ def graph_command(
     save_path: str | None,
     top: int | None,
     model_flag: str | None,
+    fallback_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
     ocr_model_flag: str | None,
@@ -163,6 +170,7 @@ def graph_command(
         save=save_path,
         top=top,
         model_flag=model_flag,
+        fallback_flag=fallback_flag,
         concurrency_flag=concurrency_flag,
         ocr_model_flag=ocr_model_flag,
         input=input_spec(

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from smartpipe.models.base import ChatModel, ModelRef
+    from smartpipe.models.resilience import WiredChat
 
 
 class FakeFinder:
@@ -98,6 +99,12 @@ class FakeContext:
     async def chat_model(self, flag: str | None = None) -> ChatModel:
         self.chat_calls += 1
         raise AssertionError("graph --fast constructed a chat model — the free pin is broken")
+
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        self.chat_calls += 1
+        raise AssertionError("graph --fast wired a resilient chat model: the free pin is broken")
 
     async def embedding_model(self, flag: str | None = None) -> object:
         self.chat_calls += 1
