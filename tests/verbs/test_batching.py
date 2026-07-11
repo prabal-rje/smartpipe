@@ -466,7 +466,7 @@ async def test_one_packed_trip_replays_every_waiter_once_on_fallback() -> None:
     fallback = PackedCapable(_extract)
     fallback.ref = ModelRef("ollama", "fallback")
     policy = OutboundCallPolicy(concurrency=1, breaker_limit=2)
-    settings = BatchSettings(size=4, window_seconds=0.001)
+    settings = BatchSettings(size=4, window_seconds=60.0)
     primary_model = CoalescingChatModel(primary, settings=settings, calls=policy)  # type: ignore[arg-type]
     fallback_model = CoalescingChatModel(fallback, settings=settings, calls=policy)  # type: ignore[arg-type]
 
@@ -530,7 +530,7 @@ async def test_reverse_transport_completion_replays_the_whole_breaker_series() -
     fallback = PackedCapable(_extract)
     fallback.ref = ModelRef("ollama", "fallback")
     policy = OutboundCallPolicy(concurrency=2, breaker_limit=2)
-    settings = BatchSettings(size=2, window_seconds=0.001)
+    settings = BatchSettings(size=2, window_seconds=60.0)
     primary_model = CoalescingChatModel(primary, settings=settings, calls=policy)  # type: ignore[arg-type]
     fallback_model = CoalescingChatModel(fallback, settings=settings, calls=policy)  # type: ignore[arg-type]
 
