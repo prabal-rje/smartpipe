@@ -388,6 +388,38 @@ class _OcrContext(FakeContext):
         return self.parser
 
 
+async def test_by_pages_ocr_decline_reads_nothing_and_spends_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A8: an over-belt scan corpus asks; a decline abandons the run cleanly."""
+    from smartpipe.io.inputs import InputSpec
+    from smartpipe.models.budget import CallBudget
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "r.pdf").write_bytes(minimal_pdf(["alpha", "beta", "gamma"]))  # 3 pages
+    parser = FakeParser(pages=3)
+    out = io.StringIO()
+    asked: list[str] = []
+
+    def ask(question: str) -> bool:
+        asked.append(question)
+        return False  # decline the belt-shortfall prompt
+
+    code = await run_split(
+        SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),
+        _OcrContext(parser),
+        stdin=_TtyStdin(),
+        stdout=out,
+        budget=CallBudget(limit=2, stop=None),  # belt of 2 < 3 pages
+        ask=ask,  # injected so the prompt fires without a real terminal
+    )
+    assert code is ExitCode.OK  # a clean exit 0 — nothing parsed
+    assert out.getvalue() == ""  # no pages emitted
+    assert asked == ["proceed with a partial parse? [y/N]"]
+    assert parser.pdf_calls == []  # zero spend
+    assert "exceed --max-calls" in capsys.readouterr().err
+
+
 async def test_ocr_role_parses_scans_on_the_token_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

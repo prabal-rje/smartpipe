@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, ModelRef
+    from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.resilience import WiredChat
     from smartpipe.models.stt import Transcriber
@@ -96,12 +97,15 @@ async def run_filter(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     tokens = parse_prompt(request.condition, allow_paths=True)  # UsageFault on bad grammar
     reject_comma_groups(tokens)  # UsageFault: comma-braces are map-only
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     # The resilient stack: the primary wire + breaker + gate, the configured
     # fallback armed underneath it (embed-ref fallbacks refused here, pre-spend).
     # `model` IS the resilient callable — the breaker swaps to the backup inside it.

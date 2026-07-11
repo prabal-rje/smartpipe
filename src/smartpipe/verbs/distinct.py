@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import Transcriber
 
@@ -63,13 +64,16 @@ async def run_distinct(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     if not 0.0 < request.threshold <= 1.0:
         raise UsageFault("--threshold is a cosine similarity: between 0 and 1")
     concurrency = context.concurrency(request.concurrency_flag)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, _total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     items = [item async for item in items_iter]
     if not items:
         return outcome_exit_code(done=0, skipped=0, failed=0)

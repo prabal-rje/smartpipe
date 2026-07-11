@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
     from smartpipe.io.writers import OutputFormat
+    from smartpipe.models.budget import CallBudget
 
 __all__ = ["ExtendRequest", "base_fields", "run_extend"]
 
@@ -86,6 +87,7 @@ async def run_extend(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     tokens = parse_prompt(request.prompt, allow_descriptions=True)
     schema = resolve_schema(request.schema_path, request.schema_dsl, loader=load_schema)
@@ -101,7 +103,9 @@ async def run_extend(
         return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
     log = diagnostics.DegradationLog()
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     # The resilient stack: the primary wire + breaker + gate, the configured
     # fallback armed underneath it (embed-ref fallbacks refused here, pre-spend).
     # `model` IS the resilient callable — the breaker swaps to the backup inside it.

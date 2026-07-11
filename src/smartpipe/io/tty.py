@@ -13,7 +13,8 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, assert_never
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
+    from typing import TextIO
 
 __all__ = [
     "ColorMode",
@@ -24,6 +25,7 @@ __all__ = [
     "stdout_supports_color",
     "supports_color",
     "terminal_width",
+    "tty_asker",
 ]
 
 
@@ -67,6 +69,21 @@ def stdout_supports_color(mode: ColorMode = ColorMode.AUTO) -> bool:
 
 def terminal_width(default: int = 80) -> int:
     return shutil.get_terminal_size((default, 24)).columns
+
+
+def tty_asker(stdin: TextIO) -> Callable[[str], bool] | None:
+    """The one y/N confirm, TTY-only: piped stdin (data) or piped stderr (cron)
+    can't ask — the caller's plan note stands and the belt governs. Shared by
+    graph's ``CONFIRM_PARTIAL`` and the OCR belt-shortfall preflight (A8)."""
+    if not (stdin.isatty() and stderr_is_tty()):
+        return None
+
+    def ask(question: str) -> bool:
+        sys.stderr.write(f"{question} ")
+        sys.stderr.flush()
+        return stdin.readline().strip().lower() in ("y", "yes")
+
+    return ask
 
 
 def enable_windows_vt() -> bool:

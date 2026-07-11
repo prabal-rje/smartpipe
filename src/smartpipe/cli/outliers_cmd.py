@@ -108,6 +108,13 @@ async def _run(
             request = replace(request, allow_captions=True)  # profile consent (D35)
         begin_manifest(manifest_path, verb="outliers")
         return await settled(
-            run_outliers(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            run_outliers(
+                request,
+                container,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stop=stop,
+                budget=container.budget,
+            ),
             container.budget,
         )

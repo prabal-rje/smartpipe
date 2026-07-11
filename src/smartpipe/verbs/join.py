@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     from smartpipe.io.readers import OcrIngest
     from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.resilience import WiredChat
     from smartpipe.models.stt import Transcriber
@@ -164,6 +165,7 @@ async def run_join(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     on_pairs, tokens = _validate_request(request)
     concurrency = context.concurrency(request.concurrency_flag)
@@ -172,7 +174,14 @@ async def run_join(
     if request.predicate is None:
         assert on_pairs is not None
         return await _run_key_join(
-            request, on_pairs, context, stdin=stdin, stdout=stdout, stop=stop, ocr=ocr
+            request,
+            on_pairs,
+            context,
+            stdin=stdin,
+            stdout=stdout,
+            stop=stop,
+            ocr=ocr,
+            budget=budget,
         )
     assert tokens is not None
     right_items = await _load_right_items(request.right, ocr)
@@ -210,7 +219,9 @@ async def run_join(
         bare=request.bare,
         full=request.full,
     )
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     accepted_left: list[Item] = []
 
     async def tracked_items() -> AsyncIterator[Item]:
@@ -589,6 +600,7 @@ async def _run_key_join(
     stdout: TextIO,
     stop: asyncio.Event | None,
     ocr: OcrIngest | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     """--on alone (item 21): a deterministic key-equality join — zero model
     calls (a configured ocr-model at ingestion is the one exception, item 48),
@@ -607,7 +619,9 @@ async def _run_key_join(
         fields=request.fields,
         bare=request.bare,
     )
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     spinner.start(total=total)
     left_fields = tuple(left for left, _right in on_pairs)
     done = 0

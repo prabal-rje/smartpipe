@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import Transcriber
 
@@ -84,6 +85,7 @@ async def run_embed(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     model = await context.embedding_model(request.model_flag)
     media_model = await context.media_embedding_model(request.media_model_flag)
@@ -93,7 +95,9 @@ async def run_embed(
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     if (total is None or total > 0) and tty.stdout_is_tty():
         diagnostics.note(
             "embeddings are large — redirect to a file: smartpipe embed > corpus.embeddings"

@@ -218,6 +218,13 @@ async def _run(request: MapRequest, max_calls: int | None, manifest_path: Path |
     ):
         begin_manifest(manifest_path, verb="map", prompt=request.prompt)
         return await settled(
-            run_map(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            run_map(
+                request,
+                container,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stop=stop,
+                budget=container.budget,
+            ),
             container.budget,
         )

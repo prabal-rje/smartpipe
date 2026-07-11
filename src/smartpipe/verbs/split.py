@@ -23,6 +23,7 @@ from smartpipe.models.base import AudioData, ImageData, VideoData
 from smartpipe.verbs.common import ensure_text, interrupted_exit_code, outcome_exit_code
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path as PathType
     from typing import TextIO
 
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.io.readers import OcrIngest
     from smartpipe.io.writers import OutputFormat, ResultWriter
+    from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
 
 __all__ = ["SplitContext", "SplitRequest", "run_split"]
@@ -298,6 +300,8 @@ async def _run_pages(
     media: bool = False,
     ocr: OcrIngest | None = None,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
+    ask: Callable[[str], bool] | None = None,
 ) -> ExitCode:
     """--by pages reads PDF FILES directly (page structure dies in extraction);
     with --media, each page item carries that page's figures too (D32)."""
@@ -315,7 +319,16 @@ async def _run_pages(
     if stop is not None and stop.is_set():
         return interrupted_exit_code(done=0, skipped=0, failed=0)
     if ocr is not None:
-        readers.ocr_preflight(paths, None, ocr)
+        # A8: an over-belt scan corpus asks before spending; a decline reads
+        # nothing and exits 0 (never a partial page dump the user didn't sanction).
+        match readers.ocr_preflight(paths, None, ocr, budget=budget, ask=ask):
+            case readers.OcrDecision.DECLINED:
+                from smartpipe.io import manifest
+
+                manifest.abandon()
+                return outcome_exit_code(done=0, skipped=0, failed=0)
+            case _:
+                pass
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
     produced = 0
     skipped = 0
@@ -378,9 +391,15 @@ async def run_split(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
+    ask: Callable[[str], bool] | None = None,
 ) -> ExitCode:
+    from smartpipe.io.tty import tty_asker
     from smartpipe.io.writers import OutputFormat
 
+    # A8: the belt-shortfall prompt for a page-billed scan corpus. Auto-built from
+    # stdin (TTY-gated) unless injected — mirrors run_graph's `ask` seam.
+    asker = ask if ask is not None else tty_asker(stdin)
     by = _resolve_by(request)
     if request.media and by.unit != "pages":
         if request.by_flag is not None or request.max_tokens_flag is not None:
@@ -402,11 +421,15 @@ async def run_split(
             media=request.media,
             ocr=ocr,
             stop=stop,
+            budget=budget,
+            ask=asker,
         )
         log.finish()
         return code
     writer = context.writer(OutputFormat.AUTO, structured=True, stdout=stdout)
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, _total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget, ask=asker
+    )
     produced = 0
     sources = source_accounting.SourceCounter()
     try:

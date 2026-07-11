@@ -16,7 +16,6 @@ adopted pipe-in edges. Three modes, one fold + serialize spine shared with G1.
 from __future__ import annotations
 
 import asyncio
-import sys
 from typing import TYPE_CHECKING
 
 from smartpipe.core.errors import (
@@ -49,6 +48,7 @@ from smartpipe.engine.prompts import (
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.items import Item, ItemSource, describe_source, project_content
+from smartpipe.io.tty import tty_asker
 from smartpipe.models.base import AudioData, ImageData, VideoData
 from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code
 from smartpipe.verbs.graph import (
@@ -222,7 +222,11 @@ async def run_full(
     wired = await context.resilient_chat_model(request.model_flag, request.fallback_flag)
     model = wired.model  # may have emitted a note / SetupFault during resolution
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    # A8: the OCR read phase wears the belt too — a scan corpus larger than the
+    # remaining --max-calls asks before spending (a decline reads nothing, exit 0).
+    items_iter, total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget, ask=ask
+    )
     if total != 0 and _canary_affordable(budget):
         # A2: prove the model holds the schema BEFORE iterating spends paid OCR.
         # A known-empty file list (total == 0) has nothing to protect; a stdin
@@ -415,22 +419,6 @@ async def run_full(
         partial=belt_partial,
         source_counts=source_counts,
     )
-
-
-def tty_asker(stdin: TextIO) -> Callable[[str], bool] | None:
-    """The one y/N confirm, TTY-only: piped stdin (data) or piped stderr (cron)
-    can't ask — the plan note stands and the belt governs."""
-    from smartpipe.io import tty
-
-    if not (stdin.isatty() and tty.stderr_is_tty()):
-        return None
-
-    def ask(question: str) -> bool:
-        sys.stderr.write(f"{question} ")
-        sys.stderr.flush()
-        return stdin.readline().strip().lower() in ("y", "yes")
-
-    return ask
 
 
 async def _chunk_item(item: Item) -> list[Item]:

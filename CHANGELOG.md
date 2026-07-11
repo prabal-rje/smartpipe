@@ -30,6 +30,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   concern).
 
 ### Fixed
+- **An over-belt OCR corpus now asks before it overspends (A8).** The shared
+  ingestion preflight (`ocr_preflight` in `io/readers.py`) disclosed a paid
+  page count but never had the belt handle or a way to ask — so a 6,863-page
+  scan corpus against a `--max-calls 4000` belt silently guaranteed a partial
+  parse plus mid-read belt exhaustion. It now takes the run's `CallBudget` and a
+  `tty_asker`-style asker threaded through `resolve_items`: when the billable
+  pages exceed the *remaining* belt (`limit − calls`) at a TTY, it prints the
+  joint math (`~N OCR pages through <ref> exceed --max-calls (M remaining)`) and
+  prompts `proceed with a partial parse? [y/N]` before a cent is spent — exactly
+  as the extraction preflight's `CONFIRM_PARTIAL` does. A decline abandons the
+  manifest and reads nothing (a clean exit 0, zero pages billed) rather than
+  falling through to a garbage binary read; a non-TTY run keeps today's
+  disclose-and-proceed note; a corpus within the belt never asks. `ocr_preflight`
+  now returns a typed `OcrDecision` (route/fallback/declined) instead of a bare
+  bool, and every OCR-capable verb (graph, map, extend, filter, embed, join,
+  split, distinct, reduce, top_k, outliers, cluster, diff, and reader mode)
+  threads `container.budget` down to it.
 - **A sustained rate-limit storm is now paced, not burned through.** The
   outbound-call policy (`OutboundCallPolicy`, shared by the embed/OCR/STT wires)
   had no cross-call cooldown: a ref that returned `429` was retried immediately on

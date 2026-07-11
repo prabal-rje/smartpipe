@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.io.writers import OutputFormat, ResultWriter, TextSink
     from smartpipe.models.base import ChatModel, MediaData, ModelRef
+    from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.resilience import WiredChat
 
@@ -121,6 +122,7 @@ async def run_map(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     tokens = parse_prompt(request.prompt, allow_descriptions=True)  # rung 2 (D22)
     schema = resolve_schema(request.schema_path, request.schema_dsl, loader=load_schema)
@@ -134,7 +136,9 @@ async def run_map(
         return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     # The resilient stack: the primary wire + breaker + gate, with the configured
     # fallback armed underneath it (embed-ref fallbacks refused here, pre-spend).
     # `model` IS the resilient callable — the failover swaps to the backup inside

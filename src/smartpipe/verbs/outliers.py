@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
+    from smartpipe.models.budget import CallBudget
 
 __all__ = ["OutliersRequest", "run_outliers"]
 
@@ -51,6 +52,7 @@ async def run_outliers(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     if request.count < 1:
         raise UsageFault("outliers needs a positive count")
@@ -59,7 +61,9 @@ async def run_outliers(
     failure_policy = context.failure_policy(model.ref.provider)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, _total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     items = [item async for item in items_iter]
     if len(items) < 3:
         raise UsageFault("outliers needs at least 3 items to know what normal looks like")

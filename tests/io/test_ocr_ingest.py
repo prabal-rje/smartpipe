@@ -18,14 +18,22 @@ from smartpipe.core.errors import (
 from smartpipe.io import diagnostics
 from smartpipe.io.inputs import InputSpec
 from smartpipe.io.items import Item, source_record
-from smartpipe.io.readers import OcrIngest, ocr_route, resolve_items
+from smartpipe.io.readers import (
+    CONFIRM_PARTIAL_PARSE,
+    OcrDecision,
+    OcrIngest,
+    ocr_preflight,
+    ocr_route,
+    resolve_items,
+)
 from smartpipe.models.base import CompletionRequest, ImageData, ModelRef
+from smartpipe.models.budget import CallBudget
 from smartpipe.models.ocr import OcrBilling, OcrPage
 from smartpipe.parsing.detect import FileKind
 from tests.helpers.pdf import minimal_pdf
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
 
 class FakeParser:
@@ -726,6 +734,186 @@ async def test_request_billed_vision_ocr_never_claims_billable_pages(
     assert "billable pages" not in capsys.readouterr().err
     await _drain(items)
     assert len(parser.image_calls) == 21
+
+
+# --- A8: the belt-shortfall preflight ASKS at a TTY before overspending -------------
+
+
+def _pngs(tmp_path: Path, count: int) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    for index in range(count):
+        path = tmp_path / f"s{index:02}.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+        paths.append(path)
+    return tuple(paths)
+
+
+def _belt(limit: int, calls: int = 0) -> CallBudget:
+    return CallBudget(limit=limit, stop=None, calls=calls)
+
+
+def _recording(answer: bool) -> tuple[list[str], Callable[[str], bool]]:
+    asked: list[str] = []
+
+    def ask(question: str) -> bool:
+        asked.append(question)
+        return answer
+
+    return asked, ask
+
+
+def test_preflight_asks_when_pages_exceed_the_remaining_belt(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _pngs(tmp_path, 3)  # 3 billable pages against a belt of 2
+    asked: list[str] = []
+
+    def ask(question: str) -> bool:
+        asked.append(question)
+        return True  # the user accepts a partial parse
+
+    decision = ocr_preflight(paths, None, _ingest(FakeParser()), budget=_belt(2), ask=ask)
+
+    assert decision is OcrDecision.ROUTE
+    assert asked == [CONFIRM_PARTIAL_PARSE]
+    err = capsys.readouterr().err
+    assert "3 OCR pages" in err and "exceed --max-calls" in err and "2 remaining" in err
+
+
+def test_preflight_declines_and_spends_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _pngs(tmp_path, 3)
+    asked: list[str] = []
+
+    def ask(question: str) -> bool:
+        asked.append(question)
+        return False  # the user declines
+
+    decision = ocr_preflight(paths, None, _ingest(FakeParser()), budget=_belt(2), ask=ask)
+
+    assert decision is OcrDecision.DECLINED
+    assert asked == [CONFIRM_PARTIAL_PARSE]
+    assert "exceed --max-calls" in capsys.readouterr().err  # the joint math printed before asking
+
+
+def test_preflight_remaining_belt_reflects_calls_already_spent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _pngs(tmp_path, 3)  # 3 pages; belt of 5 but 3 already spent → 2 remaining
+    asked, ask = _recording(answer=True)
+    ocr_preflight(paths, None, _ingest(FakeParser()), budget=_belt(5, calls=3), ask=ask)
+    assert asked == [CONFIRM_PARTIAL_PARSE]
+    assert "2 remaining" in capsys.readouterr().err
+
+
+def test_preflight_non_tty_discloses_and_proceeds_without_asking(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _pngs(tmp_path, 21)  # over-belt, but no asker (piped stdin/stderr)
+    decision = ocr_preflight(paths, None, _ingest(FakeParser()), budget=_belt(2), ask=None)
+    assert decision is OcrDecision.ROUTE
+    err = capsys.readouterr().err
+    # non-TTY keeps today's disclose-and-proceed note verbatim (no y/N prompt)
+    assert (
+        "~21 billable pages will parse through mistral/mistral-ocr-latest - --max-calls caps them"
+        in err
+    )
+    assert "[y/N]" not in err
+
+
+def test_preflight_never_asks_when_pages_fit_the_belt(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _pngs(tmp_path, 3)  # 3 pages fit a belt of 10
+    asked, ask = _recording(answer=False)
+    decision = ocr_preflight(paths, None, _ingest(FakeParser()), budget=_belt(10), ask=ask)
+    assert decision is OcrDecision.ROUTE
+    assert asked == []
+    assert "exceed --max-calls" not in capsys.readouterr().err
+
+
+def test_preflight_beltless_run_never_asks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _pngs(tmp_path, 21)  # no belt at all → today's disclose note, never a prompt
+    asked, ask = _recording(answer=False)
+    decision = ocr_preflight(paths, None, _ingest(FakeParser()), budget=None, ask=ask)
+    assert decision is OcrDecision.ROUTE
+    assert asked == []
+    assert "billable pages will parse through" in capsys.readouterr().err
+
+
+def test_preflight_falls_back_when_no_parser_is_configured() -> None:
+    ocr = OcrIngest.lazy(lambda: None, diagnostics.DegradationLog())
+    assert ocr_preflight((), None, ocr, budget=_belt(1), ask=None) is OcrDecision.FALLBACK
+
+
+def test_preflight_falls_back_when_nothing_is_billable() -> None:
+    # a real parser but an empty corpus → nothing to bill, so no route, no prompt
+    assert ocr_preflight((), None, _ingest(FakeParser())) is OcrDecision.FALLBACK
+
+
+async def test_resolve_items_fallback_loads_normally_without_a_parser(tmp_path: Path) -> None:
+    (tmp_path / "scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    ocr = OcrIngest.lazy(lambda: None, diagnostics.DegradationLog())  # role unset → no OCR
+    items, _total = resolve_items(
+        InputSpec(patterns=(str(tmp_path / "*.png"),), from_files=False),
+        _TtyStdin(),
+        ocr=ocr,
+        budget=_belt(1),
+    )
+    loaded = await _drain(items)  # the png loads as a normal media item, not OCR-routed
+    assert len(loaded) == 1 and loaded[0].media  # carried as image bytes, never parsed
+
+
+async def test_resolve_items_decline_yields_nothing_and_never_parses(tmp_path: Path) -> None:
+    _pngs(tmp_path, 3)
+    parser = FakeParser()
+    items, total = resolve_items(
+        InputSpec(patterns=(str(tmp_path / "*.png"),), from_files=False),
+        _TtyStdin(),
+        ocr=_ingest(parser),
+        budget=_belt(2),
+        ask=lambda _q: False,
+    )
+    assert total == 0  # a declined preflight reads as an empty corpus → the verb exits 0
+    assert await _drain(items) == []
+    assert parser.image_calls == []  # a decline spends ZERO
+
+
+async def test_resolve_items_accept_over_belt_routes_and_parses(tmp_path: Path) -> None:
+    _pngs(tmp_path, 3)
+    parser = FakeParser()
+    asked, ask = _recording(answer=True)
+    items, _total = resolve_items(
+        InputSpec(patterns=(str(tmp_path / "*.png"),), from_files=False),
+        _TtyStdin(),
+        ocr=_ingest(parser),
+        budget=_belt(2),
+        ask=ask,
+    )
+    loaded = await _drain(items)
+    assert asked == [CONFIRM_PARTIAL_PARSE]  # asked before parsing
+    assert len(loaded) == 3 and len(parser.image_calls) == 3  # accepted → parsed
+
+
+async def test_resolve_items_decline_abandons_the_manifest(tmp_path: Path) -> None:
+    from smartpipe.core.errors import ExitCode
+    from smartpipe.io import manifest
+
+    _pngs(tmp_path, 3)
+    manifest.begin(tmp_path / "run.json", verb="read", argv=())
+    items, _total = resolve_items(
+        InputSpec(patterns=(str(tmp_path / "*.png"),), from_files=False),
+        _TtyStdin(),
+        ocr=_ingest(FakeParser()),
+        budget=_belt(2),
+        ask=lambda _q: False,
+    )
+    await _drain(items)
+    manifest.finish(ExitCode.OK)  # a no-op once abandoned — nothing is written
+    assert not (tmp_path / "run.json").exists()
 
 
 # --- the finite-corpus gate for embed's two-pass batching (item 49b) ------------------

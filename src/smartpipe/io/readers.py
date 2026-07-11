@@ -15,6 +15,7 @@ import contextlib
 import os
 import threading
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
@@ -29,6 +30,7 @@ from smartpipe.core.errors import (
 from smartpipe.io import diagnostics, source_accounting
 from smartpipe.io.csvrows import CsvCutter, csv_file_items
 from smartpipe.io.items import Item, ItemSource, item_from_file, item_from_line
+from smartpipe.io.tty import tty_asker
 from smartpipe.models.base import AudioData, ImageData, VideoData
 from smartpipe.parsing.detect import FileKind, detect_kind, route
 from smartpipe.parsing.extract import MissingExtra, extract
@@ -39,10 +41,13 @@ if TYPE_CHECKING:
 
     from smartpipe.io.inputs import InputSpec
     from smartpipe.models.base import ModelRef
+    from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser, OcrPage
 
 __all__ = [
+    "CONFIRM_PARTIAL_PARSE",
     "FigureCensus",
+    "OcrDecision",
     "OcrIngest",
     "ensure_not_a_tty",
     "figure_note",
@@ -161,6 +166,8 @@ def resolve_items(
     *,
     stop: asyncio.Event | None = None,
     ocr: OcrIngest | None = None,
+    budget: CallBudget | None = None,
+    ask: Callable[[str], bool] | None = None,
 ) -> tuple[AsyncIterator[Item], int | None]:
     """The single entry point every verb uses: dispatch on the input flags.
 
@@ -173,7 +180,11 @@ def resolve_items(
     per-line sniff on stdin). ``ocr`` (item 40): a configured ocr-model parses
     PDF/image crates — page counts are unknown before parsing, so those runs
     report ``total=None``; csv runs stream row-at-a-time and do the same.
-    Unset, every path below is byte-identical to before the role existed."""
+    Unset, every path below is byte-identical to before the role existed.
+    ``budget``/``ask`` (A8): when a page-billed OCR corpus exceeds the remaining
+    ``--max-calls`` belt and a TTY asker is available, ``ocr_preflight`` prompts
+    before spending; a decline abandons the manifest and reads nothing (total 0).
+    ``ask`` defaults to one built from ``stdin`` — non-OCR callers pass neither."""
     from smartpipe.io.inputs import expand_globs
 
     if spec.patterns and spec.from_files:
@@ -185,13 +196,23 @@ def resolve_items(
         paths = expand_globs(spec.patterns)  # UsageFault if no match
         if spec.as_mode in ("lines", "jsonl", "csv"):
             _refuse_uncuttable(paths, spec.as_mode)  # every matched file must honor it
-        if (
-            ocr is not None
-            and _any_ocr_eligible(paths, spec.as_mode)
-            and ocr_preflight(paths, spec.as_mode, ocr)
-        ):
-            chained = None if stdin.isatty() else stdin
-            return _ocr_path_items(paths, spec.as_mode, ocr, chained, stop), None
+        if ocr is not None and _any_ocr_eligible(paths, spec.as_mode):
+            asker = ask if ask is not None else tty_asker(stdin)
+            match ocr_preflight(paths, spec.as_mode, ocr, budget=budget, ask=asker):
+                case OcrDecision.ROUTE:
+                    chained = None if stdin.isatty() else stdin
+                    return _ocr_path_items(paths, spec.as_mode, ocr, chained, stop), None
+                case OcrDecision.DECLINED:
+                    # A8: the user declined the belt-shortfall prompt — abandon the
+                    # manifest and read NOTHING (never fall through to a non-OCR read
+                    # that would decode the scans as binary). An empty corpus with a
+                    # 0 total makes every verb exit 0 cleanly, nothing spent.
+                    from smartpipe.io import manifest
+
+                    manifest.abandon()
+                    return _iter_list(()), 0
+                case _:  # FALLBACK — not OCR's case; fall through to normal loading below
+                    pass
         if _any_row_cut(paths, spec.as_mode):
             # Row-cut inputs stream one record at a time — no slurp, no fake total.
             chained = None if stdin.isatty() else stdin
@@ -313,25 +334,67 @@ def _is_ocr_eligible(path: Path, as_mode: str | None) -> bool:
     return ocr_route(detect_kind(path, head), as_mode) is not None
 
 
-def ocr_preflight(paths: Sequence[Path], as_mode: str | None, ocr: OcrIngest) -> bool:
-    """Item 48: a folder of scans through a paid parser deserves a heads-up
-    BEFORE the first call — with the belt named. Shared by every verb whose
-    path ingestion routes through the role (reader mode included)."""
+class OcrDecision(Enum):
+    """What ``ocr_preflight`` decided for a page-billed corpus (A8).
+
+    ``ROUTE`` — send the crates through the parser. ``FALLBACK`` — not OCR's
+    case (no parser, or nothing billable), so the caller loads normally.
+    ``DECLINED`` — at a TTY the billable pages EXCEED the remaining belt and the
+    user answered no, so the caller must read NOTHING and stop cleanly.
+    """
+
+    ROUTE = "route"
+    FALLBACK = "fallback"
+    DECLINED = "declined"
+
+
+CONFIRM_PARTIAL_PARSE = "proceed with a partial parse? [y/N]"
+
+
+def ocr_preflight(
+    paths: Sequence[Path],
+    as_mode: str | None,
+    ocr: OcrIngest,
+    *,
+    budget: CallBudget | None = None,
+    ask: Callable[[str], bool] | None = None,
+) -> OcrDecision:
+    """Item 48 / A8: a folder of scans through a paid parser deserves a heads-up
+    BEFORE the first call — with the belt named. Shared by every verb whose path
+    ingestion routes through the role (reader mode included).
+
+    When the billable page count EXCEEDS the remaining ``--max-calls`` belt and a
+    TTY asker is available, the joint math prints and the run ASKS before spending
+    a cent — a decline returns ``DECLINED`` so the caller stops with nothing spent
+    (owner ruling: configuring the role consented to turning OCR on, not to
+    silently overspending a stated belt). Non-TTY (``ask is None``) keeps today's
+    disclose-and-proceed note; within-belt runs stay silent, exactly as before."""
     parser = ocr.resolve_parser()
     if parser is None:
-        return False
+        return OcrDecision.FALLBACK
     from smartpipe.models.ocr import OcrBilling, parser_billing
 
     if parser_billing(parser) is not OcrBilling.PAGE:
-        return True
+        return OcrDecision.ROUTE
     count = ocr_eligible_count(paths, as_mode)
     if count == 0:
-        return False
+        return OcrDecision.FALLBACK
+    remaining = None if budget is None else budget.limit - budget.calls
+    if remaining is not None and count > remaining and ask is not None:
+        # the belt is smaller than the corpus and we CAN ask: print the joint math,
+        # then let the user decide before a single page is billed (A8).
+        diagnostics.note(
+            f"~{count:,} OCR pages through {parser.ref} exceed --max-calls "
+            f"({remaining:,} remaining) - a partial parse"
+        )
+        return OcrDecision.ROUTE if ask(CONFIRM_PARTIAL_PARSE) else OcrDecision.DECLINED
     if count > _PREFLIGHT_PAGES:
+        # over the disclosure floor but either within the belt or unable to ask —
+        # today's disclose-and-proceed note stands, verbatim.
         diagnostics.note(
             f"~{count} billable pages will parse through {parser.ref} - --max-calls caps them"
         )
-    return True
+    return OcrDecision.ROUTE
 
 
 def ocr_finite_paths(spec: InputSpec, stdin: TextIO) -> bool:

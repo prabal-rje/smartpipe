@@ -120,7 +120,13 @@ async def _run(request: TopKRequest, max_calls: int | None, manifest_path: Path 
                 request = _replace(request, allow_captions=True)  # profile consent (D35)
             begin_manifest(manifest_path, verb="top_k", prompt=request.near)
             return await settled(
-                run_top_k(request, container, stdin=sys.stdin, stdout=sys.stdout),
+                run_top_k(
+                    request,
+                    container,
+                    stdin=sys.stdin,
+                    stdout=sys.stdout,
+                    budget=container.budget,  # A8: the OCR read phase can still ask pre-spend
+                ),
                 None,  # whole-set mode never settles the belt - exhaustion is fatal
             )
     async with (
@@ -133,6 +139,13 @@ async def _run(request: TopKRequest, max_calls: int | None, manifest_path: Path 
             request = _replace(request, allow_captions=True)  # profile consent (D35)
         begin_manifest(manifest_path, verb="top_k", prompt=request.near)
         return await settled(
-            run_top_k(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            run_top_k(
+                request,
+                container,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stop=stop,
+                budget=container.budget,
+            ),
             container.budget,
         )

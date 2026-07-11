@@ -142,7 +142,13 @@ async def _run(
                 request = _replace(request, allow_captions=True)  # profile consent (D35)
             begin_manifest(manifest_path, verb="reduce", prompt=request.prompt)
             return await settled(
-                run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout),
+                run_reduce(
+                    request,
+                    container,
+                    stdin=sys.stdin,
+                    stdout=sys.stdout,
+                    budget=container.budget,  # A8: the OCR read phase can still ask pre-spend
+                ),
                 None,  # whole-set mode never settles the belt - exhaustion is fatal
             )
     async with (  # stream mode drains + flushes partial
@@ -155,6 +161,13 @@ async def _run(
             request = _replace(request, allow_captions=True)  # profile consent (D35)
         begin_manifest(manifest_path, verb="reduce", prompt=request.prompt)
         return await settled(
-            run_reduce(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            run_reduce(
+                request,
+                container,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stop=stop,
+                budget=container.budget,
+            ),
             container.budget,
         )
