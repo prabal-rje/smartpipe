@@ -86,3 +86,16 @@ def test_rows_lacking_the_by_field_note_and_strict_errors(
             stdin=_io.StringIO(stdin_text),
             stdout=_io.StringIO(),
         )
+
+
+def test_time_bin_strict_rows_checks_the_source_field_not_the_output_alias() -> None:
+    stdout = io.StringIO()
+    code = run_summarize(
+        SummarizeRequest("count() by bin(ts, 1h)", strict_rows=True),
+        stdin=io.StringIO('{"ts": "2026-07-01T15:01:00Z"}\n{"ts": "2026-07-01T15:59:00Z"}\n'),
+        stdout=stdout,
+    )
+    assert code is ExitCode.OK
+    assert [json.loads(line) for line in stdout.getvalue().splitlines()] == [
+        {"ts_bin": "15:00", "count": 2}
+    ]

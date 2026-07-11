@@ -38,7 +38,7 @@ def run_summarize(request: SummarizeRequest, *, stdin: TextIO, stdout: TextIO) -
             continue
         item = item_from_line(line, index)
         record = item.data if item.data is not None else {"text": item.text}
-        for name in plan.by_names:
+        for name in plan.by_fields:
             # item 63: a by-field may be a path — a miss at any hop is "lacking"
             if lookup(record, name) is MISSING:
                 lacking[name] = lacking.get(name, 0) + 1

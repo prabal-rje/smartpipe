@@ -8,6 +8,7 @@ count against ``--max-calls`` (the belt caps spend, not answers).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -47,6 +48,7 @@ class CachingChatModel:
         self.directory = directory
         self.hits = 0
         self.misses = 0
+        self._inflight: dict[str, asyncio.Task[str]] = {}
 
     @property
     def ref(self) -> ModelRef:
@@ -59,10 +61,27 @@ class CachingChatModel:
         if stored is not None:
             self.hits += 1
             return stored
+        shared = self._inflight.get(key)
+        if shared is not None:
+            reply = await asyncio.shield(shared)
+            self.hits += 1
+            return reply
+        task = asyncio.create_task(self._complete_miss(request, path))
+        self._inflight[key] = task
+        task.add_done_callback(lambda done: self._finish_inflight(key, done))
+        return await asyncio.shield(task)
+
+    async def _complete_miss(self, request: CompletionRequest, path: Path) -> str:
         reply = await self.inner.complete(request)
         self.misses += 1
         _write(path, reply)
         return reply
+
+    def _finish_inflight(self, key: str, task: asyncio.Task[str]) -> None:
+        if self._inflight.get(key) is task:
+            del self._inflight[key]
+        if not task.cancelled():
+            _ = task.exception()  # retrieve failures even if every waiter was cancelled
 
 
 def _read(path: Path) -> str | None:

@@ -63,6 +63,11 @@ class SummarizePlan:
     def by_names(self) -> tuple[str, ...]:
         return tuple(key if isinstance(key, str) else key.name for key in self.by)
 
+    @property
+    def by_fields(self) -> tuple[str, ...]:
+        """Input fields read by group keys, distinct from generated aliases."""
+        return tuple(key if isinstance(key, str) else key.field for key in self.by)
+
 
 def parse_summarize(text: str) -> SummarizePlan:
     head, _, tail = text.partition(" by ")

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from smartpipe.models.base import CompletionRequest, ImageData, ModelRef
 from smartpipe.models.cache import CachingChatModel, cache_key
 
@@ -56,6 +58,66 @@ async def test_hits_do_not_consume_the_call_budget(tmp_path: Path) -> None:
     await cached.complete(_request())  # spends the single budgeted call
     reply = await cached.complete(_request())  # a hit — must NOT trip the budget
     assert reply == "reply-1"
+    assert inner.calls == 1
+
+
+async def test_concurrent_identical_misses_share_one_inner_result(tmp_path: Path) -> None:
+    import asyncio
+
+    class HeldModel:
+        ref = REF
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def complete(self, request: CompletionRequest) -> str:
+            del request
+            self.calls += 1
+            self.started.set()
+            await self.release.wait()
+            return f"reply-{self.calls}"
+
+    inner = HeldModel()
+    cached = CachingChatModel(inner, tmp_path)
+    requests = [asyncio.create_task(cached.complete(_request())) for _ in range(8)]
+    await inner.started.wait()
+    inner.release.set()
+    assert await asyncio.gather(*requests) == ["reply-1"] * 8
+    assert inner.calls == 1
+    assert (cached.hits, cached.misses) == (7, 1)
+
+
+async def test_cancelling_one_waiter_does_not_cancel_the_shared_fill(tmp_path: Path) -> None:
+    import asyncio
+
+    class HeldModel:
+        ref = REF
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def complete(self, request: CompletionRequest) -> str:
+            del request
+            self.calls += 1
+            self.started.set()
+            await self.release.wait()
+            return "shared"
+
+    inner = HeldModel()
+    cached = CachingChatModel(inner, tmp_path)
+    cancelled = asyncio.create_task(cached.complete(_request()))
+    await inner.started.wait()
+    survivor = asyncio.create_task(cached.complete(_request()))
+    cancelled.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+    inner.release.set()
+    assert await survivor == "shared"
+    assert await cached.complete(_request()) == "shared"
     assert inner.calls == 1
 
 

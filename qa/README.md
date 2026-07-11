@@ -62,7 +62,7 @@ $ head -10 qa/fixtures/tickets.jsonl | smartpipe extend "Add {sentiment enum(pos
 
 ```console
 $ smartpipe where 'total > 100 and region == "EU"' < qa/fixtures/tickets.jsonl | head -3
-$ smartpipe where 'text has "ERROR"' < qa/fixtures/tickets.jsonl
+$ smartpipe where 'level == "error"' < qa/fixtures/tickets.jsonl
 $ smartpipe where 'total >>> 5' < qa/fixtures/tickets.jsonl; echo "exit=$?"
 ```
 - [ ] First: rows pass through byte-identical (spacing intact).
@@ -90,21 +90,23 @@ $ smartpipe outliers 3 < qa/fixtures/tickets.jsonl
 
 ```console
 $ smartpipe where 'level == "error"' < qa/fixtures/logs.jsonl > /tmp/qa-errors.jsonl
-$ smartpipe where 'level == "info"'  < qa/fixtures/logs.jsonl | smartpipe diff --right /dev/stdin < /tmp/qa-errors.jsonl --max-calls 20
-$ smartpipe join "order {left.desc} and invoice {right.item} name the same product" \
-    --right qa/fixtures/invoices.jsonl --kind anti --max-calls 60 < qa/fixtures/orders.jsonl
+$ smartpipe where 'level == "info"' < qa/fixtures/logs.jsonl > /tmp/qa-info.jsonl
+$ smartpipe diff --right /tmp/qa-info.jsonl < /tmp/qa-errors.jsonl --max-calls 20
+$ sed -n '2,3p' qa/fixtures/orders.jsonl | smartpipe join \
+    "order {left.desc} and invoice {right.item} name the same product" \
+    --right qa/fixtures/invoices.jsonl --k 3 --max-calls 20
 ```
-- [ ] diff reports payment/timeout themes lopsided to the LEFT with both
-      shares; shared themes fold into a counted note.
-- [ ] anti-join emits ~5 orders, verbatim JSON — the every-7th products
-      with no invoice; the matched/unmatched summary prints.
+- [ ] diff reports payment/timeout themes lopsided to the LEFT and routine
+      HTTP/cron themes to the RIGHT, with both shares on every row.
+- [ ] The semantic join emits sensible matches for both left rows and finishes
+      below its belt.
 
 ```console
 $ smartpipe join --on 'left.sku == right.sku' --right qa/fixtures/invoices.jsonl \
     --kind anti < qa/fixtures/orders.jsonl
 ```
 - [ ] The key join runs FREE (no model call, instant) and finds the same
-      missing-invoice orders as the semantic anti-join above.
+      five every-7th-SKU orders with no invoice.
 
 ## 6. The free reporting suite
 
@@ -180,18 +182,19 @@ $ smartpipe cache stats && smartpipe cache clear
 ```console
 $ smartpipe map "translate to French" --max-calls 3 < qa/fixtures/feedback.txt 2>/dev/null | head -2
 $ yes "hello" | smartpipe where 'text has "hello"' | head -1; echo "exit=$?"
-$ head -40 qa/fixtures/tickets.jsonl | smartpipe map "Extract {label}" --max-calls 50   # press Ctrl-C mid-run
+$ head -40 qa/fixtures/tickets.jsonl | SMARTPIPE_BATCH=off smartpipe map "Extract {label}" --max-calls 50   # press Ctrl-C mid-run
 ```
 - [ ] With stderr discarded, stdout is PURE results (`| jq .` never chokes).
 - [ ] The `| head` pipe exits promptly (SIGPIPE handled, exit 141 or 0).
 - [ ] Ctrl-C drains gracefully: partial results flushed, interrupted
-      summary printed, exit 130.
+      summary printed, and the exit reflects drained work (0 when everything
+      that ran succeeded; 1 when any item skipped).
 
 ## 12. Oversized items are handled, not skipped (D26 v2)
 
 ```console
-$ smartpipe map "one-sentence summary of this report" qa/fixtures/big_report.txt --max-calls 12
-$ smartpipe map "one-sentence summary of this report" qa/fixtures/big_report.txt --whole; echo "exit=$?"
+$ smartpipe map "What is the headline finding? Include the exact percentage." qa/fixtures/big_report.txt --max-calls 12 < /dev/null
+$ smartpipe map "What is the headline finding? Include the exact percentage." qa/fixtures/big_report.txt --whole < /dev/null; echo "exit=$?"
 ```
 - [ ] BEFORE any spend, the chunk note prints on stderr:
       `note: qa/fixtures/big_report.txt ~125,… tokens over budget - N chunks
@@ -200,8 +203,8 @@ $ smartpipe map "one-sentence summary of this report" qa/fixtures/big_report.txt
       Rotterdam automation pilot / 23 percent unit-cost drop — the planted
       headline lives in the LAST chunk, so only a real chunk+combine pass
       finds it.
-- [ ] The `run: … tokens` receipt shows hundreds of thousands of input
-      tokens — every chunk call metered, nothing hidden.
+- [ ] The `run: … tokens` receipt shows the large observed input total across
+      every chunk call — nothing hidden.
 - [ ] The `--whole` run spends NOTHING: one `⚠ skipped: …token budget —
       split it first…` line with the split recipe, empty stdout, exit=3.
 
