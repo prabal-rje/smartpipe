@@ -447,9 +447,11 @@ async def test_preflight_stays_plain_when_the_belt_covers_the_need(
     assert "no belt set" not in err
 
 
-async def test_tty_confirm_decline_spends_nothing_and_exits_zero(
+async def test_tty_confirm_decline_spends_only_the_canary_and_exits_zero(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    # GLM review NIT 3: the canary fires BEFORE the partial-graph prompt, so a
+    # decline spends the one probe (not literally nothing) — the name says so.
     stop = asyncio.Event()
     budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat()
@@ -1134,3 +1136,71 @@ async def test_hybrid_mode_canary_refuses_before_the_naming_loop_spends() -> Non
     context = _context(chat)
     with pytest.raises(SetupFault):
         await _run(GraphRequest(name_top=5), context, "Ann pays Bob and Bob pays Ann\n")
+
+
+async def test_hybrid_canary_probes_the_naming_surface_not_a_bare_sentence() -> None:
+    # GLM review NIT 5: the hybrid probe must exercise the SAME payload the
+    # naming loop drives (source:/target: plus a co-occurrence window), not a
+    # bare sentence — a model that emits relation JSON for free text is not
+    # proof it can name from a pair window.
+    chat = FakeChat(default='{"relation": "pays"}')
+    await _run(GraphRequest(name_top=1), _context(chat), "Ann pays Bob and Bob pays Ann\n")
+    probe = next(call for call in chat.calls if _CANARY_MARK in call.user)
+    assert "source:" in probe.user
+    assert "target:" in probe.user
+    assert "they appear together in:" in probe.user
+
+
+async def test_a_belt_sized_to_the_chunk_count_is_one_short_from_the_probe(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # GLM review SHOULD-FIX 1: the canary spends one belt unit, so a belt equal
+    # to the chunk count leaves room for one fewer extraction. The plan must SAY
+    # "partial" up front — counting the probe against the belt — not silently
+    # drop the last chunk after promising a full graph.
+    stop = asyncio.Event()
+    budget = CallBudget(limit=3, stop=stop)  # 3 chunks, but the probe eats one unit
+    chat = FakeChat([triples(("Ann", "pays", "Bob"))])
+    context = _context(budgeted_chat(chat, budget))
+    code, _ = await _run(
+        GraphRequest(focus="pays"),
+        context,
+        "one Ann Bob\ntwo Ann Bob\nthree Ann Bob\n",
+        stop=stop,
+        budget=budget,
+    )
+    err = capsys.readouterr().err
+    assert "belt is 3 — the graph will be partial" in err
+    assert code is ExitCode.PARTIAL
+
+
+async def test_belt_of_one_does_its_one_real_call_and_skips_the_probe() -> None:
+    # GLM review SHOULD-FIX 2: a belt that cannot afford the probe PLUS a real
+    # call must not burn its only unit on the canary. The probe protects work,
+    # and a belt of one has at most one call to protect — so skip it and spend
+    # the unit on the real extraction (pre-A2 behaviour).
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    chat = FakeChat([triples(("Ann", "pays", "Bob"))])
+    context = _context(budgeted_chat(chat, budget))
+    code, out = await _run(
+        GraphRequest(focus="pays"), context, "Ann pays Bob\n", stop=stop, budget=budget
+    )
+    assert code is ExitCode.OK
+    assert all(_CANARY_MARK not in call.user for call in chat.calls)  # the probe never fired
+    assert len(chat.extraction_calls) == 1  # the one belt unit went to real work
+    assert len(_edges(out)) == 1
+
+
+async def test_empty_input_at_belt_of_one_spends_nothing() -> None:
+    # GLM review SHOULD-FIX 2, the cited case: `echo -n "" | graph --max-calls 1`
+    # must not spend its only unit probing an empty stream. With the belt unable
+    # to afford probe + work, the canary is skipped and nothing is spent.
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    chat = FakeChat()
+    context = _context(budgeted_chat(chat, budget))
+    code, out = await _run(GraphRequest(focus="pays"), context, "", stop=stop, budget=budget)
+    assert code is ExitCode.OK
+    assert out == ""
+    assert chat.calls == []  # not even the probe fired

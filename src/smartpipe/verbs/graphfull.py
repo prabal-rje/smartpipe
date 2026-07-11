@@ -93,6 +93,14 @@ _NUDGE_CALLS = 100  # beltless plans past this many calls earn the nudge
 _SNIPPET_CAP = 3  # co-occurrence context windows per naming call
 _SNIPPET_CHARS = 400  # each window arrives trimmed — context, not the corpus
 _CANARY_SNIPPET = "Alice pays Bob for the shipment."  # A2: the pre-spend schema probe
+# The hybrid probe must exercise the SAME payload the naming loop drives — a
+# pair plus a co-occurrence window (see _naming_item) — not a bare sentence, so
+# it proves the model can name from a pair window, not merely emit relation JSON
+# for free text (GLM review NIT 5). It still embeds _CANARY_SNIPPET verbatim so
+# the receipt/test filters that key on that marker recognise it.
+_CANARY_NAMING_SNIPPET = (
+    f"source: Alice\ntarget: Bob\n\nthey appear together in:\n[1] {_CANARY_SNIPPET}"
+)
 
 CONFIRM_PARTIAL = "proceed with a partial graph? [y/N]"
 
@@ -136,6 +144,16 @@ def extraction_prompt(
     )
 
 
+def _canary_affordable(budget: CallBudget | None) -> bool:
+    """The canary is a real belt call, so skip it when the belt can't also
+    afford at least one unit of real work: a probe that drains the whole belt
+    leaves nothing to protect, and a belt of one has at most one call to guard
+    (GLM review — this is what keeps `--max-calls 1` doing its one real call
+    instead of burning the unit on the probe, and empty stdin at a belt of one
+    from spending anything at all)."""
+    return budget is None or budget.limit - budget.calls >= 2
+
+
 async def _schema_canary(
     model: ChatModel,
     plan: MapPlan,
@@ -143,6 +161,7 @@ async def _schema_canary(
     log: diagnostics.DegradationLog,
     *,
     what: str,
+    snippet: str = _CANARY_SNIPPET,
 ) -> None:
     """Fire ONE synthetic extraction through the compiled schema before any
     ingestion or paid OCR (A2). A model that cannot hold ``what`` would otherwise
@@ -154,8 +173,8 @@ async def _schema_canary(
     (belt exhausted, 429 ladder spent, breaker open) is NOT a capability verdict
     — it propagates as itself, never relabeled."""
     canary = Item(
-        raw=_CANARY_SNIPPET,
-        text=_CANARY_SNIPPET,
+        raw=snippet,
+        text=snippet,
         data=None,
         source=ItemSource(kind="stdin", name="schema canary", index=0),
     )
@@ -197,10 +216,11 @@ async def run_full(
     model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
-    if total != 0:
+    if total != 0 and _canary_affordable(budget):
         # A2: prove the model holds the schema BEFORE iterating spends paid OCR.
         # A known-empty file list (total == 0) has nothing to protect; a stdin
-        # stream (total is None) always probes, since its size is unknowable here.
+        # stream (total is None) always probes, since its size is unknowable
+        # here — unless the belt can't afford the probe plus real work.
         await _schema_canary(model, plan, instruction, log, what="the extraction schema")
     read_bar = stage("read")
     read_bar.start(total)
@@ -239,12 +259,18 @@ async def run_full(
             source_counts=source_counts,
         )
 
-    # the pre-flight cost plan (ledger 66f): the note prints BEFORE any spend
+    # the pre-flight cost plan (ledger 66f): the note prints BEFORE any spend.
+    # A2: the canary (and any read-phase OCR) has already charged the belt, so
+    # the partial-run test must read what REMAINS, not the raw limit — else a
+    # belt sized exactly to the chunk count silently yields a partial after
+    # promising a full graph (GLM review SHOULD-FIX 1).
     belt = budget.limit if budget is not None else None
+    remaining = belt - budget.calls if belt is not None and budget is not None else None
     plural = "s" if len(items) != 1 else ""
     plan_note = f"~{len(chunks):,} extraction calls across {len(items):,} file{plural}"
-    belt_short = belt is not None and belt < len(chunks)
+    belt_short = remaining is not None and remaining < len(chunks)
     if belt_short:
+        assert belt is not None  # remaining is not None ⟹ belt is not None
         plan_note += f"; belt is {belt:,} — the graph will be partial"
     elif belt is None and len(chunks) > _NUDGE_CALLS:
         plan_note += " — no belt set"
@@ -559,8 +585,18 @@ async def run_hybrid(
         instruction = _naming_instruction(request.focus)
         log = diagnostics.DegradationLog()
         # A2: hybrid's only paid phase is naming (the scan is free), so the canary
-        # sits here — fired only when there are edges to name, never on empty input.
-        await _schema_canary(model, plan, instruction, log, what="the relation-naming schema")
+        # sits here — fired only when there are edges to name (never on empty
+        # input) and only when the belt can afford the probe plus real naming.
+        # The probe drives the naming-shaped payload, not a bare sentence (NIT 5).
+        if _canary_affordable(budget):
+            await _schema_canary(
+                model,
+                plan,
+                instruction,
+                log,
+                what="the relation-naming schema",
+                snippet=_CANARY_NAMING_SNIPPET,
+            )
 
         async def worker(item: Item) -> tuple[int, str]:
             result = await map_one(model, plan, instruction, item, log)
