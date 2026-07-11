@@ -7,7 +7,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.models.base import CompletionRequest, ImageData, ModelRef
-from smartpipe.models.cache import CachingChatModel, cache_key
+from smartpipe.models.cache import (
+    CachingChatModel,
+    CachingDocumentParser,
+    cache_key,
+    ocr_cache_key,
+)
+from smartpipe.models.ocr import OcrPage
+from tests.helpers.pdf import minimal_pdf
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -175,3 +182,129 @@ async def test_hits_refresh_recency(tmp_path: Path) -> None:
     os.utime(path, (stale, stale))
     await cached.complete(_request())  # the hit
     assert path.stat().st_mtime > stale + 3600  # touched — LRU sees recent use
+
+
+# --- OCR document cache (A7): bank paid Mistral conversions across runs -------------
+
+OCR_REF = ModelRef("mistral", "mistral-ocr-latest")
+
+
+class CountingParser:
+    """A DocumentParser fake that counts real (paid) parses. Returns a page tuple
+    with a non-ASCII page to prove the round-trip is byte-identical."""
+
+    def __init__(self, ref: ModelRef = OCR_REF) -> None:
+        self._ref = ref
+        self.image_calls = 0
+        self.pdf_calls = 0
+
+    @property
+    def ref(self) -> ModelRef:
+        return self._ref
+
+    async def parse_image(self, image: ImageData) -> str:
+        del image
+        self.image_calls += 1
+        return f"markdown-{self.image_calls}"
+
+    async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+        del path
+        self.pdf_calls += 1
+        return (OcrPage(0, f"page-one-{self.pdf_calls}"), OcrPage(1, "café ☕ 世界\n\n# H"))
+
+
+def test_ocr_key_distinguishes_route_ref_and_bytes() -> None:
+    base = ocr_cache_key(OCR_REF, "pdf", b"bytes")
+    assert base == ocr_cache_key(OCR_REF, "pdf", b"bytes")  # stable
+    assert base != ocr_cache_key(OCR_REF, "image", b"bytes")  # route tag, no cross-collision
+    assert base != ocr_cache_key(ModelRef("mistral", "other"), "pdf", b"bytes")  # model flips it
+    assert base != ocr_cache_key(OCR_REF, "pdf", b"other")  # the document bytes
+
+
+async def test_second_pdf_parse_is_served_from_cache(tmp_path: Path) -> None:
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(minimal_pdf(["one", "two"]))
+    inner = CountingParser()
+    cached = CachingDocumentParser(inner, tmp_path / "cache")
+    first = await cached.parse_pdf(pdf)
+    second = await cached.parse_pdf(pdf)
+    assert first == second  # byte-identical page tuple, reloaded from disk
+    assert first == (OcrPage(0, "page-one-1"), OcrPage(1, "café ☕ 世界\n\n# H"))
+    assert inner.pdf_calls == 1  # the wire was paid exactly once
+    assert (cached.hits, cached.misses) == (1, 1)
+
+
+async def test_second_pdf_parse_meters_zero_paid_conversions(tmp_path: Path) -> None:
+    """The headline: a rerun of the same document never reaches the page belt or
+    admission — the inner wire is untouched, so ZERO further conversions are paid."""
+    from smartpipe.models.admission import OutboundCallPolicy, admitted_parser
+    from smartpipe.models.budget import CallBudget, budgeted_parser
+
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(minimal_pdf(["one", "two"]))
+    inner = CountingParser()
+    budget = CallBudget(limit=10, stop=None)
+    wired = CachingDocumentParser(
+        admitted_parser(budgeted_parser(inner, budget), OutboundCallPolicy(concurrency=2)),
+        tmp_path / "cache",
+    )
+    await wired.parse_pdf(pdf)
+    assert (inner.pdf_calls, budget.ocr_pages) == (1, 2)  # both pages charged, once
+    await wired.parse_pdf(pdf)  # a rerun
+    assert inner.pdf_calls == 1  # the wire was never touched again
+    assert budget.ocr_pages == 2  # the belt never metered the banked pages
+
+
+async def test_image_parse_is_cached(tmp_path: Path) -> None:
+    inner = CountingParser()
+    cached = CachingDocumentParser(inner, tmp_path)
+    image = ImageData(b"\x89PNGscan", "image/png")
+    first = await cached.parse_image(image)
+    second = await cached.parse_image(image)
+    assert (first, second) == ("markdown-1", "markdown-1")  # the stored markdown, verbatim
+    assert inner.image_calls == 1
+    assert (cached.hits, cached.misses) == (1, 1)
+
+
+async def test_a_different_ocr_model_is_a_miss(tmp_path: Path) -> None:
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(minimal_pdf(["one"]))
+    latest = CachingDocumentParser(
+        CountingParser(ModelRef("mistral", "mistral-ocr-latest")), tmp_path
+    )
+    other = CachingDocumentParser(CountingParser(ModelRef("mistral", "mistral-ocr-2099")), tmp_path)
+    await latest.parse_pdf(pdf)
+    await other.parse_pdf(pdf)  # same bytes, different OCR model → not a hit
+    assert (latest.hits, latest.misses) == (0, 1)
+    assert (other.hits, other.misses) == (0, 1)
+
+
+async def test_image_and_pdf_of_the_same_bytes_never_collide(tmp_path: Path) -> None:
+    payload = minimal_pdf(["one"])
+    (tmp_path / "doc.pdf").write_bytes(payload)
+    inner = CountingParser()
+    cached = CachingDocumentParser(inner, tmp_path / "cache")
+    await cached.parse_image(ImageData(payload, "application/pdf"))
+    await cached.parse_pdf(tmp_path / "doc.pdf")  # same bytes, other route → separate entry
+    assert (inner.image_calls, inner.pdf_calls) == (1, 1)  # both wires ran; no false hit
+
+
+async def test_corrupt_page_entry_is_a_miss_not_a_crash(tmp_path: Path) -> None:
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(minimal_pdf(["one"]))
+    inner = CountingParser()
+    directory = tmp_path / "cache"
+    cached = CachingDocumentParser(inner, directory)
+    key = ocr_cache_key(inner.ref, "pdf", pdf.read_bytes())
+    target = directory / key[:2] / f"{key}.json"
+    target.parent.mkdir(parents=True)
+    # a valid cache envelope whose reply is not a page list — junk payload
+    target.write_text('{"reply": "not-a-page-list"}', encoding="utf-8")
+    pages = await cached.parse_pdf(pdf)  # re-parses rather than crashing
+    assert pages == (OcrPage(0, "page-one-1"), OcrPage(1, "café ☕ 世界\n\n# H"))
+    assert await cached.parse_pdf(pdf) == pages  # now a clean hit
+
+
+async def test_ocr_cache_ref_passes_through(tmp_path: Path) -> None:
+    cached = CachingDocumentParser(CountingParser(), tmp_path)
+    assert str(cached.ref) == "mistral/mistral-ocr-latest"  # disclosure reads the wire's identity

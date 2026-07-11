@@ -220,6 +220,21 @@ class AppContainer:
         self.caches.append(wrapper)
         return wrapper
 
+    def _cache_parser(self, parser: DocumentParser) -> DocumentParser:
+        """Cache the dedicated OCR wire OUTERMOST (A7), mirroring ``_wrap_outer``'s
+        chat layering: cache → admission → budget → parser, so a hit short-circuits
+        before admission gates it or the page belt meters it — a rerun re-reads a
+        banked conversion for free (a pilot paid 943 conversions that reruns re-paid).
+        Gated on the same posture and dir as the chat cache, and appended to
+        ``self.caches`` so the shared daily TTL/LRU sweep covers it too (D38/15)."""
+        if not _cache_enabled(self.env, self.config):
+            return parser
+        from smartpipe.models.cache import CachingDocumentParser
+
+        wrapper = CachingDocumentParser(parser, _cache_dir(self.env))
+        self.caches.append(wrapper)
+        return wrapper
+
     def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
         """The chat failover target (item 11): --fallback-model >
         SMARTPIPE_FALLBACK_MODEL > config, or None when unset. Chat wires only —
@@ -329,7 +344,9 @@ class AppContainer:
             # item 48: the dedicated OCR wire wears the belt too — one charge
             # per page (the vision rung below is budgeted via its chat)
             wired = parser if self.budget is None else budgeted_parser(parser, self.budget)
-            return admitted_parser(wired, self.call_policy)
+            # A7: cache OUTERMOST so a rerun banks the paid page conversions —
+            # the hit short-circuits before admission gates or the belt meters it
+            return self._cache_parser(admitted_parser(wired, self.call_policy))
         from smartpipe.models.ocr import VisionOcrParser
 
         return VisionOcrParser(chat=self._wrap_chat(self._build_chat(ref)))
@@ -831,10 +848,13 @@ def _batch_receipt(container: AppContainer) -> None:
 
 
 def _cache_receipt(container: AppContainer) -> None:
-    from smartpipe.models.cache import CachingChatModel
+    from smartpipe.models.cache import CachingChatModel, CachingDocumentParser
 
-    hits = sum(w.hits for w in container.caches if isinstance(w, CachingChatModel))
-    misses = sum(w.misses for w in container.caches if isinstance(w, CachingChatModel))
+    banked = tuple(
+        w for w in container.caches if isinstance(w, CachingChatModel | CachingDocumentParser)
+    )
+    hits = sum(w.hits for w in banked)
+    misses = sum(w.misses for w in banked)  # OCR page conversions bank alongside chat (A7)
     if hits or misses:
         diagnostics.note(f"cache: {hits:,} hits · {misses:,} misses")
     if container.caches:

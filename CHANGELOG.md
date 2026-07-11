@@ -30,6 +30,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   concern).
 
 ### Fixed
+- **Paid Mistral OCR conversions are now banked across runs — a rerun re-reads
+  them for free instead of re-paying.** The `ocr-model` document wire
+  (`MistralOcrParser`, charged per page) had no cache layer, so every rerun
+  re-uploaded and re-paid every page; a pilot spent 943 paid conversions (~$1.89)
+  with nothing banked. A new `CachingDocumentParser` now wraps that wire
+  OUTERMOST — `cache → admission → budget → parser`, mirroring the chat cache — so
+  a hit short-circuits before admission gates it or the page belt meters it. Both
+  paid methods cache: `parse_image` keys on the image bytes, `parse_pdf` on the
+  file's bytes, each under the OCR model's `provider/name` and a route tag so an
+  image hash never collides with a pdf hash; the page tuple round-trips
+  byte-identical. It rides the same posture (`SMARTPIPE_CACHE`), directory, and
+  daily TTL/LRU sweep as the chat cache, and its hits join the once-per-run
+  `cache: N hits · M misses` receipt. (Vision-OCR page images already rode the
+  chat cache; this closes the dedicated Mistral document wire.)
 - **The status bar now shows when only stdout is redirected — `graph … >
   edges.jsonl` no longer looks hung.** The stderr spinner gate is re-pinned to
   stderr alone (it required BOTH stderr and stdout to be TTYs before), so a

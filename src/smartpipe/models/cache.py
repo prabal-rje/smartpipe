@@ -17,9 +17,16 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from smartpipe.models.base import ChatModel, CompletionRequest, ModelRef
+    from smartpipe.models.base import ChatModel, CompletionRequest, ImageData, ModelRef
+    from smartpipe.models.ocr import DocumentParser, OcrPage
 
-__all__ = ["CachingChatModel", "cache_key", "sweep"]
+__all__ = [
+    "CachingChatModel",
+    "CachingDocumentParser",
+    "cache_key",
+    "ocr_cache_key",
+    "sweep",
+]
 
 
 def cache_key(ref: ModelRef, request: CompletionRequest) -> str:
@@ -84,6 +91,67 @@ class CachingChatModel:
             _ = task.exception()  # retrieve failures even if every waiter was cancelled
 
 
+def ocr_cache_key(ref: ModelRef, route: str, data: bytes) -> str:
+    """The paid OCR conversion's identity (A7): provider+model, the route (image
+    vs pdf, so a shared byte-hash never collides across the two paths), and the
+    input document bytes. A different OCR model, route, or document is a new key.
+    """
+    payload: dict[str, object] = {
+        "provider": ref.provider,
+        "model": ref.name,
+        "route": route,
+        "bytes": hashlib.sha256(data).hexdigest(),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+class CachingDocumentParser:
+    """DocumentParser-shaped wrapper that banks paid conversions across runs (A7).
+
+    A hit returns the stored markdown/pages WITHOUT touching the inner parser, so
+    a rerun never re-pays admission or the per-page belt. Wraps OUTERMOST, mirroring
+    ``CachingChatModel``; ``ref`` (and, through the ``inner`` walk ``parser_billing``
+    follows, ``billing``) passes through so disclosure and accounting still read the
+    wrapped wire's identity.
+    """
+
+    def __init__(self, inner: DocumentParser, directory: Path) -> None:
+        self.inner = inner
+        self.directory = directory
+        self.hits = 0
+        self.misses = 0
+
+    @property
+    def ref(self) -> ModelRef:
+        return self.inner.ref
+
+    async def parse_image(self, image: ImageData) -> str:
+        key = ocr_cache_key(self.inner.ref, "image", image.data)
+        path = self.directory / key[:2] / f"{key}.json"
+        stored = _read(path)
+        if stored is not None:
+            self.hits += 1
+            return stored
+        markdown = await self.inner.parse_image(image)
+        self.misses += 1
+        _write(path, markdown)
+        return markdown
+
+    async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+        data = await asyncio.to_thread(path.read_bytes)  # the document's bytes ARE the key
+        key = ocr_cache_key(self.inner.ref, "pdf", data)
+        cache_path = self.directory / key[:2] / f"{key}.json"
+        stored = _read_pages(cache_path)
+        if stored is not None:
+            self.hits += 1
+            return stored
+        pages = await self.inner.parse_pdf(path)
+        self.misses += 1
+        _write(cache_path, _dump_pages(pages))
+        return pages
+
+
 def _read(path: Path) -> str | None:
     try:
         parsed: object = json.loads(path.read_text(encoding="utf-8"))
@@ -105,6 +173,43 @@ def _write(path: Path, reply: str) -> None:
     scratch = path.with_suffix(".tmp")
     scratch.write_text(json.dumps({"reply": reply}, ensure_ascii=False), encoding="utf-8")
     os.replace(scratch, path)  # atomic on POSIX — never a half-written entry
+
+
+def _dump_pages(pages: tuple[OcrPage, ...]) -> str:
+    """Serialize a page tuple deterministically — the content-agnostic ``_write``
+    stores the result as its ``reply`` string. ``OcrPage`` carries only index +
+    markdown, so this captures the whole value."""
+    payload = [{"index": page.index, "markdown": page.markdown} for page in pages]
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _read_pages(path: Path) -> tuple[OcrPage, ...] | None:
+    """Reload a page tuple byte-identically, or ``None`` on any malformed entry —
+    a corrupt cache file is a miss, never a crash (mirrors ``_read``)."""
+    raw = _read(path)
+    if raw is None:
+        return None
+    from smartpipe.core.jsontools import as_items, as_record
+    from smartpipe.models.ocr import OcrPage
+
+    try:
+        parsed: object = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    items = as_items(parsed)
+    if items is None:
+        return None
+    pages: list[OcrPage] = []
+    for entry in items:
+        record = as_record(entry)
+        if record is None:
+            return None
+        index = record.get("index")
+        markdown = record.get("markdown")
+        if isinstance(index, bool) or not isinstance(index, int) or not isinstance(markdown, str):
+            return None
+        pages.append(OcrPage(index=index, markdown=markdown))
+    return tuple(pages)
 
 
 _DAY_SECONDS = 86_400

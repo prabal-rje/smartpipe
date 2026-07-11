@@ -707,6 +707,75 @@ def test_ocr_role_refuses_an_embedding_ref(client: httpx.AsyncClient) -> None:
         container.document_parser()
 
 
+# --- the OCR document cache (A7): bank paid Mistral conversions across runs ----------
+
+
+def _ocr_cache_env() -> dict[str, str]:
+    return {
+        "MISTRAL_API_KEY": "mk-x",
+        "SMARTPIPE_CACHE": "on",
+        "XDG_CACHE_HOME": "/nonexistent-smartpipe-tests",
+    }
+
+
+def test_ocr_cache_wraps_the_mistral_wire_outermost(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedDocumentParser
+    from smartpipe.models.cache import CachingDocumentParser
+    from smartpipe.models.ocr import MistralOcrParser
+
+    container = _container(
+        client, env=_ocr_cache_env(), config=Config(ocr_model="mistral-ocr-latest")
+    )
+    parser = container.document_parser()
+    assert isinstance(parser, CachingDocumentParser)  # cache OUTERMOST
+    assert isinstance(parser.inner, AdmittedDocumentParser)  # then admission
+    assert isinstance(parser.inner.inner, MistralOcrParser)  # (uncapped: no budget layer)
+    assert str(parser.ref) == "mistral/mistral-ocr-latest"  # identity preserved
+    assert container.caches == [parser]  # swept with the chat caches
+
+
+def test_ocr_cache_disabled_bypasses(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedDocumentParser
+
+    container = _container(
+        client, env={"MISTRAL_API_KEY": "mk-x"}, config=Config(ocr_model="mistral-ocr-latest")
+    )
+    parser = container.document_parser()
+    assert isinstance(parser, AdmittedDocumentParser)  # no cache layer when the posture is off
+    assert container.caches == []
+
+
+def test_ocr_cache_preserves_page_billing(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.ocr import OcrBilling, parser_billing
+
+    container = _container(
+        client, env=_ocr_cache_env(), config=Config(ocr_model="mistral-ocr-latest")
+    )
+    parser = container.document_parser()
+    assert parser is not None
+    assert parser_billing(parser) is OcrBilling.PAGE  # the belt still reads per-page billing
+
+
+async def test_cache_receipt_counts_ocr_document_hits(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.models.cache import CachingDocumentParser
+    from smartpipe.models.ocr import MistralOcrParser
+
+    async with build_container({"XDG_CACHE_HOME": str(tmp_path)}) as container:
+        wire = MistralOcrParser(
+            ref=ModelRef("mistral", "mistral-ocr-latest"),
+            client=container.http_client,
+            api_key="mk-x",
+            retry=FAST,
+        )
+        cached = CachingDocumentParser(wire, tmp_path)
+        cached.hits = 940  # a pilot's banked page conversions on a rerun
+        cached.misses = 3
+        container.caches.append(cached)
+    assert "cache: 940 hits · 3 misses" in capsys.readouterr().err
+
+
 # --- request batching (item 62): posture, wiring order, the disclosure note --------
 
 
