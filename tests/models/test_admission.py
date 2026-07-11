@@ -196,6 +196,31 @@ async def test_a_retry_after_hint_paces_the_next_admission_of_that_ref() -> None
     assert clock.now == 5.0
 
 
+async def test_a_tripped_breaker_dies_before_paying_a_stale_cooldown() -> None:
+    """A5.2 review: the breaker check must run BEFORE the cooldown wait. A run whose
+    OCR wire the breaker condemned is STOPPING, not pacing — it must die on the open
+    circuit immediately, never sleep out a floor recorded from the same 429 first.
+    Pins the ordering the comments claim (a reversed order would sleep 5s here)."""
+    clock = _FakeClock()
+    # breaker_limit=1: one 429 both ARMS the floor and TRIPS the breaker
+    policy = OutboundCallPolicy(concurrency=1, breaker_limit=1, clock=clock.read, sleep=clock.sleep)
+    ref = ModelRef("mistral", "ocr")
+
+    async def rate_limited_call() -> str:
+        raise RetryableError("ocr error 429: rate limited", retry_after=5.0)
+
+    with pytest.raises(CircuitOpenTransport):
+        await policy.execute(ref, rate_limited_call)  # arms the 5s floor AND opens the circuit
+    assert clock.sleeps == []  # the tripping call itself never slept
+
+    async def would_succeed() -> str:
+        return "unreachable"
+
+    with pytest.raises(CircuitOpenTransport):
+        await policy.execute(ref, would_succeed)  # the open circuit dies FIRST
+    assert clock.sleeps == []  # the 5s floor was NEVER slept — the breaker won the race
+
+
 async def test_a_cooldown_on_one_ref_does_not_gate_a_different_ref() -> None:
     clock = _FakeClock()
     policy = OutboundCallPolicy(concurrency=2, breaker_limit=0, clock=clock.read, sleep=clock.sleep)

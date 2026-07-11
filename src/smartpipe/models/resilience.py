@@ -484,17 +484,20 @@ class WiredChat:
 
 @dataclass(slots=True)
 class Cooldown:
-    """A server-backoff seam the rate limiter carries for the A5.2 rung.
+    """A server-backoff seam the chat rate limiter carries.
 
-    Inert today: it records the most recent ``Retry-After`` hint (so the seam and
-    its wiring exist and are tested) but never gates a call. A5.2 turns the
-    recorded hint into an actual per-ref wait.
+    Inert on the chat path: it records the most recent ``Retry-After`` hint (so the
+    seam and its wiring exist and are tested) but never gates a call, and the chat
+    ``rate_limited`` is built without a ``retry_after=`` reader so ``penalize`` is
+    never even reached. A5.2's actual per-ref pacing landed on the paid outbound
+    wire instead — ``OutboundCallPolicy`` (OCR/embed/STT), which is where the 429
+    storms are paid for; this chat seam stays a tested-but-dormant hook.
     """
 
     last_hint: float | None = None
 
     def penalize(self, seconds: float) -> None:
-        """Record a server-supplied backoff (inert seam until A5.2)."""
+        """Record a server-supplied backoff (a dormant seam on the chat path)."""
         self.last_hint = seconds
 
 
