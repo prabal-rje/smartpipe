@@ -5,6 +5,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Fixed
+- **A failed OCR upload no longer eats a later document's page belt.** The
+  dedicated OCR wire reserves a document's full page count against
+  `--max-calls` before uploading, so an over-belt PDF never uploads partially.
+  When that upload then fails — a 429 ladder exhausted, the breaker open — the
+  reservation is now refunded, because those pages were never converted; a dead
+  document can no longer starve the documents that come after it.
+
 ## [1.5.1] — 2026-07-10
 
 ### Fixed
