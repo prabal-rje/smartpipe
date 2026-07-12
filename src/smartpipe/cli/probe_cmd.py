@@ -24,9 +24,11 @@ from smartpipe.models.base import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from smartpipe.models.base import ChatModel, EmbeddingModel
+    from smartpipe.container import AppContainer
+    from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.stt import Transcriber
 
-__all__ = ["render_matrix", "run_probe"]
+__all__ = ["SttProbe", "exercise_stt", "render_matrix", "run_probe", "stt_probe_plan"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,9 +52,12 @@ async def run_probe(env: Mapping[str, str]) -> str:
     async with build_container(os.environ) as container:
         chat = await container.chat_model()
         embed = await container.embedding_model()
+        probe_stt = stt_probe_plan(container, chat.ref)
+        calls = 4 if probe_stt.transcriber is None else 5
+        tail = "" if probe_stt.transcriber is None else f" · stt: {probe_stt.transcriber.ref.name}"
         diagnostics.note(
-            "probing modalities with 4 tiny calls "
-            f"(chat: {chat.ref.name} · embed: {embed.ref.name})"
+            f"probing modalities with {calls} tiny calls "
+            f"(chat: {chat.ref.name} · embed: {embed.ref.name}{tail})"
         )
         stt = _stt_path(os.environ, container.config.stt_model, chat.ref.provider)
         chat_image = await _chat_image(chat)
@@ -67,8 +72,62 @@ async def run_probe(env: Mapping[str, str]) -> str:
                 Cell("ok", "as extracted text"),
             ),
         }
+        stt_line = (
+            probe_stt.line
+            if probe_stt.transcriber is None
+            else await exercise_stt(probe_stt.transcriber)
+        )
         _remember_probe(os.environ, str(chat.ref), image=chat_image, audio=chat_audio)
-    return render_matrix(rows)
+    matrix = render_matrix(rows)
+    return matrix if stt_line is None else f"{matrix}\n{stt_line}"
+
+
+@dataclass(frozen=True, slots=True)
+class SttProbe:
+    """What the stt role gets in this probe run (C4): a built REMOTE wire to
+    exercise (one more tiny paid call, announced in the count), or a verdict
+    line already known without spending (local wheels present/absent, a build
+    fault), or neither — the ladder resolved nothing, so no line at all."""
+
+    transcriber: Transcriber | None = None
+    line: str | None = None
+
+
+def stt_probe_plan(container: AppContainer, chat_ref: ModelRef) -> SttProbe:
+    """Resolve the stt role the way the container will at run time, and decide
+    what this probe run does about it. LOCAL is deliberately never exercised —
+    a whisper model download inside doctor is hostile — so it reports the
+    wheels honestly instead; a REMOTE build fault (missing key, unsupported
+    wire, the fence) becomes the ✗ line with the container's own wording."""
+    from importlib.util import find_spec
+
+    from smartpipe.models.resolve import resolve_stt
+
+    resolution = resolve_stt(container.env, container.config.stt_model, chat_ref.provider)
+    if resolution.kind == "ladder":
+        return SttProbe()
+    if resolution.kind == "local":
+        if find_spec("faster_whisper") is not None:
+            # the dash matches the matrix's "–" mark  # noqa: RUF003
+            return SttProbe(line="  stt: – local whisper ready (not exercised)")  # noqa: RUF001
+        return SttProbe(line="  stt: ✗ local whisper unavailable — reinstall smartpipe")
+    try:
+        transcriber = container.remote_transcriber(chat_ref)
+    except SempipeError as exc:
+        return SttProbe(line=f"  stt: ✗ {_first_line(exc)}")
+    assert transcriber is not None  # a remote resolution always builds a wire
+    return SttProbe(transcriber=transcriber)
+
+
+async def exercise_stt(transcriber: Transcriber) -> str:
+    """One tiny transcription through the REAL container wire — the disclosed
+    5th call. Pass or fail, the line carries the exercised truth (the wire's
+    own first error line on ✗), never a resolved display string as health."""
+    try:
+        await transcriber.transcribe(AudioData(_asset("probe.wav"), "audio/wav"))
+    except SempipeError as exc:
+        return f"  stt: ✗ {_first_line(exc)}"
+    return f"  stt: ✓ transcribed via {transcriber.ref}"
 
 
 def _remember_probe(env: Mapping[str, str], ref: str, *, image: Cell, audio: Cell) -> None:
