@@ -6,6 +6,35 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **You can always see it working (C2 #19/#32/#36/#37).** Four visibility fixes
+  with one pinned rule behind them — every phase that can hold the terminal for
+  more than ~2 seconds owns a visible element, painted immediately:
+  - *First paint at `start()` (#36/#37).* Every status line now shows its zero
+    state the moment its phase begins — `0% · 0/N` for a known total,
+    `Processing [0] 0.0/s` for an unknown one, the caption for a pending wait —
+    instead of waiting for the first completion. The fold bar's first byte no
+    longer waits on the first embed batch (which an admission cooldown plus the
+    retry ladder can hold for minutes); `start(0)` and non-TTY stderr stay
+    silent.
+  - *A terminal arbiter for diagnostics (#32).* Every one-line stderr message
+    (notes, warnings, previews, the drain summary, an error screen's first
+    line) now erases the live status line, prints whole, and lets the line
+    redraw — from any thread. A local-NER note fired from a worker thread used
+    to glue onto the pending caption (`…preparing local NER modelnote: …`);
+    that interleave is now structurally impossible. The raw SIGINT
+    acknowledgement stays lock-free by design.
+  - *Plain `--in` globs read lazily (#19).* Whole-crate file lists now load
+    each file only when the pipeline pulls it — a 62-file MP3 corpus no longer
+    transcodes in silence before the first bar frame. The read bar's total is
+    the number of files the glob NAMED (an unreadable file warns, skips, and
+    honestly leaves the bar short of 100%); chained pipes keep streaming with
+    an unknown total. One accepted delta: a glob whose files all fail to load
+    still spends the paid modes' one schema-canary probe (cached on rerun).
+  - *Fold and canary visibility (#37).* The label-cluster fold now wears a
+    `[fold]` count line at all three call sites (fast scan, full, adopt), and
+    the pre-spend schema canary wears a pending caption — `checking the model
+    holds the schema` — while it probes. A PTY smoke pins the zero-state
+    frames against a real terminal.
 - **A density hint when the graph is window math, not signal (C6 #34).** The
   scanning modes (`--fast` and `--name-top` hybrid) now notice a near-complete
   graph — at least 20 folded nodes with the kept edges ≥ 0.8 of the C(n,2)

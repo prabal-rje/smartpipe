@@ -172,7 +172,10 @@ def resolve_items(
 ) -> tuple[AsyncIterator[Item], int | None]:
     """The single entry point every verb uses: dispatch on the input flags.
 
-    Returns ``(items, total)`` — total is known only for ``--in`` file lists;
+    Returns ``(items, total)`` — total is known only for plain ``--in`` file
+    lists at a bare terminal, and it counts the files the glob NAMED (C2 #19:
+    the loop is lazy, so nothing has loaded yet when the total is reported; a
+    file that later fails to load warns + skips and the bar ends short).
     stdin is a stream (``tail -f`` works), so its total is ``None`` and the
     spinner shows count+rate instead of an ETA. Only the stdin paths guard
     against a bare terminal. ``spec.as_mode`` is the granularity dial (items
@@ -220,11 +223,17 @@ def resolve_items(
             # Row-cut inputs stream one record at a time — no slurp, no fake total.
             chained = None if stdin.isatty() else stdin
             return _stream_path_items(paths, spec, chained, stop, ocr), None
-        loaded = _path_items(paths, spec.as_mode)
-        if stdin.isatty():  # files only — no pipe to chain
-            return _iter_list(loaded), len(loaded)
-        # spec §8: mixed input is files first (glob-sorted), then stdin lines
-        return _chain_files_then_stdin(loaded, stdin, stop, spec.as_mode, ocr), None
+        # C2 #19: plain whole-crate globs stream through the SAME lazy loop — a
+        # file loads only when the pipeline pulls it, so a heavy corpus (62 MP3s)
+        # never transcodes in silence before the first status-bar frame. At a
+        # bare terminal the total is known up front anyway: the files the glob
+        # NAMED (an unreadable file still warns + skips, so the bar may honestly
+        # end short of 100% — pinned). A chained pipe keeps streaming, total
+        # unknown, files first then stdin (spec §8).
+        chained = None if stdin.isatty() else stdin
+        return _stream_path_items(paths, spec, chained, stop, ocr), (
+            len(paths) if chained is None else None
+        )
     ensure_not_a_tty(stdin)
     if spec.from_files:
         return from_files_items(stdin, stop=stop, as_mode=spec.as_mode, ocr=ocr), None
@@ -258,9 +267,11 @@ async def _stream_path_items(
     stop: asyncio.Event | None,
     ocr: OcrIngest | None,
 ) -> AsyncIterator[Item]:
-    """Path ingestion with a csv in the mix (item 54): csv files stream
-    row-at-a-time (a 10 GB export must not materialize); every other file
-    loads exactly as ``_path_items`` would."""
+    """Lazy path ingestion — the ONE loop every non-OCR ``--in`` glob rides
+    (item 54 gave it to csv-bearing runs; C2 #19 routed the plain whole-crate
+    glob through it too). csv files stream row-at-a-time (a 10 GB export must
+    not materialize); every other file loads exactly when the pipeline pulls
+    it, never all-at-once at resolve time."""
     warned_extras: set[str] = set()
     census = FigureCensus()
     ordinal = 0
@@ -558,20 +569,6 @@ def _note_stdin_transition() -> None:
     diagnostics.note(
         "files done - now reading stdin (pipe data or close it; files-only: add < /dev/null)"
     )
-
-
-async def _chain_files_then_stdin(
-    loaded: Sequence[Item],
-    stdin: TextIO,
-    stop: asyncio.Event | None,
-    as_mode: str | None,
-    ocr: OcrIngest | None = None,
-) -> AsyncIterator[Item]:
-    for item in loaded:
-        yield item
-    _note_stdin_transition()
-    async for item in stdin_items(stdin, stop=stop, as_mode=as_mode, ocr=ocr):
-        yield item
 
 
 async def _iter_list(items: Sequence[Item]) -> AsyncIterator[Item]:
@@ -1157,27 +1154,6 @@ def _default_mode(path: Path) -> str:
     if suffix in _CSV_SUFFIXES:
         return "csv"
     return "file"
-
-
-def _path_items(paths: Sequence[Path], as_mode: str | None) -> list[Item]:
-    """Named paths under the dial: explicit --as applies to every file; AUTO
-    gives each file its extension default. csv never lands here — the caller
-    routes any csv-bearing run through the streaming path instead."""
-    items: list[Item] = []
-    warned_extras: set[str] = set()
-    census = FigureCensus()
-    ordinal = 0
-    for path in paths:
-        mode = as_mode or _default_mode(path)
-        if mode == "file":
-            item = _load_file(path, ordinal, warned_extras, census)
-            if item is not None:
-                items.append(item)
-                ordinal += 1
-            continue
-        items.extend(_text_rows(path, mode))
-    census.finish()  # roll up the figure notes once the file loop is done (B4)
-    return items
 
 
 def _text_rows(path: Path, mode: str, *, stop: asyncio.Event | None = None) -> Iterator[Item]:

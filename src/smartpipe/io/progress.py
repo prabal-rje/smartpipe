@@ -13,6 +13,7 @@ are pure; ``Spinner`` adds the clock, throttling, and the stderr writes.
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Spinner",
+    "interject",
     "make_stderr_spinner",
     "render_pending",
     "render_unknown",
@@ -45,6 +47,35 @@ _CLEAR_LINE = "\x1b[K"
 # so a stage's status line wears the same ``[name]`` prefix its receipts do.
 # A metering-style documented exception to no-globals (one stage at a time).
 _stage_label: str | None = None
+
+# The terminal arbiter (C2 #32) — the same documented exception, and for the
+# same reason: one terminal, at most one live status line at a time. ``_active``
+# is whichever spinner last painted; ``interject`` erases it, lets a diagnostic
+# own the row, and redraws it. The RLock (never a plain Lock) serializes redraws
+# against diagnostics from worker threads AND survives the same-thread nesting
+# ``interject → paused()`` needs; it is never held across an ``await`` (every
+# guarded body is synchronous). ``_suspended`` marks "the line is currently
+# erased" (inside ``paused``): a diagnostic fired from within a guarded result
+# write then emits plainly instead of redrawing into a row the surrounding
+# pause is about to redraw itself.
+_lock = threading.RLock()
+_active: Spinner | None = None
+_suspended = False
+
+
+def interject(emit: Callable[[], None]) -> None:
+    """Route one whole stderr line around the live status line: erase → emit →
+    redraw, atomically under the arbiter lock. With no line up (piped stderr,
+    cron, or between stages) this is a plain pass-through — byte-identical
+    output. ``diagnostics`` routes every one-line message through here; the raw
+    SIGINT acknowledgement deliberately does NOT (it must never take a lock)."""
+    with _lock:
+        active = _active
+        if active is None or _suspended:
+            emit()
+            return
+        with active.paused():
+            emit()
 
 
 def set_stage_label(name: str | None) -> None:
@@ -97,6 +128,26 @@ class Spinner:
         self._done = 0
         self._start = self.clock()
         self._last_draw = -1.0
+        self._draw_initial()
+
+    def _draw_initial(self) -> None:
+        """D1 (the one rule, ux.md): the first paint happens AT ``start`` — a
+        phase that stalls before its first completion still owns a visible zero
+        state. A set ``message`` paints the pending caption; a known nonzero
+        total paints the ``0% · 0/N`` bar; an unknown total paints
+        ``Processing [0]``; a known-empty total (0) paints nothing — there is
+        no work to watch. Only ``start`` paints eagerly: construction never
+        writes, so a bar built and abandoned stays silent."""
+        if not self.enabled:
+            return
+        if self.message is not None:
+            self.tick()  # start() reset the throttle, so this always paints
+            return
+        if self.total == 0:
+            return
+        now = self.clock()
+        self._last_draw = now  # the zero state counts against the redraw throttle
+        self._draw(now)
 
     def advance(self) -> None:
         self._done += 1
@@ -120,37 +171,52 @@ class Spinner:
         if now - self._last_draw < _MIN_REDRAW_S:
             return
         self._last_draw = now
-        frame = self._next_frame()
-        line = render_pending(frame, self.message or "")
-        if self._color():
-            line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
-        if self.label is not None:
-            line = f"[{self.label}] {line}"
-        self._line = line
-        self.stream.write(f"\r{line}{_CLEAR_LINE}")
-        self.stream.flush()
-        self._drew = True
+        global _active
+        with _lock:
+            frame = self._next_frame()
+            line = render_pending(frame, self.message or "")
+            if self._color():
+                line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
+            if self.label is not None:
+                line = f"[{self.label}] {line}"
+            self._line = line
+            self.stream.write(f"\r{line}{_CLEAR_LINE}")
+            self.stream.flush()
+            self._drew = True
+            _active = self
 
     def finish(self) -> None:
-        if self.enabled and self._drew:
-            self.stream.write(f"\r{_CLEAR_LINE}")
-            self.stream.flush()
+        global _active
+        with _lock:
+            if _active is self:
+                _active = None  # deregister — later diagnostics emit plainly
+            if self.enabled and self._drew:
+                self.stream.write(f"\r{_CLEAR_LINE}")
+                self.stream.flush()
 
     @contextmanager
     def paused(self) -> Generator[None]:
         """The terminal arbiter primitive: erase the status line, let the caller
         own the terminal, then redraw the same line. Result emission wraps itself
-        in this so no result byte ever lands between a draw and its erase."""
-        if not self._drew:
-            yield
-            return
-        self.stream.write(f"\r{_CLEAR_LINE}")
-        self.stream.flush()
-        try:
-            yield
-        finally:
-            self.stream.write(f"\r{self._line}{_CLEAR_LINE}")
+        in this so no result byte ever lands between a draw and its erase; the
+        whole span holds the arbiter lock (reentrant — ``interject`` nests here)
+        and marks ``_suspended`` so a diagnostic fired from inside the body
+        lands plainly on the already-erased row."""
+        global _suspended
+        with _lock:
+            if not self._drew:
+                yield
+                return
+            self.stream.write(f"\r{_CLEAR_LINE}")
             self.stream.flush()
+            was_suspended = _suspended
+            _suspended = True
+            try:
+                yield
+            finally:
+                _suspended = was_suspended
+                self.stream.write(f"\r{self._line}{_CLEAR_LINE}")
+                self.stream.flush()
 
     def guard(self, stream: TextSink) -> TextSink:
         """Route a result stream through the arbiter: each write pauses the
@@ -172,35 +238,38 @@ class Spinner:
         return frame
 
     def _draw(self, now: float) -> None:
-        frame = self._next_frame()
-        elapsed = max(now - self._start, 1e-9)
-        rate = self._done / elapsed
-        color = self._color()
-        if self.total is None:
-            line = render_unknown(
-                frame, done=self._done, rate=rate, matched=self.matched, extra=self.extra
-            )
-            if color:
-                line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
-            if self.label is not None:
-                line = f"[{self.label}] {line}"
-        else:
-            line = render_bar(
-                self._done,
-                self.total,
-                rate=rate,
-                ascii_only=self.ascii_only,
-                label=self.label,
-            )
-        from smartpipe.io import metering
+        global _active
+        with _lock:
+            frame = self._next_frame()
+            elapsed = max(now - self._start, 1e-9)
+            rate = self._done / elapsed
+            color = self._color()
+            if self.total is None:
+                line = render_unknown(
+                    frame, done=self._done, rate=rate, matched=self.matched, extra=self.extra
+                )
+                if color:
+                    line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
+                if self.label is not None:
+                    line = f"[{self.label}] {line}"
+            else:
+                line = render_bar(
+                    self._done,
+                    self.total,
+                    rate=rate,
+                    ascii_only=self.ascii_only,
+                    label=self.label,
+                )
+            from smartpipe.io import metering
 
-        consumed = metering.status_segment()  # D40: live observed units
-        if consumed:
-            line += f"   \x1b[2m{consumed}\x1b[0m" if color else f"   {consumed}"
-        self._line = line
-        self.stream.write(f"\r{line}{_CLEAR_LINE}")
-        self.stream.flush()
-        self._drew = True
+            consumed = metering.status_segment()  # D40: live observed units
+            if consumed:
+                line += f"   \x1b[2m{consumed}\x1b[0m" if color else f"   {consumed}"
+            self._line = line
+            self.stream.write(f"\r{line}{_CLEAR_LINE}")
+            self.stream.flush()
+            self._drew = True
+            _active = self
 
 
 @dataclass(frozen=True, slots=True)

@@ -47,41 +47,55 @@ def _paint(text: str, code: str) -> str:
     return f"\x1b[{code}m{text}{_RESET}"
 
 
+def _emit_line(text: str) -> None:
+    """Every one-line diagnostic rides the terminal arbiter (C2 #32): the live
+    status line is erased, the line lands whole, the status line redraws — from
+    any thread (local NER fires notes from a worker). With no line up this is a
+    plain byte-identical write. The import is lazy and one-way: diagnostics →
+    progress only; progress must NEVER import diagnostics."""
+    from smartpipe.io import progress
+
+    def emit() -> None:
+        sys.stderr.write(text)
+        sys.stderr.flush()
+
+    progress.interject(emit)
+
+
 def warn(message: str) -> None:
-    sys.stderr.write(_paint(f"⚠ {message}", "33") + "\n")  # yellow — worth a glance
-    sys.stderr.flush()
+    _emit_line(_paint(f"⚠ {message}", "33") + "\n")  # yellow — worth a glance
 
 
 def preview(message: str) -> None:
     """Informational cost/awareness lines (D18/D21): TTY-only, never in pipes/cron."""
     if tty.stderr_is_tty():
-        sys.stderr.write(f"{message}\n")
-        sys.stderr.flush()
+        _emit_line(f"{message}\n")
 
 
 def note(message: str) -> None:
-    sys.stderr.write(_paint(f"note: {message}", "2") + "\n")  # dim — informative, calm
-    sys.stderr.flush()
+    _emit_line(_paint(f"note: {message}", "2") + "\n")  # dim — informative, calm
 
 
 def interrupted_summary(*, processed: int, skipped: int) -> None:
     """The ux.md §12 drain summary — exact wording is contract."""
-    sys.stderr.write(
+    _emit_line(
         _paint(f"done: interrupted — {processed} processed · {skipped} skipped", "33") + "\n"
     )
-    sys.stderr.flush()
 
 
 def drain_timed_out() -> None:
-    sys.stderr.write("done: interrupted — drain timed out\n")
-    sys.stderr.flush()
+    # fires from the watchdog task ON the loop thread — safe to take the arbiter
+    # lock, unlike the raw SIGINT ack (cli/interrupts), which never may.
+    _emit_line("done: interrupted — drain timed out\n")
 
 
 def _emit_error(text: str) -> None:
     if tty.stderr_supports_color() and text.startswith("error:"):
         text = f"{_RED}error:{_RESET}{text.removeprefix('error:')}"
-    sys.stderr.write(f"{text}\n")
-    sys.stderr.flush()
+    # the screen's FIRST write rides the arbiter; the follow-up context lines
+    # (die's --debug traceback, internal_error's report pointer) stay raw —
+    # by then the status line is out of the way.
+    _emit_line(f"{text}\n")
 
 
 _DEGRADE_CAP = 5  # per conversion kind: first rows verbatim, then the rollup

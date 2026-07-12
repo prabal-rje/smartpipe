@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import io
+from typing import TYPE_CHECKING
+
 import pytest
 
 from smartpipe.core.errors import SetupFault, TooManyFailures, UnsentError, UsageFault
 from smartpipe.io import diagnostics
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _exit_code(excinfo: pytest.ExceptionInfo[SystemExit]) -> int:
@@ -144,3 +150,70 @@ def test_error_prefix_is_red_only_on_tty(
     with pytest.raises(SystemExit):
         diagnostics.die(UsageFault("bad"))
     assert capsys.readouterr().err == "\x1b[31merror:\x1b[0m bad\n"
+
+
+# --- C2 #32: every one-line diagnostic rides the terminal arbiter --------------
+
+
+class _Terminal(io.StringIO):
+    """Records every write in order — the status line and the diagnostics share
+    one stderr, exactly like a real run."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.writes: list[str] = []
+
+    def write(self, s: str, /) -> int:
+        self.writes.append(s)
+        return super().write(s)
+
+
+_ARBITERED: list[tuple[str, Callable[[], None], str]] = [
+    ("note", lambda: diagnostics.note("x"), "note: x\n"),
+    ("warn", lambda: diagnostics.warn("x"), "⚠ x\n"),
+    ("preview", lambda: diagnostics.preview("cost line"), "cost line\n"),
+    (
+        "interrupted_summary",
+        lambda: diagnostics.interrupted_summary(processed=1, skipped=2),
+        "done: interrupted — 1 processed · 2 skipped\n",
+    ),
+    ("drain_timed_out", diagnostics.drain_timed_out, "done: interrupted — drain timed out\n"),
+    ("report_error", lambda: diagnostics.report_error("boom"), "error: boom\n"),
+]
+
+
+@pytest.mark.parametrize(
+    ("emit", "expected"),
+    [(emit, expected) for _, emit, expected in _ARBITERED],
+    ids=[name for name, _, _ in _ARBITERED],
+)
+def test_diagnostics_ride_the_terminal_arbiter(
+    emit: Callable[[], None], expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a status line up, every one-line diagnostic erases it, lands whole,
+    and lets it redraw — never gluing onto the drawn row (#32)."""
+    import sys
+
+    from smartpipe.io.progress import Spinner
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)  # preview's gate
+    terminal = _Terminal()
+    monkeypatch.setattr(sys, "stderr", terminal)
+    spinner = Spinner(stream=terminal, enabled=True, ascii_only=True, clock=lambda: 0.0)
+    spinner.start(total=4)  # paints the zero state — registers with the arbiter
+    marker = len(terminal.writes)
+    emit()
+    assert terminal.writes[marker] == "\r\x1b[K"  # the line was erased first
+    assert terminal.writes[marker + 1] == expected  # the diagnostic landed whole
+    assert terminal.writes[-1].startswith("\r[")  # the status line came back
+
+
+def test_diagnostics_stay_byte_identical_without_a_status_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No active status line (every piped/cron run): the arbiter is a
+    pass-through and the bytes are exactly the pre-arbiter ones."""
+    diagnostics.note("using ollama/qwen3:8b")
+    diagnostics.warn("skipped: x")
+    assert capsys.readouterr().err == "note: using ollama/qwen3:8b\n⚠ skipped: x\n"

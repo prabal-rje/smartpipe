@@ -74,6 +74,12 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SMARTPIPE_LOCAL_ONLY", raising=False)
     metering.reset()
     source_accounting.reset()
+    # …and no status line registered with the terminal arbiter (C2 #32): a test
+    # that drew a bar without finish()ing must not make a later test's
+    # diagnostics redraw a stale line into a dead stream.
+    from smartpipe.io import progress
+
+    monkeypatch.setattr(progress, "_active", None, raising=False)
 
 
 @pytest.fixture

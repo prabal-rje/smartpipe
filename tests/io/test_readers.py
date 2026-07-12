@@ -410,6 +410,132 @@ def test_figure_cap_rollup_names_the_knob(
     ) in capsys.readouterr().err
 
 
+# --- C2 #19/#36: the plain glob streams lazily — total = files NAMED ----------------
+
+
+def _count_loads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Route readers._load_file through a counter: which files actually loaded."""
+    from smartpipe.io import readers
+
+    loads: list[str] = []
+    real_load = readers._load_file  # pyright: ignore[reportPrivateUsage] — the seam under test
+
+    def counting_load(path: object, ordinal: int, warned: set[str], census: object) -> object:
+        from pathlib import Path
+
+        assert isinstance(path, Path)
+        loads.append(path.name)
+        return real_load(path, ordinal, warned, census)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(readers, "_load_file", counting_load)
+    return loads
+
+
+async def test_plain_glob_resolves_without_loading_a_single_file(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#19: resolve_items must read NOTHING up front — a 62-file MP3 corpus used
+    to transcode in full silence before the first status-bar frame. Each file
+    loads exactly when the pipeline pulls it (one load per __anext__)."""
+    from pathlib import Path
+
+    from smartpipe.io import readers
+    from smartpipe.io.inputs import InputSpec
+
+    assert isinstance(tmp_path, Path)
+    for name in ("a.txt", "b.txt", "c.txt"):
+        (tmp_path / name).write_text(f"{name} body\n", encoding="utf-8")
+    loads = _count_loads(monkeypatch)
+    spec = InputSpec(patterns=(str(tmp_path / "*.txt"),), from_files=False)
+    items_iter, total = readers.resolve_items(spec, _FakeTty(""))
+    assert loads == []  # nothing read at resolve time
+    assert total == 3  # …yet the read bar's total is already known: files NAMED
+    first = await items_iter.__anext__()
+    assert loads == ["a.txt"]  # lazy: exactly one load per pull
+    second = await items_iter.__anext__()
+    assert loads == ["a.txt", "b.txt"]
+    assert (first.raw, second.raw) == ("a.txt body\n", "b.txt body\n")  # file crates keep EOL
+
+
+async def test_plain_glob_total_counts_files_named_including_unreadable(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The pinned total semantics: files NAMED by the glob, not files loaded —
+    an unreadable file still warns + skips, and the bar honestly ends short of
+    100% (accepted, ux.md)."""
+    import sys
+    from pathlib import Path
+
+    from smartpipe.io import readers
+    from smartpipe.io.inputs import InputSpec
+
+    if sys.platform == "win32":  # pragma: no cover — chmod 0o000 is a POSIX arrange
+        pytest.skip("POSIX permission test")
+    assert isinstance(tmp_path, Path)
+    (tmp_path / "a.txt").write_text("a body\n", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("b body\n", encoding="utf-8")
+    locked = tmp_path / "locked.txt"
+    locked.write_text("secret\n", encoding="utf-8")
+    locked.chmod(0o000)
+    try:
+        spec = InputSpec(patterns=(str(tmp_path / "*.txt"),), from_files=False)
+        items_iter, total = readers.resolve_items(spec, _FakeTty(""))
+        assert total == 3  # named, not loaded
+        collected = [item async for item in items_iter]
+    finally:
+        locked.chmod(0o600)
+    assert [item.raw for item in collected] == ["a body\n", "b body\n"]
+    assert "cannot read" in capsys.readouterr().err  # the skip is still disclosed
+
+
+async def test_plain_glob_with_a_chained_pipe_keeps_total_unknown(
+    tmp_path: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Green-from-birth guard: a chained pipe (files then stdin) stays a stream
+    — total None, files first, then the pinned transition note, then the pipe."""
+    from pathlib import Path
+
+    from smartpipe.io import readers
+    from smartpipe.io.inputs import InputSpec
+
+    assert isinstance(tmp_path, Path)
+    (tmp_path / "a.txt").write_text("a body\n", encoding="utf-8")
+    spec = InputSpec(patterns=(str(tmp_path / "*.txt"),), from_files=False)
+    items_iter, total = readers.resolve_items(spec, io.StringIO("piped line\n"))
+    assert total is None
+    collected = [item async for item in items_iter]
+    assert [item.raw for item in collected] == ["a body\n", "piped line"]
+    assert "files done - now reading stdin" in capsys.readouterr().err
+
+
+async def test_plain_glob_census_flushes_on_an_abandoned_stream(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The lazy plain-glob loop owns the same try/finally census flush the other
+    doors got in B4: an aclose() mid-corpus (Ctrl-C, downstream stop) still
+    rolls up the figure notes for exactly the files that loaded."""
+    from collections.abc import AsyncGenerator
+    from pathlib import Path
+
+    from smartpipe.io import readers
+    from smartpipe.io.inputs import InputSpec
+
+    assert isinstance(tmp_path, Path)
+    for i in range(50):
+        (tmp_path / f"doc{i:02d}.pdf").write_bytes(b"%PDF-1.4 tiny")
+    monkeypatch.delenv("SMARTPIPE_FIGURE_CAP", raising=False)
+    _figure_fakes(monkeypatch, figures_per_file=1)
+    spec = InputSpec(patterns=(str(tmp_path / "*.pdf"),), from_files=False)
+    items_iter, total = readers.resolve_items(spec, _FakeTty(""))
+    assert total == 50
+    assert isinstance(items_iter, AsyncGenerator)  # narrow to the closable generator
+    for _ in range(6):  # pull past the 5-note cap so the rollup is pending
+        await items_iter.__anext__()
+    await items_iter.aclose()  # abandon mid-corpus
+    err = capsys.readouterr().err
+    assert "note: figures attached: 6 files · 6 figures" in err  # only what loaded
+
+
 # --- the kind census (wave 2, item 20) ---------------------------------------------
 
 
