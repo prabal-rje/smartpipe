@@ -240,3 +240,88 @@ def test_doctor_without_probe_shouts_about_it(
     _code, out, _err = run_cli(["doctor"])
     assert "verify SETUP, not ABILITY" in out
     assert "doctor --probe" in out
+
+
+# --- C8 configured-role exercises -------------------------------------------------
+
+
+async def test_configured_role_exercises_are_independent_and_count_sent_calls() -> None:
+    from smartpipe.cli.probe_cmd import RoleProbe, exercise_role_probes
+    from smartpipe.core.errors import SetupFault
+
+    calls: list[str] = []
+
+    async def broken() -> str:
+        calls.append("ocr")
+        raise SetupFault("error: OCR runtime failed")
+
+    async def passing() -> str:
+        calls.append("media-embed")
+        return "1024-dim image vector via jina/jina-clip-v2"
+
+    lines, sent = await exercise_role_probes(
+        (
+            RoleProbe("ocr", "mistral/mistral-ocr-latest", broken),
+            RoleProbe("media-embed", "jina/jina-clip-v2", passing),
+        )
+    )
+    assert calls == ["ocr", "media-embed"]
+    assert lines == (
+        "  ocr: ✗ OCR runtime failed",
+        "  media-embed: ✓ 1024-dim image vector via jina/jina-clip-v2",
+    )
+    assert sent == 2
+
+
+def test_role_probe_planning_build_fault_makes_no_call_and_later_roles_survive() -> None:
+    from collections.abc import Sequence
+
+    from smartpipe.cli.probe_cmd import plan_role_probes
+    from smartpipe.config.store import Config
+    from smartpipe.core.errors import SetupFault
+    from smartpipe.models.base import CompletionRequest, ImageData, ModelRef, parse_model_ref
+
+    built: list[str] = []
+
+    class Container:
+        config = Config(
+            ocr_model="mistral/mistral-ocr-latest",
+            fallback_model="openai/gpt-4o-mini",
+            media_embed_model="jina/jina-clip-v2",
+        )
+
+        def document_parser(self):
+            built.append("ocr")
+            raise SetupFault("error: MISTRAL_API_KEY missing")
+
+        def probe_fallback_model(self):
+            class Chat:
+                ref: ModelRef = parse_model_ref("openai/gpt-4o-mini")
+
+                async def complete(self, request: CompletionRequest) -> str:
+                    del request
+                    return "OK"
+
+            built.append("fallback-model")
+            return Chat()
+
+        async def media_embedding_model(self):
+            class MediaEmbed:
+                ref: ModelRef = parse_model_ref("jina/jina-clip-v2")
+
+                async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+                    return tuple((0.0,) for _text in texts)
+
+                async def embed_parts(
+                    self, parts: Sequence[str | ImageData]
+                ) -> tuple[tuple[float, ...], ...]:
+                    return tuple((0.0,) for _part in parts)
+
+            built.append("media-embed")
+            return MediaEmbed()
+
+    plans, faults = __import__("asyncio").run(plan_role_probes(Container()))
+    assert built == ["ocr", "fallback-model", "media-embed"]
+    assert tuple(plan.role for plan in plans) == ("fallback-model", "media-embed")
+    assert faults == ("  ocr: ✗ MISTRAL_API_KEY missing",)
+    assert len(plans) == 2

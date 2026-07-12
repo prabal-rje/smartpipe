@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`doctor --probe` now exercises every configured remote role (C8).** In
+  addition to the five-call modality/schema baseline and optional remote STT,
+  configured `ocr-model`, `fallback-model`, and `media-embed-model` roles each
+  receive one deterministic tiny request through their real container wire. The
+  announcement derives its count from successfully built plans; build faults
+  spend nothing and render their own `✗` row, while runtime faults never suppress
+  later role exercises.
 - **Ollama structured-output and vision conformance (C7).** Schema-attached
   Ollama requests now ground the exact schema in the user message while retaining
   the native `format`; `:cloud` tags warn eagerly about unenforced schemas, carry

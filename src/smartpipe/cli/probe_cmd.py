@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from importlib import resources
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import SempipeError
 from smartpipe.io import diagnostics
@@ -24,13 +24,24 @@ from smartpipe.models.base import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Awaitable, Callable, Mapping
 
+    from smartpipe.config.store import Config
     from smartpipe.container import AppContainer
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import Transcriber
 
-__all__ = ["SttProbe", "exercise_stt", "render_matrix", "run_probe", "stt_probe_plan"]
+__all__ = [
+    "RoleProbe",
+    "SttProbe",
+    "exercise_role_probes",
+    "exercise_stt",
+    "plan_role_probes",
+    "render_matrix",
+    "run_probe",
+    "stt_probe_plan",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +55,91 @@ def _asset(name: str) -> bytes:
     return (resources.files("smartpipe.assets") / name).read_bytes()
 
 
+class _RoleContainer(Protocol):
+    @property
+    def config(self) -> Config: ...
+
+    def document_parser(self) -> DocumentParser | None: ...
+
+    def probe_fallback_model(self) -> ChatModel | None: ...
+
+    async def media_embedding_model(self) -> EmbeddingModel | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class RoleProbe:
+    role: str
+    ref: str
+    exercise: Callable[[], Awaitable[str]]
+
+
+async def plan_role_probes(
+    container: _RoleContainer,
+) -> tuple[tuple[RoleProbe, ...], tuple[str, ...]]:
+    """Build configured roles independently; build faults spend nothing."""
+    plans: list[RoleProbe] = []
+    faults: list[str] = []
+
+    if container.config.ocr_model:
+        ref = container.config.ocr_model
+        try:
+            parser = container.document_parser()
+            assert parser is not None
+
+            async def exercise_ocr() -> str:
+                await parser.parse_image(ImageData(_asset("probe.png"), "image/png"))
+                return f"parsed one page via {ref}"
+
+            plans.append(RoleProbe("ocr", ref, exercise_ocr))
+        except SempipeError as exc:
+            faults.append(f"  ocr: ✗ {_first_line(exc)}")
+
+    if container.config.fallback_model:
+        ref = container.config.fallback_model
+        try:
+            fallback = container.probe_fallback_model()
+            assert fallback is not None
+
+            async def exercise_fallback() -> str:
+                reply = await fallback.complete(
+                    CompletionRequest(system=None, user="Reply with exactly: OK", max_tokens=8)
+                )
+                return f"replied {reply.strip()[:16]!r} via {ref}"
+
+            plans.append(RoleProbe("fallback-model", ref, exercise_fallback))
+        except SempipeError as exc:
+            faults.append(f"  fallback-model: ✗ {_first_line(exc)}")
+
+    if container.config.media_embed_model:
+        ref = container.config.media_embed_model
+        try:
+            media_embed = await container.media_embedding_model()
+            assert media_embed is not None and supports_media_embedding(media_embed)
+
+            async def exercise_media_embed() -> str:
+                vectors = await media_embed.embed_parts(
+                    [ImageData(_asset("probe.png"), "image/png")]
+                )
+                return f"{len(vectors[0])}-dim image vector via {ref}"
+
+            plans.append(RoleProbe("media-embed", ref, exercise_media_embed))
+        except SempipeError as exc:
+            faults.append(f"  media-embed: ✗ {_first_line(exc)}")
+
+    return tuple(plans), tuple(faults)
+
+
+async def exercise_role_probes(probes: tuple[RoleProbe, ...]) -> tuple[tuple[str, ...], int]:
+    lines: list[str] = []
+    for probe in probes:
+        try:
+            detail = await probe.exercise()
+            lines.append(f"  {probe.role}: ✓ {detail}")
+        except SempipeError as exc:
+            lines.append(f"  {probe.role}: ✗ {_first_line(exc)}")
+    return tuple(lines), len(probes)
+
+
 async def run_probe(env: Mapping[str, str]) -> str:
     """Build the matrix against the configured chat + embed models."""
     import os
@@ -55,12 +151,13 @@ async def run_probe(env: Mapping[str, str]) -> str:
         chat = await container.chat_model()
         embed = await container.embedding_model()
         probe_stt = stt_probe_plan(container, chat.ref)
-        calls = 5 if probe_stt.transcriber is None else 6
-        tail = "" if probe_stt.transcriber is None else f" · stt: {probe_stt.transcriber.ref.name}"
-        diagnostics.note(
-            f"probing modalities with {calls} tiny calls "
-            f"(chat: {chat.ref.name} · embed: {embed.ref.name}{tail})"
-        )
+        role_probes, role_faults = await plan_role_probes(container)
+        calls = 5 + int(probe_stt.transcriber is not None) + len(role_probes)
+        names = [f"chat: {chat.ref.name}", f"embed: {embed.ref.name}"]
+        if probe_stt.transcriber is not None:
+            names.append(f"stt: {probe_stt.transcriber.ref.name}")
+        names.extend(f"{probe.role}: {probe.ref}" for probe in role_probes)
+        diagnostics.note(f"probing modalities with {calls} tiny calls ({' · '.join(names)})")
         stt = _stt_path(os.environ, container.config.stt_model, chat.ref.provider)
         chat_image = await _chat_image(chat)
         chat_audio = await _chat_audio(chat, stt)
@@ -80,9 +177,16 @@ async def run_probe(env: Mapping[str, str]) -> str:
             else await exercise_stt(probe_stt.transcriber)
         )
         schema_line = await _exercise_schema(chat)
+        role_lines, _sent = await exercise_role_probes(role_probes)
         _remember_probe(os.environ, str(chat.ref), image=chat_image, audio=chat_audio)
     matrix = render_matrix(rows)
-    lines = (matrix, schema_line, *((stt_line,) if stt_line is not None else ()))
+    lines = (
+        matrix,
+        schema_line,
+        *((stt_line,) if stt_line is not None else ()),
+        *role_faults,
+        *role_lines,
+    )
     return "\n".join(lines)
 
 

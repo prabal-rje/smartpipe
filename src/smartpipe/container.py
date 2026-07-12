@@ -262,6 +262,14 @@ class AppContainer:
         self.caches.append(wrapper)
         return wrapper
 
+    def probe_fallback_model(self) -> ChatModel | None:
+        """Build the configured fallback as a direct probe wire, without waiting
+        for a breaker trip. This is probe-only composition-root wiring."""
+        ref = self.fallback_ref()
+        if ref is None:
+            return None
+        return self._wrap_chat(self._build_chat(ref))
+
     def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
         """The chat failover target (item 11): --fallback-model >
         SMARTPIPE_FALLBACK_MODEL > config, or None when unset. Chat wires only —
