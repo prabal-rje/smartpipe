@@ -226,3 +226,116 @@ def test_text_files_normalize_crlf(tmp_path: Path) -> None:
     crlf.write_bytes(b"line one\r\nline two\r")
     extracted = extract(crlf, FileKind.TEXT)
     assert extracted.text == "line one\nline two\n"
+
+
+# --- the local transcript bank (#22): a hit skips the whisper load -------------------
+
+
+def test_transcript_cache_defaults_to_none() -> None:
+    from smartpipe.parsing.extract import configured_transcript_cache
+
+    assert configured_transcript_cache() is None  # bank unset ⇒ byte-identical behavior
+
+
+def test_transcribe_audio_bank_hit_skips_the_whisper_load(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The headline: a banked transcript returns BEFORE the model load — the
+    poisoned WhisperModel constructor proves the load never happens."""
+    from smartpipe.models.base import AudioData
+    from smartpipe.models.cache import TranscriptBank
+    from smartpipe.parsing import extract as extract_module
+    from smartpipe.parsing.extract import configure_transcript_cache, reset_transcript_cache
+
+    poisoned = types.ModuleType("faster_whisper")
+
+    class WhisperModel:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("a bank hit must never load the whisper model")
+
+    poisoned.WhisperModel = WhisperModel  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "faster_whisper", poisoned)
+    monkeypatch.setattr(extract_module, "_WHISPER_CACHE", {})
+
+    clip = AudioData(data=b"waveform", mime="audio/wav")
+    bank = TranscriptBank(tmp_path)
+    bank.store("tiny", clip, "the banked words")
+    token = configure_transcript_cache(bank)
+    try:
+        assert extract_module.transcribe_audio(clip) == "the banked words"
+    finally:
+        reset_transcript_cache(token)
+    assert (bank.hits, bank.misses) == (1, 1)  # the priming store + the served hit
+
+
+def test_transcribe_audio_miss_banks_the_transcript(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from smartpipe.models.base import AudioData
+    from smartpipe.models.cache import TranscriptBank
+    from smartpipe.parsing import extract as extract_module
+    from smartpipe.parsing.extract import configure_transcript_cache, reset_transcript_cache
+
+    working = types.ModuleType("faster_whisper")
+
+    class Segment:
+        text = "heard live"
+
+    class WhisperModel:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def transcribe(self, _audio: object) -> tuple[list[Segment], object]:
+            return [Segment()], object()
+
+    working.WhisperModel = WhisperModel  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "faster_whisper", working)
+    monkeypatch.setattr(extract_module, "_WHISPER_CACHE", {})
+
+    clip = AudioData(data=b"waveform", mime="audio/wav")
+    bank = TranscriptBank(tmp_path)
+    token = configure_transcript_cache(bank)
+    try:
+        assert extract_module.transcribe_audio(clip) == "heard live"
+        assert (bank.hits, bank.misses) == (0, 1)  # the miss banked the transcript
+        # rerun with the model load POISONED: only the bank can answer now
+        poisoned = types.ModuleType("faster_whisper")
+
+        class Exploding:
+            def __init__(self, *_args: object, **_kwargs: object) -> None:
+                raise AssertionError("the rerun must be served from the bank")
+
+        poisoned.WhisperModel = Exploding  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "faster_whisper", poisoned)
+        monkeypatch.setattr(extract_module, "_WHISPER_CACHE", {})
+        assert extract_module.transcribe_audio(clip) == "heard live"
+        assert (bank.hits, bank.misses) == (1, 1)
+    finally:
+        reset_transcript_cache(token)
+
+
+def test_transcribe_audio_without_a_bank_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """bank=None (the default) ⇒ byte-identical to today: transcribe, return,
+    write nothing anywhere."""
+    from smartpipe.models.base import AudioData
+    from smartpipe.parsing import extract as extract_module
+
+    working = types.ModuleType("faster_whisper")
+
+    class Segment:
+        text = "plain"
+
+    class WhisperModel:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def transcribe(self, _audio: object) -> tuple[list[Segment], object]:
+            return [Segment()], object()
+
+    working.WhisperModel = WhisperModel  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "faster_whisper", working)
+    monkeypatch.setattr(extract_module, "_WHISPER_CACHE", {})
+    assert extract_module.transcribe_audio(AudioData(b"waveform", "audio/wav")) == "plain"
+    assert list(tmp_path.rglob("*.json")) == []  # no bank, no writes

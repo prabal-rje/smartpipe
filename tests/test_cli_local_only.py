@@ -133,6 +133,9 @@ def test_ollama_autodetect_probe_respects_the_fence(monkeypatch: pytest.MonkeyPa
             "SMARTPIPE_LOCAL_ONLY": "1",
             "OLLAMA_HOST": "http://gpu-box:11434",
             "XDG_CONFIG_HOME": "/nonexistent",
+            # never the real result cache: the default-on transcript bank (#22)
+            # would point the exit sweep at the developer's ~/.cache otherwise
+            "SMARTPIPE_CACHE": "off",
         }
         async with build_container(env) as container:
             with pytest.raises(SetupFault, match="OLLAMA_HOST"):

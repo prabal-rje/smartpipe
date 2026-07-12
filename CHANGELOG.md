@@ -46,6 +46,33 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   empties a one-window corpus), and hybrid fires the hint BEFORE its paid
   naming spend so Ctrl-C beats paying to name geometry. Full/adopt modes are
   untouched.
+- **Graph batches its text chunks (C5 #21).** The full-extraction and
+  hybrid-naming workers now ride the run's coalescing posture exactly like
+  map/extend/filter (item 62): eligible TEXT chunks pack onto the shared
+  coalescer (full's 4-property triple schema admits 10 per call, 6 with
+  `--entities`; hybrid's single-property naming schema admits 12), media
+  chunks stay solo behind the wire semaphore, and the schema canary keeps
+  firing solo. One packed flight charges one `--max-calls` unit; stdout is
+  byte-identical batching on or off. The pre-spend plan note says true
+  things while coalescing: it gains `(batching may pack text chunks into
+  fewer wire calls)` and the belt-short tail softens from "the graph will
+  be partial" to "may be partial"; batching off keeps today's strings
+  byte-identical.
+- **Embeddings and transcriptions now cache across runs (C5 #22).** The one
+  result-cache posture, store, sweep, and receipt now cover four more
+  surfaces beside chat completions and OCR pages: text embeddings bank
+  PER TEXT (a rerun's graph fold embeds zero unchanged names; duplicate
+  texts in one call pay once; the on-device key carries the fastembed
+  version so an upgrade re-embeds), joint media embedders keep their
+  `embed_parts` capability marker through the cache (pixels stay uncached
+  v1 pass-throughs), remote STT transcriptions key on
+  provider/model/mime/bytes, and local whisper transcripts bank behind a
+  synchronous ContextVar-installed `TranscriptBank` whose hits skip the
+  whisper model load entirely. Cache layers stay OUTERMOST — a hit never
+  charges the belt, takes admission, or counts as a call — and the free
+  graph fold stays off-belt AND banked. A cache-write failure never sinks
+  a computed batch. NER is deliberately not cached (fast local inference;
+  banking spans would flood the LRU for zero wire savings).
 - **`SMARTPIPE_FIGURE_CAP` resizes the per-document figure ceiling (C6 #35).**
   The D32 default of 8 embedded figures per document item is now an env knob:
   whole numbers ≥ 1 set the cap; unset/blank keeps 8; anything else — `"0"`

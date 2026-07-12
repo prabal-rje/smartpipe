@@ -17,6 +17,7 @@ from smartpipe.models.ocr import OcrPage
 from tests.helpers.pdf import minimal_pdf
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
 REF = ModelRef("openai", "gpt-5.4-mini")
@@ -343,3 +344,276 @@ async def test_a_cache_write_failure_never_sinks_a_paid_conversion(
     assert (cached.hits, cached.misses) == (0, 1)
     await cached.parse_pdf(pdf)  # nothing banked → the rerun re-parses, no false hit
     assert inner.pdf_calls == 2
+
+
+# --- embedding cache (#22): per-TEXT keys, recomposition, exact floats --------------
+
+EMBED_REF = ModelRef("openai", "text-embedding-3-small")
+
+
+def _gnarly(seed: int) -> tuple[float, ...]:
+    """Repr-shortest stress floats: the round-trip must be EXACT, no tolerance."""
+    return (0.1 + seed, 1 / 3, 1e-300, 6.02214076e23, -0.0)
+
+
+class CountingEmbedder:
+    """Deterministic per-text vectors; records every wire batch."""
+
+    def __init__(self, ref: ModelRef = EMBED_REF) -> None:
+        self._ref = ref
+        self.batches: list[list[str]] = []
+
+    @property
+    def ref(self) -> ModelRef:
+        return self._ref
+
+    async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+        self.batches.append(list(texts))
+        return tuple(_gnarly(len(text)) for text in texts)
+
+
+def test_embed_key_is_stable_and_sensitive() -> None:
+    from smartpipe.models.cache import embed_cache_key
+
+    base = embed_cache_key(EMBED_REF, "hello")
+    assert base == embed_cache_key(EMBED_REF, "hello")  # stable
+    assert base != embed_cache_key(ModelRef("openai", "other"), "hello")  # model flips it
+    assert base != embed_cache_key(ModelRef("ollama", "text-embedding-3-small"), "hello")
+    assert base != embed_cache_key(EMBED_REF, "other text")  # the text itself
+
+
+def test_embed_key_local_provider_rides_the_fastembed_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fastembed upgrade can change the local vectors — banked entries must
+    not survive it. Non-local providers never consult the version."""
+    import importlib.metadata
+
+    from smartpipe.models.cache import embed_cache_key, fastembed_version
+
+    local = ModelRef("local", "nomic-embed-text-v1.5")
+
+    def _version_one(_name: str) -> str:
+        return "1.0.0"
+
+    def _version_two(_name: str) -> str:
+        return "2.0.0"
+
+    monkeypatch.setattr(importlib.metadata, "version", _version_one)
+    fastembed_version.cache_clear()
+    first = embed_cache_key(local, "hello")
+    remote_first = embed_cache_key(EMBED_REF, "hello")
+    monkeypatch.setattr(importlib.metadata, "version", _version_two)
+    fastembed_version.cache_clear()
+    assert embed_cache_key(local, "hello") != first  # the version flips local keys
+    assert embed_cache_key(EMBED_REF, "hello") == remote_first  # remote keys ignore it
+    fastembed_version.cache_clear()  # drop the fake from the memo
+
+
+async def test_embed_partial_hit_recomposes_input_order(tmp_path: Path) -> None:
+    from smartpipe.models.cache import CachingEmbeddingModel
+
+    primer = CountingEmbedder()
+    await CachingEmbeddingModel(primer, tmp_path).embed(["A9", "C4321"])  # bank two texts
+
+    inner = CountingEmbedder()
+    cached = CachingEmbeddingModel(inner, tmp_path)
+    vectors = await cached.embed(["A9", "B88", "C4321", "D666666"])
+    assert inner.batches == [["B88", "D666666"]]  # the wire saw EXACTLY the misses, in order
+    assert vectors == (_gnarly(2), _gnarly(3), _gnarly(5), _gnarly(7))  # input order restored
+    assert (cached.hits, cached.misses) == (2, 2)  # hits + misses == len(texts)
+
+
+async def test_embed_duplicates_in_one_call_pay_once(tmp_path: Path) -> None:
+    """The strict-zip guard: a naive miss LIST would double-pay the duplicate
+    (or crash the strict zip); the first-occurrence dict pays once."""
+    from smartpipe.models.cache import CachingEmbeddingModel
+
+    inner = CountingEmbedder()
+    cached = CachingEmbeddingModel(inner, tmp_path)
+    vectors = await cached.embed(["dup", "dup", "solo1"])
+    assert inner.batches == [["dup", "solo1"]]  # deduped BEFORE the wire
+    assert vectors[0] == vectors[1] == _gnarly(3)
+    assert (cached.hits, cached.misses) == (0, 3)  # both dup rows count as misses
+
+
+async def test_embed_zero_misses_never_wakes_the_inner_model(tmp_path: Path) -> None:
+    from smartpipe.models.cache import CachingEmbeddingModel
+
+    primer = CountingEmbedder()
+    await CachingEmbeddingModel(primer, tmp_path).embed(["A9", "B88"])
+    inner = CountingEmbedder()
+    cached = CachingEmbeddingModel(inner, tmp_path)
+    vectors = await cached.embed(["A9", "B88"])
+    assert inner.batches == []  # zero misses: the inner model was NEVER called
+    assert vectors == (_gnarly(2), _gnarly(3))
+    assert (cached.hits, cached.misses) == (2, 0)
+
+
+async def test_embed_float_round_trip_is_exact(tmp_path: Path) -> None:
+    """JSON floats serialize repr-shortest, so the banked vector reloads EXACTLY
+    equal — the tests assert equality, never tolerance."""
+    from smartpipe.models.cache import CachingEmbeddingModel
+
+    await CachingEmbeddingModel(CountingEmbedder(), tmp_path).embed(["A9"])
+    reloaded = await CachingEmbeddingModel(CountingEmbedder(), tmp_path).embed(["A9"])
+    assert reloaded == (_gnarly(2),)
+
+
+async def test_embed_cache_write_failure_never_sinks_a_computed_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """e683b84 posture: the vectors are already computed (and, on a paid wire,
+    already PAID for) when banking fails — the batch must come back whole."""
+    import smartpipe.models.cache as cache_mod
+    from smartpipe.models.cache import CachingEmbeddingModel
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(cache_mod.os, "replace", _boom)
+    inner = CountingEmbedder()
+    cached = CachingEmbeddingModel(inner, tmp_path)
+    assert await cached.embed(["A9", "B88"]) == (_gnarly(2), _gnarly(3))
+    assert (cached.hits, cached.misses) == (0, 2)
+    monkeypatch.undo()
+    rerun = CountingEmbedder()
+    await CachingEmbeddingModel(rerun, tmp_path).embed(["A9"])
+    assert rerun.batches == [["A9"]]  # nothing was banked — no false hit
+
+
+class JointEmbedder:
+    """A media-capable fake: embed_parts is the only wire (like the admitted
+    media wrapper, whose embed() routes through embed_parts)."""
+
+    def __init__(self) -> None:
+        self._ref = ModelRef("jina", "jina-clip-v2")
+        self.part_batches: list[list[object]] = []
+
+    @property
+    def ref(self) -> ModelRef:
+        return self._ref
+
+    async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+        return await self.embed_parts(list(texts))
+
+    async def embed_parts(self, parts: Sequence[str | ImageData]) -> tuple[tuple[float, ...], ...]:
+        self.part_batches.append(list(parts))
+        return tuple(_gnarly(len(part) if isinstance(part, str) else 1) for part in parts)
+
+
+async def test_cached_embed_preserves_the_media_capability_marker(tmp_path: Path) -> None:
+    """verbs/common.native_route probes supports_media_embedding on the WRAPPED
+    model — a cache layer that strips embed_parts would silently regress every
+    image-native corpus to the caption pivot."""
+    from smartpipe.models.base import supports_media_embedding
+    from smartpipe.models.cache import (
+        CachingEmbeddingModel,
+        CachingMediaEmbeddingModel,
+        cached_embed,
+    )
+
+    joint = cached_embed(JointEmbedder(), tmp_path)
+    assert isinstance(joint, CachingMediaEmbeddingModel)
+    assert supports_media_embedding(joint)
+    plain = cached_embed(CountingEmbedder(), tmp_path)
+    assert isinstance(plain, CachingEmbeddingModel)
+    assert not supports_media_embedding(plain)
+
+
+async def test_media_embed_parts_pass_through_uncached(tmp_path: Path) -> None:
+    from smartpipe.models.cache import CachingMediaEmbeddingModel
+
+    inner = JointEmbedder()
+    cached = CachingMediaEmbeddingModel(inner, tmp_path)
+    image = ImageData(b"px", "image/png")
+    first = await cached.embed_parts([image])
+    second = await cached.embed_parts([image])  # v1: pixels re-embed every run
+    assert first == second
+    assert len(inner.part_batches) == 2  # no banking on the parts path
+    assert (cached.hits, cached.misses) == (0, 0)  # and no counter noise
+    assert list(tmp_path.rglob("*.json")) == []  # nothing written
+
+
+async def test_media_embed_texts_bank_per_text_through_embed_parts(tmp_path: Path) -> None:
+    from smartpipe.models.cache import CachingMediaEmbeddingModel
+
+    inner = JointEmbedder()
+    cached = CachingMediaEmbeddingModel(inner, tmp_path)
+    await cached.embed(["A9", "B88"])
+    again = CachingMediaEmbeddingModel(inner, tmp_path)
+    vectors = await again.embed(["A9", "B88"])
+    assert vectors == (_gnarly(2), _gnarly(3))
+    assert len(inner.part_batches) == 1  # the rerun was served from the bank
+    assert (again.hits, again.misses) == (2, 0)
+
+
+# --- STT caches (#22): the remote wire and the local whisper bank -------------------
+
+
+def test_stt_key_is_stable_and_sensitive() -> None:
+    from smartpipe.models.cache import stt_cache_key
+
+    base = stt_cache_key("openai", "whisper-1", "audio/wav", b"bytes")
+    assert base == stt_cache_key("openai", "whisper-1", "audio/wav", b"bytes")  # stable
+    assert base != stt_cache_key("openai", "gpt-4o-transcribe", "audio/wav", b"bytes")
+    assert base != stt_cache_key("local", "whisper-1", "audio/wav", b"bytes")
+    assert base != stt_cache_key("openai", "whisper-1", "audio/mpeg", b"bytes")  # the mime
+    assert base != stt_cache_key("openai", "whisper-1", "audio/wav", b"other")  # the bytes
+    assert base != stt_cache_key("openai", "whisper-1", "audio/wav", b"bytes", compute="int8")
+
+
+class CountingTranscriber:
+    def __init__(self) -> None:
+        self._ref = ModelRef("openai", "whisper-1")
+        self.calls = 0
+
+    @property
+    def ref(self) -> ModelRef:
+        return self._ref
+
+    async def transcribe(self, audio: object) -> str:
+        del audio
+        self.calls += 1
+        return f"transcript-{self.calls}"
+
+
+async def test_transcriber_hit_serves_the_banked_text(tmp_path: Path) -> None:
+    from smartpipe.models.base import AudioData
+    from smartpipe.models.cache import CachingTranscriber
+
+    inner = CountingTranscriber()
+    cached = CachingTranscriber(inner, tmp_path)
+    clip = AudioData(b"waveform", "audio/wav")
+    first = await cached.transcribe(clip)
+    second = await cached.transcribe(clip)
+    assert (first, second) == ("transcript-1", "transcript-1")  # verbatim
+    assert inner.calls == 1  # the wire was paid exactly once
+    assert (cached.hits, cached.misses) == (1, 1)
+    # a different mime over the same bytes is a different conversion — a MISS
+    await cached.transcribe(AudioData(b"waveform", "audio/mpeg"))
+    assert inner.calls == 2
+
+
+async def test_transcriber_ref_passes_through(tmp_path: Path) -> None:
+    from smartpipe.models.cache import CachingTranscriber
+
+    cached = CachingTranscriber(CountingTranscriber(), tmp_path)
+    assert str(cached.ref) == "openai/whisper-1"  # disclosure reads the wire's identity
+
+
+# --- the local whisper TranscriptBank (#22): sync, thread-counted -------------------
+
+
+def test_transcript_bank_round_trip_and_counters(tmp_path: Path) -> None:
+    from smartpipe.models.base import AudioData
+    from smartpipe.models.cache import TranscriptBank
+
+    bank = TranscriptBank(tmp_path)
+    clip = AudioData(b"waveform", "audio/wav")
+    assert bank.lookup("tiny", clip) is None  # cold: a miss is None, no crash
+    bank.store("tiny", clip, "the spoken words")
+    assert bank.lookup("tiny", clip) == "the spoken words"
+    assert bank.lookup("small", clip) is None  # the whisper size flips the key
+    assert bank.lookup("tiny", AudioData(b"other", "audio/wav")) is None  # the bytes too
+    assert (bank.hits, bank.misses) == (1, 1)  # one banked store, one served hit
