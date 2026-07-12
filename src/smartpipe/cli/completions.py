@@ -29,16 +29,6 @@ __all__ = [
 
 _PROBE_TIMEOUT_SECONDS = 0.15  # a <TAB> must feel instant; a slow probe is a missing probe
 
-# The stt-model menu (#20): the wizard's rows (local + the dedicated openai
-# wire) plus the transcribe models that ride the same endpoint. Full refs only —
-# a bare "whisper-1" would parse as an ollama model. No probe: ollama has no STT.
-_CURATED_STT = (
-    "local",
-    "openai/whisper-1",
-    "openai/gpt-4o-transcribe",
-    "openai/gpt-4o-mini-transcribe",
-)
-
 
 def suggest_models(incomplete: str, env: Mapping[str, str], *, embed: bool) -> tuple[str, ...]:
     """Configured model first, then ``ollama/<name>`` per installed model.
@@ -69,13 +59,19 @@ def _configured(env: Mapping[str, str], *, embed: bool) -> tuple[str, ...]:
 
 
 def suggest_stt_models(incomplete: str, env: Mapping[str, str]) -> tuple[str, ...]:
-    """Configured stt-model first, then the curated wires — never a probe
-    (ollama has no STT) and never a crash, same contract as ``suggest_models``."""
+    """Configured stt-model first, then the curated wires in the wizard
+    stage's own order (local, then the openai wires best-first — ONE source
+    of truth: ``STT_STAGE_MODELS``) — never a probe (ollama has no STT) and
+    never a crash, same contract as ``suggest_models``. Full refs only: a
+    bare "whisper-1" would parse as an ollama model."""
+    from smartpipe.config.picker import STT_STAGE_MODELS
+
     try:
         configured = _configured_stt(env)
     except Exception:  # a broken config file must not break <TAB>
         configured = ()
-    merged = dict.fromkeys(configured + _CURATED_STT)  # dedupe, configured first
+    curated = ("local", *(ref for ref, _hint in STT_STAGE_MODELS))
+    merged = dict.fromkeys(configured + curated)  # dedupe, configured first
     return tuple(name for name in merged if name.startswith(incomplete))
 
 

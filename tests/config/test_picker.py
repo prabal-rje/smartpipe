@@ -562,9 +562,32 @@ def test_stt_rows_unset_lead_with_the_auto_skip() -> None:
     assert rows[0][0] == "keep"  # Enter never changes anything (the OCR pin)
     assert rows[0][1].startswith("skip - auto")
     actions = [action for action, _label in rows]
-    assert actions == ["keep", "sep", "local", "remote", "sep", "typed"]
+    # owner ruling 2026-07-12: local second, then the openai wires best-first,
+    # each ("pick"-style) row's ACTION carrying its full ref through one key door
+    assert actions == [
+        "keep",
+        "sep",
+        "local",
+        "openai/gpt-4o-transcribe",
+        "openai/gpt-4o-mini-transcribe",
+        "openai/whisper-1",
+        "sep",
+        "typed",
+    ]
     assert any("on-device" in label for _a, label in rows)
-    assert any("openai/whisper-1" in label for _a, label in rows)
+
+
+def test_stt_rows_carry_honest_suffixes_and_lead_with_their_ref() -> None:
+    from smartpipe.config.picker import stt_stage_rows
+
+    labels = dict(stt_stage_rows(None))
+    assert labels["openai/gpt-4o-transcribe"].startswith(
+        "openai/gpt-4o-transcribe - best transcription quality"
+    )
+    assert labels["openai/gpt-4o-mini-transcribe"].startswith(
+        "openai/gpt-4o-mini-transcribe - cheaper"
+    )
+    assert labels["openai/whisper-1"].startswith("openai/whisper-1 - the verbatim classic")
 
 
 def test_stt_rows_set_offer_keep_and_unset() -> None:
@@ -573,5 +596,15 @@ def test_stt_rows_set_offer_keep_and_unset() -> None:
     rows = stt_stage_rows("local")
     assert rows[0] == ("keep", "keep current: local")
     actions = [action for action, _label in rows]
-    assert actions == ["keep", "sep", "local", "remote", "sep", "typed", "unset"]
+    assert actions == [
+        "keep",
+        "sep",
+        "local",
+        "openai/gpt-4o-transcribe",
+        "openai/gpt-4o-mini-transcribe",
+        "openai/whisper-1",
+        "sep",
+        "typed",
+        "unset",
+    ]
     assert rows[-1][1].startswith("unset - back to auto")

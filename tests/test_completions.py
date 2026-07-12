@@ -153,6 +153,19 @@ def test_stt_suggestions_read_the_config_file(tmp_path: Path) -> None:
     assert suggest_stt_models("", _env(tmp_path))[0] == "openai/gpt-4o-transcribe"
 
 
+def test_stt_suggestions_curated_order_matches_the_stage(tmp_path: Path) -> None:
+    """Nothing configured: the curated order mirrors the wizard's stt stage —
+    local, then the openai wires best-quality-first (owner ruling 2026-07-12)."""
+    from smartpipe.cli.completions import suggest_stt_models
+
+    assert suggest_stt_models("", _env(tmp_path)) == (
+        "local",
+        "openai/gpt-4o-transcribe",
+        "openai/gpt-4o-mini-transcribe",
+        "openai/whisper-1",
+    )
+
+
 def test_stt_suggestions_filter_on_the_typed_prefix(tmp_path: Path) -> None:
     from smartpipe.cli.completions import suggest_stt_models
 

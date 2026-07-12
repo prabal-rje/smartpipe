@@ -147,7 +147,10 @@ def numbered_choose(
     """The typed fallback: a numbered list on the wizard's own prompts. Accepts
     a number, an exact label, or a label's first word; two strikes, then None.
     Separators print as blank lines and take no number — the numbering stays
-    contiguous over the selectable rows, so typed digits survive regrouping."""
+    contiguous over the selectable rows, so typed digits survive regrouping.
+    One blank line BEFORE the title (owner ruling 2026-07-12) — menus read as
+    paragraphs instead of crashing into whatever printed above them."""
+    say("")
     say(title)
     say("")
     shown = 0
@@ -192,9 +195,11 @@ def arrow_choose(
     *,
     start: int = 0,
 ) -> int | None:  # pragma: no cover — raw terminal I/O; decisions are tested above
-    """Drive the menu with real arrow keys. Returns the index, or None on q/Esc."""
+    """Drive the menu with real arrow keys. Returns the index, or None on q/Esc.
+    One blank line BEFORE the title (owner ruling 2026-07-12), mirroring the
+    numbered fallback — menus read as paragraphs in both modes."""
     index = first_selectable(labels, start)
-    stream.write(f"{title}\n\n")
+    stream.write(f"\n{title}\n\n")
     stream.write("\x1b[?25l")  # hide the cursor while the menu owns the rows
     try:
         stream.write(render_menu(labels, index))
