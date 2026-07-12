@@ -6,6 +6,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **`graph` honors the stt-model role in the scanning modes (C4 #20).**
+  `--fast` and `--name-top` now transcribe audio and video tracks through the
+  resolved `stt-model` — `--stt-model` (new flag, shell-completed) >
+  `SMARTPIPE_STT_MODEL` > config, where configuring or flagging the role IS
+  the consent (the `ocr-model` rule). The resolve doubles as a preflight: a
+  missing key, an unsupported wire, or a `--local-only` fence hit faults at
+  SETUP (2) before a byte is read. A paid wire is disclosed once per run
+  (`transcribing audio via openai/whisper-1 (paid transcription)`) on top of
+  the per-row conversion notes; `stt-model = "local"` rides the same seam
+  free and quiet. Bare `--fast` stays byte-identical, local, and free — no
+  chat ref is consulted, so an ambient OpenAI key changes nothing. The flag
+  refuses outside the scanning modes (`--stt-model rides the scanning modes —
+  pair it with --fast or --name-top`); full mode's native ladder is a
+  ledgered follow-up. The `--fast` receipt's cost segment now reads the live
+  meter (still `0 tok` when nothing metered) so a paid transcription shows up
+  in it.
 - **You can always see it working (C2 #19/#32/#36/#37).** Four visibility fixes
   with one pinned rule behind them — every phase that can hold the terminal for
   more than ~2 seconds owns a visible element, painted immediately:
@@ -100,6 +116,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   concern).
 
 ### Fixed
+- **`doctor --probe` exercises the resolved STT path (C4).** The probe used to
+  render a resolved display string as health — an invalid key, an unsupported
+  wire, or missing whisper wheels all charted fine. A remote resolution now
+  sends one tiny disclosed transcription through the real container wire
+  (announced: `probing modalities with 5 tiny calls (… · stt: whisper-1)`) and
+  reports the exercised truth under the matrix (`stt: ✓ transcribed via
+  openai/whisper-1`, or `stt: ✗` with the wire's own first error line). A
+  `local` resolution is verified but never run (no model download inside
+  doctor): `stt: – local whisper ready (not exercised)`; nothing resolved
+  keeps today's 4-call announcement and adds no line.
 - **A cut `graph` fold no longer discards paid work (#30).** `fold_vectors` now
   keeps every vector already embedded when the fold is cut — by a drained
   Ctrl-C (polled per batch, on the synchronous predicate only), by the
