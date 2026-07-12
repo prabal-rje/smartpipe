@@ -91,6 +91,16 @@ def _coalescer(
     )
 
 
+async def test_cloud_model_with_large_measured_gap_withholds_packing() -> None:
+    inner = PackedFake()
+    inner.ref = ModelRef("ollama", "glm-5.2:cloud")
+    model = _coalescer(inner, size=4)
+    replies = await asyncio.gather(*(model.complete(_request(f"row{n}")) for n in range(4)))
+    assert len(inner.calls) == 4
+    assert all(json.loads(reply)["vendor"].startswith("solo:") for reply in replies)
+    assert model.packed_calls == 0
+
+
 async def test_k_reached_flies_one_packed_call() -> None:
     inner = PackedFake()
     model = _coalescer(inner, size=4)
@@ -649,3 +659,30 @@ async def test_outbound_policy_resets_on_a_nontransport_response_and_keys_by_ref
 def test_ref_mirrors_the_inner_wire() -> None:
     model = _coalescer(PackedFake())
     assert str(model.ref) == "ollama/fake"
+
+
+def test_measured_gap_withholds_packing_only_above_twenty_points() -> None:
+    from smartpipe.models.coalesce import packing_withheld
+
+    assert packing_withheld(solo_success=100, packed_success=0)
+    assert packing_withheld(solo_success=71, packed_success=50)
+    assert not packing_withheld(solo_success=70, packed_success=50)
+    assert not packing_withheld(solo_success=40, packed_success=60)
+
+
+async def test_only_measured_model_withholds_packing_and_unknown_cloud_retains_it() -> None:
+    unknown = PackedFake()
+    unknown.ref = ModelRef("ollama", "ministral-3:14b-cloud")
+    unknown_model = _coalescer(unknown, size=2)
+    await asyncio.gather(
+        unknown_model.complete(_request("a")), unknown_model.complete(_request("b"))
+    )
+    assert len(unknown.calls) == 1
+    assert unknown_model.packed_calls == 1
+
+    local = PackedFake()
+    local.ref = ModelRef("ollama", "qwen3:0.6b")
+    local_model = _coalescer(local, size=2)
+    await asyncio.gather(local_model.complete(_request("a")), local_model.complete(_request("b")))
+    assert len(local.calls) == 1
+    assert local_model.packed_calls == 1
