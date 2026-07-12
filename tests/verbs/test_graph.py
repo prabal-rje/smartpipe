@@ -745,6 +745,18 @@ async def test_fold_vectors_stays_quiet_for_a_local_embedder(
     assert "paid embeddings" not in capsys.readouterr().err
 
 
+async def test_fold_vectors_stays_quiet_for_a_loopback_ollama_embedder(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Ollama is free (loopback or self-hosted), like the codebase treats it
+    everywhere else (convert.py, fence.py). On Python 3.14+ (no fastembed
+    wheels) the free DEFAULT fold resolves to ``ollama/nomic-embed-text`` — it
+    must NOT be mislabeled 'paid embeddings' on a bare ``--fast`` run."""
+    context = _FoldOnlyContext(_RefEmbedder("ollama/nomic-embed-text"))
+    await fold_vectors(context, ["Alice", "Bob"])
+    assert "paid embeddings" not in capsys.readouterr().err
+
+
 async def test_fold_vectors_threads_the_embed_flag_to_the_context() -> None:
     context = _FoldOnlyContext(_RefEmbedder("local/nomic-embed-text-v1.5"))
     await fold_vectors(context, ["Alice", "Bob"], embed_flag="openai/text-embedding-3-large")

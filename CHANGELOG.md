@@ -21,7 +21,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   always-local behavior). Because a configured cloud embedder then spends even on
   the "free" `--fast` path, `fold_vectors` emits a one-line stderr disclosure
   (`folding N entity names via <ref> (paid embeddings)`) whenever the resolved
-  fold embedder is not local.
+  fold embedder is a paid cloud wire — the on-device local model and free
+  loopback/self-hosted ollama stay quiet.
 - **The chat wire's breaker, concurrency gate, and failover are now composed as
   decorators at the composition root.** A new `models/resilience.py` provides
   native-Python resilience combinators (`retried`, `circuit_broken`,

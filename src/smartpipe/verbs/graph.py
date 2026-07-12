@@ -547,7 +547,9 @@ async def fold_vectors(
     if len(names) < 2:
         return {}
     embedder = await context.fold_embedder(embed_flag)
-    if embedder.ref.provider != "local":  # the local wire self-notes; only paid wires disclose here
+    # local is on-device and ollama is free loopback/self-hosted (as convert.py and
+    # fence.py already treat it) — neither spends, so only a paid cloud wire discloses.
+    if embedder.ref.provider not in ("local", "ollama"):
         diagnostics.note(
             f"folding {len(names):,} entity names via {embedder.ref} (paid embeddings)"
         )
