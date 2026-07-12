@@ -36,7 +36,7 @@ from smartpipe.parsing.detect import FileKind, detect_kind, route
 from smartpipe.parsing.extract import MissingExtra, extract
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+    from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
     from typing import Literal, TextIO
 
     from smartpipe.io.inputs import InputSpec
@@ -50,6 +50,7 @@ __all__ = [
     "OcrDecision",
     "OcrIngest",
     "ensure_not_a_tty",
+    "figure_cap",
     "figure_note",
     "file_items",
     "from_files_items",
@@ -1287,6 +1288,10 @@ async def read_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
     """Load a finite right/build side without ever decoding binary as text."""
     if str(path) == "-":
         raise UsageFault("--right - reads nothing — stdin is already the left side")
+    # The DOOR validates the figure knob (#35) — every branch, at entry — but AFTER
+    # the `-` grammar refusal: grammar outranks wiring/config faults (C1 precedence),
+    # and `--right -` reads nothing for a census to govern.
+    census = FigureCensus()
     from smartpipe.io import manifest
 
     manifest.guard_manifest_alias(path, role="--right input")
@@ -1310,8 +1315,8 @@ async def read_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
             return parsed
 
     if route(kind) != "text":
-        # one right-side file never floods; a fresh census announces it verbatim
-        loaded = _load_file(path, 0, set(), FigureCensus())
+        # one right-side file never floods; the door's census announces it verbatim
+        loaded = _load_file(path, 0, set(), census)
         return [] if loaded is None else [loaded]
 
     try:
@@ -1407,15 +1412,47 @@ _FIGURE_NOTE_CAP = 5  # per-file figure notes shown verbatim before the rollup (
 _THIN_TEXT = 64  # under this many chars, a figure-bearing document reads as a scan
 
 
+def figure_cap(env: Mapping[str, str]) -> int:
+    """The figure ceiling with its env knob (#35): ``SMARTPIPE_FIGURE_CAP``
+    resizes ``_FIGURE_CAP``'s per-document request-size default (D32). Unset
+    or blank keeps the default 8; a whole number ≥ 1 is the new cap; anything
+    else refuses at SETUP before the first item (the SMARTPIPE_NER_PRECISION
+    posture). "0" is refused ON PURPOSE — attach-nothing is a cost off-switch,
+    a different feature than sizing the attachment budget. Validated once per
+    reader door (``FigureCensus`` construction reads it), never memoized at
+    the module, so tests drive it through the environment."""
+    raw = env.get("SMARTPIPE_FIGURE_CAP", "").strip()
+    if not raw:
+        return _FIGURE_CAP
+    # isdecimal, not isdigit: "²".isdigit() is True but int("²") raises. And
+    # isdecimal alone is not enough either — a decimal past CPython's ~4300-digit
+    # integer-string conversion limit still makes int() raise. Either way the
+    # knob must refuse loudly as ITSELF, never crash as an internal BUG.
+    try:
+        value = int(raw) if raw.isdecimal() else 0
+    except ValueError:
+        value = 0  # definitionally not a whole number >= 1 we accept
+    if value >= 1:
+        return value
+    raise SetupFault(f"SMARTPIPE_FIGURE_CAP must be a whole number >= 1, got {raw!r}")
+
+
 class FigureCensus:
     """Per-run ledger for the embedded-figure notes (B4). The first
     ``_FIGURE_NOTE_CAP`` figure-bearing files announce verbatim (so a small run is
     byte-identical to before), then one suppression line, then ``finish`` rolls
     the rest into a single tally — a 200-file corpus stops printing 200
     near-identical ``note:`` lines. Mirrors ``DegradationLog``'s first-N-then-
-    rollup shape; the aggregate wording differs because figures tally files."""
+    rollup shape; the aggregate wording differs because figures tally files.
+
+    Construction also VALIDATES the figure-cap knob (#35): every file-reading
+    door builds its census before the first item, so a garbage
+    ``SMARTPIPE_FIGURE_CAP`` refuses up front even for corpora whose kinds
+    never reach ``_document_figures`` (audio/video early returns, row cuts,
+    failed extracts, standalone vision images)."""
 
     def __init__(self) -> None:
+        self.cap = figure_cap(os.environ)  # door-level: a garbage knob faults before item one
         self.files = 0
         self.figures = 0
         self.capped = 0
@@ -1432,7 +1469,7 @@ class FigureCensus:
     def finish(self) -> None:
         if self.files <= _FIGURE_NOTE_CAP:
             return  # a small run already announced each file verbatim — nothing to roll up
-        tail = f" ({self.capped:,} capped)" if self.capped else ""
+        tail = f" ({self.capped:,} capped — SMARTPIPE_FIGURE_CAP raises it)" if self.capped else ""
         diagnostics.note(f"figures attached: {self.files:,} files · {self.figures:,} figures{tail}")
 
 
@@ -1455,7 +1492,7 @@ def _document_figures(
     total = len(media.images)
     if total == 0:
         return ()
-    kept = media.images[:_FIGURE_CAP]
+    kept = media.images[: census.cap]  # the cap was validated at the door (census __init__)
     capped = total - len(kept)
     census.record(
         figure_note(path.name, len(text.strip()), len(kept), capped),

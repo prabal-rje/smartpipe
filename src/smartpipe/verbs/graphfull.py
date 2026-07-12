@@ -58,6 +58,7 @@ from smartpipe.verbs.graph import (
     GraphRequest,
     fold_cut_flips_partial,
     fold_vectors,
+    note_dense_graph,
     note_folds,
     parse_entities,
     parse_relations,
@@ -617,6 +618,7 @@ async def run_hybrid(
     if scan is None:
         return outcome_exit_code(done=0, skipped=0, failed=0)
     kept, _ = prune_edges(scan.edges, request.min_weight)
+    note_dense_graph(len(scan.nodes), len(kept))  # #34: BEFORE the paid naming spend
     want = min(request.name_top, len(kept))
     candidates = kept[:want]  # already sorted heaviest first — the N strongest
 

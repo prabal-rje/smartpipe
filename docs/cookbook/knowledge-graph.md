@@ -45,6 +45,13 @@ note: graph: 78 entities (14 folded) · 969 edges (0 pruned) · 0 tok
 interactive view - search, a live weight filter, and a provenance card on
 every hovered edge.
 
+> **One long recording?** A corpus that is effectively one window (a single
+> long MP3, one big document read whole) makes everything co-occur with
+> everything - the run flags it (`near-complete graph …`), and `--window
+> sentence` plus `--min-weight 2`, in that order, restore signal. The
+> [`graph` page](../verbs/graph.md) explains why min-weight alone is not
+> enough there.
+
 ## Name the entity types your corpus is about
 
 The default types are `person, organization, location`. Retargeting the same

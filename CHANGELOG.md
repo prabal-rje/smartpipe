@@ -5,32 +5,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
-### Fixed
-- **A cut `graph` fold no longer discards paid work (#30).** `fold_vectors` now
-  keeps every vector already embedded when the fold is cut — by a drained
-  Ctrl-C (polled per batch, on the synchronous predicate only), by the
-  `--max-calls` belt, or by a wire fault mid-run (including a runtime
-  `SetupFault`: the wire dying mid-fold degrades to a partial fold instead of
-  killing a fully-paid run). Already-embedded names still fold; the rest keep
-  their spelling; the graph is always written. New stderr wordings:
-  `entity folding interrupted — N of M names embedded; the rest keep their
-  spelling` (note) and `entity folding stopped early (…) — N of M names
-  embedded; the rest keep their spelling` (warn); the nothing-embedded
-  `entity folding skipped (…)` line is unchanged. The verb-level
-  `fold_assertions` calls also run ungated now, so a latched Ctrl-C can no
-  longer zero the salvage write (the owner's 28-minute, 0-byte loss).
-- **`graph` preflights the fold embedder before any spend (#27).** A broken
-  embed config (missing key, chat-model-as-embedder) now faults at exit 2 at
-  dispatch time, in every mode, before any read, NER grind, schema canary, or
-  paid extraction — previously a small corpus could exit 0 on a config any
-  real run would fault on, and a big run discovered it only after paying. The
-  bare-terminal three-forms refusal still outranks the preflight (exit 64).
-- **A belt-cut `graph` fold flips the run to PARTIAL, never 0 (#29 ruling).**
-  The paid fold stays metered against `--max-calls`; when the belt cuts it,
-  all four modes exit 1 with the salvaged graph on stdout, and the belt stop
-  never wears the `done: interrupted` drain summary (that line is reserved for
-  a real Ctrl-C). Free local/ollama folds stay off-belt and cannot flip the
-  exit.
+### Added
+- **A density hint when the graph is window math, not signal (C6 #34).** The
+  scanning modes (`--fast` and `--name-top` hybrid) now notice a near-complete
+  graph — at least 20 folded nodes with the kept edges ≥ 0.8 of the C(n,2)
+  possible — and say so once on stderr: `near-complete graph (N of M possible
+  edges) — everything co-occurs with everything; --window sentence tightens it,
+  then --min-weight 2 keeps recurring pairs`. The thresholds are structural
+  (one long MP3 read as one chunk window makes a complete graph by
+  construction), the guidance is ordered deliberately (`--min-weight 2` alone
+  empties a one-window corpus), and hybrid fires the hint BEFORE its paid
+  naming spend so Ctrl-C beats paying to name geometry. Full/adopt modes are
+  untouched.
+- **`SMARTPIPE_FIGURE_CAP` resizes the per-document figure ceiling (C6 #35).**
+  The D32 default of 8 embedded figures per document item is now an env knob:
+  whole numbers ≥ 1 set the cap; unset/blank keeps 8; anything else — `"0"`
+  included, on purpose: attach-nothing is a cost off-switch, a different
+  feature — refuses at SETUP (exit 2) before the first item is read, on every
+  file kind: the knob is validated where each file-reading door constructs its
+  figure census, so even an audio-only or csv-only corpus faults up front (a
+  pure-stdin run never consults the knob — stdin items never attach embedded
+  figures). The figure census rollup now names the knob when anything was
+  capped (`(100 capped — SMARTPIPE_FIGURE_CAP raises it)`); the per-file note
+  is unchanged.
 
 ### Changed
 - **Result caching now ships ON by default (owner directive: always cache).** The
@@ -74,6 +71,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   concern).
 
 ### Fixed
+- **A cut `graph` fold no longer discards paid work (#30).** `fold_vectors` now
+  keeps every vector already embedded when the fold is cut — by a drained
+  Ctrl-C (polled per batch, on the synchronous predicate only), by the
+  `--max-calls` belt, or by a wire fault mid-run (including a runtime
+  `SetupFault`: the wire dying mid-fold degrades to a partial fold instead of
+  killing a fully-paid run). Already-embedded names still fold; the rest keep
+  their spelling; the graph is always written. New stderr wordings:
+  `entity folding interrupted — N of M names embedded; the rest keep their
+  spelling` (note) and `entity folding stopped early (…) — N of M names
+  embedded; the rest keep their spelling` (warn); the nothing-embedded
+  `entity folding skipped (…)` line is unchanged. The verb-level
+  `fold_assertions` calls also run ungated now, so a latched Ctrl-C can no
+  longer zero the salvage write (the owner's 28-minute, 0-byte loss).
+- **`graph` preflights the fold embedder before any spend (#27).** A broken
+  embed config (missing key, chat-model-as-embedder) now faults at exit 2 at
+  dispatch time, in every mode, before any read, NER grind, schema canary, or
+  paid extraction — previously a small corpus could exit 0 on a config any
+  real run would fault on, and a big run discovered it only after paying. The
+  bare-terminal three-forms refusal still outranks the preflight (exit 64).
+- **A belt-cut `graph` fold flips the run to PARTIAL, never 0 (#29 ruling).**
+  The paid fold stays metered against `--max-calls`; when the belt cuts it,
+  all four modes exit 1 with the salvaged graph on stdout, and the belt stop
+  never wears the `done: interrupted` drain summary (that line is reserved for
+  a real Ctrl-C). Free local/ollama folds stay off-belt and cannot flip the
+  exit.
 - **An over-belt OCR corpus now asks before it overspends (A8).** The shared
   ingestion preflight (`ocr_preflight` in `io/readers.py`) disclosed a paid
   page count but never had the belt handle or a way to ask — so a 6,863-page

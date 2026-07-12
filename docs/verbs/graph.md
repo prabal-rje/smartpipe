@@ -50,6 +50,15 @@ hybrid upgrade the strongest edges trade `co-occurs` for a model-read relation:
 {"source":"Corvus Holdings","relation":"transfers, sent, initiated","target":"Elena Vasquez","weight":8,"sources":[{"path":"01-intake-memo.md","as":"file"},{"path":"02-wire-log.md","as":"file"},{"path":"04-email-vasquez.md","as":"file"},{"path":"05-email-webb.md","as":"file"},{"path":"06-audit-note.md","as":"file"},{"path":"10-charter-draft.md","as":"file"},{"path":"14-timeline.md","as":"file"},{"path":"15-open-questions.md","as":"file"}]}
 ```
 
+**One long document?** A corpus that is effectively a single window - one long
+recording, one big file read whole - makes *everything* co-occur with
+*everything*: a near-complete graph is window math, not signal, and the run
+says so on `stderr` when it happens. Reach for two dials from [the options
+table](#options), in this order: `--window sentence` first, to tighten what
+"together" means, then `--min-weight 2` to keep only the pairs that recur.
+`--min-weight 2` *alone* empties a one-window corpus - every pair there
+co-occurs exactly once, so nothing recurs until the window is smaller.
+
 The entity types are yours to name: the default set is `"person, organization,
 location"`, and `--entities "person, vessel, account"` retargets the same local
 model at whatever your corpus is about - no retraining, no configuration.

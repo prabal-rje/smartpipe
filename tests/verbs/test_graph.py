@@ -897,3 +897,63 @@ def test_fold_cut_flips_partial_only_for_the_belt() -> None:
     assert fold_cut_flips_partial(FoldCut.NONE) is False
     assert fold_cut_flips_partial(FoldCut.INTERRUPT) is False
     assert fold_cut_flips_partial(FoldCut.FAULT) is False
+
+
+# --- C6 #34: the density hint — a near-complete graph is window math, not signal ------
+
+_TWENTY_FOUR = tuple(f"P{n:02d}" for n in range(1, 25))  # no name a substring of another
+
+
+def test_dense_graph_hint_thresholds_are_structural(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A1 (#34): the hint keys on ≥20 nodes AND kept/C(n,2) ≥ 0.8 — structural
+    thresholds, never corpus-shaped. 19 fully dense nodes stay quiet (the node
+    floor), 20 nodes at 151 of 190 stay quiet (under the density line), 152 of
+    190 fires (the 0.8 boundary EXACTLY — a Codex-review pin, green from
+    birth), and 190 of 190 fires the exact pinned wording."""
+    from smartpipe.verbs.graph import note_dense_graph
+
+    note_dense_graph(19, 171)  # C(19,2) = 171: complete, but under the node floor
+    assert capsys.readouterr().err == ""
+    note_dense_graph(20, 151)  # 151/190 ≈ 0.79: dense, but under the density line
+    assert capsys.readouterr().err == ""
+    note_dense_graph(20, 152)  # 152/190 = 0.8 exactly: ≥ means the boundary fires
+    assert "note: near-complete graph (152 of 190 possible edges)" in capsys.readouterr().err
+    note_dense_graph(20, 190)
+    assert (
+        "note: near-complete graph (190 of 190 possible edges) — everything co-occurs "
+        "with everything; --window sentence tightens it, then --min-weight 2 keeps "
+        "recurring pairs"
+    ) in capsys.readouterr().err
+
+
+async def test_one_window_corpus_fires_the_hint_before_the_receipt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A2 (#34): 24 names in ONE line is one chunk window, so every pair
+    co-occurs — a complete graph, C(24,2) = 276 of 276. The hint fires, and
+    BEFORE the receipt, so the explanation lands beside the numbers it
+    explains (the owner's one-MP3 hairball, in miniature)."""
+    known = dict.fromkeys(_TWENTY_FOUR, "person")
+    code, out = await _run(GraphRequest(fast=True), _context(known), " ".join(_TWENTY_FOUR) + "\n")
+    assert code is ExitCode.OK
+    assert len(out.splitlines()) == 276  # the complete graph reached stdout intact
+    err = capsys.readouterr().err
+    hint = err.index("note: near-complete graph (276 of 276 possible edges)")
+    receipt = err.index("note: graph: 24 entities")
+    assert hint < receipt
+
+
+async def test_sparse_spread_never_fires_the_hint(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A3 (#34): the same 24 names spread pairwise across lines chain into 23
+    of 276 possible edges — plenty of nodes, honest sparsity, no hint."""
+    from itertools import pairwise
+
+    known = dict.fromkeys(_TWENTY_FOUR, "person")
+    corpus = "".join(f"{a} met {b}\n" for a, b in pairwise(_TWENTY_FOUR))
+    code, _ = await _run(GraphRequest(fast=True), _context(known), corpus)
+    assert code is ExitCode.OK
+    assert "near-complete graph" not in capsys.readouterr().err
