@@ -1414,15 +1414,18 @@ def figure_cap(env: Mapping[str, str]) -> int:
     or blank keeps the default 8; a whole number ≥ 1 is the new cap; anything
     else refuses at SETUP before the first item (the SMARTPIPE_NER_PRECISION
     posture). "0" is refused ON PURPOSE — attach-nothing is a cost off-switch,
-    a different feature than sizing the attachment budget. Read per call, no
-    memoization, so tests drive it through the environment."""
+    a different feature than sizing the attachment budget. Validated once per
+    reader door (``FigureCensus`` construction reads it), never memoized at
+    the module, so tests drive it through the environment."""
     raw = env.get("SMARTPIPE_FIGURE_CAP", "").strip()
     if not raw:
         return _FIGURE_CAP
     # isdecimal, not isdigit: "²".isdigit() is True but int("²") raises — the
     # knob must refuse loudly, never crash as an internal BUG.
-    if raw.isdecimal() and int(raw) >= 1:
-        return int(raw)
+    if raw.isdecimal():
+        value = int(raw)
+        if value >= 1:
+            return value
     raise SetupFault(f"SMARTPIPE_FIGURE_CAP must be a whole number >= 1, got {raw!r}")
 
 
@@ -1432,9 +1435,16 @@ class FigureCensus:
     byte-identical to before), then one suppression line, then ``finish`` rolls
     the rest into a single tally — a 200-file corpus stops printing 200
     near-identical ``note:`` lines. Mirrors ``DegradationLog``'s first-N-then-
-    rollup shape; the aggregate wording differs because figures tally files."""
+    rollup shape; the aggregate wording differs because figures tally files.
+
+    Construction also VALIDATES the figure-cap knob (#35): every file-reading
+    door builds its census before the first item, so a garbage
+    ``SMARTPIPE_FIGURE_CAP`` refuses up front even for corpora whose kinds
+    never reach ``_document_figures`` (audio/video early returns, row cuts,
+    failed extracts, standalone vision images)."""
 
     def __init__(self) -> None:
+        self.cap = figure_cap(os.environ)  # door-level: a garbage knob faults before item one
         self.files = 0
         self.figures = 0
         self.capped = 0
@@ -1463,7 +1473,6 @@ def _document_figures(
     corpus rolls up — B4). D39/03: when the text layer is THIN, the announcement
     says so — a scanned document routed to the vision path must never look like
     silent emptiness."""
-    cap = figure_cap(os.environ)  # FIRST, every kind: a garbage knob faults before any item
     if kind not in _FIGURE_KINDS:
         return ()
     from smartpipe.parsing.extract import MissingExtra, embedded_images
@@ -1475,7 +1484,7 @@ def _document_figures(
     total = len(media.images)
     if total == 0:
         return ()
-    kept = media.images[:cap]
+    kept = media.images[: census.cap]  # the cap was validated at the door (census __init__)
     capped = total - len(kept)
     census.record(
         figure_note(path.name, len(text.strip()), len(kept), capped),

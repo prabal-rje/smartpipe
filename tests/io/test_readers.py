@@ -267,8 +267,9 @@ def test_figure_cap_garbage_faults_before_the_first_item_on_any_kind(
     tmp_path: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """B4 (#35): a garbage knob refuses BEFORE the first item — even on a plain
-    .txt file that would never attach a figure — proving the SetupFault escapes
-    _load_file's per-file skip handlers (they catch ItemError, never this)."""
+    .txt file that would never attach a figure. The knob is validated where the
+    door constructs its FigureCensus, so the SetupFault fires before any file
+    is even opened and never meets _load_file's per-file skip handlers."""
     from pathlib import Path
 
     from smartpipe.core.errors import SetupFault
@@ -279,6 +280,48 @@ def test_figure_cap_garbage_faults_before_the_first_item_on_any_kind(
     monkeypatch.setenv("SMARTPIPE_FIGURE_CAP", "eight")
     with pytest.raises(SetupFault, match="whole number >= 1"):
         readers.file_items([tmp_path / "notes.txt"])
+
+
+def test_figure_cap_garbage_faults_on_a_media_only_corpus(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C6 review SHOULD-FIX (#35): an mp3 rides _load_file's audio early-return
+    and never reaches _document_figures — the knob must still refuse BEFORE the
+    first item, via the door's census construction, not the figure path."""
+    from pathlib import Path
+
+    from smartpipe.core.errors import SetupFault
+    from smartpipe.io import readers
+
+    assert isinstance(tmp_path, Path)
+    (tmp_path / "clip.mp3").write_bytes(b"ID3\x03\x00" + b"\x00" * 32)
+    monkeypatch.setenv("SMARTPIPE_FIGURE_CAP", "garbage")
+    with pytest.raises(SetupFault, match="whole number >= 1"):
+        readers.file_items([tmp_path / "clip.mp3"])
+
+
+async def test_figure_cap_garbage_faults_before_the_first_item_on_the_csv_door(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C6 review SHOULD-FIX (#35): the row-cut door (_stream_path_items)
+    bypasses _load_file entirely AND yields incrementally — a leading csv row
+    must never reach the verb before a garbage knob refuses."""
+    from pathlib import Path
+
+    from smartpipe.core.errors import SetupFault
+    from smartpipe.io import readers
+    from smartpipe.io.inputs import InputSpec
+
+    assert isinstance(tmp_path, Path)
+    (tmp_path / "data.csv").write_text("name,value\nann,1\n", encoding="utf-8")
+    monkeypatch.setenv("SMARTPIPE_FIGURE_CAP", "garbage")
+    spec = InputSpec(patterns=(str(tmp_path / "data.csv"),), from_files=False)
+    items_iter, _total = readers.resolve_items(spec, _FakeTty(""))
+    collected: list[Item] = []
+    with pytest.raises(SetupFault, match="whole number >= 1"):
+        async for item in items_iter:
+            collected.append(item)
+    assert collected == []  # the refusal landed before row one
 
 
 def test_figure_cap_rollup_names_the_knob(

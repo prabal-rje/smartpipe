@@ -22,7 +22,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   whole numbers ≥ 1 set the cap; unset/blank keeps 8; anything else — `"0"`
   included, on purpose: attach-nothing is a cost off-switch, a different
   feature — refuses at SETUP (exit 2) before the first item is read, on every
-  file kind. The figure census rollup now names the knob when anything was
+  file kind: the knob is validated where each file-reading door constructs its
+  figure census, so even an audio-only or csv-only corpus faults up front (a
+  pure-stdin run never consults the knob — stdin items never attach embedded
+  figures). The figure census rollup now names the knob when anything was
   capped (`(100 capped — SMARTPIPE_FIGURE_CAP raises it)`); the per-file note
   is unchanged.
 
