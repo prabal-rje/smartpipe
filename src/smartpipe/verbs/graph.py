@@ -76,6 +76,7 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import TextIO
 
+    from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.engine.graphkg import EntityFinder, GraphEdge, GraphNode, SurfaceCount
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item, ItemSource
@@ -154,6 +155,7 @@ class GraphModelContext(GraphContext, ExecutionPolicySource, Protocol):
         self, flag: str | None = None, fallback_flag: str | None = None
     ) -> WiredChat: ...
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
+    def batching(self) -> BatchSettings | None: ...  # item 62 posture — graph packs too (#21)
 
 
 def parse_entities(raw: str | None) -> tuple[str, ...]:

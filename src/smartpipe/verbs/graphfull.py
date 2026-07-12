@@ -27,6 +27,7 @@ from smartpipe.core.errors import (
     UsageFault,
     is_recoverable_item_error,
 )
+from smartpipe.engine.coalesce import max_group, worker_capacity
 from smartpipe.engine.graphkg import (
     EdgeAssertion,
     assertion_surface_counts,
@@ -289,16 +290,32 @@ async def run_full(
     # REMAINING, not the raw limit, so the shortfall the user must close is
     # honest: a belt of 3 on 3 chunks shows "2 left" (the probe took one), not a
     # "belt is 3" that reads as exactly-enough and understates by one probe unit.
+    # Batching (#21): the model is already coalescer-wrapped at the composition
+    # root (item 62's _wrap_outer), so the whole verb-side fix is intake — text
+    # chunks opt in via ``map_one(batch=True)`` and the runner widens to fill
+    # groups; ``wire`` keeps every SOLO path (media chunks) at the documented
+    # max-parallel-calls contract regardless of that boost (map.py's pattern).
+    batching = context.batching()
+    group_size = 1 if batching is None else max_group(plan.schema, batching.size)
+    coalescing = group_size >= 2
+    workers = worker_capacity(call_concurrency=concurrency, group_size=group_size)
+    wire = asyncio.Semaphore(concurrency)
+
     belt = budget.limit if budget is not None else None
     # budget is not None is redundant given belt (belt None ⟺ budget None) but
     # pyright cannot span the two statements — it narrows budget.calls here.
     remaining = belt - budget.calls if belt is not None and budget is not None else None
     plural = "s" if len(items) != 1 else ""
     plan_note = f"~{len(chunks):,} extraction calls across {len(items):,} file{plural}"
+    if coalescing:
+        # honesty rider (#21): packed chunks share wire calls, so the raw count
+        # above is a ceiling — and a belt shortfall below is no longer certain.
+        plan_note += " (batching may pack text chunks into fewer wire calls)"
     belt_short = remaining is not None and remaining < len(chunks)
     if belt_short:
         assert remaining is not None  # belt_short ⟹ remaining is not None
-        plan_note += f"; {remaining:,} left in the belt — the graph will be partial"
+        verdict = "may" if coalescing else "will"
+        plan_note += f"; {remaining:,} left in the belt — the graph {verdict} be partial"
     elif belt is None and len(chunks) > _NUDGE_CALLS:
         plan_note += " — no belt set"
     diagnostics.note(plan_note)
@@ -316,7 +333,15 @@ async def run_full(
         # swap the receipt must count under the wire that answered, not the dead
         # primary. Graph's chunks are pre-cut, so `answering`'s only use is the tally.
         answering = wired.answering_ref()
-        result = await map_one(model, plan, instruction, chunk, log)
+        if coalescing and not chunk.media:
+            # coalescible text chunk — no wire gate: the shared flight IS the
+            # call (gating the group fill against `wire` would deadlock-prone
+            # it), and it is budgeted downstream. Canaries never come here —
+            # they fire pre-loop with map_one's default batch=False.
+            result = await map_one(model, plan, instruction, chunk, log, batch=True)
+        else:
+            async with wire:  # media rides solo (item 62 §7), wire-gated
+                result = await map_one(model, plan, instruction, chunk, log)
         wired.tally(answering)  # count one answered chunk under the wire captured at entry
         return chunk, result
 
@@ -329,7 +354,7 @@ async def run_full(
     outcomes = run_ordered(
         _iter_items(chunks),
         worker,
-        concurrency=concurrency,
+        concurrency=workers,  # staging slots widen to fill groups; `wire` gates solo calls
         failure_policy=context.failure_policy(model.ref.provider),
         stop=stop,
         fallback_armed=wired.armed,
@@ -669,9 +694,25 @@ async def run_hybrid(
                 ),
             )
 
+        # Batching (#21): naming asks are text-only by construction, so with the
+        # posture on they pack onto the shared coalescer exactly like full-mode
+        # text chunks — intake widens to fill groups, `wire` gates any solo call.
+        batching = context.batching()
+        group_size = 1 if batching is None else max_group(plan.schema, batching.size)
+        coalescing = group_size >= 2
+        workers = worker_capacity(call_concurrency=concurrency, group_size=group_size)
+        wire = asyncio.Semaphore(concurrency)
+
         async def worker(item: Item) -> tuple[int, str]:
             answering = wired.answering_ref()  # captured at entry, like map's slot.current
-            result = await map_one(model, plan, instruction, item, log)
+            if coalescing and not item.media:
+                # coalescible naming ask — no wire gate: the shared flight IS
+                # the call (double-gating the group fill would deadlock-prone
+                # it). The canary fired pre-loop, solo (default batch=False).
+                result = await map_one(model, plan, instruction, item, log, batch=True)
+            else:
+                async with wire:  # solo path stays at the documented call cap
+                    result = await map_one(model, plan, instruction, item, log)
             from collections.abc import Mapping as MappingABC
 
             assert isinstance(result, MappingABC)  # the plan is structured
@@ -687,7 +728,7 @@ async def run_hybrid(
         outcomes = run_ordered(
             _iter_items(asks),
             worker,
-            concurrency=concurrency,
+            concurrency=workers,  # staging slots widen to fill groups (see run_full)
             failure_policy=context.failure_policy(model.ref.provider),
             stop=stop,
             fallback_armed=wired.armed,

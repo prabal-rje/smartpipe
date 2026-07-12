@@ -123,6 +123,9 @@ class FakeContext:
     def document_parser(self, flag: str | None = None) -> None:
         return None  # the free modes never parse documents through a model
 
+    def batching(self) -> None:
+        return None  # the free modes never coalesce — no chat calls to pack (#21)
+
     def concurrency(self, flag: int | None = None) -> int:
         return 2
 

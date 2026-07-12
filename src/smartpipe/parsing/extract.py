@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
+    from smartpipe.models.cache import TranscriptBank
+
 __all__ = [
     "EmbeddedImage",
     "EmbeddedMedia",
@@ -30,13 +32,16 @@ __all__ = [
     "ImageData",
     "MissingExtra",
     "VideoParts",
+    "configure_transcript_cache",
     "configure_whisper_size",
+    "configured_transcript_cache",
     "configured_whisper_size",
     "embedded_images",
     "extract",
     "ffmpeg_exe",
     "ffprobe_duration",
     "pdf_page_texts",
+    "reset_transcript_cache",
     "reset_whisper_size",
     "slice_audio",
     "slice_video",
@@ -552,6 +557,29 @@ def reset_whisper_size(token: Token[str]) -> None:
     _WHISPER_SIZE.reset(token)
 
 
+_TRANSCRIPT_BANK: ContextVar[TranscriptBank | None] = ContextVar(
+    "smartpipe_transcript_bank", default=None
+)
+
+
+def configured_transcript_cache() -> TranscriptBank | None:
+    """The composition root's local-transcript bank for this invocation (#22).
+    ``None`` (the default) keeps ``transcribe_audio`` byte-identical to the
+    uncached behavior."""
+    return _TRANSCRIPT_BANK.get()
+
+
+def configure_transcript_cache(bank: TranscriptBank | None) -> Token[TranscriptBank | None]:
+    """Install one invocation's transcript bank (the ``configure_whisper_size``
+    ContextVar-at-seam precedent, C5 ruling 3)."""
+    return _TRANSCRIPT_BANK.set(bank)
+
+
+def reset_transcript_cache(token: Token[TranscriptBank | None]) -> None:
+    """Restore the enclosing invocation's transcript bank."""
+    _TRANSCRIPT_BANK.reset(token)
+
+
 _WHISPER_CACHE: dict[str, object] = {}  # one loaded model per size, per process
 
 
@@ -561,8 +589,20 @@ def transcribe_audio(audio: AudioData, *, model_size: str | None = None) -> str:
     The audio bytes never leave the machine; the first use of a model size
     downloads its weights once (~75 MB for tiny). Blocking — callers run it in
     a thread. ``MissingExtra`` propagates so the verb layer can name both fixes.
+
+    The transcript bank (#22) is consulted AFTER the size resolves (the size is
+    part of the key) and BEFORE the model loads — a fully banked corpus never
+    pays the whisper load at all. ``bank is None`` ⇒ byte-identical to the
+    uncached path.
     """
     import io
+
+    size = configured_whisper_size() if model_size is None else model_size
+    bank = configured_transcript_cache()
+    if bank is not None:
+        banked = bank.lookup(size, audio)
+        if banked is not None:
+            return banked  # a hit skips the whisper load entirely
 
     try:
         from faster_whisper import WhisperModel
@@ -571,7 +611,6 @@ def transcribe_audio(audio: AudioData, *, model_size: str | None = None) -> str:
             "audio", "local transcription is unavailable — reinstall smartpipe"
         ) from exc
 
-    size = configured_whisper_size() if model_size is None else model_size
     model = _WHISPER_CACHE.get(size)
     if model is None:
         from smartpipe.io import diagnostics
@@ -582,11 +621,14 @@ def transcribe_audio(audio: AudioData, *, model_size: str | None = None) -> str:
     assert isinstance(model, WhisperModel)
     try:
         segments, _info = model.transcribe(io.BytesIO(audio.data))
-        return " ".join(segment.text.strip() for segment in segments).strip()
+        text = " ".join(segment.text.strip() for segment in segments).strip()
     except MissingExtra:  # pragma: no cover — nothing below raises it
         raise
     except Exception as exc:
         raise ItemError(f"audio couldn't be transcribed ({exc})") from exc
+    if bank is not None:
+        bank.store(size, audio, text)  # a failed transcription above never banks
+    return text
 
 
 def _via_markitdown(path: Path, *, extra: str, noun: str) -> str:
