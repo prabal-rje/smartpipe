@@ -203,6 +203,25 @@ async def test_exercise_stt_reports_pass_and_fail_through_the_seam() -> None:
     assert line == "  stt: ✗ the STT wire rejected the API key"
 
 
+async def test_exercise_stt_caps_a_stalled_wire(monkeypatch: pytest.MonkeyPatch) -> None:
+    """C4 review: a hung endpoint must not hold doctor for the shared 120s HTTP
+    timeout x retries — the probe's own cap renders as an honest ✗ verdict."""
+    import asyncio
+
+    from smartpipe.cli import probe_cmd
+    from tests.verbs.test_graph import FakeTranscriber
+
+    class _Stalled(FakeTranscriber):
+        async def transcribe(self, audio: AudioData) -> str:
+            del audio
+            await asyncio.sleep(3600)  # never returns inside any sane probe window
+            raise AssertionError("unreachable")  # pragma: no cover
+
+    monkeypatch.setattr(probe_cmd, "_STT_PROBE_SECONDS", 0.05)
+    line = await probe_cmd.exercise_stt(_Stalled("openai/whisper-1"))
+    assert line == "  stt: ✗ no reply in 0s — the wire is stalled"
+
+
 def test_without_probe_no_model_calls(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:
     chat = respx_mock.post(CHAT)
     respx_mock.get("http://localhost:11434/api/tags").mock(

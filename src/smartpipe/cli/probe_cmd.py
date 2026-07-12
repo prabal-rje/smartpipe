@@ -3,11 +3,13 @@
 ``doctor`` alone never spends a cent (D18); this flag is the explicit opt-in
 that answers what the docs can only claim: which modalities *actually* reach
 your configured models. Marks: check = native; dash+star = works via a
-footnote names it); cross = no path. Four tiny paid calls, announced first.
+footnote names it); cross = no path. Four tiny paid calls — five when a
+remote stt-model resolves — announced first.
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING
@@ -119,12 +121,19 @@ def stt_probe_plan(container: AppContainer, chat_ref: ModelRef) -> SttProbe:
     return SttProbe(transcriber=transcriber)
 
 
+_STT_PROBE_SECONDS = 20.0  # C4 review: a stalled wire must not hold doctor for
+# the shared 120s HTTP timeout x retries — the probe's own cap renders as ✗
+
+
 async def exercise_stt(transcriber: Transcriber) -> str:
     """One tiny transcription through the REAL container wire — the disclosed
     5th call. Pass or fail, the line carries the exercised truth (the wire's
     own first error line on ✗), never a resolved display string as health."""
     try:
-        await transcriber.transcribe(AudioData(_asset("probe.wav"), "audio/wav"))
+        async with asyncio.timeout(_STT_PROBE_SECONDS):
+            await transcriber.transcribe(AudioData(_asset("probe.wav"), "audio/wav"))
+    except TimeoutError:
+        return f"  stt: ✗ no reply in {_STT_PROBE_SECONDS:.0f}s — the wire is stalled"
     except SempipeError as exc:
         return f"  stt: ✗ {_first_line(exc)}"
     return f"  stt: ✓ transcribed via {transcriber.ref}"
