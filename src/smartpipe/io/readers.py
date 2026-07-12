@@ -1286,6 +1286,7 @@ async def from_files_items(
 
 async def read_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
     """Load a finite right/build side without ever decoding binary as text."""
+    census = FigureCensus()  # the DOOR validates the figure knob (#35) — every branch, at entry
     if str(path) == "-":
         raise UsageFault("--right - reads nothing — stdin is already the left side")
     from smartpipe.io import manifest
@@ -1311,8 +1312,8 @@ async def read_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
             return parsed
 
     if route(kind) != "text":
-        # one right-side file never floods; a fresh census announces it verbatim
-        loaded = _load_file(path, 0, set(), FigureCensus())
+        # one right-side file never floods; the door's census announces it verbatim
+        loaded = _load_file(path, 0, set(), census)
         return [] if loaded is None else [loaded]
 
     try:
@@ -1420,12 +1421,16 @@ def figure_cap(env: Mapping[str, str]) -> int:
     raw = env.get("SMARTPIPE_FIGURE_CAP", "").strip()
     if not raw:
         return _FIGURE_CAP
-    # isdecimal, not isdigit: "²".isdigit() is True but int("²") raises — the
-    # knob must refuse loudly, never crash as an internal BUG.
-    if raw.isdecimal():
-        value = int(raw)
-        if value >= 1:
-            return value
+    # isdecimal, not isdigit: "²".isdigit() is True but int("²") raises. And
+    # isdecimal alone is not enough either — a decimal past CPython's ~4300-digit
+    # integer-string conversion limit still makes int() raise. Either way the
+    # knob must refuse loudly as ITSELF, never crash as an internal BUG.
+    try:
+        value = int(raw) if raw.isdecimal() else 0
+    except ValueError:
+        value = 0  # definitionally not a whole number >= 1 we accept
+    if value >= 1:
+        return value
     raise SetupFault(f"SMARTPIPE_FIGURE_CAP must be a whole number >= 1, got {raw!r}")
 
 

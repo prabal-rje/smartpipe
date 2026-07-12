@@ -324,6 +324,52 @@ async def test_figure_cap_garbage_faults_before_the_first_item_on_the_csv_door(
     assert collected == []  # the refusal landed before row one
 
 
+async def test_figure_cap_garbage_faults_on_the_right_side_door(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Codex review SHOULD-FIX (#35): --right is a file-reading door too — its
+    text branch yields rows without ever reaching the figure path, so the DOOR
+    itself must validate the knob at entry, before the first item."""
+    from pathlib import Path
+
+    from smartpipe.core.errors import SetupFault
+    from smartpipe.io import readers
+
+    assert isinstance(tmp_path, Path)
+    (tmp_path / "right.txt").write_text("ann\nbob\n", encoding="utf-8")
+    monkeypatch.setenv("SMARTPIPE_FIGURE_CAP", "garbage")
+    with pytest.raises(SetupFault, match="whole number >= 1"):
+        await readers.read_right_items(tmp_path / "right.txt", None)
+
+
+def test_figure_cap_refuses_a_decimal_beyond_the_int_conversion_limit() -> None:
+    """Codex review SHOULD-FIX (#35): isdecimal admits strings int() still
+    refuses — a ~4300+-digit value trips CPython's integer-string conversion
+    limit with a raw ValueError. The knob must refuse as ITSELF (the pinned
+    SetupFault), never crash as an internal BUG."""
+    from smartpipe.core.errors import SetupFault
+    from smartpipe.io.readers import figure_cap
+
+    raw = "9" * 5_000
+    with pytest.raises(SetupFault) as excinfo:
+        figure_cap({"SMARTPIPE_FIGURE_CAP": raw})
+    assert str(excinfo.value) == f"SMARTPIPE_FIGURE_CAP must be a whole number >= 1, got {raw!r}"
+
+
+def test_figure_cap_snapshots_at_door_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """NIT pin (green from birth): the cap is read ONCE where a door constructs
+    its census — mutating the environment mid-run never moves an in-flight
+    door's ceiling; only a NEW door sees the new value."""
+    from smartpipe.io import readers
+
+    monkeypatch.setenv("SMARTPIPE_FIGURE_CAP", "3")
+    census = readers.FigureCensus()
+    assert census.cap == 3
+    monkeypatch.setenv("SMARTPIPE_FIGURE_CAP", "7")
+    assert census.cap == 3  # snapshot semantics: the in-flight door keeps its cap
+    assert readers.FigureCensus().cap == 7  # a new door reads the new value
+
+
 def test_figure_cap_rollup_names_the_knob(
     tmp_path: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

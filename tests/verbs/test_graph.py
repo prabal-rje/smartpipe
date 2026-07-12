@@ -773,14 +773,17 @@ def test_dense_graph_hint_thresholds_are_structural(
 ) -> None:
     """A1 (#34): the hint keys on ≥20 nodes AND kept/C(n,2) ≥ 0.8 — structural
     thresholds, never corpus-shaped. 19 fully dense nodes stay quiet (the node
-    floor), 20 nodes at 151 of 190 stay quiet (under the density line), and 20
-    nodes at 190 of 190 fire the exact pinned wording."""
+    floor), 20 nodes at 151 of 190 stay quiet (under the density line), 152 of
+    190 fires (the 0.8 boundary EXACTLY — a Codex-review pin, green from
+    birth), and 190 of 190 fires the exact pinned wording."""
     from smartpipe.verbs.graph import note_dense_graph
 
     note_dense_graph(19, 171)  # C(19,2) = 171: complete, but under the node floor
     assert capsys.readouterr().err == ""
     note_dense_graph(20, 151)  # 151/190 ≈ 0.79: dense, but under the density line
     assert capsys.readouterr().err == ""
+    note_dense_graph(20, 152)  # 152/190 = 0.8 exactly: ≥ means the boundary fires
+    assert "note: near-complete graph (152 of 190 possible edges)" in capsys.readouterr().err
     note_dense_graph(20, 190)
     assert (
         "note: near-complete graph (190 of 190 possible edges) — everything co-occurs "
