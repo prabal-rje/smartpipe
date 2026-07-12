@@ -55,6 +55,7 @@ from smartpipe.verbs.graph import (
     FastScan,
     GraphModelContext,
     GraphRequest,
+    fold_cut_flips_partial,
     fold_vectors,
     note_folds,
     parse_entities,
@@ -423,7 +424,9 @@ async def run_full(
         done=len(ok_sources),
         skipped=skipped_sources,
         failed=len(failed_sources),
-        partial=belt_partial,
+        # a belt-cut FOLD also flips the exit (#29) — the extraction may be
+        # complete, but the graph's canonicalization is not.
+        partial=belt_partial or fold_cut_flips_partial(fold.cut),
         source_counts=source_counts,
     )
 
@@ -716,7 +719,9 @@ async def run_hybrid(
         done=len(scan.gathered),
         skipped=scan.skipped,
         failed=scan.failed,
-        partial=belt_short or bool(naming_skips),
+        # a belt-cut FOLD in the scan also flips the exit (#29), carried out
+        # through FastScan.fold_cut — even when there was nothing to name.
+        partial=belt_short or bool(naming_skips) or fold_cut_flips_partial(scan.fold_cut),
     )
 
 
@@ -817,12 +822,15 @@ async def run_adopt(
         f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
         f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
     )
-    if stop is not None and stop.is_set():
+    fold_partial = fold_cut_flips_partial(fold.cut)
+    if stop is not None and stop.is_set() and not fold_partial:
         # B1 review: a drained Ctrl-C during the fold salvaged a partial graph on
-        # stdout — say so and exit INTERRUPTED/PARTIAL, never OK (like run_full/hybrid).
+        # stdout — say so and exit INTERRUPTED/PARTIAL, never OK (like run_full/
+        # hybrid). A BELT cut set the same stop event with no Ctrl-C (#29): it
+        # must never wear the drain summary — it exits PARTIAL below instead.
         diagnostics.interrupted_summary(processed=len(assertions), skipped=0)
         return interrupted_exit_code(done=len(assertions), skipped=0, failed=0, partial=True)
-    return outcome_exit_code(done=len(assertions), skipped=0, failed=0)
+    return outcome_exit_code(done=len(assertions), skipped=0, failed=0, partial=fold_partial)
 
 
 def _adopt_assertion(item: Item) -> EdgeAssertion:

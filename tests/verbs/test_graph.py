@@ -18,6 +18,7 @@ from smartpipe.verbs.graph import (
     FoldCut,
     FoldOutcome,
     GraphRequest,
+    fold_cut_flips_partial,
     fold_vectors,
     parse_entities,
     run_graph,
@@ -887,3 +888,12 @@ async def test_nothing_embedded_keeps_the_pinned_skip_wording(
 async def test_fewer_than_two_names_is_a_none_cut() -> None:
     outcome = await fold_vectors(_CutFoldContext(FakeEmbedder({})), ["Ann"])
     assert outcome == FoldOutcome(vectors={}, cut=FoldCut.NONE)
+
+
+def test_fold_cut_flips_partial_only_for_the_belt() -> None:
+    """#29 ruling: only a BELT cut flips the exit — an interrupt already exits
+    by the drain rules, and a fault exits by the run's normal counts."""
+    assert fold_cut_flips_partial(FoldCut.BELT) is True
+    assert fold_cut_flips_partial(FoldCut.NONE) is False
+    assert fold_cut_flips_partial(FoldCut.INTERRUPT) is False
+    assert fold_cut_flips_partial(FoldCut.FAULT) is False

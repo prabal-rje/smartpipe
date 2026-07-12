@@ -92,6 +92,7 @@ __all__ = [
     "GraphContext",
     "GraphModelContext",
     "GraphRequest",
+    "fold_cut_flips_partial",
     "fold_vectors",
     "note_folds",
     "parse_entities",
@@ -310,6 +311,20 @@ class FoldOutcome:
     cut: FoldCut
 
 
+def fold_cut_flips_partial(cut: FoldCut) -> bool:
+    """#29 ruling: only a BELT cut flips the run to PARTIAL — an interrupt
+    already exits by the drain rules, and a mid-fold fault exits by the run's
+    normal counts (ruling 5). A belt stop must also never wear the Ctrl-C
+    drain summary; the interrupted branches gate on this."""
+    match cut:
+        case FoldCut.BELT:
+            return True
+        case FoldCut.NONE | FoldCut.INTERRUPT | FoldCut.FAULT:
+            return False
+        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+            assert_never(unreachable)
+
+
 @dataclass(frozen=True, slots=True)
 class FastScan:
     """Everything the free pass produces — the fast mode writes it out as-is;
@@ -483,9 +498,12 @@ async def _run_fast(
         f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
         f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
     )
-    if stop is not None and stop.is_set():
+    fold_partial = fold_cut_flips_partial(scan.fold_cut)
+    if stop is not None and stop.is_set() and not fold_partial:
         # A drained Ctrl-C (during entity extraction or the fold, B1): the graph
-        # written above is salvaged partial — say so and exit accordingly.
+        # written above is salvaged partial — say so and exit accordingly. A
+        # BELT cut set the same stop event without any Ctrl-C (#29), so it must
+        # never wear the drain summary — it exits PARTIAL below instead.
         diagnostics.interrupted_summary(processed=len(scan.gathered), skipped=scan.skipped)
         return interrupted_exit_code(
             done=len(scan.gathered),
@@ -497,6 +515,7 @@ async def _run_fast(
         done=len(scan.gathered),
         skipped=scan.skipped,
         failed=scan.failed,
+        partial=fold_partial,
     )
 
 

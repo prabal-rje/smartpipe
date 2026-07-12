@@ -5,6 +5,33 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Fixed
+- **A cut `graph` fold no longer discards paid work (#30).** `fold_vectors` now
+  keeps every vector already embedded when the fold is cut — by a drained
+  Ctrl-C (polled per batch, on the synchronous predicate only), by the
+  `--max-calls` belt, or by a wire fault mid-run (including a runtime
+  `SetupFault`: the wire dying mid-fold degrades to a partial fold instead of
+  killing a fully-paid run). Already-embedded names still fold; the rest keep
+  their spelling; the graph is always written. New stderr wordings:
+  `entity folding interrupted — N of M names embedded; the rest keep their
+  spelling` (note) and `entity folding stopped early (…) — N of M names
+  embedded; the rest keep their spelling` (warn); the nothing-embedded
+  `entity folding skipped (…)` line is unchanged. The verb-level
+  `fold_assertions` calls also run ungated now, so a latched Ctrl-C can no
+  longer zero the salvage write (the owner's 28-minute, 0-byte loss).
+- **`graph` preflights the fold embedder before any spend (#27).** A broken
+  embed config (missing key, chat-model-as-embedder) now faults at exit 2 at
+  dispatch time, in every mode, before any read, NER grind, schema canary, or
+  paid extraction — previously a small corpus could exit 0 on a config any
+  real run would fault on, and a big run discovered it only after paying. The
+  bare-terminal three-forms refusal still outranks the preflight (exit 64).
+- **A belt-cut `graph` fold flips the run to PARTIAL, never 0 (#29 ruling).**
+  The paid fold stays metered against `--max-calls`; when the belt cuts it,
+  all four modes exit 1 with the salvaged graph on stdout, and the belt stop
+  never wears the `done: interrupted` drain summary (that line is reserved for
+  a real Ctrl-C). Free local/ollama folds stay off-belt and cannot flip the
+  exit.
+
 ### Changed
 - **Result caching now ships ON by default (owner directive: always cache).** The
   posture ladder is unchanged (SMARTPIPE_CACHE > config `cache`), but the unset

@@ -23,7 +23,7 @@ from smartpipe.core.errors import (
 from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io import manifest
 from smartpipe.models.base import ModelRef
-from smartpipe.models.budget import CallBudget, budgeted_chat
+from smartpipe.models.budget import CallBudget, budgeted_chat, budgeted_embed
 from smartpipe.verbs.graph import GraphRequest, run_graph
 from smartpipe.verbs.graphfull import CONFIRM_PARTIAL, extraction_prompt
 from tests.verbs.test_graph import FakeEmbedder, FakeFinder
@@ -31,7 +31,7 @@ from tests.verbs.test_graph import FakeEmbedder, FakeFinder
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from smartpipe.models.base import ChatModel, CompletionRequest
+    from smartpipe.models.base import ChatModel, CompletionRequest, EmbeddingModel
     from smartpipe.models.resilience import WiredChat
 
 
@@ -74,11 +74,12 @@ class FakeChat:
 
 @dataclass
 class PaidContext:
-    """The full graph seam: the free half's fakes plus a scriptable chat wire."""
+    """The full graph seam: the free half's fakes plus a scriptable chat wire.
+    ``embedder`` is protocol-typed so belt tests can hand in budgeted wrappers."""
 
     chat: ChatModel
     finder: FakeFinder
-    embedder: FakeEmbedder
+    embedder: EmbeddingModel
     backup: ChatModel | None = None  # A4: the configured --fallback-model target
     breaker_limit: int = 5  # kept == failure_policy.transport_limit (the breaker invariant)
     concurrency_value: int = 1  # sequential: deterministic call order under test
@@ -90,7 +91,7 @@ class PaidContext:
         self.finder_labels = tuple(labels)
         return self.finder
 
-    async def fold_embedder(self, flag: str | None = None) -> FakeEmbedder:
+    async def fold_embedder(self, flag: str | None = None) -> EmbeddingModel:
         del flag
         return self.embedder
 
@@ -1324,6 +1325,109 @@ async def test_bare_terminal_refusal_outranks_a_broken_embed_config() -> None:
             stdout=out,
             clock=lambda: 0.0,
         )
+
+
+# --- #29: a belt-cut fold flips the run to PARTIAL — in every mode --------------------
+
+# 65 names → a 64-batch plus one; fixed-width so FakeFinder's substring match
+# never sees two entities on one line (no co-occurrence edges, nothing to name)
+_BELT_NAMES = {f"N{n:02d}": "person" for n in range(65)}
+_BELT_CORPUS = "".join(f"N{n:02d} alone\n" for n in range(65))
+
+
+async def test_full_mode_belt_cut_fold_exits_partial_with_the_edge_on_stdout(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """#29 ruling: the paid fold stays metered, and a belt that cuts it flips
+    the run to PARTIAL (1) — never 0 (the ux.md belt rule: a partial graph
+    never exits clean). The extracted edge is still written, unfolded."""
+    stop = asyncio.Event()
+    budget = CallBudget(limit=2, stop=stop)  # canary + one extraction; none left to fold
+    chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
+    context = PaidContext(
+        chat=budgeted_chat(chat, budget),
+        finder=FakeFinder(PEOPLE),
+        embedder=budgeted_embed(FakeEmbedder({}), budget),
+    )
+    code, out = await _run(
+        GraphRequest(focus="pays"), context, "Ann pays Bob\n", stop=stop, budget=budget
+    )
+    assert code is ExitCode.PARTIAL  # the fold was belt-cut: never a clean 0
+    (edge,) = _edges(out)
+    assert (edge["source"], edge["target"]) == ("Ann", "Bob")  # still on stdout
+    err = capsys.readouterr().err
+    assert "entity folding skipped (call budget reached (--max-calls 2))" in err
+    assert "done: interrupted" not in err  # a belt stop is not a Ctrl-C
+
+
+async def test_fast_mode_belt_cut_fold_exits_partial_not_interrupted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The belt shares the run's stop event: when it cuts a paid fold on
+    --fast, the run exits PARTIAL without wearing the Ctrl-C drain summary."""
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    context = PaidContext(
+        chat=FakeChat(),
+        finder=FakeFinder(_BELT_NAMES),
+        embedder=budgeted_embed(FakeEmbedder({}), budget),
+    )
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True),
+        context,
+        stdin=io.StringIO(_BELT_CORPUS),
+        stdout=out,
+        stop=stop,
+        clock=lambda: 0.0,
+        budget=budget,
+    )
+    assert code is ExitCode.PARTIAL
+    err = capsys.readouterr().err
+    assert "done: interrupted" not in err  # the belt stop is not a user interrupt
+    assert (
+        "entity folding stopped early (call budget reached (--max-calls 1)) — "
+        "64 of 65 names embedded"
+    ) in err
+
+
+async def test_hybrid_belt_cut_fold_exits_partial_not_ok() -> None:
+    """Hybrid's scan carries the fold cut out through FastScan.fold_cut: with
+    no edges to name (and so no naming skips), the belt-cut fold alone must
+    still flip the exit to PARTIAL."""
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    context = PaidContext(
+        chat=FakeChat(),
+        finder=FakeFinder(_BELT_NAMES),
+        embedder=budgeted_embed(FakeEmbedder({}), budget),
+    )
+    code, out = await _run(
+        GraphRequest(name_top=3), context, _BELT_CORPUS, stop=stop, budget=budget
+    )
+    assert code is ExitCode.PARTIAL  # solo names give nothing to name — the fold cut decides
+    assert out == ""
+
+
+async def test_adopt_belt_cut_fold_exits_partial_not_interrupted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    rows = "".join(
+        json.dumps({"source": f"S{n}", "target": f"T{n}"}) + "\n" for n in range(33)
+    )  # 66 names: one full batch charges the belt, the second raises UnsentError
+    context = PaidContext(
+        chat=FakeChat(),
+        finder=FakeFinder(PEOPLE),
+        embedder=budgeted_embed(FakeEmbedder({}), budget),
+    )
+    code, out = await _run(GraphRequest(), context, rows, stop=stop, budget=budget)
+    assert code is ExitCode.PARTIAL
+    assert len(_edges(out)) == 33  # every adopted row is still written
+    err = capsys.readouterr().err
+    assert "done: interrupted" not in err  # a belt stop is not a Ctrl-C
+    assert "entity folding stopped early (call budget reached (--max-calls 1))" in err
 
 
 # --- A4: --fallback-model failover into both paid modes (item 11) --------------------
