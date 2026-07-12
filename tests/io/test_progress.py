@@ -42,7 +42,8 @@ def test_draw_appends_the_live_metering_segment(monkeypatch: pytest.MonkeyPatch)
         spinner.start(total=4)
         clock.t = 2.0
         spinner.advance()
-        assert stream.getvalue().count("   ↑100 ↓20 tok") == 1
+        # both the initial zero-state paint (D1) and the advance carry the segment
+        assert stream.getvalue().count("   ↑100 ↓20 tok") == 2
     finally:
         metering.reset()
 
@@ -56,6 +57,71 @@ class _Clock:
 
     def __call__(self) -> float:
         return self.t
+
+
+# --- D1: start() paints the zero state immediately (the one rule, ux.md) -------
+
+
+def test_start_paints_the_zero_state_bar_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A known-total phase owns its bar from start(): the 0% zero state lands
+    BEFORE the first completion — a stalled first item is visibly a stall."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    stream = io.StringIO()
+    spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=_Clock())
+    spinner.start(total=4)
+    assert stream.getvalue() == "\r[...............] 0% · 0/4\x1b[K"
+
+
+def test_start_paints_the_zero_count_line_for_unknown_totals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    stream = io.StringIO()
+    spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=_Clock())
+    spinner.start(total=None)
+    assert stream.getvalue() == "\r- Processing [0] 0.0/s\x1b[K"
+
+
+def test_start_paints_the_pending_caption_when_a_message_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    stream = io.StringIO()
+    spinner = Spinner(
+        stream=stream, enabled=True, ascii_only=True, clock=_Clock(), message="preparing"
+    )
+    spinner.start(total=None)
+    assert stream.getvalue() == "\r- preparing\x1b[K"
+
+
+def test_start_with_a_zero_total_paints_nothing() -> None:
+    """start(0) = known-empty work: nothing to watch, nothing painted — and
+    finish() stays silent too (keyed on _drew)."""
+    stream = io.StringIO()
+    spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=_Clock())
+    spinner.start(total=0)
+    spinner.finish()
+    assert stream.getvalue() == ""
+
+
+def test_disabled_start_paints_nothing() -> None:
+    stream = io.StringIO()
+    spinner = Spinner(stream=stream, enabled=False, ascii_only=True, clock=_Clock())
+    spinner.start(total=4)
+    spinner.start(total=None)
+    assert stream.getvalue() == ""
+
+
+def test_initial_paint_counts_against_the_redraw_throttle() -> None:
+    """The zero-state paint IS a draw: an advance in the same 100ms window is
+    throttled, so start-then-first-item never double-draws."""
+    stream = io.StringIO()
+    clock = _Clock()
+    spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock)
+    spinner.start(total=100)
+    clock.t = 0.01
+    spinner.advance()
+    assert stream.getvalue().count("\r") == 1  # the initial paint, nothing else
 
 
 def test_disabled_spinner_writes_nothing() -> None:
@@ -88,21 +154,23 @@ def test_known_total_draw_is_the_pinned_bar_line(monkeypatch: pytest.MonkeyPatch
     stream = io.StringIO()
     clock = _Clock()
     spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock)
-    spinner.start(total=4)
+    spinner.start(total=4)  # D1: paints the 0% zero state immediately
     clock.t = 2.0
     spinner.advance()  # done=1, rate 0.5/s → eta (3 / 0.5) = 6s
-    assert stream.getvalue() == "\r[==>............] 25% · 1/4 · 0.5/s · ~6s left\x1b[K"
+    assert stream.getvalue() == (
+        "\r[...............] 0% · 0/4\x1b[K\r[==>............] 25% · 1/4 · 0.5/s · ~6s left\x1b[K"
+    )
 
 
-def test_unknown_total_draw_is_byte_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unknown_total_draw_lines_are_the_pinned_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NO_COLOR", "1")
     stream = io.StringIO()
     clock = _Clock()
     spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock)
-    spinner.start(total=None)
+    spinner.start(total=None)  # D1: the initial paint consumes ASCII frame '-'
     clock.t = 2.0
-    spinner.advance()
-    assert stream.getvalue() == "\r- Processing [1] 0.5/s\x1b[K"
+    spinner.advance()  # the next frame is '\'
+    assert stream.getvalue() == ("\r- Processing [0] 0.0/s\x1b[K\r\\ Processing [1] 0.5/s\x1b[K")
 
 
 def test_spinner_throttles_redraws() -> None:
@@ -135,10 +203,13 @@ def test_stage_label_prefixes_the_bar(monkeypatch: pytest.MonkeyPatch) -> None:
     stream = io.StringIO()
     clock = _Clock()
     spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock, label="extract")
-    spinner.start(total=4)
+    spinner.start(total=4)  # D1: the zero state wears the label too
     clock.t = 2.0
     spinner.advance()
-    assert stream.getvalue().startswith("\r[extract] [==>............] 25% · 1/4")
+    assert stream.getvalue() == (
+        "\r[extract] [...............] 0% · 0/4\x1b[K"
+        "\r[extract] [==>............] 25% · 1/4 · 0.5/s · ~6s left\x1b[K"
+    )
 
 
 def test_stage_label_prefixes_the_unknown_total_line(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -146,10 +217,12 @@ def test_stage_label_prefixes_the_unknown_total_line(monkeypatch: pytest.MonkeyP
     stream = io.StringIO()
     clock = _Clock()
     spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=clock, label="extract")
-    spinner.start(total=None)
+    spinner.start(total=None)  # D1: initial paint takes '-'; the advance draws '\'
     clock.t = 2.0
     spinner.advance()
-    assert stream.getvalue() == "\r[extract] - Processing [1] 0.5/s\x1b[K"
+    assert stream.getvalue() == (
+        "\r[extract] - Processing [0] 0.0/s\x1b[K\r[extract] \\ Processing [1] 0.5/s\x1b[K"
+    )
 
 
 def test_unknown_total_spinner_shows_running_count_and_rate() -> None:
@@ -175,10 +248,10 @@ def test_tick_draws_the_pending_line_without_counting_progress(
     spinner = Spinner(
         stream=stream, enabled=True, ascii_only=True, clock=clock, message="preparing"
     )
-    spinner.start(total=None)
+    spinner.start(total=None)  # D1: paints the pending caption immediately (frame '-')
     clock.t = 1.0
     spinner.tick()
-    assert stream.getvalue() == "\r- preparing\x1b[K"
+    assert stream.getvalue() == "\r- preparing\x1b[K\r\\ preparing\x1b[K"
     assert spinner._done == 0  # pyright: ignore[reportPrivateUsage] — a wait is not progress
 
 
@@ -188,10 +261,12 @@ def test_tick_colorizes_the_frame_like_the_unknown_bar() -> None:
     spinner = Spinner(
         stream=stream, enabled=True, ascii_only=True, clock=clock, message="preparing"
     )
-    spinner.start(total=None)
+    spinner.start(total=None)  # D1: the initial pending paint is colorized the same way
     clock.t = 1.0
     spinner.tick()
-    assert stream.getvalue() == "\r\x1b[36m-\x1b[0m preparing\x1b[K"
+    assert stream.getvalue() == (
+        "\r\x1b[36m-\x1b[0m preparing\x1b[K\r\x1b[36m\\\x1b[0m preparing\x1b[K"
+    )
 
 
 def test_tick_wears_the_stage_label(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -201,10 +276,10 @@ def test_tick_wears_the_stage_label(monkeypatch: pytest.MonkeyPatch) -> None:
     spinner = Spinner(
         stream=stream, enabled=True, ascii_only=True, clock=clock, message="warming", label="graph"
     )
-    spinner.start(total=None)
+    spinner.start(total=None)  # D1: the initial pending paint wears the label too
     clock.t = 1.0
     spinner.tick()
-    assert stream.getvalue() == "\r[graph] - warming\x1b[K"
+    assert stream.getvalue() == "\r[graph] - warming\x1b[K\r[graph] \\ warming\x1b[K"
 
 
 def test_disabled_spinner_tick_writes_nothing() -> None:
@@ -278,9 +353,10 @@ def test_paused_erases_then_redraws_the_status_line() -> None:
 
 
 def test_paused_before_any_draw_touches_nothing() -> None:
+    # start(0) is the never-paints arrange (D1 made start(total=2) paint)
     stream = io.StringIO()
     spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=_Clock())
-    spinner.start(total=2)
+    spinner.start(total=0)
     with spinner.paused():
         pass
     assert stream.getvalue() == ""

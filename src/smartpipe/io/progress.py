@@ -97,6 +97,26 @@ class Spinner:
         self._done = 0
         self._start = self.clock()
         self._last_draw = -1.0
+        self._draw_initial()
+
+    def _draw_initial(self) -> None:
+        """D1 (the one rule, ux.md): the first paint happens AT ``start`` — a
+        phase that stalls before its first completion still owns a visible zero
+        state. A set ``message`` paints the pending caption; a known nonzero
+        total paints the ``0% · 0/N`` bar; an unknown total paints
+        ``Processing [0]``; a known-empty total (0) paints nothing — there is
+        no work to watch. Only ``start`` paints eagerly: construction never
+        writes, so a bar built and abandoned stays silent."""
+        if not self.enabled:
+            return
+        if self.message is not None:
+            self.tick()  # start() reset the throttle, so this always paints
+            return
+        if self.total == 0:
+            return
+        now = self.clock()
+        self._last_draw = now  # the zero state counts against the redraw throttle
+        self._draw(now)
 
     def advance(self) -> None:
         self._done += 1
