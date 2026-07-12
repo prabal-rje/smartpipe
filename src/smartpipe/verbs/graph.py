@@ -19,9 +19,17 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Protocol, assert_never
 
-from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.core.errors import (
+    ExitCode,
+    ItemError,
+    SempipeError,
+    SetupFault,
+    UnsentError,
+    UsageFault,
+)
 from smartpipe.engine.graphkg import (
     ItemEntities,
     SpineRef,
@@ -79,9 +87,12 @@ if TYPE_CHECKING:
 __all__ = [
     "DEFAULT_ENTITIES",
     "FastScan",
+    "FoldCut",
+    "FoldOutcome",
     "GraphContext",
     "GraphModelContext",
     "GraphRequest",
+    "fold_cut_flips_partial",
     "fold_vectors",
     "note_folds",
     "parse_entities",
@@ -201,7 +212,30 @@ async def run_graph(
             "or --name-top\n"
             '  Example: smartpipe graph "who pays whom" --relations "pays, owns" notes/*.md'
         )
+    # Grammar outranks wiring (#27 review): every request-only validation runs
+    # BEFORE the fold-embedder preflight below, so a bad dial refuses at USAGE
+    # even when the embed config is also broken. Both parsers are pure and
+    # cheap; the modes re-parse for their own use (signatures stay stable).
+    parse_entities(request.entities)
+    parse_relations(request.relations)
     concurrency = context.concurrency(request.concurrency_flag)
+    adopt_dispatch = not request.fast and request.focus is None and request.name_top is None
+    if (
+        adopt_dispatch
+        and not request.input.patterns
+        and not request.input.from_files
+        and stdin.isatty()
+    ):
+        # Hoisted from run_adopt (#27): a bare terminal has no records to adopt,
+        # and that usage refusal must outrank a broken embed config below.
+        from smartpipe.verbs.graphfull import three_forms_fault
+
+        raise three_forms_fault()
+    # #27 preflight: build the fold embedder NOW, in every mode, so a broken embed
+    # config (missing key, chat-model-as-embedder) faults at exit 2 BEFORE any
+    # read, NER grind, or paid extraction. The instance is discarded — the fold
+    # rebuilds it (manifest.record_model is idempotent, one fold_embed entry).
+    await context.fold_embedder(request.embed_model_flag)
     if request.name_top is not None:
         from smartpipe.verbs.graphfull import run_hybrid
 
@@ -266,6 +300,37 @@ def _guard_save_outputs(raw: str, fmt: SaveFormat) -> None:
             assert_never(unreachable)
 
 
+class FoldCut(Enum):
+    """How the canonicalization fold ended (#30) — the exit wiring keys on this."""
+
+    NONE = "none"  # ran to completion (or fewer than two names — nothing to fold)
+    INTERRUPT = "interrupt"  # a drained Ctrl-C cut it — the drain summary already tells
+    FAULT = "fault"  # a mid-fold wire/content fault — degrades; the run exits by its counts
+    BELT = "belt"  # --max-calls cut a PAID fold — the run flips to PARTIAL, never 0
+
+
+@dataclass(frozen=True, slots=True)
+class FoldOutcome:
+    """What the fold salvaged: every vector embedded before any cut, plus the cut."""
+
+    vectors: Mapping[str, tuple[float, ...]]
+    cut: FoldCut
+
+
+def fold_cut_flips_partial(cut: FoldCut) -> bool:
+    """#29 ruling: only a BELT cut flips the run to PARTIAL — an interrupt
+    already exits by the drain rules, and a mid-fold fault exits by the run's
+    normal counts (ruling 5). A belt stop must also never wear the Ctrl-C
+    drain summary; the interrupted branches gate on this."""
+    match cut:
+        case FoldCut.BELT:
+            return True
+        case FoldCut.NONE | FoldCut.INTERRUPT | FoldCut.FAULT:
+            return False
+        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+            assert_never(unreachable)
+
+
 @dataclass(frozen=True, slots=True)
 class FastScan:
     """Everything the free pass produces — the fast mode writes it out as-is;
@@ -279,6 +344,7 @@ class FastScan:
     edges: tuple[GraphEdge, ...]
     skipped: int  # items the free ladder couldn't read (censused already)
     failed: int  # skipped items whose attempted local NER call failed
+    fold_cut: FoldCut  # how the name fold ended (#30) — BELT flips the exit to PARTIAL
 
 
 async def scan_corpus(
@@ -374,10 +440,15 @@ async def scan_corpus(
     # event loop so a single Ctrl-C is delivered and the fold-stage bar redraws;
     # the pure fold polls ``should_stop`` per window and salvages a clean partial.
     counts = await asyncio.to_thread(surface_counts, gathered)
-    vectors = await fold_vectors(
-        context, [surface.name for surface in counts], request.embed_model_flag
+    fold = await fold_vectors(
+        context,
+        [surface.name for surface in counts],
+        request.embed_model_flag,
+        should_stop=should_stop,
     )
-    canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
+    canonical = await asyncio.to_thread(
+        fold_surfaces, counts, fold.vectors, should_stop=should_stop
+    )
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)
@@ -399,6 +470,7 @@ async def scan_corpus(
         edges=edges,
         skipped=len(items) - len(gathered),
         failed=failed,
+        fold_cut=fold.cut,
     )
 
 
@@ -432,9 +504,12 @@ async def _run_fast(
         f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
         f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
     )
-    if stop is not None and stop.is_set():
+    fold_partial = fold_cut_flips_partial(scan.fold_cut)
+    if stop is not None and stop.is_set() and not fold_partial:
         # A drained Ctrl-C (during entity extraction or the fold, B1): the graph
-        # written above is salvaged partial — say so and exit accordingly.
+        # written above is salvaged partial — say so and exit accordingly. A
+        # BELT cut set the same stop event without any Ctrl-C (#29), so it must
+        # never wear the drain summary — it exits PARTIAL below instead.
         diagnostics.interrupted_summary(processed=len(scan.gathered), skipped=scan.skipped)
         return interrupted_exit_code(
             done=len(scan.gathered),
@@ -446,6 +521,7 @@ async def _run_fast(
         done=len(scan.gathered),
         skipped=scan.skipped,
         failed=scan.failed,
+        partial=fold_partial,
     )
 
 
@@ -537,16 +613,27 @@ def spine_ref(source: ItemSource) -> SpineRef:
 
 
 async def fold_vectors(
-    context: GraphContext, names: Sequence[str], embed_flag: str | None = None
-) -> dict[str, tuple[float, ...]]:
+    context: GraphContext,
+    names: Sequence[str],
+    embed_flag: str | None = None,
+    *,
+    should_stop: Callable[[], bool] | None = None,
+) -> FoldOutcome:
     """Embed the distinct surface names for the canonicalization fold. The
     embedder honors the configured ``embed-model``/``--embed-model`` (specified
     wins) and falls back to the on-device local model when nothing is set. A
     non-local (paid) fold is disclosed once, since it spends even on ``--fast``.
-    An unavailable embedder degrades to no folding, disclosed."""
+
+    Paid work is never lost (#30): every vector embedded before a cut is kept.
+    ``should_stop`` — the SYNCHRONOUS Ctrl-C predicate, polled once per batch;
+    never the async drain event, which the belt shares and must not cut a free
+    fold — ends it at INTERRUPT. The belt's ``UnsentError`` ends it at BELT; any
+    other mid-fold fault (a wire dying mid-run included, ruling 5) degrades to
+    FAULT. Unembedded names simply keep their spelling downstream. Build faults
+    are NOT caught here: the ``run_graph`` preflight (#27) owns those, fatally."""
     if len(names) < 2:
-        return {}
-    embedder = await context.fold_embedder(embed_flag)
+        return FoldOutcome(vectors={}, cut=FoldCut.NONE)
+    embedder = await context.fold_embedder(embed_flag)  # build faults stay fatal (#27)
     # local is on-device and ollama is free loopback/self-hosted (as convert.py and
     # fence.py already treat it) — neither spends, so only a paid cloud wire discloses.
     if embedder.ref.provider not in ("local", "ollama"):
@@ -556,16 +643,39 @@ async def fold_vectors(
     fold_bar = stage("fold")
     fold_bar.start(len(names))
     vectors: dict[str, tuple[float, ...]] = {}
+    cut = FoldCut.NONE
     try:
         for batch in batched(list(names), EMBED_BATCH_SIZE):
+            if should_stop is not None and should_stop():
+                cut = FoldCut.INTERRUPT
+                diagnostics.note(
+                    f"entity folding interrupted — {len(vectors):,} of {len(names):,} "
+                    "names embedded; the rest keep their spelling"
+                )
+                break
             for name, vector in zip(batch, await embedder.embed(list(batch)), strict=True):
                 vectors[name] = vector
                 fold_bar.advance()
-    except ItemError as exc:
-        diagnostics.warn(f"entity folding skipped ({exc}) — every surface form keeps its node")
-        vectors = {}
+    except UnsentError as exc:  # an ItemError subclass — the belt arm must come FIRST
+        cut = FoldCut.BELT
+        _warn_fold_cut(exc, embedded=len(vectors), total=len(names))
+    except (ItemError, SetupFault) as exc:
+        cut = FoldCut.FAULT
+        _warn_fold_cut(exc, embedded=len(vectors), total=len(names))
     fold_bar.finish()
-    return vectors
+    return FoldOutcome(vectors=vectors, cut=cut)
+
+
+def _warn_fold_cut(exc: SempipeError, *, embedded: int, total: int) -> None:
+    """The mid-fold degradation disclosure: what was kept, what keeps its spelling.
+    The nothing-embedded wording stays byte-identical to the pre-#30 skip line."""
+    if embedded == 0:
+        diagnostics.warn(f"entity folding skipped ({exc}) — every surface form keeps its node")
+        return
+    diagnostics.warn(
+        f"entity folding stopped early ({exc}) — {embedded:,} of {total:,} "
+        "names embedded; the rest keep their spelling"
+    )
 
 
 def save_graph(

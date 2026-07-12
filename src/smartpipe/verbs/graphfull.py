@@ -53,8 +53,10 @@ from smartpipe.models.base import AudioData, ImageData, VideoData
 from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code
 from smartpipe.verbs.graph import (
     FastScan,
+    FoldCut,
     GraphModelContext,
     GraphRequest,
+    fold_cut_flips_partial,
     fold_vectors,
     note_folds,
     parse_entities,
@@ -349,24 +351,29 @@ async def run_full(
 
     # Salvage runs through the SAME fold/write path a clean exit takes: the
     # already-extracted assertions are folded, pruned, and written below BEFORE any
-    # halt re-raise. The fold is a prerequisite (edges need canonical names), so if
-    # the fold wire itself fails here the resulting SetupFault is fatal for a clean
-    # run too — it is orthogonal to A1's extraction-halt salvage, not a regression
-    # of it (fold-path resilience is tracked separately as B1).
+    # halt re-raise. The fold itself salvages too (#30): fold_vectors keeps every
+    # vector embedded before a Ctrl-C, a mid-fold wire fault, or the belt
+    # (FoldOutcome), so a cut fold means fewer folded names — never a lost run.
     # B1: the fold trio runs OFF the event loop so a Ctrl-C during it is
     # delivered and the bar redraws; fold_surfaces polls ``should_stop`` and
-    # degrades to a clean partial canonical map on a stop.
+    # degrades to a clean partial canonical map on a stop. fold_assertions runs
+    # UNGATED (the deliberate B1-review rollback): a latched SIGINT would cut it
+    # at assertion #1 and the salvage would write an EMPTY graph — the write
+    # below is cheap and must carry everything already paid for.
     counts = await asyncio.to_thread(assertion_surface_counts, assertions)
-    vectors = await fold_vectors(
-        context, [surface.name for surface in counts], request.embed_model_flag
+    fold = await fold_vectors(
+        context,
+        [surface.name for surface in counts],
+        request.embed_model_flag,
+        should_stop=should_stop,
     )
-    canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
+    canonical = await asyncio.to_thread(
+        fold_surfaces, counts, fold.vectors, should_stop=should_stop
+    )
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)
-    folded_edges = await asyncio.to_thread(
-        fold_assertions, assertions, canonical, should_stop=should_stop
-    )
+    folded_edges = await asyncio.to_thread(fold_assertions, assertions, canonical)
     kept, _ = prune_edges(folded_edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
@@ -405,7 +412,16 @@ async def run_full(
             halted.last_reason,
             source_counts=source_counts,
         ) from halted
-    if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
+    # The stop event conflates a Ctrl-C with the belt's own drain, and the belt
+    # latch is HISTORICAL (review blocker): the last extraction can exactly
+    # exhaust the belt (run complete, stop set, no shortfall) BEFORE the user
+    # Ctrl-Cs the free fold. The fold's own INTERRUPT report is the truth about
+    # a real Ctrl-C there, so it overrides the latch — never silently swallowed.
+    if (
+        stop is not None
+        and stop.is_set()
+        and (fold.cut is FoldCut.INTERRUPT or not (budget is not None and budget.exhausted))
+    ):
         diagnostics.interrupted_summary(processed=done, skipped=chunk_skipped)
         return interrupted_exit_code(
             done=len(ok_sources),
@@ -418,7 +434,9 @@ async def run_full(
         done=len(ok_sources),
         skipped=skipped_sources,
         failed=len(failed_sources),
-        partial=belt_partial,
+        # a belt-cut FOLD also flips the exit (#29) — the extraction may be
+        # complete, but the graph's canonicalization is not.
+        partial=belt_partial or fold_cut_flips_partial(fold.cut),
         source_counts=source_counts,
     )
 
@@ -699,19 +717,28 @@ async def run_hybrid(
             failed=scan.failed,
             partial=True,
         )
-    if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
+    # The same historical-latch trap as run_full (review blocker), carried out
+    # through FastScan.fold_cut: a fold-reported INTERRUPT is a real Ctrl-C and
+    # overrides an exhausted belt; a cut fold also makes the salvage partial.
+    if (
+        stop is not None
+        and stop.is_set()
+        and (scan.fold_cut is FoldCut.INTERRUPT or not (budget is not None and budget.exhausted))
+    ):
         diagnostics.interrupted_summary(processed=len(scan.gathered), skipped=scan.skipped)
         return interrupted_exit_code(
             done=len(scan.gathered),
             skipped=scan.skipped,
             failed=scan.failed,
-            partial=bool(naming_skips),
+            partial=bool(naming_skips) or scan.fold_cut is FoldCut.INTERRUPT,
         )
     return outcome_exit_code(
         done=len(scan.gathered),
         skipped=scan.skipped,
         failed=scan.failed,
-        partial=belt_short or bool(naming_skips),
+        # a belt-cut FOLD in the scan also flips the exit (#29), carried out
+        # through FastScan.fold_cut — even when there was nothing to name.
+        partial=belt_short or bool(naming_skips) or fold_cut_flips_partial(scan.fold_cut),
     )
 
 
@@ -771,9 +798,10 @@ async def run_adopt(
     should_stop: Callable[[], bool] | None = None,
 ) -> ExitCode:
     """Edge records in, graph out — zero extraction calls: adopt each row's
-    endpoints/relation/weight/provenance, canonicalize, fold, serialize."""
-    if not request.input.patterns and not request.input.from_files and stdin.isatty():
-        raise three_forms_fault()  # a bare terminal has no records to adopt
+    endpoints/relation/weight/provenance, canonicalize, fold, serialize.
+
+    The bare-terminal three-forms refusal lives in ``run_graph`` (#27): it must
+    outrank the fold-embedder preflight that fires there before dispatch."""
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     read_bar = stage("read")
     read_bar.start(total)
@@ -786,18 +814,23 @@ async def run_adopt(
         raise three_forms_fault()
 
     # B1: the fold trio runs off the event loop (see run_full) so a Ctrl-C is
-    # delivered even on a large adopted corpus.
+    # delivered even on a large adopted corpus. fold_vectors salvages on any cut
+    # (#30) and fold_assertions runs UNGATED (the B1-review rollback, see
+    # run_full): a latched SIGINT must not zero the write below.
     counts = await asyncio.to_thread(assertion_surface_counts, assertions)
-    vectors = await fold_vectors(
-        context, [surface.name for surface in counts], request.embed_model_flag
+    fold = await fold_vectors(
+        context,
+        [surface.name for surface in counts],
+        request.embed_model_flag,
+        should_stop=should_stop,
     )
-    canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
+    canonical = await asyncio.to_thread(
+        fold_surfaces, counts, fold.vectors, should_stop=should_stop
+    )
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)
-    folded_edges = await asyncio.to_thread(
-        fold_assertions, assertions, canonical, should_stop=should_stop
-    )
+    folded_edges = await asyncio.to_thread(fold_assertions, assertions, canonical)
     kept, pruned = prune_edges(folded_edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
@@ -806,12 +839,15 @@ async def run_adopt(
         f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
         f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
     )
-    if stop is not None and stop.is_set():
+    fold_partial = fold_cut_flips_partial(fold.cut)
+    if stop is not None and stop.is_set() and not fold_partial:
         # B1 review: a drained Ctrl-C during the fold salvaged a partial graph on
-        # stdout — say so and exit INTERRUPTED/PARTIAL, never OK (like run_full/hybrid).
+        # stdout — say so and exit INTERRUPTED/PARTIAL, never OK (like run_full/
+        # hybrid). A BELT cut set the same stop event with no Ctrl-C (#29): it
+        # must never wear the drain summary — it exits PARTIAL below instead.
         diagnostics.interrupted_summary(processed=len(assertions), skipped=0)
         return interrupted_exit_code(done=len(assertions), skipped=0, failed=0, partial=True)
-    return outcome_exit_code(done=len(assertions), skipped=0, failed=0)
+    return outcome_exit_code(done=len(assertions), skipped=0, failed=0, partial=fold_partial)
 
 
 def _adopt_assertion(item: Item) -> EdgeAssertion:
