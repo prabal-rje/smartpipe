@@ -75,6 +75,12 @@ class BatchGraphContext:
     def batching(self) -> BatchSettings | None:
         return self.settings
 
+    def remote_transcriber(
+        self, chat_ref: object | None = None, *, flag: str | None = None
+    ) -> None:
+        del chat_ref, flag  # C4 protocol member: batching tests never resolve stt
+        return None
+
     async def resilient_chat_model(
         self, flag: str | None = None, fallback_flag: str | None = None
     ) -> WiredChat:
