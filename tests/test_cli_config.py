@@ -135,7 +135,13 @@ class _Menu:
 
     def __call__(self, title: str, labels: tuple[str, ...], start: int) -> int | None:
         self.shown.append((title, labels, start))
-        return start if self.picks is None or not self.picks else self.picks.pop(0)
+        picked = start if self.picks is None or not self.picks else self.picks.pop(0)
+        # a real chooser can never return a separator — a script that lands on
+        # one is a stale raw index and must fail HERE, not three menus later
+        assert picked is None or labels[picked] != "", (
+            f"scripted pick {picked} landed on a separator in {title!r}"
+        )
+        return picked
 
 
 async def _run_flow(
@@ -154,6 +160,7 @@ async def _run_flow(
     confirms: dict[str, bool] | None = None,
     connect: object = None,
     local_embed: bool = True,
+    whisper_avail: bool = True,
     verify: object = None,
     offer: object = None,
 ) -> tuple[Config, _Recorder, _Menu]:
@@ -203,16 +210,22 @@ async def _run_flow(
         save=rec.save,
         connect=typed_connect,
         local_embed_available=local_embed,
+        whisper_available=whisper_avail,
         run_verify=typed_verify,
         offer_completions=typed_offer,
     )
     return result, rec, menu
 
 
-# TEXT provider rows (fresh config): 0 ollama · 1 openai (API key) · 2 openai (ChatGPT
-# login) · 3 gemini · 4 anthropic · 5 mistral · 6 openrouter · 7 skip.
-# EMBED rows: [pair?] then local · ollama · openai (API key) · gemini · mistral · jina,
-# then keep-current (when set) or skip. OCR rows: keep · mistral · [vision] · typed · [unset].
+# Raw menu indices (separators "" are real rows but unpickable).
+# TEXT (fresh config): 0 ollama · 1 openai (API key) · 2 openai (ChatGPT login) ·
+#   3 gemini · 4 anthropic · 5 mistral · 6 openrouter · 7 sep · 8 skip · 9 cancel
+#   (with keep-current: 7 sep · 8 keep · 9 sep · 10 skip · 11 cancel).
+# EMBED: [pair · sep] then local · ollama · openai (API key) · gemini · mistral · jina ·
+#   sep · keep-or-skip · back (no pair: providers at 0; with pair: providers at 2).
+# OCR: keep · sep · mistral · [vision] · [picks…] · sep · typed · [unset] · back.
+# STT: keep · sep · local · remote · sep · typed · [unset] · back.
+# Model picks: catalog rows · sep · type-it · back.
 
 
 async def test_flow_ollama_pick_pairs_a_detected_local_embedder() -> None:
@@ -265,12 +278,12 @@ async def test_flow_never_overwrites_a_deliberate_embedder() -> None:
         current=Config(embed_model="jina/jina-clip-v2"),
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[1, 0, 6, 0],  # embed menu: NO pair row; index 6 = keep current
+        picks=[1, 0, 7, 0],  # embed menu: NO pair row; index 7 = keep current
     )
     assert result.embed_model == "jina/jina-clip-v2"  # user intent outranks the pairing
     embed_labels = menu.shown[2][1]
     assert not any("paired with" in label for label in embed_labels)
-    assert embed_labels[6] == "keep current: jina/jina-clip-v2"
+    assert embed_labels[7] == "keep current: jina/jina-clip-v2"
     assert not any("paired" in line for line in rec.said)
 
 
@@ -293,7 +306,7 @@ async def test_flow_catalog_failure_degrades_to_typed_input() -> None:
         picks=[1, 0, 0],
     )
     assert result.model == "openai/gpt-5.4-mini"  # the provider-prefixed example default
-    assert len(menu.shown) == 4  # no model menu: text · embed · ocr · review
+    assert len(menu.shown) == 5  # no model menu: text · embed · ocr · stt · review
     assert any("couldn't fetch the live catalog" in line for line in rec.said)
     assert any("openai/gpt-5.4-mini" in line and "OPENAI_API_KEY" in line for line in rec.said)
 
@@ -302,7 +315,7 @@ async def test_flow_type_it_entry_routes_to_typed_input() -> None:
     result, _rec, menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[1, 1, 0, 0],  # the type-it row stays before the new Back row
+        picks=[1, 2, 0, 0],  # the type-it row sits past the separator, before Back
         answers={"Default model?": "o4-mini"},
     )
     assert result.model == "openai/o4-mini"
@@ -347,7 +360,7 @@ async def test_flow_backup_model_back_returns_to_the_backup_provider_menu() -> N
             "openai": ("gpt-5.4-mini",),
             "gemini": ("gemini-3.1-flash-lite",),
         },
-        picks=[1, 0, 0, 2, 1, 0, 0, 0, 0],
+        picks=[1, 0, 0, 3, 1, 0, 0, 0, 0],
         confirms={"Add a backup model for provider outages?": True},
     )
     assert result.fallback_model == "gemini/gemini-3.1-flash-lite"
@@ -361,14 +374,14 @@ async def test_flow_backup_defaults_to_no() -> None:
         picks=[1, 0, 0, 0],
     )
     assert result.fallback_model is None
-    assert len(menu.shown) == 5  # text · model · embed · ocr · review — never looped
+    assert len(menu.shown) == 6  # text · model · embed · ocr · stt · review — never looped
 
 
 async def test_flow_backup_refuses_an_embedder() -> None:
     result, rec, _menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[1, 0, 0, 1, 0, 0],  # backup goes through "type it instead"
+        picks=[1, 0, 0, 2, 0, 0],  # backup goes through "type it instead"
         answers={"Backup model?": "text-embedding-3-small"},
         confirms={"Add a backup model for provider outages?": True},
     )
@@ -390,7 +403,7 @@ async def test_flow_discard_stops_without_any_later_effect_or_prompt() -> None:
     offered: list[bool] = []
     verified: list[Config] = []
     rec = _Recorder()
-    menu = _Menu([1, 0, 0, 0, 2])
+    menu = _Menu([1, 0, 0, 0, 0, 3])
 
     async def probe() -> tuple[str, ...] | None:
         return None
@@ -436,7 +449,7 @@ async def test_flow_text_cancel_is_terminal_and_unchanged() -> None:
         verified.append(config)
 
     result, rec, menu = await _run_flow(
-        picks=[8],
+        picks=[9],
         verify=verify,
         offer=lambda: offered.append(True),
     )
@@ -452,7 +465,7 @@ async def test_flow_embed_back_restores_the_pre_text_checkpoint() -> None:
     result, rec, menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[1, 0, 8, 7, 6, 0, 0],
+        picks=[1, 0, 10, 8, 7, 0, 0],
     )
     assert result == Config()
     assert rec.saved is None
@@ -468,7 +481,7 @@ async def test_flow_embed_back_discards_a_draft_fallback_model() -> None:
             "openai": ("gpt-5.4-mini",),
             "gemini": ("gemini-3.1-flash-lite",),
         },
-        picks=[1, 0, 1, 0, 8, 7, 6, 0, 0],
+        picks=[1, 0, 1, 0, 10, 8, 7, 0, 0],
         confirms={"Add a backup model for provider outages?": True},
     )
     assert result == Config()
@@ -478,7 +491,7 @@ async def test_flow_embed_back_discards_a_draft_fallback_model() -> None:
 
 async def test_flow_ocr_back_restores_the_pre_embed_checkpoint() -> None:
     result, rec, menu = await _run_flow(
-        picks=[7, 0, 0, 3, 6, 0, 0],
+        picks=[8, 0, 0, 5, 7, 0, 0],
     )
     assert result == Config()
     assert rec.saved is None
@@ -491,7 +504,7 @@ async def test_flow_review_back_discards_ocr_draft_then_saves_once() -> None:
     result, rec, menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[1, 0, 0, 2, 1, 0, 0],
+        picks=[1, 0, 0, 3, 0, 1, 6, 0, 0, 0],  # review-back lands on STT; STT-back reaches OCR
     )
     assert result.model == "openai/gpt-5.4-mini"
     assert result.ocr_model is None
@@ -499,7 +512,7 @@ async def test_flow_review_back_discards_ocr_draft_then_saves_once() -> None:
     assert rec.save_calls == 1
     assert len([shown for shown in menu.shown if shown[0].startswith("Document OCR")]) == 2
     reviews = [shown for shown in menu.shown if shown[0] == "Review changes:"]
-    assert reviews[0][1] == ("save changes", "back - document OCR", "discard changes")
+    assert reviews[0][1] == ("save changes", "back - speech-to-text", "", "discard changes")
 
 
 @pytest.mark.parametrize("answer", ["back", "b", "no", "n"])
@@ -507,7 +520,7 @@ async def test_flow_typed_back_alias_returns_to_the_model_menu(answer: str) -> N
     result, rec, menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[1, 1, 2, 8],
+        picks=[1, 2, 3, 9],
         answers={"Default model?": answer},
     )
     assert result == Config()
@@ -521,7 +534,7 @@ async def test_flow_typed_embed_back_returns_to_the_embed_model_menu() -> None:
     result, rec, menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
         embed_catalogs={"openai": ("text-embedding-3-small",)},
-        picks=[7, 2, 1, 2, 7, 8],
+        picks=[8, 2, 2, 3, 8, 9],
         answers={"Embedding model?": "n"},
     )
     assert result == Config()
@@ -532,7 +545,7 @@ async def test_flow_typed_embed_back_returns_to_the_embed_model_menu() -> None:
 
 async def test_flow_typed_ocr_no_returns_to_the_ocr_choices() -> None:
     result, rec, menu = await _run_flow(
-        picks=[7, 6, 2, 0, 0],
+        picks=[8, 7, 4, 0, 0, 0],
         answers={"OCR model?": "n"},
     )
     assert result == Config()
@@ -674,7 +687,7 @@ async def test_flow_connect_declined_reshows_the_menu_with_fresh_badges() -> Non
 
     result, rec, menu = await _run_flow(
         env={},
-        picks=[5, 7, 5, 6, 0],  # mistral declined, text again (skip); jina declined, skip; ocr
+        picks=[5, 8, 5, 7, 0],  # mistral declined, text again (skip); jina declined, skip; ocr
         connect=connect,
     )
     assert attempts == ["mistral", "jina"]  # embed menu index 5 = jina (no pair row)
@@ -686,7 +699,7 @@ async def test_flow_connect_declined_reshows_the_menu_with_fresh_badges() -> Non
 
 
 async def test_flow_without_connect_says_the_auth_door_and_skips() -> None:
-    result, rec, _menu = await _run_flow(env={}, picks=[5, 6, 0])
+    result, rec, _menu = await _run_flow(env={}, picks=[5, 7, 0])
     assert result == Config()
     assert any("smartpipe auth login mistral" in line for line in rec.said)
 
@@ -698,7 +711,7 @@ async def test_flow_embed_provider_pick_uses_the_embed_catalog() -> None:
     result, _rec, menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
         embed_catalogs={"openai": ("text-embedding-3-small", "text-embedding-3-large")},
-        picks=[7, 2, 1, 0],  # text: skip · embed: openai → the large embedder · ocr: skip
+        picks=[8, 2, 1, 0],  # text: skip · embed: openai → the large embedder · ocr: skip
     )
     assert result.model is None
     assert result.embed_model == "openai/text-embedding-3-large"
@@ -710,7 +723,7 @@ async def test_flow_embed_provider_pick_uses_the_embed_catalog() -> None:
 async def test_flow_embed_stage_has_no_chatgpt_and_offers_jina() -> None:
     _result, _rec, menu = await _run_flow(
         env={"JINA_API_KEY": "j"},
-        picks=[7, 5, 0, 0],  # text: skip · embed: jina → jina-clip-v2 · ocr: skip
+        picks=[8, 5, 0, 0],  # text: skip · embed: jina → jina-clip-v2 · ocr: skip
     )
     embed_labels = menu.shown[1][1]
     assert not any("ChatGPT" in label for label in embed_labels)
@@ -720,14 +733,14 @@ async def test_flow_embed_stage_has_no_chatgpt_and_offers_jina() -> None:
 async def test_flow_embed_jina_pick_is_curated() -> None:
     result, _rec, menu = await _run_flow(
         env={"JINA_API_KEY": "j"},
-        picks=[7, 5, 0, 0],
+        picks=[8, 5, 0, 0],
     )
     assert result.embed_model == "jina/jina-clip-v2"
     assert menu.shown[2][1][0] == "jina/jina-clip-v2"
 
 
 async def test_flow_embed_local_row_vanishes_without_fastembed() -> None:
-    _result, _rec, menu = await _run_flow(env={}, picks=[7, 5, 0, 0], local_embed=False)
+    _result, _rec, menu = await _run_flow(env={}, picks=[8, 6, 0, 0], local_embed=False)
     embed_labels = menu.shown[1][1]
     assert not any("built-in, on-device" in label for label in embed_labels)
 
@@ -739,7 +752,7 @@ async def test_flow_ocr_mistral_pick_sets_the_dedicated_wire() -> None:
     result, rec, _menu = await _run_flow(
         env={"MISTRAL_API_KEY": "mk"},
         catalogs={"mistral": ("mistral-small-latest",)},
-        picks=[5, 0, 0, 1],
+        picks=[5, 0, 0, 2],
     )
     assert result.ocr_model == "mistral/mistral-ocr-latest"
     assert any("✓ ocr-model mistral/mistral-ocr-latest" in line for line in rec.said)
@@ -749,11 +762,11 @@ async def test_flow_ocr_vision_pick_reuses_the_chat_model() -> None:
     result, _rec, menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[1, 0, 0, 2],
+        picks=[1, 0, 0, 3],
     )
     assert result.ocr_model == "openai/gpt-5.4-mini"
     ocr_labels = menu.shown[3][1]
-    assert "extract-the-text" in ocr_labels[2]
+    assert "extract-the-text" in ocr_labels[3]
 
 
 async def test_flow_ocr_explains_what_it_changes_and_skips_in_one_keypress() -> None:
@@ -774,11 +787,11 @@ async def test_flow_ocr_unset_clears_the_role() -> None:
         current=current,
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[7, 7, 4],  # text: keep · embed: skip past the pair · ocr: unset
+        picks=[8, 9, 6],  # text: keep · embed: skip past the pair · ocr: unset
     )
     assert result.ocr_model is None
     assert any("ocr-model unset" in line for line in rec.said)
-    assert menu.shown[2][1][4] == "unset - back to the built-in local extraction"
+    assert menu.shown[2][1][6] == "unset - back to the built-in local extraction"
 
 
 async def test_flow_ocr_mistral_without_key_asks_to_connect_first() -> None:
@@ -794,7 +807,7 @@ async def test_flow_ocr_mistral_without_key_asks_to_connect_first() -> None:
     result, _rec, _menu = await _run_flow(
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[1, 0, 0, 1],
+        picks=[1, 0, 0, 2],
         connect=connect,
     )
     assert connected == ["mistral"]
@@ -810,12 +823,12 @@ async def test_flow_ocr_lists_vision_capable_catalog_entries(  # item 73c
             "openai/o4-mini": RegistryCaps(image=True, audio=False),
             "anthropic/claude-opus-4-8": RegistryCaps(image=True, audio=False),
         },
-        picks=[1, 0, 0, 3],  # ocr: keep(0) · mistral(1) · vision chat(2) · o4-mini(3)
+        picks=[1, 0, 0, 4],  # ocr: keep(0) · sep · mistral(2) · vision chat(3) · o4-mini(4)
     )
     ocr_labels = menu.shown[3][1]
-    assert ocr_labels[3] == "openai/o4-mini"
-    assert ocr_labels[4] == "anthropic/claude-opus-4-8"
-    assert ocr_labels[5].startswith("type a model name instead")
+    assert ocr_labels[4] == "openai/o4-mini"
+    assert ocr_labels[5] == "anthropic/claude-opus-4-8"
+    assert ocr_labels[7].startswith("type a model name instead")
     assert result.ocr_model == "openai/o4-mini"
     # the picked chat model keeps its dedicated row - never doubled as a pick row
     assert sum("gpt-5.4-mini" in label for label in ocr_labels) == 1
@@ -835,11 +848,107 @@ async def test_flow_ocr_vision_entry_from_an_unconnected_provider_connects_first
         env={"OPENAI_API_KEY": "sk-x"},
         catalogs={"openai": ("gpt-5.4-mini",)},
         registry={"anthropic/claude-opus-4-8": RegistryCaps(image=True, audio=False)},
-        picks=[1, 0, 0, 3],  # the anthropic entry needs its key first
+        picks=[1, 0, 0, 4],  # the anthropic entry needs its key first
         connect=connect,
     )
     assert connected == ["anthropic"]
     assert result.ocr_model == "anthropic/claude-opus-4-8"
+
+
+# --- the STT stage --------------------------------------------------------------------
+
+
+async def test_flow_stt_local_pick_pins_on_device_whisper() -> None:
+    result, rec, menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[1, 0, 0, 0, 2],  # text · model · embed pair · ocr skip · stt local
+    )
+    assert result.stt_model == "local"
+    assert rec.saved == result
+    assert any("✓ stt-model local" in line for line in rec.said)
+    assert any("on-device" in line for line in rec.said)
+    stt_title, stt_labels, stt_start = menu.shown[4]
+    assert stt_title == "Speech-to-text - optional:"
+    assert stt_start == 0 and stt_labels[0].startswith("skip - auto")  # Enter = skip
+    assert stt_labels[-1] == "back - document OCR"
+
+
+async def test_flow_stt_explains_what_it_changes() -> None:
+    _result, rec, _menu = await _run_flow(picks=[8, 7, 0, 0])
+    assert any("how audio becomes text at ingestion" in line for line in rec.said)
+
+
+async def test_flow_stt_remote_with_key_sets_whisper_1() -> None:
+    result, rec, _menu = await _run_flow(
+        env={"OPENAI_API_KEY": "sk-x"},
+        catalogs={"openai": ("gpt-5.4-mini",)},
+        picks=[1, 0, 0, 0, 3],  # stt: the remote wire row
+    )
+    assert result.stt_model == "openai/whisper-1"
+    assert any("✓ stt-model openai/whisper-1" in line for line in rec.said)
+
+
+async def test_flow_stt_remote_without_key_connects_first() -> None:
+    connected: list[str] = []
+
+    async def connect(entry: object) -> bool:
+        from smartpipe.config.picker import StageEntry
+
+        assert isinstance(entry, StageEntry)
+        connected.append(entry.provider)
+        return True
+
+    result, _rec, _menu = await _run_flow(env={}, picks=[8, 7, 0, 3], connect=connect)
+    assert connected == ["openai"]
+    assert result.stt_model == "openai/whisper-1"
+
+
+async def test_flow_stt_remote_without_connect_says_the_auth_door_and_keeps() -> None:
+    result, rec, _menu = await _run_flow(env={}, picks=[8, 7, 0, 3])
+    assert result.stt_model is None
+    assert rec.saved is None  # nothing changed — keep, not a surprise write
+    assert any("smartpipe auth login openai" in line for line in rec.said)
+
+
+async def test_flow_stt_typed_non_openai_is_rejected_now() -> None:
+    result, rec, menu = await _run_flow(
+        picks=[8, 7, 0, 5, 2],  # stt: typed (rejected, menu returns) → local
+        answers={"STT model?": "gemini/native-hearing"},
+    )
+    assert result.stt_model == "local"
+    assert any("only the openai STT wire exists yet" in line for line in rec.said)
+    assert len([s for s in menu.shown if s[0].startswith("Speech-to-text")]) == 2
+
+
+async def test_flow_stt_typed_local_word_is_the_sentinel() -> None:
+    result, _rec, _menu = await _run_flow(
+        picks=[8, 7, 0, 5],
+        answers={"STT model?": "local"},
+    )
+    assert result.stt_model == "local"  # typed "local" never parses as ollama/local
+
+
+async def test_flow_stt_unset_clears_the_role() -> None:
+    current = Config(stt_model="openai/whisper-1")
+    result, rec, _menu = await _run_flow(current=current, picks=[8, 7, 0, 6])
+    assert result.stt_model is None
+    assert any("stt-model unset" in line for line in rec.said)
+
+
+async def test_flow_stt_back_returns_to_ocr() -> None:
+    result, rec, menu = await _run_flow(picks=[8, 7, 0, 6, 0, 0])
+    assert result == Config()
+    assert rec.saved is None
+    assert len([s for s in menu.shown if s[0].startswith("Document OCR")]) == 2
+    stt_labels = next(s[1] for s in menu.shown if s[0].startswith("Speech-to-text"))
+    assert stt_labels[-1] == "back - document OCR"
+
+
+async def test_flow_stt_local_warns_when_whisper_wheels_are_absent() -> None:
+    result, rec, _menu = await _run_flow(picks=[8, 7, 0, 2], whisper_avail=False)
+    assert result.stt_model == "local"  # saved anyway — doctor tracks the gap
+    assert any("local whisper isn't available" in line for line in rec.said)
 
 
 # --- idempotence + the exit-probe hook -----------------------------------------------

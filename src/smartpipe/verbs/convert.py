@@ -89,8 +89,10 @@ class Converter:
     async def audio_to_text(self, audio: AudioData, where: str) -> str:
         """stt-model rung (verbatim, consent-gated) → LLM rung → whisper →
         the two-fix skip. A configured transcriber runs FIRST: whoever set it
-        wants verbatim, and LLM hearing paraphrases (D39/05)."""
-        if self.stt is not None and self.allow_paid:
+        wants verbatim, and LLM hearing paraphrases (D39/05). A free LOCAL
+        transcriber needs no paid-conversion consent — the gate exists because
+        remote STT bills; on-device whisper doesn't."""
+        if self.stt is not None and (self.allow_paid or self.stt.ref.provider == "local"):
             try:
                 transcript = await self.stt.transcribe(audio)
             except ItemError as fault:

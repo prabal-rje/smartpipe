@@ -2,6 +2,8 @@
 
 Chat:  flag > SMARTPIPE_MODEL > config.model > ollama autodetect > NO_MODEL screen.
 Embed: flag > SMARTPIPE_EMBED_MODEL > config.embed_model > nomic-embed-text.
+STT:   SMARTPIPE_STT_MODEL > config.stt-model > the auto-matrix (pure, shared
+       by the container, doctor, and --probe so the ladder story never forks).
 
 The ollama probe is injected as a first-class async function so this module has
 no I/O of its own — the container passes the real probe, tests pass a fake.
@@ -10,7 +12,7 @@ no I/O of its own — the container passes the real probe, tests pass a fake.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from smartpipe.cli import screens
 from smartpipe.core.errors import SetupFault
@@ -21,7 +23,18 @@ if TYPE_CHECKING:
 
     from smartpipe.config.store import Config
 
-__all__ = ["Resolved", "resolve_chat_ref", "resolve_embed_ref"]
+__all__ = [
+    "LOCAL_STT",
+    "Resolved",
+    "SttResolution",
+    "resolve_chat_ref",
+    "resolve_embed_ref",
+    "resolve_stt",
+]
+
+# The stt-model sentinel that pins on-device whisper (never parsed as a ref —
+# parse_model_ref("local") would misread it as an ollama model name).
+LOCAL_STT = "local"
 
 
 def _default_embed_model() -> str:
@@ -38,6 +51,37 @@ def _default_embed_model() -> str:
 class Resolved:
     ref: ModelRef
     notice: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SttResolution:
+    """Where audio transcription would go, and why — display and wiring share it."""
+
+    kind: Literal["remote", "local", "ladder"]  # ladder = no rung-0 transcriber
+    ref: str | None  # set only for kind == "remote"
+    source: Literal["env", "config", "auto"]
+
+
+def resolve_stt(
+    env: Mapping[str, str], stt_model: str | None, chat_provider: str | None
+) -> SttResolution:
+    """The stt-model role (D39/05), pure: explicit env/config wins — ``local``
+    pins on-device whisper; otherwise the owner's auto-matrix — an openai chat
+    model plus its KEY means whisper-1 (the API supports it; ChatGPT-login does
+    not, so OAuth-only stays on the ladder); gemini hears natively (no
+    preemption); ollama has no STT (the ladder ends at local whisper)."""
+    raw = env.get("SMARTPIPE_STT_MODEL", "").strip()
+    source: Literal["env", "config", "auto"] = "env"
+    if not raw:
+        raw = (stt_model or "").strip()
+        source = "config"
+    if not raw:
+        if chat_provider == "openai" and env.get("OPENAI_API_KEY", "").strip():
+            return SttResolution("remote", "openai/whisper-1", "auto")
+        return SttResolution("ladder", None, "auto")
+    if raw.lower() == LOCAL_STT:
+        return SttResolution("local", None, source)
+    return SttResolution("remote", raw, source)
 
 
 async def resolve_chat_ref(

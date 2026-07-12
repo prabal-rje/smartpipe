@@ -1,6 +1,7 @@
-smartpipe setup - text model, then embeddings, then documents
+smartpipe setup - text model, then embeddings, then documents, then speech
 
 Text model - pick a provider:
+
   1. ollama                  needs install (ollama.com)
   2. openai (API key)        ✓ key
   3. openai (ChatGPT login)  needs login
@@ -8,6 +9,7 @@ Text model - pick a provider:
   5. anthropic               needs key
   6. mistral                 needs key
   7. openrouter              needs key
+
   8. skip - decide later
   9. cancel setup - leave config unchanged
   couldn't fetch the live catalog — type the model name instead.
@@ -17,29 +19,47 @@ Text model - pick a provider:
   text-only models refuse image rows.
   Type 'back' to return to the provider list.
 Embedding model - powers embed, top_k, cluster, distinct:
+
   1. openai/text-embedding-3-small - paired with openai
+
   2. local (built-in, on-device)  ✓ local
   3. ollama                       needs install (ollama.com)
   4. openai (API key)             ✓ key
   5. gemini                       needs key
   6. mistral                      needs key
   7. jina                         needs key
+
   8. skip - keep the built-in default (local, free)
   9. back - text model
   changes document parsing at ingestion - PDFs/images read through the model (configuring it is the consent; every use is disclosed)
 Document OCR - optional:
+
   1. skip - documents parse with the built-in local extraction
+
   2. mistral/mistral-ocr-latest - the dedicated OCR wire
   3. openai/gpt-5.4-mini - vision chat, extract-the-text framing
   4. openai/gpt-4o
   5. anthropic/claude-opus-4-8
   6. gemini/gemini-3.1-flash
   7. openai/gpt-5.4
+
   8. type a model name instead…
   9. back - embedding model
+  changes how audio becomes text at ingestion - remote is paid and verbatim; local whisper runs on-device, free
+Speech-to-text - optional:
+
+  1. skip - auto (whisper-1 with an OpenAI key, else local whisper)
+
+  2. local whisper - transcribes on-device (free, private)
+  3. openai/whisper-1 - the dedicated transcription wire (needs an OpenAI API key)
+
+  4. type a model name instead…
+  5. back - document OCR
 Review changes:
+
   1. save changes
-  2. back - document OCR
+  2. back - speech-to-text
+
   3. discard changes
 
   ✓ model openai/gpt-5.4-mini

@@ -81,7 +81,7 @@ _ROLE_FIXES = {
     "media_embed": "No local joint text+image space exists yet - unset media-embed-model "
     "(media then converts on-device)",
     "ocr": "Local extraction reads documents on-device: unset ocr-model",
-    "stt": "Local whisper transcribes on-device: unset stt-model",
+    "stt": 'Local whisper transcribes on-device: stt-model = "local" (or unset it)',
 }
 
 

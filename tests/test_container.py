@@ -547,6 +547,39 @@ def test_stt_auto_matrix(client: httpx.AsyncClient) -> None:
     assert oauth_only.remote_transcriber(openai_ref) is None
 
 
+def test_stt_local_sentinel_builds_the_on_device_wire(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.stt import LocalTranscriber
+
+    container = _container(client, config=Config(stt_model="local"))
+    transcriber = container.remote_transcriber()
+    assert isinstance(transcriber, LocalTranscriber)  # bare wire — free, no belt
+    assert transcriber.ref.provider == "local"
+    assert transcriber.ref.name == "whisper-tiny"  # the configured size, tiny default
+
+
+def test_stt_env_local_overrides_a_remote_config(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.stt import LocalTranscriber
+
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x", "SMARTPIPE_STT_MODEL": "local"},
+        config=Config(stt_model="openai/whisper-1"),
+    )
+    assert isinstance(container.remote_transcriber(), LocalTranscriber)
+
+
+def test_stt_local_passes_the_local_only_fence(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.base import parse_model_ref
+    from smartpipe.models.stt import LocalTranscriber
+
+    container = _container(
+        client, env={"SMARTPIPE_LOCAL_ONLY": "1"}, config=Config(stt_model="local")
+    )
+    # even with an openai chat ref in play, local STT never trips the fence
+    transcriber = container.remote_transcriber(parse_model_ref("ollama/qwen3:8b"))
+    assert isinstance(transcriber, LocalTranscriber)
+
+
 # --- fallback-model resolution (item 11) ----------------------------------------
 
 

@@ -111,7 +111,7 @@ def test_cloud_ocr_is_refused_naming_local_extraction() -> None:
 
 def test_cloud_stt_is_refused_naming_local_whisper() -> None:
     ref = ModelRef(provider="openai", name="whisper-1")
-    with pytest.raises(SetupFault, match="unset stt-model"):
+    with pytest.raises(SetupFault, match='stt-model = "local"'):
         ensure_local_wire(ref, FENCED, role="stt", ollama_host=LOCALHOST)
 
 

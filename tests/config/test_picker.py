@@ -438,7 +438,7 @@ def test_ocr_rows_unset_lead_with_the_skip() -> None:
     assert rows[0][0] == "keep"
     assert rows[0][1].startswith("skip - ")
     actions = [action for action, _label in rows]
-    assert actions == ["keep", "mistral", "vision", "typed"]
+    assert actions == ["keep", "sep", "mistral", "vision", "sep", "typed"]
     assert any("extract-the-text" in label for _a, label in rows)
 
 
@@ -446,7 +446,7 @@ def test_ocr_rows_set_offer_keep_and_unset() -> None:
     rows = ocr_stage_rows("mistral/mistral-ocr-latest", None)
     assert rows[0] == ("keep", "keep current: mistral/mistral-ocr-latest")
     actions = [action for action, _label in rows]
-    assert actions == ["keep", "mistral", "typed", "unset"]
+    assert actions == ["keep", "sep", "mistral", "sep", "typed", "unset"]
 
 
 def test_vision_candidates_follow_chip_precedence_and_dedupe() -> None:
@@ -536,8 +536,8 @@ def test_ocr_rows_list_vision_candidates_between_vision_chat_and_typed() -> None
     )
     actions = [action for action, _label in rows]
     # the picked chat model and the dedicated wire never repeat as pick rows
-    assert actions == ["keep", "mistral", "vision", "pick", "typed"]
-    assert rows[3] == ("pick", "ollama/llava")
+    assert actions == ["keep", "sep", "mistral", "vision", "pick", "sep", "typed"]
+    assert rows[4] == ("pick", "ollama/llava")
 
 
 def test_ocr_rows_cap_at_the_menu_height_and_count_the_hidden() -> None:
@@ -550,3 +550,28 @@ def test_ocr_rows_cap_at_the_menu_height_and_count_the_hidden() -> None:
     typed = next(label for action, label in rows if action == "typed")
     assert typed == f"type a model name instead… ({hidden} more not shown)"
     assert rows[-1][0] == "unset"  # the escape rows survive the cap
+
+
+# --- the STT stage's rows ----------------------------------------------------------------
+
+
+def test_stt_rows_unset_lead_with_the_auto_skip() -> None:
+    from smartpipe.config.picker import stt_stage_rows
+
+    rows = stt_stage_rows(None)
+    assert rows[0][0] == "keep"  # Enter never changes anything (the OCR pin)
+    assert rows[0][1].startswith("skip - auto")
+    actions = [action for action, _label in rows]
+    assert actions == ["keep", "sep", "local", "remote", "sep", "typed"]
+    assert any("on-device" in label for _a, label in rows)
+    assert any("openai/whisper-1" in label for _a, label in rows)
+
+
+def test_stt_rows_set_offer_keep_and_unset() -> None:
+    from smartpipe.config.picker import stt_stage_rows
+
+    rows = stt_stage_rows("local")
+    assert rows[0] == ("keep", "keep current: local")
+    actions = [action for action, _label in rows]
+    assert actions == ["keep", "sep", "local", "remote", "sep", "typed", "unset"]
+    assert rows[-1][1].startswith("unset - back to auto")

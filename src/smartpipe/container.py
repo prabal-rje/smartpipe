@@ -53,7 +53,7 @@ from smartpipe.models.openai_compat import (
     require_api_key,
     resolve_base_url,
 )
-from smartpipe.models.resolve import resolve_chat_ref, resolve_embed_ref
+from smartpipe.models.resolve import resolve_chat_ref, resolve_embed_ref, resolve_stt
 from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
@@ -355,33 +355,39 @@ class AppContainer:
         return VisionOcrParser(chat=self._wrap_chat(self._build_chat(ref)))
 
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> Transcriber | None:
-        """The stt-model role (D39/05): explicit env/config wins; otherwise the
-        owner's auto-matrix — an openai KEY means whisper-1 (the API supports
-        it; ChatGPT-login does not, so OAuth-only stays local); gemini hears
-        natively (no preemption); ollama has no STT (local whisper)."""
-        raw = self.env.get("SMARTPIPE_STT_MODEL", "").strip() or (self.config.stt_model or "")
-        if not raw:
-            if (
-                chat_ref is not None
-                and chat_ref.provider == "openai"
-                and self.env.get("OPENAI_API_KEY", "").strip()
-            ):
-                raw = "openai/whisper-1"  # the key wire supports transcriptions
-            else:
-                return None
-        ref = parse_model_ref(raw)
+        """The stt-model role (D39/05), resolved through the shared matrix
+        (``resolve_stt``): explicit env/config wins — ``local`` pins on-device
+        whisper as rung 0; otherwise an openai KEY means whisper-1 (the API
+        supports it; ChatGPT-login does not, so OAuth-only stays local);
+        gemini hears natively (no preemption); ollama has no STT (ladder)."""
+        resolution = resolve_stt(
+            self.env, self.config.stt_model, chat_ref.provider if chat_ref is not None else None
+        )
+        if resolution.kind == "ladder":
+            return None
+        if resolution.kind == "local":
+            from smartpipe.models.stt import LocalTranscriber
+            from smartpipe.parsing.extract import configured_whisper_size
+
+            local_ref = ModelRef(provider="local", name=f"whisper-{configured_whisper_size()}")
+            self._fence(local_ref, "stt")  # passes — the fence admits local wires
+            manifest.record_model("stt", str(local_ref))
+            return LocalTranscriber(ref=local_ref)  # free wire: no budget/admission belt
+        assert resolution.ref is not None
+        ref = parse_model_ref(resolution.ref)
         self._fence(ref, "stt")
         if ref.provider != "openai":
             raise SetupFault(
                 f"error: no STT wire for {ref.provider!r} yet\n"
                 "  Remote transcription supports openai models — in config.toml: "
-                'stt-model = "openai/whisper-1"'
+                'stt-model = "openai/whisper-1"  (or "local" for on-device whisper)'
             )
         key = self.env.get("OPENAI_API_KEY", "").strip()
         if not key:
             raise SetupFault(
                 "error: remote transcription needs OPENAI_API_KEY\n"
-                "  export OPENAI_API_KEY=sk-…   (or unset stt-model to use the ladder)"
+                '  export OPENAI_API_KEY=sk-…   (or set stt-model = "local", '
+                "or unset it for the ladder)"
             )
         from smartpipe.models.admission import admitted_transcriber
         from smartpipe.models.budget import budgeted_transcriber

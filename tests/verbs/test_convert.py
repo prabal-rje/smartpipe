@@ -180,6 +180,16 @@ async def test_stt_respects_the_consent_gate() -> None:
     assert stt.calls == 0  # paid conversion never ran without consent
 
 
+async def test_local_stt_runs_without_paid_consent() -> None:
+    log = DegradationLog()
+    stt = VerbatimStt()
+    stt.ref = ModelRef("local", "whisper-tiny")  # the free on-device wire
+    converter = make_converter(None, allow_paid=False, log=log, stt=stt)  # type: ignore[arg-type]
+    text = await converter.audio_to_text(AudioData(b"x", "audio/wav"), "call.wav")
+    assert text == "the verbatim words"
+    assert stt.calls == 1  # free transcription needs no --allow-captions
+
+
 async def test_stt_failure_falls_down_the_ladder() -> None:
     log = DegradationLog()
     hears = Hears()
