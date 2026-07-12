@@ -102,6 +102,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   is unchanged.
 
 ### Changed
+- **smartpipe says true things (C3 #28/#31/#33).** Three honesty fixes.
+  *Converted is not degraded:* the disclosure ledger grew a third channel —
+  an expected conversion (whisper/stt transcript, LLM caption/watch, an
+  ocr-model parse) now prints a calm `note: converted:` row instead of a
+  `⚠ degraded:` warning; genuine loss (frames/figures dropped, a failed
+  native attempt, OCR fallbacks) keeps the ⚠. Rollup order at end of run is
+  pinned: converted → degraded → skipped. *Live adopt receipt:* piping edge
+  records into `graph` no longer prints a hardcoded `· 0 tok` — the receipt
+  reads the meter, so a paid canonicalization fold shows its real spend
+  (`· run: ↑… ↓… tok`); still byte-identical `0 tok` when nothing metered.
+  *Qualified --fast claims:* help and docs no longer say "zero model calls" —
+  `--fast` is on-device with no chat-model calls, and exactly two configured
+  roles can spend, disclosed: a cloud `--embed-model` on the name fold
+  (entity names ride that wire) and a remote `--stt-model` per clip (audio
+  rides that wire). The caption-consent message now also notes that ollama
+  `:cloud` tags ride Ollama's cloud, off-device (C7 ruling 2).
 - **Result caching now ships ON by default (owner directive: always cache).** The
   posture ladder is unchanged (SMARTPIPE_CACHE > config `cache`), but the unset
   default flips from off to on, mirroring batching's default-on: `_cache_enabled`

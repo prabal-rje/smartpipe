@@ -158,7 +158,7 @@ smartpipe map "Extract {vendor string, invoice_number string, total number}" 'in
 smartpipe embed 'sessions/**/*.mp4' > sessions.embeddings
 smartpipe top_k 3 --near "user gives up after the coupon fails" < sessions.embeddings
 
-# 9. the corpus as a knowledge graph - $0: local NER, zero model calls
+# 9. the corpus as a knowledge graph - $0 by default: local NER, on-device
 smartpipe graph --fast 'case-files/*.md' --save case.html
 ```
 

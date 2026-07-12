@@ -45,8 +45,9 @@ VIDEO_TO_TEXT_SYSTEM = (
 )
 
 IMAGE_NEEDS_CAPTION = (
-    "image needs a description to embed — a local vision model does it free "
-    "(smartpipe use ollama), or opt into paid captions: --allow-captions"
+    "image needs a description to embed — an on-device vision model does it free "
+    "(smartpipe use ollama; :cloud tags ride Ollama's cloud, off-device), "
+    "or opt into paid captions: --allow-captions"
 )
 
 _CONVERT_MAX_TOKENS = 512
