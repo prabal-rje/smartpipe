@@ -300,6 +300,7 @@ per shell in [Installing smartpipe → Tab completion](../install.md#tab-complet
 | `SMARTPIPE_MISTRAL_BASE_URL` / `SMARTPIPE_GEMINI_BASE_URL` / `SMARTPIPE_OPENROUTER_BASE_URL` | Point a provider's wire elsewhere (proxies, gateways). |
 | `SMARTPIPE_CONTEXT_TOKENS` | Assert your model's context window (beats the table and the probe; the fix for OpenAI/Anthropic deployments the table underestimates). |
 | `SMARTPIPE_WHISPER_MODEL` | Local transcription size: `tiny` (default), `base`, `small`, `medium`, `large-v3`. |
+| `SMARTPIPE_FIGURE_CAP` | Embedded figures attached per document item (default `8`; whole numbers ≥ 1 - the request-size guard). Figures past the cap are dropped and censused on `stderr`. |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY` / `JINA_API_KEY` | Cloud credentials - the environment always wins over a key stored by `auth login`. |
 | `OLLAMA_HOST` | Ollama endpoint (default `http://localhost:11434`). |
 | `SMARTPIPE_LOCAL_ONLY` | The `--local-only` fence as an env var: refuse remote model/data wires so input stays local. Supporting data-free network requests are allowed. Any value other than `0`/`false`/`off`/`no` arms it (fail closed). |

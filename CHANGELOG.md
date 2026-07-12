@@ -5,6 +5,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+### Added
+- **A density hint when the graph is window math, not signal (C6 #34).** The
+  scanning modes (`--fast` and `--name-top` hybrid) now notice a near-complete
+  graph — at least 20 folded nodes with the kept edges ≥ 0.8 of the C(n,2)
+  possible — and say so once on stderr: `near-complete graph (N of M possible
+  edges) — everything co-occurs with everything; --window sentence tightens it,
+  then --min-weight 2 keeps recurring pairs`. The thresholds are structural
+  (one long MP3 read as one chunk window makes a complete graph by
+  construction), the guidance is ordered deliberately (`--min-weight 2` alone
+  empties a one-window corpus), and hybrid fires the hint BEFORE its paid
+  naming spend so Ctrl-C beats paying to name geometry. Full/adopt modes are
+  untouched.
+- **`SMARTPIPE_FIGURE_CAP` resizes the per-document figure ceiling (C6 #35).**
+  The D32 default of 8 embedded figures per document item is now an env knob:
+  whole numbers ≥ 1 set the cap; unset/blank keeps 8; anything else — `"0"`
+  included, on purpose: attach-nothing is a cost off-switch, a different
+  feature — refuses at SETUP (exit 2) before the first item is read, on every
+  file kind. The figure census rollup now names the knob when anything was
+  capped (`(100 capped — SMARTPIPE_FIGURE_CAP raises it)`); the per-file note
+  is unchanged.
+
 ### Changed
 - **Result caching now ships ON by default (owner directive: always cache).** The
   posture ladder is unchanged (SMARTPIPE_CACHE > config `cache`), but the unset

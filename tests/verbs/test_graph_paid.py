@@ -712,6 +712,27 @@ async def test_hybrid_on_empty_input_is_ok_and_silent() -> None:
     assert chat.calls == []
 
 
+async def test_hybrid_density_hint_fires_before_the_naming_receipt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A4 (C6 #34): in hybrid the hint lands right after pruning — BEFORE the
+    paid naming spend and therefore before the '· 1 named' receipt — so a user
+    can Ctrl-C instead of paying to have window math named."""
+    names = tuple(f"P{n:02d}" for n in range(1, 21))  # one line: C(20,2) = 190 of 190
+    chat = FakeChat(default='{"relation": "pays"}')
+    code, out = await _run(
+        GraphRequest(name_top=1),
+        _context(chat, known=dict.fromkeys(names, "person")),
+        " ".join(names) + "\n",
+    )
+    assert code is ExitCode.OK
+    assert len(_edges(out)) == 190
+    err = capsys.readouterr().err
+    hint = err.index("note: near-complete graph (190 of 190 possible edges)")
+    receipt = err.index("· 1 named ·")
+    assert hint < receipt
+
+
 # --- ADOPT: edge-shaped records on stdin ---------------------------------------------
 
 

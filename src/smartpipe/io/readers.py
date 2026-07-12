@@ -36,7 +36,7 @@ from smartpipe.parsing.detect import FileKind, detect_kind, route
 from smartpipe.parsing.extract import MissingExtra, extract
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+    from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
     from typing import Literal, TextIO
 
     from smartpipe.io.inputs import InputSpec
@@ -50,6 +50,7 @@ __all__ = [
     "OcrDecision",
     "OcrIngest",
     "ensure_not_a_tty",
+    "figure_cap",
     "figure_note",
     "file_items",
     "from_files_items",
@@ -1407,6 +1408,24 @@ _FIGURE_NOTE_CAP = 5  # per-file figure notes shown verbatim before the rollup (
 _THIN_TEXT = 64  # under this many chars, a figure-bearing document reads as a scan
 
 
+def figure_cap(env: Mapping[str, str]) -> int:
+    """The figure ceiling with its env knob (#35): ``SMARTPIPE_FIGURE_CAP``
+    resizes ``_FIGURE_CAP``'s per-document request-size default (D32). Unset
+    or blank keeps the default 8; a whole number ≥ 1 is the new cap; anything
+    else refuses at SETUP before the first item (the SMARTPIPE_NER_PRECISION
+    posture). "0" is refused ON PURPOSE — attach-nothing is a cost off-switch,
+    a different feature than sizing the attachment budget. Read per call, no
+    memoization, so tests drive it through the environment."""
+    raw = env.get("SMARTPIPE_FIGURE_CAP", "").strip()
+    if not raw:
+        return _FIGURE_CAP
+    # isdecimal, not isdigit: "²".isdigit() is True but int("²") raises — the
+    # knob must refuse loudly, never crash as an internal BUG.
+    if raw.isdecimal() and int(raw) >= 1:
+        return int(raw)
+    raise SetupFault(f"SMARTPIPE_FIGURE_CAP must be a whole number >= 1, got {raw!r}")
+
+
 class FigureCensus:
     """Per-run ledger for the embedded-figure notes (B4). The first
     ``_FIGURE_NOTE_CAP`` figure-bearing files announce verbatim (so a small run is
@@ -1432,7 +1451,7 @@ class FigureCensus:
     def finish(self) -> None:
         if self.files <= _FIGURE_NOTE_CAP:
             return  # a small run already announced each file verbatim — nothing to roll up
-        tail = f" ({self.capped:,} capped)" if self.capped else ""
+        tail = f" ({self.capped:,} capped — SMARTPIPE_FIGURE_CAP raises it)" if self.capped else ""
         diagnostics.note(f"figures attached: {self.files:,} files · {self.figures:,} figures{tail}")
 
 
@@ -1444,6 +1463,7 @@ def _document_figures(
     corpus rolls up — B4). D39/03: when the text layer is THIN, the announcement
     says so — a scanned document routed to the vision path must never look like
     silent emptiness."""
+    cap = figure_cap(os.environ)  # FIRST, every kind: a garbage knob faults before any item
     if kind not in _FIGURE_KINDS:
         return ()
     from smartpipe.parsing.extract import MissingExtra, embedded_images
@@ -1455,7 +1475,7 @@ def _document_figures(
     total = len(media.images)
     if total == 0:
         return ()
-    kept = media.images[:_FIGURE_CAP]
+    kept = media.images[:cap]
     capped = total - len(kept)
     census.record(
         figure_note(path.name, len(text.strip()), len(kept), capped),

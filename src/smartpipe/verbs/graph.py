@@ -83,6 +83,7 @@ __all__ = [
     "GraphModelContext",
     "GraphRequest",
     "fold_vectors",
+    "note_dense_graph",
     "note_folds",
     "parse_entities",
     "parse_relations",
@@ -100,6 +101,8 @@ DEFAULT_ENTITIES = ("person", "organization", "location")
 _PACE_SAMPLE = 20  # files before this machine's pace is worth projecting
 _PACE_NOTE_S = 120.0  # projected grinds past two minutes get one honest note
 _FOLD_NOTE_WINDOWS = 5_000  # co-occurrence windows past which the fold is worth naming
+_DENSE_HINT_NODES = 20  # nodes before near-completeness is worth a hint (tiny graphs are dense)
+_DENSE_HINT_DENSITY = 0.8  # kept share of C(n,2) past which the graph reads as a hairball
 
 
 @dataclass(frozen=True, slots=True)
@@ -428,6 +431,7 @@ async def _run_fast(
     write_edges(kept, stdout)
     if request.save is not None:
         save_graph(request.save, scan.nodes, kept, top=request.top)
+    note_dense_graph(len(scan.nodes), len(kept))
     diagnostics.note(
         f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
         f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
@@ -522,6 +526,26 @@ def _note_fold_phase(total_windows: int) -> None:
     diagnostics.note(
         f"entities done — folding {total_windows:,} windows; "
         "this can dominate on large corpora (progress below; Ctrl-C is safe)"
+    )
+
+
+def note_dense_graph(node_count: int, edge_count: int) -> None:
+    """The hairball hint (#34): when nearly every possible pair co-occurs, the
+    graph is window math, not signal — one long document read as one window
+    makes a complete graph by construction. Fired by the SCANNING modes only
+    (fast + hybrid) after pruning; hybrid calls it BEFORE the paid naming
+    spend, so a user can Ctrl-C instead of paying to name geometry. Public
+    because graphfull imports it (pyright strict refuses ``_``-name imports;
+    precedent: ``note_folds``)."""
+    if node_count < _DENSE_HINT_NODES:
+        return  # the floor comes FIRST: it also guards the density division (possible > 0 below)
+    possible = node_count * (node_count - 1) // 2
+    if edge_count / possible < _DENSE_HINT_DENSITY:
+        return
+    diagnostics.note(
+        f"near-complete graph ({edge_count:,} of {possible:,} possible edges) — "
+        "everything co-occurs with everything; --window sentence tightens it, "
+        "then --min-weight 2 keeps recurring pairs"
     )
 
 

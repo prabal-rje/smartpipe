@@ -146,8 +146,9 @@ video.
 ## Documents carry their figures
 
 `map "summarize" --in report.pdf` sends the text **and** the embedded images -
-up to 8 figures per document (a stderr note counts them:
-`report.pdf: 5 figures attached (3 more capped)`), icons under 4 KB dropped.
+up to 8 figures per document (`SMARTPIPE_FIGURE_CAP` adjusts it; a stderr note
+counts them: `report.pdf: 5 figures attached (3 more capped)`), icons under
+4 KB dropped.
 Per page, fused:
 
 ```bash
