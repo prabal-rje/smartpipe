@@ -593,6 +593,33 @@ def test_stt_local_passes_the_local_only_fence(client: httpx.AsyncClient) -> Non
     assert isinstance(transcriber, LocalTranscriber)
 
 
+def test_stt_flag_outranks_env_and_config(client: httpx.AsyncClient) -> None:
+    """--stt-model is the highest rung of the shared resolution (#20)."""
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x", "SMARTPIPE_STT_MODEL": "openai/gpt-4o-mini-transcribe"},
+        config=Config(stt_model="openai/whisper-1"),
+    )
+    transcriber = container.remote_transcriber(flag="openai/gpt-4o-transcribe")
+    assert transcriber is not None and transcriber.ref.name == "gpt-4o-transcribe"
+
+
+def test_stt_flag_rides_the_existing_faults(client: httpx.AsyncClient) -> None:
+    """The flag reaches the SAME build: missing key and unsupported wires
+    fault exactly as the env/config rungs do."""
+    with pytest.raises(SetupFault, match="OPENAI_API_KEY"):
+        _container(client).remote_transcriber(flag="openai/whisper-1")
+    with pytest.raises(SetupFault, match="openai/whisper-1"):
+        _container(client).remote_transcriber(flag="mistral/voxtral-mini")
+
+
+def test_stt_flag_local_builds_the_on_device_wire(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.stt import LocalTranscriber
+
+    container = _container(client, config=Config(stt_model="openai/whisper-1"))
+    assert isinstance(container.remote_transcriber(flag="local"), LocalTranscriber)
+
+
 # --- fallback-model resolution (item 11) ----------------------------------------
 
 

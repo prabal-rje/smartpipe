@@ -130,6 +130,56 @@ def test_broken_config_never_breaks_tab(respx_mock: respx.MockRouter, tmp_path: 
     assert suggest_models("", _env(tmp_path), embed=False) == ("ollama/qwen3:8b",)
 
 
+# --- the stt-model suggestions (#20): curated wires, no probe, never a hang ---------
+
+
+def test_stt_suggestions_offer_configured_then_the_curated_wires(tmp_path: Path) -> None:
+    from smartpipe.cli.completions import suggest_stt_models
+
+    env = _env(tmp_path, SMARTPIPE_STT_MODEL="openai/whisper-1")
+    assert suggest_stt_models("", env) == (
+        "openai/whisper-1",
+        "local",
+        "openai/gpt-4o-transcribe",
+        "openai/gpt-4o-mini-transcribe",
+    )
+
+
+def test_stt_suggestions_read_the_config_file(tmp_path: Path) -> None:
+    from smartpipe.cli.completions import suggest_stt_models
+
+    (tmp_path / "smartpipe").mkdir()
+    (tmp_path / "smartpipe" / "config.toml").write_text('stt-model = "openai/gpt-4o-transcribe"\n')
+    assert suggest_stt_models("", _env(tmp_path))[0] == "openai/gpt-4o-transcribe"
+
+
+def test_stt_suggestions_curated_order_matches_the_stage(tmp_path: Path) -> None:
+    """Nothing configured: the curated order mirrors the wizard's stt stage —
+    local, then the openai wires best-quality-first (owner ruling 2026-07-12)."""
+    from smartpipe.cli.completions import suggest_stt_models
+
+    assert suggest_stt_models("", _env(tmp_path)) == (
+        "local",
+        "openai/gpt-4o-transcribe",
+        "openai/gpt-4o-mini-transcribe",
+        "openai/whisper-1",
+    )
+
+
+def test_stt_suggestions_filter_on_the_typed_prefix(tmp_path: Path) -> None:
+    from smartpipe.cli.completions import suggest_stt_models
+
+    assert suggest_stt_models("lo", _env(tmp_path)) == ("local",)
+
+
+def test_stt_broken_config_never_breaks_tab(tmp_path: Path) -> None:
+    from smartpipe.cli.completions import suggest_stt_models
+
+    (tmp_path / "smartpipe").mkdir()
+    (tmp_path / "smartpipe" / "config.toml").write_text("stt-model = not-even-toml")
+    assert "local" in suggest_stt_models("", _env(tmp_path))
+
+
 # --- the click wiring --------------------------------------------------------------
 
 

@@ -80,8 +80,8 @@ on `stderr`.
 | text, `.jsonl`, `.csv` | read directly | chunked at ~2k tokens, one extraction call per chunk |
 | PDF with a text layer | text extracted locally; embedded figures dropped (noted) | text chunks, plus one vision call per embedded figure |
 | scanned PDF, images | skipped and censused | read by the vision model (or `--ocr-model` at ingestion) |
-| audio | transcribed locally with whisper (noted per row) | 10-minute slices ride the audio ladder - native where the model hears |
-| video | audio track transcribed locally; no track = skipped | 10-minute slices - native video where the wire watches, else frames + transcript |
+| audio | transcribed locally with whisper — or through `--stt-model`/the configured role (a paid wire is disclosed) | 10-minute slices ride the audio ladder - native where the model hears |
+| video | audio track transcribed locally (or via `--stt-model`); no track = skipped | 10-minute slices - native video where the wire watches, else frames + transcript |
 
 The census is one line, with the fix inside:
 
@@ -215,6 +215,7 @@ without re-reading the corpus.
 | `--save PATH` | also write `.graphml`/`.dot`/`.mmd`/`.csv`/`.html`, or a `directory/` for an Obsidian vault |
 | `--top N` | cap display formats to the N biggest hubs |
 | `--model`, `--concurrency`, `--max-calls` | the usual model dials for the paid modes |
+| `--stt-model MODEL` | scanning modes (`--fast`/`--name-top`): transcribe audio/video through the [stt-model role](../concepts/models-and-providers.md#the-stt-model-role) — `openai/whisper-1` spends per clip (disclosed once per run), `local` pins free on-device whisper; refused elsewhere |
 | `--ocr-model MODEL` | full mode: parse scanned PDFs/images at ingestion (each use disclosed) |
 | `FILES…`, `--from-files`, `--as` | the usual [file inputs](../inputs/files.md) |
 

@@ -22,6 +22,7 @@ __all__ = [
     "JINA_EMBED_MODELS",
     "LOCAL_EMBED_MODELS",
     "MENU_CAP",
+    "STT_STAGE_MODELS",
     "CapChips",
     "ChipSources",
     "ProbeChip",
@@ -243,22 +244,30 @@ def ocr_stage_rows(
 
 _STT_AUTO_HINT = "auto (whisper-1 with an OpenAI key, else local whisper)"
 
+# Owner ruling 2026-07-12: the openai transcription wires, best quality first —
+# they all ride the same /v1/audio/transcriptions endpoint and the same key
+# door. Each row's ACTION carries its full ref so ONE stage arm handles all of
+# them; the label leads with the ref plus a short honest suffix. Completions
+# (``suggest_stt_models``) derive their curated order from this tuple.
+STT_STAGE_MODELS: tuple[tuple[str, str], ...] = (
+    ("openai/gpt-4o-transcribe", "best transcription quality (needs an OpenAI API key)"),
+    ("openai/gpt-4o-mini-transcribe", "cheaper, nearly as good"),
+    ("openai/whisper-1", "the verbatim classic"),
+)
+
 
 def stt_stage_rows(current: str | None) -> tuple[tuple[str, str], ...]:
     """The STT menu as (action, label) rows - the first row is always the
     one-keypress skip/keep, so Enter never changes anything (the same pin as
-    OCR). ``local`` pins on-device whisper; ``remote`` is the openai wire —
-    the only remote STT wire so far, so no catalog rows here."""
+    OCR). ``local`` pins on-device whisper; the openai rows (best first) each
+    carry their full ref as the action — one arm, one key door."""
     rows: list[tuple[str, str]] = [
         ("keep", f"skip - {_STT_AUTO_HINT}")
         if current is None
         else ("keep", f"keep current: {current}"),
         ("sep", ""),  # paragraph break: keep/skip | the engine rows
         ("local", "local whisper - transcribes on-device (free, private)"),
-        (
-            "remote",
-            "openai/whisper-1 - the dedicated transcription wire (needs an OpenAI API key)",
-        ),
+        *((ref, f"{ref} - {suffix}") for ref, suffix in STT_STAGE_MODELS),
         ("sep", ""),  # paragraph break: engine rows | the escape hatches
         ("typed", "type a model name instead…"),
     ]

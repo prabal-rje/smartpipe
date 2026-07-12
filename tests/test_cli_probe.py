@@ -14,6 +14,8 @@ from tests.conftest import RunCli
 if TYPE_CHECKING:
     import respx
 
+    from smartpipe.models.base import AudioData
+
 CHAT = "http://localhost:11434/api/chat"
 EMBED = "http://localhost:11434/api/embed"
 
@@ -91,6 +93,133 @@ def test_probe_writes_the_capability_cache(run_cli: RunCli, respx_mock: respx.Mo
     assert chip.sees is True  # the mock saw the image and answered
     assert chip.hears is False  # ollama refuses audio pre-send — never claimed
     assert chip.ts > 0
+
+
+# --- the stt path is EXERCISED, not displayed (C4) ----------------------------------
+
+STT_WIRE = "https://api.openai.com/v1/audio/transcriptions"
+
+
+def _mock_free_matrix(respx_mock: respx.MockRouter) -> None:
+    respx_mock.post(CHAT).mock(
+        return_value=httpx.Response(200, json={"message": {"content": "OK"}})
+    )
+    respx_mock.post(EMBED).mock(
+        return_value=httpx.Response(200, json={"embeddings": [[0.1, 0.2, 0.3]]})
+    )
+    respx_mock.get("http://localhost:11434/api/tags").mock(
+        return_value=httpx.Response(200, json={"models": [{"name": "qwen3:8b"}]})
+    )
+
+
+def test_probe_exercises_a_remote_stt_resolution(
+    run_cli: RunCli, respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A remote stt resolution costs ONE more tiny call — announced in the
+    count, sent through the real container wire, reported as exercised."""
+    monkeypatch.setenv("SMARTPIPE_STT_MODEL", "openai/whisper-1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+    _mock_free_matrix(respx_mock)
+    wire = respx_mock.post(STT_WIRE).mock(return_value=httpx.Response(200, text="a steady tone"))
+    _code, out, err = run_cli(["doctor", "--probe"])
+    assert "probing modalities with 5 tiny calls" in err
+    assert "stt: whisper-1" in err  # the announcement names what the 5th call buys
+    assert wire.call_count == 1
+    assert "stt: ✓ transcribed via openai/whisper-1" in out
+
+
+def test_probe_reports_the_wire_error_on_a_bad_key(
+    run_cli: RunCli, respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The false-positive matrix is dead: an invalid key surfaces as the wire's
+    own error, never as a healthy footnote."""
+    monkeypatch.setenv("SMARTPIPE_STT_MODEL", "openai/whisper-1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-bad")
+    _mock_free_matrix(respx_mock)
+    respx_mock.post(STT_WIRE).mock(return_value=httpx.Response(401, text="bad key"))
+    _code, out, err = run_cli(["doctor", "--probe"])
+    assert "probing modalities with 5 tiny calls" in err  # the attempt was announced
+    assert "stt: ✗ the STT wire rejected the API key" in out
+
+
+def test_probe_reports_a_build_fault_without_charging_for_it(
+    run_cli: RunCli, respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A remote resolution that can't even build (missing key) never announces
+    a 5th call — the fault line carries the container's own wording."""
+    monkeypatch.setenv("SMARTPIPE_STT_MODEL", "openai/whisper-1")
+    _mock_free_matrix(respx_mock)
+    _code, out, err = run_cli(["doctor", "--probe"])
+    assert "probing modalities with 4 tiny calls" in err
+    assert "stt: ✗" in out
+    assert "OPENAI_API_KEY" in out
+
+
+def test_probe_never_runs_local_whisper(
+    run_cli: RunCli, respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """stt-model=local: a model download inside doctor is hostile — the probe
+    verifies the wheels and says honestly that it did not exercise them."""
+    monkeypatch.setenv("SMARTPIPE_STT_MODEL", "local")
+    _mock_free_matrix(respx_mock)
+    _code, out, err = run_cli(["doctor", "--probe"])
+    assert "probing modalities with 4 tiny calls" in err
+    if find_spec("faster_whisper") is not None:  # absent on 3.14 until upstream ships
+        assert "stt: – local whisper ready (not exercised)" in out  # noqa: RUF001 — matrix dash
+    else:
+        assert "stt: ✗ local whisper unavailable — reinstall smartpipe" in out
+
+
+def test_probe_adds_no_stt_line_on_the_ladder(
+    run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    """Nothing resolved (the ladder): no stt line, the count stays 4 — the
+    audio row's footnote still documents the fallback path."""
+    _mock_free_matrix(respx_mock)
+    _code, out, err = run_cli(["doctor", "--probe"])
+    assert "probing modalities with 4 tiny calls" in err
+    assert "not exercised" not in out
+    assert "transcribed via" not in out
+
+
+async def test_exercise_stt_reports_pass_and_fail_through_the_seam() -> None:
+    """The exercise helper with a literal fake Transcriber — both verdict lines."""
+    from smartpipe.cli.probe_cmd import exercise_stt
+    from smartpipe.core.errors import SetupFault
+    from tests.verbs.test_graph import FakeTranscriber
+
+    passing = FakeTranscriber("openai/whisper-1")
+    assert await exercise_stt(passing) == "  stt: ✓ transcribed via openai/whisper-1"
+    assert len(passing.heard) == 1  # the probe clip actually went through the wire
+
+    class _Rejecting(FakeTranscriber):
+        async def transcribe(self, audio: AudioData) -> str:
+            del audio
+            raise SetupFault(
+                "error: the STT wire rejected the API key\n  Remote transcription uses …"
+            )
+
+    line = await exercise_stt(_Rejecting("openai/whisper-1"))
+    assert line == "  stt: ✗ the STT wire rejected the API key"
+
+
+async def test_exercise_stt_caps_a_stalled_wire(monkeypatch: pytest.MonkeyPatch) -> None:
+    """C4 review: a hung endpoint must not hold doctor for the shared 120s HTTP
+    timeout x retries — the probe's own cap renders as an honest ✗ verdict."""
+    import asyncio
+
+    from smartpipe.cli import probe_cmd
+    from tests.verbs.test_graph import FakeTranscriber
+
+    class _Stalled(FakeTranscriber):
+        async def transcribe(self, audio: AudioData) -> str:
+            del audio
+            await asyncio.sleep(3600)  # never returns inside any sane probe window
+            raise AssertionError("unreachable")  # pragma: no cover
+
+    monkeypatch.setattr(probe_cmd, "_STT_PROBE_SECONDS", 0.05)
+    line = await probe_cmd.exercise_stt(_Stalled("openai/whisper-1"))
+    assert line == "  stt: ✗ no reply in 0s — the wire is stalled"
 
 
 def test_without_probe_no_model_calls(run_cli: RunCli, respx_mock: respx.MockRouter) -> None:

@@ -233,7 +233,20 @@ Unset, smartpipe picks the sensible strategy automatically:
 account (`SMARTPIPE_STT_MODEL=local` works too). Only the `openai` remote
 wire exists today; the key accepts `provider/model` so more can land behind
 the same seam. `smartpipe doctor` has an `stt` row showing which path the
-ladder would take and whether it is healthy.
+ladder would take and whether it is healthy, and `doctor --probe` goes
+further for a remote resolution: one tiny disclosed transcription through
+the real wire, so a bad key or a dead endpoint reports as itself instead of
+charting healthy (a `local` resolution is verified but never run — no model
+download inside doctor).
+
+`graph`'s scanning modes (`--fast` and `--name-top`) honor the role too:
+`--stt-model` > `SMARTPIPE_STT_MODEL` > config, and there configuring or
+flagging the role IS the consent (the `ocr-model` rule) — audio and video
+tracks transcribe through the resolved wire, disclosed once per run when it
+is paid. Bare `--fast` with nothing configured stays local and free: the
+scanning modes never consult the auto-matrix with a chat model, so an
+ambient OpenAI key changes nothing. Full mode's native audio ladder does
+not honor the role yet — the flag refuses outside the scanning modes.
 
 
 ## The ocr-model role

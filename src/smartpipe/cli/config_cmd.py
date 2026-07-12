@@ -584,11 +584,12 @@ async def run_config_flow(
     """
     from smartpipe.cli.screens import good, heading, tint
 
+    # No blank line here: the menu drivers emit one before every title
+    # (owner ruling 2026-07-12 — stages read as paragraphs).
     say(
         heading("smartpipe setup")
         + tint(" - text model, then embeddings, then documents, then speech", "2")
     )
-    say("")
     tags = await probe()
     updated: Config = current
     embed_base: Config = current
@@ -802,6 +803,8 @@ def _review_action(
     changed: bool,
     choose: Callable[[str, tuple[str, ...], int], int | None],
 ) -> _ReviewAction:
+    from smartpipe.cli.screens import stage_title
+
     if changed:
         # (label, action) in lockstep so the raw pick indexes straight through
         # the separator isolating the destructive row
@@ -811,7 +814,7 @@ def _review_action(
             (SEPARATOR, None),
             ("discard changes", _ReviewAction.DISCARD),
         )
-        picked = choose("Review changes:", tuple(label for label, _ in rows), 0)
+        picked = choose(stage_title("review changes"), tuple(label for label, _ in rows), 0)
         if picked is None:
             return _ReviewAction.DISCARD
         action = rows[picked][1]
@@ -819,7 +822,7 @@ def _review_action(
         return action
     labels = ("finish - keep current config", "back - speech-to-text")
     actions = (_ReviewAction.FINISH, _ReviewAction.BACK)
-    picked = choose("Review setup:", labels, 0)
+    picked = choose(stage_title("review setup"), labels, 0)
     if picked is None:
         return _ReviewAction.DISCARD
     return actions[picked]
@@ -862,7 +865,7 @@ async def _stage_text(
     connect: Callable[[StageEntry], Awaitable[bool]] | None,
 ) -> _TextChoice | _Cancel:
     """Stage 1: a provider/model choice, or terminal setup cancellation."""
-    from smartpipe.cli.screens import tint
+    from smartpipe.cli.screens import stage_title, tint
     from smartpipe.config.picker import stage_labels, text_stage_entries
 
     while True:
@@ -883,7 +886,7 @@ async def _stage_text(
             if keep_at is not None
             else next((i for i, entry in enumerate(entries) if entry.connected), 0)
         )
-        picked = choose("Text model - pick a provider:", tuple(rows), start)
+        picked = choose(stage_title("text model", hint="pick a provider"), tuple(rows), start)
         if picked is None or picked == cancel_at:
             return _CANCEL
         if picked in (skip_at, keep_at):
@@ -929,6 +932,7 @@ async def _stage_embed(
 
     The auto-pair suggestion is the PRESELECTED first option; a deliberate
     earlier choice suppresses it (``embed_pair_allowed``)."""
+    from smartpipe.cli.screens import stage_title
     from smartpipe.config.picker import (
         embed_pair_allowed,
         embed_stage_entries,
@@ -965,7 +969,7 @@ async def _stage_embed(
         fallback_start = keep_at if keep_at is not None else skip_at
         start = pair_at if pair_at is not None else fallback_start
         picked = choose(
-            "Embedding model - powers embed, top_k, cluster, distinct:",
+            stage_title("embedding model", hint="powers embed, top_k, cluster, distinct"),
             tuple(rows),
             start if start is not None else 0,
         )
@@ -1096,11 +1100,15 @@ async def _stage_ocr(
 ) -> _OcrChoice | _Back:
     """Stage 3: curated + the vision-capable catalog (item 73c), one-keypress-
     skippable (unset = the built-in ladders)."""
-    from smartpipe.cli.screens import tint
+    from smartpipe.cli.screens import stage_title, tint
     from smartpipe.config.picker import key_stage_entry, ocr_stage_rows, vision_ocr_candidates
 
-    say(
-        tint(
+    # The consent explainer rides INSIDE the title block (owner ruling
+    # 2026-07-12): the stage paragraph travels together, in both menu modes.
+    title = (
+        stage_title("document ocr", optional=True)
+        + "\n"
+        + tint(
             "  changes document parsing at ingestion - PDFs/images read through the "
             "model (configuring it is the consent; every use is disclosed)",
             "2",
@@ -1110,7 +1118,7 @@ async def _stage_ocr(
         rows = ocr_stage_rows(current_ocr, chat_model, vision_ocr_candidates(chips))
         back_at = len(rows)
         labels = (*(label for _action, label in rows), "back - embedding model")
-        picked = choose("Document OCR - optional:", labels, 0)
+        picked = choose(title, labels, 0)
         if picked is None or picked == back_at:
             return _BACK
         match rows[picked][0]:
@@ -1157,14 +1165,18 @@ async def _stage_stt(
     connect: Callable[[StageEntry], Awaitable[bool]] | None,
     whisper_available: bool,
 ) -> _SttChoice | _Back:
-    """Stage 4: how audio becomes text — the remote openai wire, on-device
-    whisper (``local``), or the auto ladder (unset). One-keypress-skippable
-    like OCR (keep/skip is the first row)."""
-    from smartpipe.cli.screens import tint
+    """Stage 4: how audio becomes text — the openai wires (best first, one key
+    door), on-device whisper (``local``), or the auto ladder (unset). One-
+    keypress-skippable like OCR (keep/skip is the first row)."""
+    from smartpipe.cli.screens import stage_title, tint
     from smartpipe.config.picker import key_stage_entry, stt_stage_rows
 
-    say(
-        tint(
+    # The consent explainer rides INSIDE the title block (owner ruling
+    # 2026-07-12): the stage paragraph travels together, in both menu modes.
+    title = (
+        stage_title("speech-to-text", optional=True)
+        + "\n"
+        + tint(
             "  changes how audio becomes text at ingestion - remote is paid and "
             "verbatim; local whisper runs on-device, free",
             "2",
@@ -1174,7 +1186,7 @@ async def _stage_stt(
         rows = stt_stage_rows(current_stt)
         back_at = len(rows)
         labels = (*(label for _action, label in rows), "back - document OCR")
-        picked = choose("Speech-to-text - optional:", labels, 0)
+        picked = choose(title, labels, 0)
         if picked is None or picked == back_at:
             return _BACK
         match rows[picked][0]:
@@ -1192,15 +1204,7 @@ async def _stage_stt(
                         )
                     )
                 return _SttChoice("local", changed=True)
-            case "remote":
-                entry = key_stage_entry(env, "openai", "openai (API key)")
-                if not entry.connected and (connect is None or not await connect(entry)):
-                    if connect is None:
-                        say(tint(f"  {_connect_hint(entry)}", "2"))
-                        return _SttChoice(current_stt, changed=False)
-                    continue  # declined or failed — the menu returns with fresh badges
-                return _SttChoice("openai/whisper-1", changed=True)
-            case _:  # "typed"
+            case "typed":
                 say(tint("  Type 'back' to return to the speech-to-text choices.", "2"))
                 answer = ask("STT model?", "openai/whisper-1")
                 if answer.strip().lower() == "local":
@@ -1219,6 +1223,15 @@ async def _stage_stt(
                     )
                     continue
                 return _SttChoice(str(parsed), changed=True)
+            case _ as ref:  # a curated openai wire — the action IS its full ref,
+                # so all the transcribe rows ride ONE arm through ONE key door
+                entry = key_stage_entry(env, "openai", "openai (API key)")
+                if not entry.connected and (connect is None or not await connect(entry)):
+                    if connect is None:
+                        say(tint(f"  {_connect_hint(entry)}", "2"))
+                        return _SttChoice(current_stt, changed=False)
+                    continue  # declined or failed — the menu returns with fresh badges
+                return _SttChoice(ref, changed=True)
 
 
 async def _pick_model(

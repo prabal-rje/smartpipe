@@ -10,7 +10,11 @@ from pathlib import Path
 
 import click
 
-from smartpipe.cli.completions import complete_chat_models, complete_embed_models
+from smartpipe.cli.completions import (
+    complete_chat_models,
+    complete_embed_models,
+    complete_stt_models,
+)
 from smartpipe.cli.input_options import (
     input_options,
     input_spec,
@@ -98,6 +102,13 @@ __all__ = ["graph_command"]
     help="Embedder for the name-canonicalization fold (e.g. openai/text-embedding-3-small); "
     "defaults to the on-device local model. A cloud model here spends, even with --fast.",
 )
+@click.option(
+    "--stt-model",
+    "stt_model_flag",
+    shell_complete=complete_stt_models,
+    help="Transcriber for audio/video in the scanning modes (--fast/--name-top): "
+    "openai/whisper-1 spends per clip, local pins free on-device whisper.",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option(
     "--max-calls",
@@ -121,6 +132,7 @@ def graph_command(
     model_flag: str | None,
     fallback_flag: str | None,
     embed_model_flag: str | None,
+    stt_model_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
     ocr_model_flag: str | None,
@@ -180,6 +192,7 @@ def graph_command(
         model_flag=model_flag,
         fallback_flag=fallback_flag,
         embed_model_flag=embed_model_flag,
+        stt_model_flag=stt_model_flag,
         concurrency_flag=concurrency_flag,
         ocr_model_flag=ocr_model_flag,
         input=input_spec(

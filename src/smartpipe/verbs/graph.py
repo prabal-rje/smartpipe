@@ -84,6 +84,8 @@ if TYPE_CHECKING:
     from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.resilience import WiredChat
+    from smartpipe.models.stt import Transcriber
+    from smartpipe.verbs.convert import Converter
 
 __all__ = [
     "DEFAULT_ENTITIES",
@@ -134,15 +136,22 @@ class GraphRequest:
     ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (G2)
     # --embed-model: the canonicalization fold embedder (specified wins, local fallback)
     embed_model_flag: str | None = None
+    # --stt-model: the scanning modes' transcriber (#20); flag > env > config
+    stt_model_flag: str | None = None
     input: InputSpec = STDIN
 
 
 class GraphContext(Protocol):
     """What ``--fast`` needs — deliberately NO chat accessor: the free half
-    cannot ask for a paid model even by accident."""
+    cannot ask for a paid model even by accident. The transcriber accessor is
+    here because the SCANNING modes read audio themselves (#20): configuring
+    or flagging ``stt-model`` is the consent, and bare ``--fast`` resolves the
+    ladder (None) — no chat ref is ever passed, so an ambient OpenAI key can't
+    flip the free mode remote."""
 
     def entity_finder(self, labels: Sequence[str]) -> EntityFinder: ...
     async def fold_embedder(self, flag: str | None = None) -> EmbeddingModel: ...
+    def remote_transcriber(self, *, flag: str | None = None) -> Transcriber | None: ...
 
 
 class GraphModelContext(GraphContext, ExecutionPolicySource, Protocol):
@@ -217,6 +226,13 @@ async def run_graph(
             "or --name-top\n"
             '  Example: smartpipe graph "who pays whom" --relations "pays, owns" notes/*.md'
         )
+    if request.stt_model_flag is not None and not request.fast and request.name_top is None:
+        # #20: only the SCANNING modes read audio themselves — full mode's native
+        # ladder does not honor the role yet (ledgered), so the flag refuses there.
+        raise UsageFault(
+            "--stt-model rides the scanning modes — pair it with --fast or --name-top\n"
+            "  Example: smartpipe graph --fast --stt-model openai/whisper-1 calls/*.mp3"
+        )
     # Grammar outranks wiring (#27 review): every request-only validation runs
     # BEFORE the fold-embedder preflight below, so a bad dial refuses at USAGE
     # even when the embed config is also broken. Both parsers are pure and
@@ -241,6 +257,16 @@ async def run_graph(
     # read, NER grind, or paid extraction. The instance is discarded — the fold
     # rebuilds it (manifest.record_model is idempotent, one fold_embed entry).
     await context.fold_embedder(request.embed_model_flag)
+    # #20 preflight: the SCANNING modes resolve their transcriber here — after
+    # every usage validation, before a byte of stdin/files is read — so a
+    # missing key, an unsupported wire, or the --local-only fence faults at
+    # SETUP (2) pre-read. No chat ref is passed: bare --fast plus an ambient
+    # OpenAI key stays local; only an explicit flag/env/config goes remote.
+    stt = (
+        context.remote_transcriber(flag=request.stt_model_flag)
+        if request.fast or request.name_top is not None
+        else None
+    )
     if request.name_top is not None:
         from smartpipe.verbs.graphfull import run_hybrid
 
@@ -255,6 +281,7 @@ async def run_graph(
             clock=clock,
             budget=budget,
             concurrency=concurrency,
+            stt=stt,
         )
     if request.focus is not None:
         from smartpipe.verbs.graphfull import run_full
@@ -280,6 +307,7 @@ async def run_graph(
             should_stop=should_stop,
             transcriber=transcriber,
             clock=clock,
+            stt=stt,
         )
     from smartpipe.verbs.graphfull import run_adopt
 
@@ -361,9 +389,13 @@ async def scan_corpus(
     should_stop: Callable[[], bool] | None = None,
     transcriber: Callable[[AudioData], str],
     clock: Callable[[], float],
+    stt: Transcriber | None = None,
 ) -> FastScan | None:
     """The zero-call pass shared by ``--fast`` and hybrid: read, local NER,
-    fold, co-occurrence edges. ``None`` means empty input (exit 0, silent)."""
+    fold, co-occurrence edges. ``None`` means empty input (exit 0, silent).
+    ``stt`` (#20) is the resolved ``stt-model`` transcriber: when set, audio
+    and video tracks convert through it (chat rungs stay dead — no chat model
+    is handed to the converter); ``None`` keeps today's path byte-identical."""
     labels = parse_entities(request.entities)
     mode = parse_window(request.window)
 
@@ -377,6 +409,7 @@ async def scan_corpus(
     read_bar.finish()
     if not items:
         return None
+    _note_paid_transcription(stt, items)
 
     finder = context.entity_finder(labels)
     if labels:  # empty labels never load the model (find short-circuits) — skip the ~190 MB pull
@@ -387,6 +420,13 @@ async def scan_corpus(
             asyncio.to_thread(finder.load, quiet=warm_bar.enabled),
         )
     log = diagnostics.DegradationLog()
+    converter: Converter | None = None
+    if stt is not None:
+        from smartpipe.verbs.convert import make_converter
+
+        # chat=None keeps every LLM rung dead (caption leak impossible);
+        # allow_paid opens the stt rung — configuring the role IS the consent.
+        converter = make_converter(None, allow_paid=True, log=log, stt=stt)
     gathered: list[ItemEntities] = []
     no_free_text = 0
     failed = 0
@@ -400,7 +440,7 @@ async def scan_corpus(
             # projection first (a no-op for media records), THEN the free ladder:
             # a transcript must never be re-projected away by the original record
             textual = await ensure_text(
-                project_content(item), transcriber=transcriber, log=log, converter=None
+                project_content(item), transcriber=transcriber, log=log, converter=converter
             )
         except ItemError:
             # the free ladder has no rung for this item (image/scan) — censused below
@@ -492,6 +532,19 @@ async def scan_corpus(
     )
 
 
+def _note_paid_transcription(stt: Transcriber | None, items: Sequence[Item]) -> None:
+    """The run-level consent echo (#20), once: only when a PAID wire will
+    transcribe AND the corpus actually carries audio/video. Local (and free
+    loopback/self-hosted ollama, the fold's own split) stays quiet — the
+    per-row converter note still tells which rung heard each clip."""
+    if stt is None or stt.ref.provider in ("local", "ollama"):
+        return
+    from smartpipe.models.base import AudioData, VideoData
+
+    if any(isinstance(part, AudioData | VideoData) for item in items for part in item.media):
+        diagnostics.note(f"transcribing audio via {stt.ref} (paid transcription)")
+
+
 async def _run_fast(
     request: GraphRequest,
     context: GraphContext,
@@ -502,6 +555,7 @@ async def _run_fast(
     should_stop: Callable[[], bool] | None,
     transcriber: Callable[[AudioData], str],
     clock: Callable[[], float],
+    stt: Transcriber | None = None,
 ) -> ExitCode:
     scan = await scan_corpus(
         request,
@@ -511,6 +565,7 @@ async def _run_fast(
         should_stop=should_stop,
         transcriber=transcriber,
         clock=clock,
+        stt=stt,
     )
     if scan is None:
         return outcome_exit_code(done=0, skipped=0, failed=0)
@@ -519,9 +574,12 @@ async def _run_fast(
     if request.save is not None:
         save_graph(request.save, scan.nodes, kept, top=request.top)
     note_dense_graph(len(scan.nodes), len(kept))
+    # #20/#28: the cost segment reads the LIVE meter — still "0 tok" when
+    # nothing metered, and it names real spend once remote STT (or a paid
+    # fold) meters. A paid clip can't hide behind a hardcoded zero.
     diagnostics.note(
         f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
-        f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
+        f"{len(kept):,} edges ({pruned:,} pruned) · {receipt_tail()}"
     )
     fold_partial = fold_cut_flips_partial(scan.fold_cut)
     if stop is not None and stop.is_set() and not fold_partial:

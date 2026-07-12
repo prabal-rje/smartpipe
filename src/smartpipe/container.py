@@ -381,14 +381,20 @@ class AppContainer:
 
         return VisionOcrParser(chat=self._wrap_chat(self._build_chat(ref)))
 
-    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> Transcriber | None:
+    def remote_transcriber(
+        self, chat_ref: ModelRef | None = None, *, flag: str | None = None
+    ) -> Transcriber | None:
         """The stt-model role (D39/05), resolved through the shared matrix
-        (``resolve_stt``): explicit env/config wins — ``local`` pins on-device
-        whisper as rung 0; otherwise an openai KEY means whisper-1 (the API
-        supports it; ChatGPT-login does not, so OAuth-only stays local);
-        gemini hears natively (no preemption); ollama has no STT (ladder)."""
+        (``resolve_stt``): an explicit flag (#20: graph's ``--stt-model``) or
+        env/config wins — ``local`` pins on-device whisper as rung 0;
+        otherwise an openai KEY means whisper-1 (the API supports it;
+        ChatGPT-login does not, so OAuth-only stays local); gemini hears
+        natively (no preemption); ollama has no STT (ladder)."""
         resolution = resolve_stt(
-            self.env, self.config.stt_model, chat_ref.provider if chat_ref is not None else None
+            self.env,
+            self.config.stt_model,
+            chat_ref.provider if chat_ref is not None else None,
+            flag=flag,
         )
         if resolution.kind == "ladder":
             return None

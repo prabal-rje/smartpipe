@@ -99,3 +99,54 @@ def test_embed_model_flag_flows_from_the_cli_into_the_request(
     assert code == 0
     assert len(captured) == 1
     assert captured[0].embed_model_flag == "openai/text-embedding-3-small"
+
+
+def test_graph_help_carries_the_stt_model_flag(run_cli: RunCli) -> None:
+    code, out, _ = run_cli(["graph", "--help"])
+    assert code == 0
+    assert "--stt-model" in out
+    assert "whisper-1" in out  # the example wire the help names
+
+
+def test_stt_model_flag_flows_from_the_cli_into_the_request(
+    run_cli: RunCli, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from smartpipe.cli import graph_cmd
+    from smartpipe.core.errors import ExitCode
+
+    captured: list[GraphRequest] = []
+
+    async def fake_run_graph(request: GraphRequest, *args: object, **kwargs: object) -> ExitCode:
+        captured.append(request)
+        return ExitCode.OK
+
+    monkeypatch.setattr(graph_cmd, "run_graph", fake_run_graph)
+    code, _out, _err = run_cli(
+        ["graph", "--fast", "--stt-model", "openai/whisper-1"],
+        stdin="Ann met Bob\n",
+    )
+    assert code == 0
+    assert len(captured) == 1
+    assert captured[0].stt_model_flag == "openai/whisper-1"
+
+
+def test_stt_model_flag_without_a_scan_mode_refuses(run_cli: RunCli) -> None:
+    """The pairing guard outranks everything wired: full mode refuses at USAGE."""
+    code, out, err = run_cli(
+        ["graph", "who pays whom", "--stt-model", "openai/whisper-1"], stdin="Ann met Bob\n"
+    )
+    assert code == 64
+    assert out == ""
+    assert "--stt-model rides the scanning modes — pair it with --fast or --name-top" in err
+    assert "Example:" in err
+
+
+def test_stt_model_flag_missing_key_faults_before_reading(run_cli: RunCli) -> None:
+    """#20 preflight: the scan-mode resolve happens BEFORE any read, so a
+    missing key faults at SETUP with an empty stdout."""
+    code, out, err = run_cli(
+        ["graph", "--fast", "--stt-model", "openai/whisper-1"], stdin="Ann met Bob\n"
+    )
+    assert code == 2
+    assert out == ""
+    assert "OPENAI_API_KEY" in err

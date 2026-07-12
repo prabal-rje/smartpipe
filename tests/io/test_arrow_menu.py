@@ -133,10 +133,11 @@ def test_numbered_choose_enter_takes_the_default() -> None:
         say=said.append,
     )
     assert picked == 1  # the start index becomes the default answer
-    assert said[0] == "Pick a provider:"
-    assert said[1] == ""  # breathing room between the title and the rows
-    assert said[2] == "  1. ollama  4 local models"
-    assert said[3] == "  2. openai  API key"
+    assert said[0] == ""  # breathing room BEFORE the title (owner ruling 2026-07-12)
+    assert said[1] == "Pick a provider:"
+    assert said[2] == ""  # …and between the title and the rows
+    assert said[3] == "  1. ollama  4 local models"
+    assert said[4] == "  2. openai  API key"
 
 
 def test_numbered_choose_separators_print_blank_and_take_no_number() -> None:
@@ -150,6 +151,7 @@ def test_numbered_choose_separators_print_blank_and_take_no_number() -> None:
     labels = ("ollama", SEPARATOR, "keep current", SEPARATOR, "skip", "cancel")
     picked = numbered_choose("Pick:", labels, 2, ask=ask, say=said.append)
     assert said == [
+        "",  # the paragraph break before the title (owner ruling 2026-07-12)
         "Pick:",
         "",
         "  1. ollama",

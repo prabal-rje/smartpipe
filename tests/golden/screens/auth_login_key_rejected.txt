@@ -1,5 +1,6 @@
   Create a key: https://console.mistral.ai/api-keys
   ✗ the check failed (HTTP 401)
+
 The key didn't validate:
 
   1. retry - paste it again
