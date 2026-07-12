@@ -79,6 +79,7 @@ if TYPE_CHECKING:
     from smartpipe.engine.graphkg import GraphEdge, SpineRef
     from smartpipe.models.base import ChatModel
     from smartpipe.models.budget import CallBudget
+    from smartpipe.models.stt import Transcriber
 
 __all__ = [
     "CONFIRM_PARTIAL",
@@ -619,6 +620,7 @@ async def run_hybrid(
     clock: Callable[[], float],
     budget: CallBudget | None,
     concurrency: int,
+    stt: Transcriber | None = None,
 ) -> ExitCode:
     assert request.name_top is not None  # dispatched here on exactly that
     relations = parse_relations(request.relations)
@@ -630,6 +632,7 @@ async def run_hybrid(
         should_stop=should_stop,
         transcriber=transcriber,
         clock=clock,
+        stt=stt,
     )
     if scan is None:
         return outcome_exit_code(done=0, skipped=0, failed=0)

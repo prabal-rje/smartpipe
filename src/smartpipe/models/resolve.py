@@ -59,19 +59,27 @@ class SttResolution:
 
     kind: Literal["remote", "local", "ladder"]  # ladder = no rung-0 transcriber
     ref: str | None  # set only for kind == "remote"
-    source: Literal["env", "config", "auto"]
+    source: Literal["flag", "env", "config", "auto"]
 
 
 def resolve_stt(
-    env: Mapping[str, str], stt_model: str | None, chat_provider: str | None
+    env: Mapping[str, str],
+    stt_model: str | None,
+    chat_provider: str | None,
+    *,
+    flag: str | None = None,
 ) -> SttResolution:
-    """The stt-model role (D39/05), pure: explicit env/config wins — ``local``
-    pins on-device whisper; otherwise the owner's auto-matrix — an openai chat
-    model plus its KEY means whisper-1 (the API supports it; ChatGPT-login does
-    not, so OAuth-only stays on the ladder); gemini hears natively (no
-    preemption); ollama has no STT (the ladder ends at local whisper)."""
-    raw = env.get("SMARTPIPE_STT_MODEL", "").strip()
-    source: Literal["env", "config", "auto"] = "env"
+    """The stt-model role (D39/05), pure: an explicit flag/env/config wins —
+    ``local`` pins on-device whisper; otherwise the owner's auto-matrix — an
+    openai chat model plus its KEY means whisper-1 (the API supports it;
+    ChatGPT-login does not, so OAuth-only stays on the ladder); gemini hears
+    natively (no preemption); ollama has no STT (the ladder ends at local
+    whisper). ``flag`` (#20: graph's ``--stt-model``) is the highest rung."""
+    raw = (flag or "").strip()
+    source: Literal["flag", "env", "config", "auto"] = "flag"
+    if not raw:
+        raw = env.get("SMARTPIPE_STT_MODEL", "").strip()
+        source = "env"
     if not raw:
         raw = (stt_model or "").strip()
         source = "config"

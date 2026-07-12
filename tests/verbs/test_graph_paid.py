@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
     from smartpipe.models.base import ChatModel, CompletionRequest, EmbeddingModel
     from smartpipe.models.resilience import WiredChat
+    from smartpipe.models.stt import Transcriber
 
 
 _CANARY_MARK = "Alice pays Bob for the shipment."  # mirrors graphfull._CANARY_SNIPPET
@@ -88,6 +89,8 @@ class PaidContext:
     halt_min_sample: int = 20  # lower it to trip the >50 % halt on a few chunks
     finder_labels: tuple[str, ...] = ()
     chat_resolutions: int = field(default=0)
+    stt: Transcriber | None = None
+    stt_flags: list[str | None] = field(default_factory=list["str | None"])
 
     def entity_finder(self, labels: Sequence[str]) -> FakeFinder:
         self.finder_labels = tuple(labels)
@@ -96,6 +99,10 @@ class PaidContext:
     async def fold_embedder(self, flag: str | None = None) -> EmbeddingModel:
         del flag
         return self.embedder
+
+    def remote_transcriber(self, *, flag: str | None = None) -> Transcriber | None:
+        self.stt_flags.append(flag)
+        return self.stt
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
         # Retained for any construction that still peeks at the plain wire; the
@@ -680,6 +687,20 @@ async def test_hybrid_composes_without_fast_and_with_it() -> None:
         assert code is ExitCode.OK
         (edge,) = _edges(out)
         assert edge["relation"] == "pays"
+
+
+async def test_hybrid_threads_the_stt_flag_to_the_resolution() -> None:
+    """#20: the hybrid scan honors --stt-model exactly like --fast — one
+    resolution carrying the flag, before the free pass reads a byte."""
+    chat = FakeChat(default='{"relation": "pays"}')
+    context = _context(chat)
+    code, _ = await _run(
+        GraphRequest(name_top=1, stt_model_flag="openai/whisper-1"),
+        context,
+        "Ann pays Bob\n",
+    )
+    assert code is ExitCode.OK
+    assert context.stt_flags == ["openai/whisper-1"]
 
 
 async def test_hybrid_belt_shortfall_keeps_co_occurs_and_discloses(

@@ -93,8 +93,10 @@ class _Context:
         del flag
         return None
 
-    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> None:
-        del chat_ref
+    def remote_transcriber(
+        self, chat_ref: ModelRef | None = None, *, flag: str | None = None
+    ) -> None:
+        del chat_ref, flag  # graph's GraphContext passes flag; other verbs pass chat_ref
         return None
 
     def entity_finder(self, labels: Sequence[str]) -> _Finder:

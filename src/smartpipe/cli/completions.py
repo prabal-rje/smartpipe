@@ -21,11 +21,23 @@ if TYPE_CHECKING:
 __all__ = [
     "complete_chat_models",
     "complete_embed_models",
+    "complete_stt_models",
     "complete_use_targets",
     "suggest_models",
+    "suggest_stt_models",
 ]
 
 _PROBE_TIMEOUT_SECONDS = 0.15  # a <TAB> must feel instant; a slow probe is a missing probe
+
+# The stt-model menu (#20): the wizard's rows (local + the dedicated openai
+# wire) plus the transcribe models that ride the same endpoint. Full refs only —
+# a bare "whisper-1" would parse as an ollama model. No probe: ollama has no STT.
+_CURATED_STT = (
+    "local",
+    "openai/whisper-1",
+    "openai/gpt-4o-transcribe",
+    "openai/gpt-4o-mini-transcribe",
+)
 
 
 def suggest_models(incomplete: str, env: Mapping[str, str], *, embed: bool) -> tuple[str, ...]:
@@ -54,6 +66,26 @@ def _configured(env: Mapping[str, str], *, embed: bool) -> tuple[str, ...]:
     env_value = env.get("SMARTPIPE_EMBED_MODEL" if embed else "SMARTPIPE_MODEL", "").strip()
     stored = config.embed_model if embed else config.model
     return tuple(name for name in (env_value, stored) if name)
+
+
+def suggest_stt_models(incomplete: str, env: Mapping[str, str]) -> tuple[str, ...]:
+    """Configured stt-model first, then the curated wires — never a probe
+    (ollama has no STT) and never a crash, same contract as ``suggest_models``."""
+    try:
+        configured = _configured_stt(env)
+    except Exception:  # a broken config file must not break <TAB>
+        configured = ()
+    merged = dict.fromkeys(configured + _CURATED_STT)  # dedupe, configured first
+    return tuple(name for name in merged if name.startswith(incomplete))
+
+
+def _configured_stt(env: Mapping[str, str]) -> tuple[str, ...]:
+    from smartpipe.config.paths import config_path
+    from smartpipe.config.store import load_config
+
+    config = load_config(config_path(env))
+    env_value = env.get("SMARTPIPE_STT_MODEL", "").strip()
+    return tuple(name for name in (env_value, config.stt_model) if name)
 
 
 def _ollama_names(env: Mapping[str, str]) -> tuple[str, ...]:
@@ -103,6 +135,17 @@ def complete_embed_models(
 ) -> list[CompletionItem]:
     del ctx, param
     return _items(incomplete, embed=True)
+
+
+def complete_stt_models(
+    ctx: click.Context, param: click.Parameter, incomplete: str
+) -> list[CompletionItem]:
+    del ctx, param
+    import os
+
+    from click.shell_completion import CompletionItem
+
+    return [CompletionItem(name) for name in suggest_stt_models(incomplete, os.environ)]
 
 
 def _items(incomplete: str, *, embed: bool) -> list[CompletionItem]:

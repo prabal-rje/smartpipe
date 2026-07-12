@@ -119,6 +119,36 @@ def test_stt_env_wins_over_config() -> None:
     assert resolution.source == "env"
 
 
+def test_stt_flag_outranks_env_and_config() -> None:
+    from smartpipe.models.resolve import resolve_stt
+
+    resolution = resolve_stt(
+        {"SMARTPIPE_STT_MODEL": "openai/gpt-4o-mini-transcribe"},
+        "openai/whisper-1",
+        None,
+        flag="openai/gpt-4o-transcribe",
+    )
+    assert (resolution.kind, resolution.ref, resolution.source) == (
+        "remote",
+        "openai/gpt-4o-transcribe",
+        "flag",
+    )
+
+
+def test_stt_flag_local_pins_on_device() -> None:
+    from smartpipe.models.resolve import resolve_stt
+
+    resolution = resolve_stt({"SMARTPIPE_STT_MODEL": "openai/whisper-1"}, None, None, flag="Local")
+    assert (resolution.kind, resolution.ref, resolution.source) == ("local", None, "flag")
+
+
+def test_stt_blank_flag_falls_through_to_env() -> None:
+    from smartpipe.models.resolve import resolve_stt
+
+    resolution = resolve_stt({"SMARTPIPE_STT_MODEL": "openai/whisper-1"}, None, None, flag="  ")
+    assert (resolution.kind, resolution.source) == ("remote", "env")
+
+
 def test_stt_config_used_when_env_blank() -> None:
     from smartpipe.models.resolve import resolve_stt
 

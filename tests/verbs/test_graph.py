@@ -28,8 +28,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
-    from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.base import AudioData, ChatModel, EmbeddingModel, ModelRef
     from smartpipe.models.resilience import WiredChat
+    from smartpipe.models.stt import Transcriber
 
 
 class FakeFinder:
@@ -91,12 +92,37 @@ class FakeEmbedder:
         return tuple(one_hot)
 
 
+class FakeTranscriber:
+    """The Transcriber protocol in miniature — ``ref`` is a PROPERTY there,
+    so the fake declares one too (pyright keeps the conformance honest)."""
+
+    def __init__(self, ref_text: str, reply: str = "Ann met Bob", *, fail: bool = False) -> None:
+        from smartpipe.models.base import parse_model_ref
+
+        self._ref = parse_model_ref(ref_text)
+        self.reply = reply
+        self.fail = fail
+        self.heard: list[bytes] = []
+
+    @property
+    def ref(self) -> ModelRef:
+        return self._ref
+
+    async def transcribe(self, audio: AudioData) -> str:
+        self.heard.append(audio.data)
+        if self.fail:
+            raise ItemError("the wire hiccuped")  # plain = recoverable — the ladder continues
+        return self.reply
+
+
 @dataclass
 class FakeContext:
     finder: FakeFinder
     embedder: FakeEmbedder
     finder_labels: tuple[str, ...] = ()
     chat_calls: int = field(default=0)
+    stt: Transcriber | None = None
+    stt_flags: list[str | None] = field(default_factory=list["str | None"])
 
     def entity_finder(self, labels: Sequence[str]) -> FakeFinder:
         self.finder_labels = tuple(labels)
@@ -105,6 +131,10 @@ class FakeContext:
     async def fold_embedder(self, flag: str | None = None) -> FakeEmbedder:
         del flag  # the fake's embedder is fixed; flag-honoring is proven at the container
         return self.embedder
+
+    def remote_transcriber(self, *, flag: str | None = None) -> Transcriber | None:
+        self.stt_flags.append(flag)
+        return self.stt
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
         self.chat_calls += 1
@@ -418,6 +448,203 @@ async def test_audio_items_ride_the_local_whisper_rung() -> None:
     assert [(e["source"], e["target"]) for e in edges] == [("Ann", "Bob")]
 
 
+# --- the stt-model role in the scanning modes (#20) ---------------------------------
+
+
+def _audio_record(data: bytes = b"riff") -> str:
+    import base64
+
+    clip = base64.b64encode(data).decode()
+    return json.dumps({"__media": {"kind": "audio", "mime": "audio/mpeg", "data_b64": clip}})
+
+
+async def test_stt_flag_without_a_scan_mode_refuses() -> None:
+    """The pairing guard (verbatim): full and adopt refuse the flag at USAGE —
+    only the scanning modes read audio themselves."""
+    with pytest.raises(UsageFault, match="--stt-model rides the scanning modes"):
+        await _run(
+            GraphRequest(focus="who pays whom", stt_model_flag="openai/whisper-1"), _context()
+        )
+    with pytest.raises(UsageFault, match="pair it with --fast or --name-top"):
+        await _run(GraphRequest(stt_model_flag="openai/whisper-1"), _context())
+
+
+async def test_bare_fast_resolves_the_ladder_once_and_stays_quiet(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Bare ``--fast``: ONE flagless resolution (no chat ref — an ambient OpenAI
+    key never flips the free mode remote) and no paid-transcription note."""
+    context = _context(PEOPLE)
+    code, _ = await _run(GraphRequest(fast=True), context, "Ann met Bob\n")
+    assert code is ExitCode.OK
+    assert context.stt_flags == [None]
+    assert "paid transcription" not in capsys.readouterr().err
+
+
+async def test_stt_flag_threads_to_the_resolution() -> None:
+    context = _context(PEOPLE)
+    code, _ = await _run(
+        GraphRequest(fast=True, stt_model_flag="openai/whisper-1"), context, "Ann met Bob\n"
+    )
+    assert code is ExitCode.OK
+    assert context.stt_flags == ["openai/whisper-1"]
+
+
+async def test_configured_stt_transcribes_the_scan(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The resolved wire hears every clip; the injectable whisper callable never
+    runs (with a converter present, ensure_text bypasses it); each row carries
+    the converter's note and the run carries EXACTLY ONE paid disclosure."""
+    context = _context(PEOPLE)
+    stt = FakeTranscriber("openai/whisper-1")
+    context.stt = stt
+    heard_by_whisper: list[bytes] = []
+
+    def fake_whisper(audio: object) -> str:  # pragma: no cover - the assertion is []
+        heard_by_whisper.append(getattr(audio, "data", b""))
+        return "never"
+
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True, stt_model_flag="openai/whisper-1"),
+        context,
+        stdin=io.StringIO(f"{_audio_record()}\n{_audio_record(b'more')}\n"),
+        stdout=out,
+        transcriber=fake_whisper,
+        clock=lambda: 0.0,
+    )
+    assert code is ExitCode.OK
+    assert stt.heard == [b"riff", b"more"]
+    assert heard_by_whisper == []
+    err = capsys.readouterr().err
+    assert err.count("transcribing audio via openai/whisper-1 (paid transcription)") == 1
+    assert "transcribed by openai/whisper-1" in err
+    edges = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert [(e["source"], e["target"]) for e in edges] == [("Ann", "Bob")]
+
+
+async def test_local_stt_resolution_never_discloses_paid_transcription(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """stt-model = "local" rides the same seam but is free — the run-level
+    paid disclosure must NOT fire for an on-device wire."""
+    context = _context(PEOPLE)
+    context.stt = FakeTranscriber("local/whisper-tiny")
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True),
+        context,
+        stdin=io.StringIO(f"{_audio_record()}\n"),
+        stdout=out,
+        clock=lambda: 0.0,
+    )
+    assert code is ExitCode.OK
+    err = capsys.readouterr().err
+    assert "paid transcription" not in err
+    assert "transcribed by local/whisper-tiny" in err  # the per-row note still tells
+
+
+async def test_stt_with_a_text_only_corpus_stays_quiet(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    context = _context(PEOPLE)
+    context.stt = FakeTranscriber("openai/whisper-1")
+    code, _ = await _run(
+        GraphRequest(fast=True, stt_model_flag="openai/whisper-1"), context, "Ann met Bob\n"
+    )
+    assert code is ExitCode.OK
+    assert "paid transcription" not in capsys.readouterr().err
+
+
+async def test_stt_failure_falls_to_the_whisper_rung(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A recoverable stt hiccup continues the audio ladder — asserted via the
+    LADDER'S own note (never the injectable callable: with a converter present
+    the whisper rung is ``_whisper_or_skip``, which ignores it)."""
+    from smartpipe.parsing import extract
+
+    def fake_transcribe(audio: AudioData) -> str:
+        del audio
+        return "Ann met Bob"
+
+    monkeypatch.setattr(extract, "transcribe_audio", fake_transcribe)
+    context = _context(PEOPLE)
+    stt = FakeTranscriber("openai/whisper-1", fail=True)
+    context.stt = stt
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True),
+        context,
+        stdin=io.StringIO(f"{_audio_record()}\n"),
+        stdout=out,
+        clock=lambda: 0.0,
+    )
+    assert code is ExitCode.OK
+    assert stt.heard == [b"riff"]  # the wired rung was TRIED before the ladder fell through
+    assert "(whisper tiny)" in capsys.readouterr().err  # the ladder's note, not the fake's
+    edges = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert [(e["source"], e["target"]) for e in edges] == [("Ann", "Bob")]
+
+
+async def test_stt_preflight_faults_before_stdin_is_read() -> None:
+    """The scan-mode resolve IS the preflight: a broken stt config (missing key,
+    unsupported wire, --local-only) faults at SETUP before a byte is read."""
+
+    class _UnreadStdin(io.StringIO):
+        def read(self, size: int | None = -1) -> str:  # pragma: no cover - the raise is the test
+            raise AssertionError("stdin was read before the stt preflight")
+
+        def readline(self, size: int = -1) -> str:  # pragma: no cover
+            raise AssertionError("stdin was read before the stt preflight")
+
+    @dataclass
+    class _FaultingSttContext(FakeContext):
+        def remote_transcriber(self, *, flag: str | None = None) -> Transcriber | None:
+            del flag
+            raise SetupFault("error: remote transcription needs OPENAI_API_KEY")
+
+    context = _FaultingSttContext(finder=FakeFinder(PEOPLE), embedder=FakeEmbedder({}))
+    with pytest.raises(SetupFault, match="OPENAI_API_KEY"):
+        await run_graph(
+            GraphRequest(fast=True, stt_model_flag="openai/whisper-1"),
+            context,
+            stdin=_UnreadStdin("Ann met Bob\n"),
+            stdout=io.StringIO(),
+            clock=lambda: 0.0,
+        )
+
+
+async def test_fast_receipt_reports_real_spend_once_stt_meters(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The --fast receipt reads the live meter (receipt_tail): a paid
+    transcription can no longer hide behind a hardcoded ``· 0 tok``."""
+    from smartpipe.io import metering
+
+    class _MeteredTranscriber(FakeTranscriber):
+        async def transcribe(self, audio: AudioData) -> str:
+            metering.add_conversion()  # what the real remote wire does per clip
+            return await super().transcribe(audio)
+
+    context = _context(PEOPLE)
+    context.stt = _MeteredTranscriber("openai/whisper-1")
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True, stt_model_flag="openai/whisper-1"),
+        context,
+        stdin=io.StringIO(f"{_audio_record()}\n"),
+        stdout=out,
+        clock=lambda: 0.0,
+    )
+    assert code is ExitCode.OK
+    err = capsys.readouterr().err
+    assert "· 0 tok" not in err
+    assert "1 paid conversions" in err  # metering.receipt()'s own wording rides the tail
+
+
 async def test_finder_failures_skip_that_item_loudly(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -729,6 +956,10 @@ class _FoldOnlyContext:
         self.seen_flags.append(flag)
         return self.embedder
 
+    def remote_transcriber(self, *, flag: str | None = None) -> Transcriber | None:
+        del flag  # the fold never transcribes; conformance keeps pyright honest
+        return None
+
 
 async def test_fold_vectors_discloses_a_paid_non_local_embedder(
     capsys: pytest.CaptureFixture[str],
@@ -785,6 +1016,10 @@ class _CutFoldContext:
     async def fold_embedder(self, flag: str | None = None) -> EmbeddingModel:
         del flag
         return self.embedder
+
+    def remote_transcriber(self, *, flag: str | None = None) -> Transcriber | None:
+        del flag  # the fold never transcribes; conformance keeps pyright honest
+        return None
 
 
 class _DiesOnSecondBatch:
