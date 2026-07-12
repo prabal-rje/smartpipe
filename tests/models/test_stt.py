@@ -88,3 +88,39 @@ async def test_converter_does_not_double_meter_remote_stt(
         assert await converter.audio_to_text(AudioData(b"x", "audio/mpeg"), "clip.mp3")
 
     assert metering.snapshot().conversions == 1
+
+
+# --- the local wire (stt-model = "local") -------------------------------------------
+
+
+async def test_local_transcriber_converts_missing_extra_to_a_recoverable_item_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartpipe.core.errors import ItemError, is_recoverable_item_error
+    from smartpipe.models.stt import LocalTranscriber
+    from smartpipe.parsing import extract
+
+    def unavailable(audio: AudioData, *, model_size: str | None = None) -> str:
+        raise extract.MissingExtra("audio", "local transcription is unavailable — reinstall")
+
+    monkeypatch.setattr(extract, "transcribe_audio", unavailable)
+    transcriber = LocalTranscriber(ref=ModelRef("local", "whisper-tiny"))
+    with pytest.raises(ItemError, match="reinstall") as caught:
+        await transcriber.transcribe(AudioData(b"x", "audio/wav"))
+    # PLAIN ItemError — recoverable, so the audio ladder falls through instead of dying
+    assert type(caught.value) is ItemError
+    assert is_recoverable_item_error(caught.value)
+
+
+async def test_local_transcriber_returns_the_on_device_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartpipe.models.stt import LocalTranscriber
+    from smartpipe.parsing import extract
+
+    def canned(audio: AudioData, *, model_size: str | None = None) -> str:
+        return "the local words"
+
+    monkeypatch.setattr(extract, "transcribe_audio", canned)
+    transcriber = LocalTranscriber(ref=ModelRef("local", "whisper-tiny"))
+    assert await transcriber.transcribe(AudioData(b"x", "audio/wav")) == "the local words"

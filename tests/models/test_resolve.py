@@ -103,3 +103,51 @@ async def test_mistral_env_model_resolves() -> None:
         None, {"SMARTPIPE_MODEL": "mistral/mistral-large-latest"}, Config(), _probe_none
     )
     assert str(resolved.ref) == "mistral/mistral-large-latest"
+
+
+# --- the stt-model matrix (D39/05), shared by container + doctor + --probe -------
+
+
+def test_stt_env_wins_over_config() -> None:
+    from smartpipe.models.resolve import resolve_stt
+
+    resolution = resolve_stt(
+        {"SMARTPIPE_STT_MODEL": "openai/gpt-4o-mini-transcribe"}, "openai/whisper-1", None
+    )
+    assert resolution.kind == "remote"
+    assert resolution.ref == "openai/gpt-4o-mini-transcribe"
+    assert resolution.source == "env"
+
+
+def test_stt_config_used_when_env_blank() -> None:
+    from smartpipe.models.resolve import resolve_stt
+
+    resolution = resolve_stt({"SMARTPIPE_STT_MODEL": "  "}, "openai/whisper-1", None)
+    assert resolution == resolve_stt({}, "openai/whisper-1", None)
+    assert (resolution.kind, resolution.source) == ("remote", "config")
+
+
+def test_stt_local_sentinel_is_case_insensitive_from_either_source() -> None:
+    from smartpipe.models.resolve import resolve_stt
+
+    for resolution in (
+        resolve_stt({"SMARTPIPE_STT_MODEL": "Local"}, None, None),
+        resolve_stt({}, "local", None),
+    ):
+        assert resolution.kind == "local"
+        assert resolution.ref is None  # never parsed — "local" is no ollama model
+
+
+def test_stt_auto_needs_openai_chat_plus_the_key() -> None:
+    from smartpipe.models.resolve import resolve_stt
+
+    keyed = {"OPENAI_API_KEY": "sk-x"}
+    assert resolve_stt(keyed, None, "openai") == resolve_stt(keyed, "", "openai")
+    assert resolve_stt(keyed, None, "openai").kind == "remote"
+    assert resolve_stt(keyed, None, "openai").ref == "openai/whisper-1"
+    assert resolve_stt(keyed, None, "openai").source == "auto"
+
+    assert resolve_stt(keyed, None, "gemini").kind == "ladder"  # hears natively
+    assert resolve_stt(keyed, None, "ollama").kind == "ladder"  # no STT wire
+    assert resolve_stt(keyed, None, None).kind == "ladder"
+    assert resolve_stt({}, None, "openai").kind == "ladder"  # OAuth-only stays local

@@ -51,6 +51,7 @@ __all__ = [
     "parse_openrouter_catalog",
     "preferred_index",
     "stage_labels",
+    "stt_stage_rows",
     "text_stage_entries",
     "vision_ocr_candidates",
 ]
@@ -67,7 +68,7 @@ class ProbeChip:
     ts: float
 
 
-# --- the three-stage flow's provider menus (TEXT → EMBED → OCR) --------------------------
+# --- the staged flow's provider menus (TEXT → EMBED → OCR → STT) -------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,8 +173,9 @@ def vision_ocr_candidates(chips: ChipSources) -> tuple[str, ...]:
     under ``MENU_CAP``.
 
     Deferred second pass (item C1): a hardcoded per-provider flagship shortlist
-    and non-selectable provider section headers (``io/arrow_menu`` rows +
-    ``_stage_ocr`` index math). This pass curates and orders the DISCOVERED
+    and TITLED provider section headers (``io/arrow_menu`` now has blank
+    separator rows; headers with text remain deferred). This pass curates and
+    orders the DISCOVERED
     candidates only — the dedicated ``mistral-ocr-latest`` wire and the picked
     vision chat model already lead the menu as their own rows in
     ``ocr_stage_rows``. A newest-first sort like the chat stage's needs a
@@ -220,20 +222,48 @@ def ocr_stage_rows(
         ("keep", "skip - documents parse with the built-in local extraction")
         if current is None
         else ("keep", f"keep current: {current}"),
+        ("sep", ""),  # paragraph break: keep/skip | the model rows
         ("mistral", "mistral/mistral-ocr-latest - the dedicated OCR wire"),
     ]
     if chat_model is not None:
         rows.append(("vision", f"{chat_model} - vision chat, extract-the-text framing"))
-    fixed = len(rows) + 1 + (1 if current is not None else 0)  # + typed [+ unset]
+    fixed = len(rows) + 2 + (1 if current is not None else 0)  # + sep + typed [+ unset]
     exclude = {"mistral/mistral-ocr-latest", chat_model, current}
     candidates = [ref for ref in vision if ref not in exclude]
     room = max(0, MENU_CAP - fixed)
     shown, hidden = candidates[:room], max(0, len(candidates) - room)
     rows.extend(("pick", ref) for ref in shown)
     type_it = "type a model name instead…"
+    rows.append(("sep", ""))  # paragraph break: model rows | the escape hatches
     rows.append(("typed", type_it if not hidden else f"{type_it} ({hidden} more not shown)"))
     if current is not None:
         rows.append(("unset", "unset - back to the built-in local extraction"))
+    return tuple(rows)
+
+
+_STT_AUTO_HINT = "auto (whisper-1 with an OpenAI key, else local whisper)"
+
+
+def stt_stage_rows(current: str | None) -> tuple[tuple[str, str], ...]:
+    """The STT menu as (action, label) rows - the first row is always the
+    one-keypress skip/keep, so Enter never changes anything (the same pin as
+    OCR). ``local`` pins on-device whisper; ``remote`` is the openai wire —
+    the only remote STT wire so far, so no catalog rows here."""
+    rows: list[tuple[str, str]] = [
+        ("keep", f"skip - {_STT_AUTO_HINT}")
+        if current is None
+        else ("keep", f"keep current: {current}"),
+        ("sep", ""),  # paragraph break: keep/skip | the engine rows
+        ("local", "local whisper - transcribes on-device (free, private)"),
+        (
+            "remote",
+            "openai/whisper-1 - the dedicated transcription wire (needs an OpenAI API key)",
+        ),
+        ("sep", ""),  # paragraph break: engine rows | the escape hatches
+        ("typed", "type a model name instead…"),
+    ]
+    if current is not None:
+        rows.append(("unset", f"unset - back to {_STT_AUTO_HINT}"))
     return tuple(rows)
 
 

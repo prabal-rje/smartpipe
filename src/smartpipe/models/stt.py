@@ -1,9 +1,11 @@
-"""Remote speech-to-text (D39/05): the ``stt-model`` role's wire.
+"""Speech-to-text (D39/05): the ``stt-model`` role's wires.
 
 A configured transcriber signals wanting VERBATIM text — LLM hearing
-paraphrases; whisper transcribes. v1 implements the openai wire
+paraphrases; whisper transcribes. v1 implements the openai remote wire
 (``/v1/audio/transcriptions``); the role key accepts ``provider/model`` so
-more wires can land behind the same seam.
+more wires can land behind the same seam. ``stt-model = "local"`` puts
+on-device whisper behind the same seam (``LocalTranscriber``) — free,
+verbatim, and the bytes never leave the machine.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from smartpipe.models.retry import RetryPolicy, with_retries
 if TYPE_CHECKING:
     from smartpipe.models.base import AudioData, ModelRef
 
-__all__ = ["RemoteTranscriber", "Transcriber"]
+__all__ = ["LocalTranscriber", "RemoteTranscriber", "Transcriber"]
 
 _EXTENSIONS = {
     "audio/mpeg": "mp3",
@@ -39,6 +41,27 @@ class Transcriber(Protocol):
     def ref(self) -> ModelRef: ...
 
     async def transcribe(self, audio: AudioData) -> str: ...
+
+
+@dataclass(frozen=True, slots=True)
+class LocalTranscriber:
+    """On-device whisper behind the Transcriber seam (``stt-model = "local"``):
+    free and verbatim, so it wears no budget/admission belt — same exemption
+    as the local embedder. A missing faster-whisper converts to a PLAIN
+    (recoverable) ItemError so the audio ladder falls through instead of the
+    run dying; a genuine transcription failure already arrives as ItemError."""
+
+    ref: ModelRef
+
+    async def transcribe(self, audio: AudioData) -> str:
+        import asyncio
+
+        from smartpipe.parsing.extract import MissingExtra, transcribe_audio
+
+        try:
+            return await asyncio.to_thread(transcribe_audio, audio)
+        except MissingExtra as exc:
+            raise ItemError(str(exc)) from exc
 
 
 @dataclass(frozen=True, slots=True)

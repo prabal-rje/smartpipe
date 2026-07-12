@@ -109,15 +109,18 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 ## `use`
 
 ```bash
-smartpipe use                    # interactive setup: text model, embeddings, OCR
+smartpipe use                    # interactive setup: text model, embeddings, OCR, speech
 smartpipe use gemini             # one-shot: gemini chat + its paired embedder
 smartpipe use ollama             # one-shot: the best installed local model
 smartpipe use gpt-5.4-mini       # one-shot: that model + its provider's pairing
 ```
 
-`smartpipe use` is the setup door. Bare, it runs three stages in order - the
-text model, the embedding model (the auto-pair suggestion preselected), then
-an optional OCR model (one keypress skips it). Every provider appears with a
+`smartpipe use` is the setup door. Bare, it runs four stages in order - the
+text model, the embedding model (the auto-pair suggestion preselected), an
+optional OCR model, then an optional speech-to-text choice (one keypress
+skips either): `local whisper` pins free on-device transcription,
+`openai/whisper-1` is the paid remote wire, and skipping keeps the automatic
+ladder. Every provider appears with a
 connected badge; picking an unconnected one drops into the `auth login`
 connect flow inline and continues. Every stage has a `back` row (typing
 `back` or `b` works too), re-runs preselect your current choices and restamp

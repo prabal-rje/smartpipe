@@ -187,10 +187,12 @@ its **bytes**, not an eager transcript:
 - `map` with an audio-capable model (`gemini` models, `voxtral-*`) sends the sound to
   that configured endpoint - tone and speaker changes included.
 
-- With a text-only model, smartpipe needs a transcript. It uses a configured remote
+- With a text-only model, smartpipe needs a transcript. It uses a configured
   transcriber (`stt-model`, or OpenAI `whisper-1` on the OpenAI API-key path when
   consent allows it); otherwise it uses local `faster-whisper` (`tiny` by default),
-  then retries as text. `SMARTPIPE_WHISPER_MODEL=small` (or `medium`, `large-v3`)
+  then retries as text. `stt-model = "local"` pins the local path outright - free,
+  no consent needed, audio never leaves your machine.
+  `SMARTPIPE_WHISPER_MODEL=small` (or `medium`, `large-v3`)
   trades speed for accuracy; the first use of a size downloads its weights once.
   Audio never leaves your machine on the local whisper path.
 

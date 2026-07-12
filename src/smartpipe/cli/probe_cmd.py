@@ -54,7 +54,7 @@ async def run_probe(env: Mapping[str, str]) -> str:
             "probing modalities with 4 tiny calls "
             f"(chat: {chat.ref.name} · embed: {embed.ref.name})"
         )
-        stt = _stt_path(os.environ, container.config.stt_model)
+        stt = _stt_path(os.environ, container.config.stt_model, chat.ref.provider)
         chat_image = await _chat_image(chat)
         chat_audio = await _chat_audio(chat, stt)
         rows = {
@@ -88,18 +88,21 @@ def _remember_probe(env: Mapping[str, str], ref: str, *, image: Cell, audio: Cel
     )
 
 
-def _stt_path(env: Mapping[str, str], configured: str | None) -> str | None:
-    """The transcription path the ladder would take, if any (D39/05)."""
-    named = env.get("SMARTPIPE_STT_MODEL", "").strip() or (configured or "")
-    if named:
-        return named
-    if env.get("OPENAI_API_KEY", "").strip():
-        return "openai/whisper-1 (auto)"
+def _stt_path(
+    env: Mapping[str, str], configured: str | None, chat_provider: str | None
+) -> str | None:
+    """The transcription path the ladder would take, if any (D39/05) — the
+    shared resolver, display-only: a garbage ref renders verbatim, never dies."""
     from importlib.util import find_spec
 
-    if find_spec("faster_whisper") is not None:
+    from smartpipe.models.resolve import resolve_stt
+
+    resolution = resolve_stt(env, configured, chat_provider)
+    if resolution.kind == "remote":
+        return f"{resolution.ref} (auto)" if resolution.source == "auto" else resolution.ref
+    if resolution.kind == "local":
         return "local whisper"
-    return None
+    return "local whisper" if find_spec("faster_whisper") is not None else None
 
 
 async def _chat_text(chat: ChatModel) -> Cell:

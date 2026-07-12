@@ -50,6 +50,7 @@ def _isolated_env(tmp_path: Path) -> dict[str, str]:
         "SMARTPIPE_MODEL",
         "SMARTPIPE_EMBED_MODEL",
         "SMARTPIPE_OCR_MODEL",
+        "SMARTPIPE_STT_MODEL",
     ):
         env.pop(name, None)
     return env
@@ -191,11 +192,15 @@ def test_config_discard_exits_cleanly_without_a_later_prompt(tmp_path: Path) -> 
         os.write(master, b"\n")  # keep the default local embedder
         _read_until(process, master, output, _PROMPT, start=start)
         start = len(output)
-        # ocr rows: 1 keep · 2 mistral · 3 vision chat · 4 openai/o3 (the seeded
-        # registry's one vision entry, item 73c) · 5 typed · 6 unset · 7 back
+        # ocr ordinals (separators take no number): 1 keep · 2 mistral · 3 vision
+        # chat · 4 openai/o3 (the seeded registry's one vision entry, item 73c) ·
+        # 5 typed · 6 unset · 7 back
         os.write(master, b"6\n")  # draft: unset the current OCR model
         _read_until(process, master, output, _PROMPT, start=start)
-        os.write(master, b"3\n")  # discard the draft
+        start = len(output)
+        os.write(master, b"\n")  # speech-to-text: keep the auto ladder
+        _read_until(process, master, output, _PROMPT, start=start)
+        os.write(master, b"3\n")  # discard the draft (1 save · 2 back · 3 discard)
         code = _read_to_exit(process, master, output)
     finally:
         _close(process, master)
