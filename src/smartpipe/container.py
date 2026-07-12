@@ -417,11 +417,13 @@ class AppContainer:
         manifest.record_model("fold_embed", str(ref))
         model = self._build_embed(ref)
         # The fold is graph infrastructure (like NER), not the user's metered
-        # per-item work: the free on-device wire stays OFF the billable belt - as
-        # the local fold did before it became configurable - so a bare ``--fast``
-        # run can't charge --max-calls or flip a $0 fold to PARTIAL. A paid cloud
-        # fold is metered + admitted + disclosed through ``_wrap_embed``.
-        if ref.provider == "local":
+        # per-item work: a FREE wire stays OFF the billable belt - local on-device,
+        # OR loopback/self-hosted ollama (the 3.14 default when fastembed's wheels
+        # are absent), the same free split 373823b uses for disclosure - so a bare
+        # ``--fast`` run can't charge --max-calls or flip a $0 fold to PARTIAL on
+        # ANY python. A paid cloud fold is metered + admitted + disclosed via
+        # ``_wrap_embed``.
+        if ref.provider in ("local", "ollama"):
             return model
         return self._wrap_embed(model)
 

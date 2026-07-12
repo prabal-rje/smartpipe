@@ -1049,6 +1049,31 @@ async def test_free_on_device_fold_stays_off_the_billable_belt(
     assert isinstance(embedder, LocalEmbeddingModel)  # raw, not a _BudgetedEmbed wrapper
 
 
+async def test_free_ollama_fold_stays_off_the_billable_belt(
+    client: httpx.AsyncClient,
+) -> None:
+    """On Python 3.14 (no fastembed wheels) the free DEFAULT fold resolves to
+    loopback ollama, which 373823b already rules free (not "paid embeddings"). It
+    must stay off the --max-calls belt too, like the local fold — otherwise the
+    exact `graph --fast --max-calls N` PARTIAL-flip bug survives on 3.14. Configure
+    ollama explicitly so this holds on every python."""
+    import asyncio
+
+    from smartpipe.models.budget import CallBudget
+    from smartpipe.models.ollama import OllamaEmbeddingModel
+
+    container = AppContainer(
+        env={"XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests"},
+        config=Config(embed_model="ollama/nomic-embed-text"),
+        http_client=client,
+        retry=FAST,
+        budget=CallBudget(limit=1, stop=asyncio.Event()),
+    )
+    embedder = await container.fold_embedder()
+    # raw ollama wire — not an AdmittedEmbeddingModel / _BudgetedEmbed wrapper
+    assert isinstance(embedder, OllamaEmbeddingModel)
+
+
 def test_concurrency_configures_the_shared_outbound_policy_once(
     client: httpx.AsyncClient,
 ) -> None:
