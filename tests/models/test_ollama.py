@@ -77,7 +77,11 @@ async def test_format_field_present_iff_schema(
     )
     schema: dict[str, object] = {"type": "object", "properties": {"a": {}}}
     await _chat(client).complete(CompletionRequest(system=None, user="x", json_schema=schema))
-    assert json.loads(route.calls.last.request.content)["format"] == schema
+    body = json.loads(route.calls.last.request.content)
+    assert body["format"] == schema
+    assert body["messages"][-1]["content"] == (
+        'x\n\nReturn JSON matching this schema exactly:\n{"type":"object","properties":{"a":{}}}'
+    )
 
     await _chat(client).complete(CompletionRequest(system=None, user="x"))
     assert "format" not in json.loads(route.calls.last.request.content)

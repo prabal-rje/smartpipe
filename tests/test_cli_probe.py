@@ -50,7 +50,7 @@ def test_probe_charts_the_matrix(run_cli: RunCli, respx_mock: respx.MockRouter) 
         return_value=httpx.Response(200, json={"models": [{"name": "qwen3:8b"}]})
     )
     code, out, err = run_cli(["doctor", "--probe"])
-    assert "probing modalities with 4 tiny calls" in err
+    assert "probing modalities with 5 tiny calls" in err
     assert "text" in out and "image" in out and "audio" in out
     assert "replied 'OK'" in out
     assert "saw it — 'red'" in out
@@ -122,7 +122,7 @@ def test_probe_exercises_a_remote_stt_resolution(
     _mock_free_matrix(respx_mock)
     wire = respx_mock.post(STT_WIRE).mock(return_value=httpx.Response(200, text="a steady tone"))
     _code, out, err = run_cli(["doctor", "--probe"])
-    assert "probing modalities with 5 tiny calls" in err
+    assert "probing modalities with 6 tiny calls" in err
     assert "stt: whisper-1" in err  # the announcement names what the 5th call buys
     assert wire.call_count == 1
     assert "stt: ✓ transcribed via openai/whisper-1" in out
@@ -138,7 +138,7 @@ def test_probe_reports_the_wire_error_on_a_bad_key(
     _mock_free_matrix(respx_mock)
     respx_mock.post(STT_WIRE).mock(return_value=httpx.Response(401, text="bad key"))
     _code, out, err = run_cli(["doctor", "--probe"])
-    assert "probing modalities with 5 tiny calls" in err  # the attempt was announced
+    assert "probing modalities with 6 tiny calls" in err  # the attempt was announced
     assert "stt: ✗ the STT wire rejected the API key" in out
 
 
@@ -150,7 +150,7 @@ def test_probe_reports_a_build_fault_without_charging_for_it(
     monkeypatch.setenv("SMARTPIPE_STT_MODEL", "openai/whisper-1")
     _mock_free_matrix(respx_mock)
     _code, out, err = run_cli(["doctor", "--probe"])
-    assert "probing modalities with 4 tiny calls" in err
+    assert "probing modalities with 5 tiny calls" in err
     assert "stt: ✗" in out
     assert "OPENAI_API_KEY" in out
 
@@ -163,7 +163,7 @@ def test_probe_never_runs_local_whisper(
     monkeypatch.setenv("SMARTPIPE_STT_MODEL", "local")
     _mock_free_matrix(respx_mock)
     _code, out, err = run_cli(["doctor", "--probe"])
-    assert "probing modalities with 4 tiny calls" in err
+    assert "probing modalities with 5 tiny calls" in err
     if find_spec("faster_whisper") is not None:  # absent on 3.14 until upstream ships
         assert "stt: – local whisper ready (not exercised)" in out  # noqa: RUF001 — matrix dash
     else:
@@ -173,11 +173,11 @@ def test_probe_never_runs_local_whisper(
 def test_probe_adds_no_stt_line_on_the_ladder(
     run_cli: RunCli, respx_mock: respx.MockRouter
 ) -> None:
-    """Nothing resolved (the ladder): no stt line, the count stays 4 — the
+    """Nothing resolved (the ladder): no stt line, the count stays 5 — the
     audio row's footnote still documents the fallback path."""
     _mock_free_matrix(respx_mock)
     _code, out, err = run_cli(["doctor", "--probe"])
-    assert "probing modalities with 4 tiny calls" in err
+    assert "probing modalities with 5 tiny calls" in err
     assert "not exercised" not in out
     assert "transcribed via" not in out
 

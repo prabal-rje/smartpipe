@@ -1298,7 +1298,13 @@ async def _pick_model(
             if typed is None:
                 continue
             return typed
-        return str(parse_model_ref(f"{provider}/{shown[picked]}"))
+        selected = str(parse_model_ref(f"{provider}/{shown[picked]}"))
+        if provider == "ollama" and shown[picked].endswith(":cloud"):
+            say(
+                "  warning: Ollama Cloud runs off-device and structured output is unverified; "
+                "expect schema drift."
+            )
+        return selected
 
 
 def _preselect_index(

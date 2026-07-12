@@ -95,6 +95,12 @@ def ensure_local_wire(
     if ref.provider == "local":
         return
     if ref.provider == "ollama":
+        if ref.name.endswith(":cloud"):
+            raise SetupFault(
+                f"error: --local-only refused {ref} - Ollama Cloud runs on "
+                "ollama.com; items would leave this machine.\n"
+                "  Pick a local tag (ollama list) to stay inside the fence."
+            )
         if is_local_host(ollama_host):
             return
         raise SetupFault(

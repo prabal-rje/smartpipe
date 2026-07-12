@@ -55,7 +55,7 @@ async def run_probe(env: Mapping[str, str]) -> str:
         chat = await container.chat_model()
         embed = await container.embedding_model()
         probe_stt = stt_probe_plan(container, chat.ref)
-        calls = 4 if probe_stt.transcriber is None else 5
+        calls = 5 if probe_stt.transcriber is None else 6
         tail = "" if probe_stt.transcriber is None else f" · stt: {probe_stt.transcriber.ref.name}"
         diagnostics.note(
             f"probing modalities with {calls} tiny calls "
@@ -79,9 +79,11 @@ async def run_probe(env: Mapping[str, str]) -> str:
             if probe_stt.transcriber is None
             else await exercise_stt(probe_stt.transcriber)
         )
+        schema_line = await _exercise_schema(chat)
         _remember_probe(os.environ, str(chat.ref), image=chat_image, audio=chat_audio)
     matrix = render_matrix(rows)
-    return matrix if stt_line is None else f"{matrix}\n{stt_line}"
+    lines = (matrix, schema_line, *((stt_line,) if stt_line is not None else ()))
+    return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +173,33 @@ def _stt_path(
     if resolution.kind == "local":
         return "local whisper"
     return "local whisper" if find_spec("faster_whisper") is not None else None
+
+
+async def _exercise_schema(chat: ChatModel) -> str:
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": {"ok": {"type": "boolean"}},
+        "required": ["ok"],
+        "additionalProperties": False,
+    }
+    try:
+        reply = await chat.complete(
+            CompletionRequest(
+                system=None,
+                user="Return ok as true.",
+                json_schema=schema,
+                max_tokens=16,
+            )
+        )
+        import json
+
+        parsed = json.loads(reply)
+        enforced = isinstance(parsed, dict) and parsed == {"ok": True}
+    except (SempipeError, ValueError):
+        enforced = False
+    mark = "✓" if enforced else "✗"
+    detail = "schema reply matched" if enforced else "schema reply drifted"
+    return f"  schema: {mark} {detail} via {chat.ref}"
 
 
 async def _chat_text(chat: ChatModel) -> Cell:

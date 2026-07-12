@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Added
+- **Ollama structured-output and vision conformance (C7).** Schema-attached
+  Ollama requests now ground the exact schema in the user message while retaining
+  the native `format`; `:cloud` tags warn eagerly about unenforced schemas, carry
+  a picker capability chip and post-pick note, and are refused by `--local-only`
+  for every role. Doctor and `doctor --probe` now expose schema capability, with
+  the probe exercising one tiny schema-shaped reply.
 - **`graph` honors the stt-model role in the scanning modes (C4 #20).**
   `--fast` and `--name-top` now transcribe audio and video tracks through the
   resolved `stt-model` — `--stt-model` (new flag, shell-completed) >

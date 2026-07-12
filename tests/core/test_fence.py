@@ -133,6 +133,18 @@ def test_local_and_localhost_ollama_pass_the_fence() -> None:
     )
 
 
+@pytest.mark.parametrize("role", ["chat", "embed", "media_embed", "ocr", "stt"])
+def test_ollama_cloud_tag_is_refused_before_the_host_check(role: str) -> None:
+    ref = ModelRef(provider="ollama", name="qwen3.5:cloud")
+    with pytest.raises(SetupFault) as caught:
+        ensure_local_wire(ref, FENCED, role=role, ollama_host=LOCALHOST)
+    assert str(caught.value) == (
+        "error: --local-only refused ollama/qwen3.5:cloud - Ollama Cloud runs on "
+        "ollama.com; items would leave this machine.\n"
+        "  Pick a local tag (ollama list) to stay inside the fence."
+    )
+
+
 def test_a_remote_ollama_host_is_honestly_refused() -> None:
     ref = ModelRef(provider="ollama", name="qwen3:8b")
     with pytest.raises(SetupFault) as caught:

@@ -81,7 +81,9 @@ async def _gather(env: Mapping[str, str]) -> list[CheckResult]:
     results = [config_result]
     names = await _probe(env)
     results.append(_check_ollama(env, names))
-    results.append(_check_model("chat", _effective_chat(env, config), names))
+    chat = _effective_chat(env, config)
+    results.append(_check_model("chat", chat, names))
+    results.append(_check_schema(chat))
     results.append(_check_model("embed", _effective_embed(env, config), names))
     results.append(_check_stt(env, config))
     results.append(_check_keys(env))
@@ -159,6 +161,23 @@ def _check_model(
     return CheckResult(
         section, "fail", f"{ref.name} not in ollama list — fix: ollama pull {ref.name}"
     )
+
+
+def _check_schema(configured: str | None) -> CheckResult:
+    from smartpipe.core.errors import UsageFault
+    from smartpipe.models.base import parse_model_ref
+
+    if configured is None:
+        return CheckResult("schema", "skip", "no chat model configured")
+    try:
+        ref = parse_model_ref(configured)
+    except UsageFault:
+        return CheckResult("schema", "skip", "chat model is invalid")
+    if ref.provider == "ollama" and ref.name.endswith(":cloud"):
+        return CheckResult("schema", "fail", f"{ref} does not enforce structured outputs")
+    if ref.provider == "ollama":
+        return CheckResult("schema", "skip", f"{ref} accepts a schema; enforcement is unverified")
+    return CheckResult("schema", "ok", f"{ref} uses the provider's structured-output mode")
 
 
 def _check_stt(env: Mapping[str, str], config: Config | None) -> CheckResult:

@@ -848,6 +848,9 @@ async def build_container(
     metering.reset()  # a fresh run's meter (D40)
     reset_deterministic_repairs()  # rung 0's tally is run-scoped, like the meter (item 58)
     reset_run_disclosures()  # native-embedding/date notes are once per invocation
+    from smartpipe.models.ollama import reset_ollama_disclosures
+
+    reset_ollama_disclosures()
     manifest.reset()  # the --manifest collector is run-scoped too (item 65a); begin() re-arms
     source_accounting.reset()  # dropped inputs/OCR owners are invocation-scoped
     # C5 review: the construction window below can raise (bank/cache-dir, budget,

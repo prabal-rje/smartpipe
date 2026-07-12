@@ -8,6 +8,7 @@ transient blip); 429/5xx/timeouts are retried, then skip just that item.
 from __future__ import annotations
 
 import base64
+import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -43,10 +44,31 @@ __all__ = [
     "OllamaChatModel",
     "OllamaEmbeddingModel",
     "ollama_model_names",
+    "reset_ollama_disclosures",
     "resolve_host",
 ]
 
 DEFAULT_HOST = "http://localhost:11434"
+_cloud_schema_warned = False
+
+
+def reset_ollama_disclosures() -> None:
+    global _cloud_schema_warned
+    _cloud_schema_warned = False
+
+
+def _warn_cloud_schema(ref: ModelRef) -> None:
+    global _cloud_schema_warned
+    if _cloud_schema_warned or not ref.name.endswith(":cloud"):
+        return
+    from smartpipe.io import diagnostics
+
+    _cloud_schema_warned = True
+    diagnostics.warn(
+        f"{ref} runs on Ollama's cloud, which does not enforce structured outputs - "
+        "expect schema drift; the repair rung catches some of it, a local tag or an "
+        "enforcing provider (openai, mistral) avoids it."
+    )
 
 
 def resolve_host(env: Mapping[str, str]) -> str:
@@ -80,7 +102,12 @@ class OllamaChatModel:
         messages: list[dict[str, object]] = []
         if request.system is not None:
             messages.append({"role": "system", "content": request.system})
-        user: dict[str, object] = {"role": "user", "content": request.user}
+        content = request.user
+        if request.json_schema is not None:
+            _warn_cloud_schema(self.ref)
+            schema = json.dumps(request.json_schema, ensure_ascii=True, separators=(",", ":"))
+            content = f"{content}\n\nReturn JSON matching this schema exactly:\n{schema}"
+        user: dict[str, object] = {"role": "user", "content": content}
         images = [part for part in request.media if isinstance(part, ImageData)]
         if images:
             user["images"] = [base64.b64encode(image.data).decode() for image in images]
