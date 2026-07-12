@@ -48,9 +48,10 @@ from smartpipe.engine.prompts import (
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.items import Item, ItemSource, describe_source, project_content
+from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.io.tty import tty_asker
 from smartpipe.models.base import AudioData, ImageData, VideoData
-from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code
+from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code, spin_pending
 from smartpipe.verbs.graph import (
     FastScan,
     FoldCut,
@@ -234,8 +235,14 @@ async def run_full(
         # A2: prove the model holds the schema BEFORE iterating spends paid OCR.
         # A known-empty file list (total == 0) has nothing to protect; a stdin
         # stream (total is None) always probes, since its size is unknowable
-        # here — unless the belt can't afford the probe plus real work.
-        await _schema_canary(model, plan, instruction, log, what="the extraction schema")
+        # here — unless the belt can't afford the probe plus real work. The
+        # probe can sit on a cold wire for the whole retry ladder, so it wears
+        # the pinned pending caption while it runs (D4 #37).
+        await spin_pending(
+            make_stderr_spinner(),
+            "checking the model holds the schema",
+            _schema_canary(model, plan, instruction, log, what="the extraction schema"),
+        )
     read_bar = stage("read")
     read_bar.start(total)
     items: list[Item] = []
@@ -368,9 +375,12 @@ async def run_full(
         request.embed_model_flag,
         should_stop=should_stop,
     )
+    surface_bar = stage("fold")  # D4 (#37): the label-cluster fold stays visible
+    surface_bar.start(None)
     canonical = await asyncio.to_thread(
-        fold_surfaces, counts, fold.vectors, should_stop=should_stop
+        fold_surfaces, counts, fold.vectors, should_stop=should_stop, progress=surface_bar.advance
     )
+    surface_bar.finish()
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)
@@ -640,13 +650,17 @@ async def run_hybrid(
         # input) and only when the belt can afford the probe plus real naming.
         # The probe drives the naming-shaped payload, not a bare sentence (NIT 5).
         if _canary_affordable(budget):
-            await _schema_canary(
-                model,
-                plan,
-                instruction,
-                log,
-                what="the relation-naming schema",
-                snippet=_CANARY_NAMING_SNIPPET,
+            await spin_pending(  # the pinned pending caption rides here too (D4 #37)
+                make_stderr_spinner(),
+                "checking the model holds the schema",
+                _schema_canary(
+                    model,
+                    plan,
+                    instruction,
+                    log,
+                    what="the relation-naming schema",
+                    snippet=_CANARY_NAMING_SNIPPET,
+                ),
             )
 
         async def worker(item: Item) -> tuple[int, str]:
@@ -826,9 +840,12 @@ async def run_adopt(
         request.embed_model_flag,
         should_stop=should_stop,
     )
+    surface_bar = stage("fold")  # D4 (#37): the label-cluster fold stays visible
+    surface_bar.start(None)
     canonical = await asyncio.to_thread(
-        fold_surfaces, counts, fold.vectors, should_stop=should_stop
+        fold_surfaces, counts, fold.vectors, should_stop=should_stop, progress=surface_bar.advance
     )
+    surface_bar.finish()
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)

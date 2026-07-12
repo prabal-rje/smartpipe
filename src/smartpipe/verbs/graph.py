@@ -449,9 +449,16 @@ async def scan_corpus(
         request.embed_model_flag,
         should_stop=should_stop,
     )
+    # D4 (#37): the label-cluster fold owns a visible element too — an unknown-
+    # total count line (groups, not items), advanced by the injected callback
+    # from the worker thread (the arbiter lock makes that safe). Distinct name:
+    # ``fold_bar`` below is the co-occurrence fold's.
+    surface_bar = stage("fold")
+    surface_bar.start(None)
     canonical = await asyncio.to_thread(
-        fold_surfaces, counts, fold.vectors, should_stop=should_stop
+        fold_surfaces, counts, fold.vectors, should_stop=should_stop, progress=surface_bar.advance
     )
+    surface_bar.finish()
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)

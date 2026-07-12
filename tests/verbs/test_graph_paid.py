@@ -22,6 +22,7 @@ from smartpipe.core.errors import (
 )
 from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io import manifest
+from smartpipe.io.inputs import InputSpec
 from smartpipe.models.base import ModelRef
 from smartpipe.models.budget import CallBudget, budgeted_chat, budgeted_embed
 from smartpipe.verbs.graph import GraphRequest, run_graph
@@ -30,6 +31,7 @@ from tests.verbs.test_graph import FakeEmbedder, FakeFinder
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+    from pathlib import Path
 
     from smartpipe.models.base import ChatModel, CompletionRequest, EmbeddingModel
     from smartpipe.models.resilience import WiredChat
@@ -1650,3 +1652,150 @@ async def test_full_mode_ocr_breaker_during_read_stops_at_setup_not_a_bug(
             ),
             context,
         )
+
+
+# --- C2: canary visibility + the lazy read's canary ordering (D3/D4) ----------------
+
+
+async def test_full_mode_canary_wears_the_pending_caption(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#37 D4: the pre-spend schema probe can sit on a cold wire for the whole
+    retry ladder — it now wears the pinned pending caption while it runs."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    chat = FakeChat(
+        by_content={
+            "Alice pays Bob": triples(("Alice", "pays", "Bob")),
+            "Ann pays Bob": triples(("Ann", "pays", "Bob")),
+        }
+    )
+    code, _ = await _run(GraphRequest(focus="who pays whom"), _context(chat), "Ann pays Bob\n")
+    assert code == ExitCode.OK
+    assert "checking the model holds the schema" in capsys.readouterr().err
+
+
+async def test_hybrid_canary_wears_the_pending_caption(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    chat = FakeChat(default='{"relation": "pays"}')
+    code, _ = await _run(
+        GraphRequest(name_top=1), _context(chat), "Ann pays Bob and Bob pays Ann\n"
+    )
+    assert code == ExitCode.OK
+    assert "checking the model holds the schema" in capsys.readouterr().err
+
+
+async def test_full_mode_surface_fold_owns_a_visible_element(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#37 D4 (run_full's fold_surfaces site): the label-cluster fold wears a
+    [fold] count line, painted at start."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    chat = FakeChat(
+        by_content={
+            "Alice pays Bob": triples(("Alice", "pays", "Bob")),
+            "Ann pays Bob": triples(("Ann", "pays", "Bob")),
+        }
+    )
+    code, _ = await _run(GraphRequest(focus="who pays whom"), _context(chat), "Ann pays Bob\n")
+    assert code == ExitCode.OK
+    err = capsys.readouterr().err
+    assert any("[fold]" in frame and "Processing [0]" in frame for frame in err.split("\r"))
+
+
+async def test_adopt_surface_fold_owns_a_visible_element(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#37 D4 (run_adopt's fold_surfaces site): same element, zero model calls."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    chat = FakeChat()
+    records = '{"source": "Ann", "target": "Bob"}\n{"source": "ann", "target": "Bob"}\n'
+    code, out = await _run(GraphRequest(), _context(chat), records)
+    assert code == ExitCode.OK
+    assert out  # the adopted edges reached stdout
+    assert chat.calls == []  # adopt spends nothing
+    err = capsys.readouterr().err
+    assert any("[fold]" in frame and "Processing [0]" in frame for frame in err.split("\r"))
+
+
+def _counting_load(monkeypatch: pytest.MonkeyPatch, events: list[str]) -> None:
+    """Route readers._load_file through an event recorder (the D3 lazy seam)."""
+    from smartpipe.io import readers
+
+    real_load = readers._load_file  # pyright: ignore[reportPrivateUsage] — the seam under test
+
+    def recording_load(path: object, ordinal: int, warned: set[str], census: object) -> object:
+        events.append("load")
+        return real_load(path, ordinal, warned, census)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(readers, "_load_file", recording_load)
+
+
+async def test_canary_fires_before_the_first_file_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A2's intent, finally literal (D3): with the plain glob streaming lazily,
+    the schema probe fires before a single corpus file is even READ — no more
+    eager slurp-at-resolve ahead of the capability verdict."""
+    events: list[str] = []
+
+    class RecordingChat(FakeChat):
+        async def complete(self, request: CompletionRequest) -> str:
+            if _CANARY_MARK in request.user:
+                events.append("canary")
+            return await super().complete(request)
+
+    _counting_load(monkeypatch, events)
+    (tmp_path / "a.txt").write_text("Ann pays Bob\n", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("Bob pays Ann\n", encoding="utf-8")
+    chat = RecordingChat()
+    spec = InputSpec(patterns=(str(tmp_path / "*.txt"),), from_files=False)
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(focus="who pays whom", input=spec),
+        _context(chat),
+        stdin=_TtyIn(""),  # a bare terminal: files only, total = files NAMED
+        stdout=out,
+        clock=lambda: 0.0,
+    )
+    assert code == ExitCode.OK
+    assert "load" in events  # the corpus did load…
+    assert events[0] == "canary"  # …but only after the model proved the schema
+
+
+async def test_all_skipped_glob_still_fires_the_canary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The accepted D3 delta: total is files NAMED (never 0 for a matched glob),
+    so a glob whose every file fails to load still spends the ONE schema probe —
+    cached on a rerun; the price of never loading files before the model is
+    proven."""
+    import sys
+
+    if sys.platform == "win32":  # pragma: no cover — chmod 0o000 is a POSIX arrange
+        pytest.skip("POSIX permission test")
+    locked = tmp_path / "locked.txt"
+    locked.write_text("secret\n", encoding="utf-8")
+    locked.chmod(0o000)
+    chat = FakeChat(by_content={"Alice pays Bob": triples(("Alice", "pays", "Bob"))})
+    spec = InputSpec(patterns=(str(locked),), from_files=False)
+    out = io.StringIO()
+    try:
+        code = await run_graph(
+            GraphRequest(focus="who pays whom", input=spec),
+            _context(chat),
+            stdin=_TtyIn(""),
+            stdout=out,
+            clock=lambda: 0.0,
+        )
+    finally:
+        locked.chmod(0o600)
+    assert code == ExitCode.OK  # nothing loaded, nothing extracted — a clean empty run
+    assert len(chat.calls) == 1  # exactly the probe
+    assert _CANARY_MARK in chat.calls[0].user
+    assert "cannot read" in capsys.readouterr().err  # the skip stayed disclosed

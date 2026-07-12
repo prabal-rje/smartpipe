@@ -957,3 +957,54 @@ async def test_sparse_spread_never_fires_the_hint(
     code, _ = await _run(GraphRequest(fast=True), _context(known), corpus)
     assert code is ExitCode.OK
     assert "near-complete graph" not in capsys.readouterr().err
+
+
+# --- C2 #37: every fold phase owns a visible element --------------------------------
+
+
+async def test_fold_bar_zero_state_lands_before_the_first_embed_batch(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#37 integration pin (green via D1): the embed fold's [fold] bar paints its
+    0% zero state BEFORE the first embed batch returns — that batch is the one
+    an admission cooldown (≤60s) plus the retry ladder can hold for minutes,
+    and it used to be the bar's FIRST byte."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    stderr_at_first_batch: list[str] = []
+
+    class SnappingEmbedder(FakeEmbedder):
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            if not stderr_at_first_batch:
+                stderr_at_first_batch.append(capsys.readouterr().err)
+            return await super().embed(texts)
+
+    context = FakeContext(finder=FakeFinder(dict(PEOPLE)), embedder=SnappingEmbedder({}))
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True), context, stdin=io.StringIO("Ann met Bob\n"), stdout=out
+    )
+    assert code is ExitCode.OK
+    (snapshot,) = stderr_at_first_batch
+    assert any(
+        "[fold]" in frame and "0% · 0/2" in frame for frame in snapshot.split("\r")
+    )  # the zero state was already on screen when the first batch went out
+
+
+async def test_fast_surface_fold_owns_a_visible_element(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#37 D4: the label-cluster fold (fold_surfaces, off the loop, no item count
+    of its own) owns a [fold] count line — painted at start, advanced per label
+    group — so the quadratic phase never runs faceless."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True), _context(PEOPLE), stdin=io.StringIO("Ann met Bob\n"), stdout=out
+    )
+    assert code is ExitCode.OK
+    err = capsys.readouterr().err
+    assert any(
+        "[fold]" in frame and "Processing [0]" in frame for frame in err.split("\r")
+    )  # the surface fold's zero state wore the fold label
