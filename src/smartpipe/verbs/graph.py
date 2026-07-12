@@ -202,6 +202,23 @@ async def run_graph(
             '  Example: smartpipe graph "who pays whom" --relations "pays, owns" notes/*.md'
         )
     concurrency = context.concurrency(request.concurrency_flag)
+    adopt_dispatch = not request.fast and request.focus is None and request.name_top is None
+    if (
+        adopt_dispatch
+        and not request.input.patterns
+        and not request.input.from_files
+        and stdin.isatty()
+    ):
+        # Hoisted from run_adopt (#27): a bare terminal has no records to adopt,
+        # and that usage refusal must outrank a broken embed config below.
+        from smartpipe.verbs.graphfull import three_forms_fault
+
+        raise three_forms_fault()
+    # #27 preflight: build the fold embedder NOW, in every mode, so a broken embed
+    # config (missing key, chat-model-as-embedder) faults at exit 2 BEFORE any
+    # read, NER grind, or paid extraction. The instance is discarded — the fold
+    # rebuilds it (manifest.record_model is idempotent, one fold_embed entry).
+    await context.fold_embedder(request.embed_model_flag)
     if request.name_top is not None:
         from smartpipe.verbs.graphfull import run_hybrid
 

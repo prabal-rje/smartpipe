@@ -1288,6 +1288,44 @@ async def test_empty_input_at_belt_of_one_spends_nothing() -> None:
     assert chat.calls == []  # not even the probe fired
 
 
+# --- #27: the fold-embedder preflight faults BEFORE any spend -------------------------
+
+
+class _BrokenFoldContext(PaidContext):
+    """A context whose fold embedder cannot be built — a missing key in miniature."""
+
+    async def fold_embedder(self, flag: str | None = None) -> FakeEmbedder:
+        del flag
+        raise SetupFault("error: model 'text-embedding-3-small' needs an OpenAI API key")
+
+
+def _broken_fold_context(chat: ChatModel) -> _BrokenFoldContext:
+    return _BrokenFoldContext(chat=chat, finder=FakeFinder(PEOPLE), embedder=FakeEmbedder({}))
+
+
+async def test_broken_fold_embedder_faults_before_the_canary_spends() -> None:
+    """#27: the preflight builds the fold embedder at dispatch, so a broken embed
+    config faults BEFORE the schema canary (or any extraction) reaches the wire."""
+    chat = FakeChat()
+    with pytest.raises(SetupFault, match="OpenAI API key"):
+        await _run(GraphRequest(focus="who pays whom"), _broken_fold_context(chat), "Ann Bob\n")
+    assert chat.calls == []  # not even the canary probe fired
+
+
+async def test_bare_terminal_refusal_outranks_a_broken_embed_config() -> None:
+    """#27 order pin: adopt at a bare terminal refuses on the three-forms screen
+    (usage, 64) even when the embed config is ALSO broken (setup, 2)."""
+    out = io.StringIO()
+    with pytest.raises(UsageFault, match="three forms"):
+        await run_graph(
+            GraphRequest(),
+            _broken_fold_context(FakeChat()),
+            stdin=_TtyIn(""),
+            stdout=out,
+            clock=lambda: 0.0,
+        )
+
+
 # --- A4: --fallback-model failover into both paid modes (item 11) --------------------
 
 

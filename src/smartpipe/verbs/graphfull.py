@@ -771,9 +771,10 @@ async def run_adopt(
     should_stop: Callable[[], bool] | None = None,
 ) -> ExitCode:
     """Edge records in, graph out — zero extraction calls: adopt each row's
-    endpoints/relation/weight/provenance, canonicalize, fold, serialize."""
-    if not request.input.patterns and not request.input.from_files and stdin.isatty():
-        raise three_forms_fault()  # a bare terminal has no records to adopt
+    endpoints/relation/weight/provenance, canonicalize, fold, serialize.
+
+    The bare-terminal three-forms refusal lives in ``run_graph`` (#27): it must
+    outrank the fold-embedder preflight that fires there before dispatch."""
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     read_bar = stage("read")
     read_bar.start(total)
