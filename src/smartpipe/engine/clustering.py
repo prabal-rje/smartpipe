@@ -7,29 +7,106 @@ feature — the answer must not change under the user.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, TypeAlias
 
 from smartpipe.engine.ranking import cosine
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = ["adaptive_threshold", "knn_mean_distance", "leader_clusters", "merge_to_k"]
+ClusteringStrategy: TypeAlias = Callable[..., list[list[int]]]
+
+__all__ = [
+    "ClusteringStrategy",
+    "adaptive_threshold",
+    "knn_mean_distance",
+    "leader_clusters",
+    "merge_to_k",
+    "numpy_leader_clusters",
+    "select_leader_clustering",
+]
 
 
-def leader_clusters(vectors: Sequence[tuple[float, ...]], *, threshold: float) -> list[list[int]]:
-    """Greedy leader clustering: each vector joins the FIRST cluster whose
-    leader (its first member) is ≥ ``threshold`` cosine-similar, else founds
-    its own. Returns clusters as index lists, in founding order."""
+def leader_clusters(
+    vectors: Sequence[tuple[float, ...]],
+    *,
+    threshold: float,
+    should_stop: Callable[[], bool] | None = None,
+    progress: Callable[[], None] | None = None,
+) -> list[list[int]]:
+    """Exact greedy reference strategy, with one cooperative check per name."""
     clusters: list[list[int]] = []
     for index, vector in enumerate(vectors):
+        if should_stop is not None and should_stop():
+            clusters.extend([position] for position in range(index, len(vectors)))
+            break
         for members in clusters:
             if cosine(vectors[members[0]], vector) >= threshold:
                 members.append(index)
                 break
         else:
             clusters.append([index])
+        if progress is not None:
+            progress()
     return clusters
+
+
+def numpy_leader_clusters(
+    vectors: Sequence[tuple[float, ...]],
+    *,
+    threshold: float,
+    should_stop: Callable[[], bool] | None = None,
+    progress: Callable[[], None] | None = None,
+    chunk_size: int = 4_096,
+) -> list[list[int]]:
+    """Exact greedy clustering using chunked NumPy GEMM against current leaders."""
+    import numpy as np
+
+    if not vectors:
+        return []
+    matrix = np.asarray(vectors, dtype=np.float64)
+    norms = np.sqrt(np.sum(matrix * matrix, axis=1))
+    normalized = np.divide(
+        matrix, norms[:, None], out=np.zeros_like(matrix), where=norms[:, None] != 0.0
+    )
+    clusters: list[list[int]] = []
+    leaders: list[int] = []
+    for index in range(len(vectors)):
+        if should_stop is not None and should_stop():
+            clusters.extend([position] for position in range(index, len(vectors)))
+            break
+        match_index: int | None = None
+        for start in range(0, len(leaders), chunk_size):
+            positions = leaders[start : start + chunk_size]
+            similarities = normalized[positions] @ normalized[index]
+            hit_positions = tuple(
+                position
+                for position, similarity in enumerate(similarities.tolist())
+                if similarity >= threshold
+                and cosine(vectors[positions[position]], vectors[index]) >= threshold
+            )
+            if hit_positions:
+                match_index = start + hit_positions[0]
+                break
+        if match_index is None:
+            leaders.append(index)
+            clusters.append([index])
+        else:
+            clusters[match_index].append(index)
+        if progress is not None:
+            progress()
+    return clusters
+
+
+def select_leader_clustering() -> ClusteringStrategy:
+    """Select the accelerated strategy at the composition seam, with no hard dependency."""
+    try:
+        import numpy as np
+    except ImportError:
+        return leader_clusters
+    _ = np
+    return numpy_leader_clusters
 
 
 def knn_mean_distance(vectors: Sequence[tuple[float, ...]], *, k: int) -> list[float]:

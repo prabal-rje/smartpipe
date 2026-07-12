@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from smartpipe.engine.clustering import knn_mean_distance, leader_clusters
+from smartpipe.engine.clustering import (
+    knn_mean_distance,
+    leader_clusters,
+    numpy_leader_clusters,
+)
 
 NEARLY_RIGHT = (0.995, 0.0999)  # ~cos 0.995 to (1,0)
 RIGHT = (1.0, 0.0)
@@ -65,3 +69,53 @@ def test_adaptive_threshold_on_tiny_corpus_only_folds_identity() -> None:
     from smartpipe.engine.clustering import adaptive_threshold
 
     assert adaptive_threshold([RIGHT, UP]) == 0.99
+
+
+def test_numpy_strategy_matches_pure_across_order_capacity_and_threshold_edges() -> None:
+    vectors = [RIGHT, UP, NEARLY_RIGHT, (0.01, 1.0), (-1.0, 0.0), (0.8, 0.6)]
+    for threshold in (0.0, 0.8, 0.9, 1.0):
+        expected = leader_clusters(vectors, threshold=threshold)
+        assert numpy_leader_clusters(vectors, threshold=threshold, chunk_size=2) == expected
+
+
+def test_first_above_threshold_wins_not_most_similar() -> None:
+    vectors = [RIGHT, (0.8, 0.6), (0.9, 0.435889894)]
+    expected = [[0, 2], [1]]
+    assert leader_clusters(vectors, threshold=0.89) == expected
+    assert numpy_leader_clusters(vectors, threshold=0.89, chunk_size=2) == expected
+
+
+def test_progress_is_per_name_and_stop_preserves_clean_partial() -> None:
+    ticks: list[int] = []
+
+    def stopped() -> bool:
+        return len(ticks) == 3
+
+    clusters = leader_clusters(
+        [RIGHT, NEARLY_RIGHT, UP, (-1.0, 0.0)],
+        threshold=0.9,
+        should_stop=stopped,
+        progress=lambda: ticks.append(1),
+    )
+    assert ticks == [1, 1, 1]
+    assert clusters == [[0, 1], [2], [3]]
+
+
+def test_numpy_handles_zero_vectors_exactly_like_pure() -> None:
+    vectors = [(0.0, 0.0), RIGHT, (0.0, 0.0)]
+    assert numpy_leader_clusters(vectors, threshold=0.9, chunk_size=1) == leader_clusters(
+        vectors, threshold=0.9
+    )
+
+
+def test_numpy_rechecks_boundary_candidates_with_reference_cosine() -> None:
+    vectors = [
+        (0.5335262281018054, 0.07177402500803365),
+        (0.2620289869780936, 0.06322371923677483),
+    ]
+    threshold = 0.9946965840963299
+    assert (
+        numpy_leader_clusters(vectors, threshold=threshold)
+        == leader_clusters(vectors, threshold=threshold)
+        == [[0], [1]]
+    )

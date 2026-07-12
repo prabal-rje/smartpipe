@@ -227,6 +227,7 @@ def fold_surfaces(
     threshold: float = FOLD_THRESHOLD,
     should_stop: Callable[[], bool] | None = None,
     progress: Callable[[], None] | None = None,
+    clustering: Callable[..., list[list[int]]] = leader_clusters,
 ) -> dict[str, str]:
     """Surface name → canonical name, label-scoped, two rungs.
 
@@ -265,16 +266,23 @@ def fold_surfaces(
             (member for member in members if member.name in vectors),
             key=lambda member: -member.count,  # stable: ties keep first-appearance order
         )
-        clusters = leader_clusters(
-            [tuple(vectors[member.name]) for member in embedded], threshold=threshold
+        clusters = clustering(
+            [tuple(vectors[member.name]) for member in embedded],
+            threshold=threshold,
+            should_stop=should_stop,
+            progress=progress,
         )
+        if progress is not None:
+            for _ in range(len(members) - len(embedded)):
+                progress()
         for cluster in clusters:
             leader = embedded[cluster[0]].name
             for position in cluster:
                 canonical[embedded[position].name] = leader
-        if progress is not None:
-            progress()
 
+    if progress is not None:
+        for _ in range(len(counts) - len(representatives)):
+            progress()
     return {surface: canonical.get(leader, leader) for surface, leader in representative.items()}
 
 

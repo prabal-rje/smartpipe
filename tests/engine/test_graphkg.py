@@ -648,3 +648,22 @@ def test_name_edges_with_no_names_is_identity() -> None:
         GraphEdge(source="Ann", target="Bob", relation="co-occurs", weight=1, sources=(_ref(),)),
     )
     assert name_edges(edges, {}) == edges
+
+
+def test_fold_surfaces_progress_counts_aliases_and_missing_vectors_per_name() -> None:
+    counts = (
+        SurfaceCount(name="Acme", label="company", count=2),
+        SurfaceCount(name="ACME", label="company", count=1),
+        SurfaceCount(name="Beta", label="company", count=1),
+        SurfaceCount(name="Gamma", label="company", count=1),
+    )
+    ticks: list[int] = []
+    fold_surfaces(
+        counts,
+        {"Acme": (1.0, 0.0)},
+        progress=lambda: ticks.append(1),
+        clustering=__import__(
+            "smartpipe.engine.clustering", fromlist=["leader_clusters"]
+        ).leader_clusters,
+    )
+    assert len(ticks) == len(counts)
