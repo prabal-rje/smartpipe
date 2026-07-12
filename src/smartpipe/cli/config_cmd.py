@@ -1299,11 +1299,7 @@ async def _pick_model(
                 continue
             return typed
         selected = str(parse_model_ref(f"{provider}/{shown[picked]}"))
-        if provider == "ollama" and shown[picked].endswith(":cloud"):
-            say(
-                "  warning: Ollama Cloud runs off-device and structured output is unverified; "
-                "expect schema drift."
-            )
+        _warn_ollama_cloud(selected, say=say)
         return selected
 
 
@@ -1338,7 +1334,19 @@ def _typed_model(
     say(tint(f"  Type 'back' to return to the {back_to}.", "2"))
     answer = ask(question, example)
     parsed = _parsed_or_reprompt(answer, ask, question)
-    return None if parsed is None else str(parsed)
+    selected = None if parsed is None else str(parsed)
+    if selected is not None:
+        _warn_ollama_cloud(selected, say=say)
+    return selected
+
+
+def _warn_ollama_cloud(model: str, *, say: Callable[[str], None]) -> None:
+    ref = parse_model_ref(model)
+    if ref.provider == "ollama" and ref.name.endswith(":cloud"):
+        say(
+            "  warning: Ollama Cloud runs off-device and structured output is unverified; "
+            "expect schema drift."
+        )
 
 
 async def _pick_fallback(

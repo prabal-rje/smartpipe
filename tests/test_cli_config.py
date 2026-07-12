@@ -326,6 +326,20 @@ async def test_flow_type_it_entry_routes_to_typed_input() -> None:
     assert menu.shown[1][1][-2].startswith("type a model name instead")
 
 
+@pytest.mark.parametrize("catalog", [("qwen3:8b",), ()])
+async def test_flow_typed_ollama_cloud_warns_after_pick(
+    catalog: tuple[str, ...] | None,
+) -> None:
+    picks: list[int | None] = [0, 2, 0, 0] if catalog is not None else [0, 0, 0]
+    result, rec, _menu = await _run_flow(
+        tags=catalog,
+        picks=picks,
+        answers={"Default model?": "qwen3.5:cloud"},
+    )
+    assert result.model == "ollama/qwen3.5:cloud"
+    assert sum("Ollama Cloud runs off-device" in line for line in rec.said) == 1
+
+
 async def test_flow_typed_junk_twice_is_a_usage_fault() -> None:
     from smartpipe.core.errors import UsageFault
 
