@@ -93,6 +93,9 @@ class _Context:
         del flag
         return None
 
+    def batching(self) -> None:
+        return None  # these surfaces drive failure paths, never a packed call (#21)
+
     def remote_transcriber(self, chat_ref: ModelRef | None = None) -> None:
         del chat_ref
         return None
