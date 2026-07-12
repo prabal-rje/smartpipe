@@ -309,8 +309,13 @@ def test_model_labels_annotate_from_any_source() -> None:
         "ollama/qwen3:8b  (text · image - declared)",
         "ollama/phi4",
     )
-    assert model_labels("ollama", ("qwen3.5:cloud",), sources, now) == (
-        "ollama/qwen3.5:cloud  (cloud · schema unverified)",
+    cloud_sources = ChipSources(
+        probed={"ollama/qwen3.5:cloud": ProbeChip(sees=True, hears=False, ts=now)},
+        registry={},
+        declared={},
+    )
+    assert model_labels("ollama", ("qwen3.5:cloud",), cloud_sources, now) == (
+        "ollama/qwen3.5:cloud  (text · image - probed today · cloud · schema unverified)",
     )
 
 

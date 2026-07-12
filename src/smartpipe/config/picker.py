@@ -628,7 +628,8 @@ def model_labels(
         ref = f"{provider}/{name}"
         chips = chips_for(ref, sources, now)
         if provider == "ollama" and name.endswith(":cloud"):
-            labels.append(f"{ref}  (cloud · schema unverified)")
+            capability = "" if chips is None else f"{chip_label(chips)} · "
+            labels.append(f"{ref}  ({capability}cloud · schema unverified)")
         else:
             labels.append(ref if chips is None else f"{ref}  ({chip_label(chips)})")
     return tuple(labels)

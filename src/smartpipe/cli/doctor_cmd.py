@@ -46,7 +46,7 @@ _RC_FILES = {"zsh": "~/.zshrc", "bash": "~/.bashrc"}
 @click.option(
     "--probe",
     is_flag=True,
-    help="Also send 4 tiny PAID calls to chart which modalities really work.",
+    help="Also send 5 tiny PAID calls to chart which modalities really work.",
 )
 def doctor_command(probe: bool) -> None:
     """Check that smartpipe is set up and ready — without spending a model call.
@@ -62,7 +62,7 @@ def doctor_command(probe: bool) -> None:
     if not probe:
         click.secho(
             "\n⚠ these checks verify SETUP, not ABILITY — run `smartpipe doctor --probe`\n"
-            "  to test what your models can actually see and hear (4 tiny paid calls)",
+            "  to test what your models can actually see and hear (5 tiny paid calls)",
             fg="yellow",
             bold=True,
         )

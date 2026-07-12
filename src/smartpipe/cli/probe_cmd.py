@@ -3,8 +3,8 @@
 ``doctor`` alone never spends a cent (D18); this flag is the explicit opt-in
 that answers what the docs can only claim: which modalities *actually* reach
 your configured models. Marks: check = native; dash+star = works via a
-footnote names it); cross = no path. Four tiny paid calls — five when a
-remote stt-model resolves — announced first.
+footnote names it); cross = no path. Five tiny paid calls - six when a
+remote stt-model resolves - announced first.
 """
 
 from __future__ import annotations
