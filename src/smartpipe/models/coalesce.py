@@ -154,12 +154,10 @@ class CoalescingChatModel:
         return self.inner.ref
 
     async def complete(self, request: CompletionRequest) -> str:
-        if self._closed:
+        if self._closed or self._stopping():
             raise UnsentError(STOPPED_BEFORE_SEND)
         if packing_withheld_for(self.ref) or not eligible(request, self.settings.size):
             return await self.inner.complete(request)
-        if self._stopping():
-            raise UnsentError(STOPPED_BEFORE_SEND)
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         entry = self._enqueue(request, future)
         try:

@@ -99,6 +99,18 @@ async def test_cloud_model_with_large_measured_gap_withholds_packing() -> None:
     assert len(inner.calls) == 4
     assert all(json.loads(reply)["vendor"].startswith("solo:") for reply in replies)
     assert model.packed_calls == 0
+
+
+async def test_stopped_run_never_sends_measured_model_solo() -> None:
+    inner = PackedFake()
+    inner.ref = ModelRef("ollama", "glm-5.2:cloud")
+    stop = asyncio.Event()
+    stop.set()
+    model = _coalescer(inner, size=4, stop=stop)
+
+    with pytest.raises(UnsentError, match="not sent"):
+        await model.complete(_request("row"))
+    assert inner.calls == []
     assert model.packed_items == 0
 
 
