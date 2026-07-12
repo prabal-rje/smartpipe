@@ -102,14 +102,30 @@ _DEGRADE_CAP = 5  # per conversion kind: first rows verbatim, then the rollup
 
 
 class DegradationLog:
-    """Per-run ledger of poor-man's conversions (D27) and per-item skips (B4):
-    every degraded row and every skip is announced (capped per kind/reason), and
-    one rollup line per bucket closes the run — so a corpus of identical outcomes
-    stops repeating one absolute-path line apiece."""
+    """Per-run ledger of expected conversions (C3 #33), poor-man's degradations
+    (D27), and per-item skips (B4): every row is announced (capped per
+    kind/reason), and one rollup line per bucket closes the run — so a corpus of
+    identical outcomes stops repeating one absolute-path line apiece.
+
+    THE CHANNEL RULE (ux.md): ``convert`` is the calm note-toned channel for a
+    converter doing exactly the job the pipeline expected (whisper/stt heard the
+    audio, the ocr-model parsed the document); ``note`` keeps the ⚠ degraded
+    voice for genuine loss (frames/figures dropped, a failed native attempt);
+    ``skip`` stays ⚠ for items that produced nothing."""
 
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
         self.skips: dict[str, int] = {}
+        self.converts: dict[str, int] = {}
+
+    def convert(self, where: str, kind: str, detail: str) -> None:
+        """An EXPECTED conversion — calm, note-toned, own per-kind counter."""
+        count = self.converts.get(kind, 0) + 1
+        self.converts[kind] = count
+        if count <= _DEGRADE_CAP:
+            note(f"converted: {where} {kind} ({detail})")
+        elif count == _DEGRADE_CAP + 1:
+            note(f"more {kind} conversions follow (suppressed; the rollup lands at the end)")
 
     def note(self, where: str, kind: str, detail: str) -> None:
         count = self.counts.get(kind, 0) + 1
@@ -134,6 +150,9 @@ class DegradationLog:
             warn(f"more {key} skips follow (suppressed; the rollup lands at the end)")
 
     def finish(self) -> None:
+        # PINNED cross-bucket order (C3 #33): converted → degraded → skipped —
+        # the calm bulk first, the losses last, nearest the receipt.
+        _rollup("converted", self.converts)
         _rollup("degraded", self.counts)
         _rollup("skipped", self.skips)
 

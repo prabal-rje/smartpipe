@@ -286,7 +286,7 @@ async def _pdf_pages(path: PathType, ocr: OcrIngest | None) -> list[str]:
             detail = f"parsed by {parser.ref}"
             for page in parsed:
                 marker = path.name if len(parsed) == 1 else f"{path.name} p.{page.index + 1}"
-                ocr.log.note(marker, "document → markdown", detail)
+                ocr.log.convert(marker, "document → markdown", detail)
             return [page.markdown for page in parsed]
     return await asyncio.to_thread(pdf_page_texts, path)
 

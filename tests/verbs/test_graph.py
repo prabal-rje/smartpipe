@@ -425,7 +425,9 @@ async def test_all_image_only_items_exit_nonzero() -> None:
     assert out == ""
 
 
-async def test_audio_items_ride_the_local_whisper_rung() -> None:
+async def test_audio_items_ride_the_local_whisper_rung(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     import base64
 
     clip = base64.b64encode(b"riff").decode()
@@ -449,6 +451,11 @@ async def test_audio_items_ride_the_local_whisper_rung() -> None:
     assert heard == [b"riff"]  # the clip reached the LOCAL transcriber, not a model
     edges = [json.loads(line) for line in out.getvalue().splitlines()]
     assert [(e["source"], e["target"]) for e in edges] == [("Ann", "Bob")]
+    err = capsys.readouterr().err
+    # C3 #33: a planned transcription is a CONVERSION, not a degradation — pin
+    # the stable prefix only (never the whisper size, which is config-shaped)
+    assert "converted: line 1 audio → text" in err
+    assert "degraded:" not in err
 
 
 # --- the stt-model role in the scanning modes (#20) ---------------------------------

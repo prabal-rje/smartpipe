@@ -465,7 +465,7 @@ async def test_by_pages_parses_through_the_role_and_keeps_the_grouping(
     assert records[0]["text"] == "page 1 md\n\npage 2 md"  # cut exactly like local pages
     assert records[1]["text"] == "page 3 md"
     err = capsys.readouterr().err
-    assert "degraded: r.pdf p.1 document → markdown" in err  # disclosed per page
+    assert "converted: r.pdf p.1 document → markdown" in err  # disclosed per page (C3 #33)
 
 
 async def test_media_branch_never_constructs_the_ocr_parser(
