@@ -99,6 +99,7 @@ async def test_cloud_model_with_large_measured_gap_withholds_packing() -> None:
     assert len(inner.calls) == 4
     assert all(json.loads(reply)["vendor"].startswith("solo:") for reply in replies)
     assert model.packed_calls == 0
+    assert model.packed_items == 0
 
 
 async def test_k_reached_flies_one_packed_call() -> None:

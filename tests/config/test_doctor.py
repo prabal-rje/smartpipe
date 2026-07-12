@@ -102,6 +102,20 @@ def test_doctor_all_green_exits_zero(
     assert "keys" in out  # presence report, never values
 
 
+def test_doctor_does_not_claim_unprobed_provider_schema_enforcement(
+    run_cli: RunCli,
+    respx_mock: respx.MockRouter,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SMARTPIPE_MODEL", "openai/gpt-5.4-mini")
+    respx_mock.get(TAGS).mock(return_value=_tags())
+    _code, out, _err = run_cli(["doctor"])
+    schema_line = next(line for line in out.splitlines() if line.startswith("schema"))
+    assert "adapter requests structured output; enforcement unverified" in schema_line
+    assert " ✓ " not in schema_line
+
+
 def test_doctor_flags_a_missing_ollama_model(
     run_cli: RunCli, respx_mock: respx.MockRouter, isolated_home: Path
 ) -> None:

@@ -177,7 +177,9 @@ def _check_schema(configured: str | None) -> CheckResult:
         return CheckResult("schema", "fail", f"{ref} does not enforce structured outputs")
     if ref.provider == "ollama":
         return CheckResult("schema", "skip", f"{ref} accepts a schema; enforcement is unverified")
-    return CheckResult("schema", "ok", f"{ref} uses the provider's structured-output mode")
+    return CheckResult(
+        "schema", "skip", f"{ref} adapter requests structured output; enforcement unverified"
+    )
 
 
 def _check_stt(env: Mapping[str, str], config: Config | None) -> CheckResult:
