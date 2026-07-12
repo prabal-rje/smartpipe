@@ -73,7 +73,7 @@ and writes `stdout`, so verbs pipe into each other and into ordinary Unix tools.
 | [`distinct`](verbs/distinct.md) | fold near-duplicates; `--exact` is free | `sort -u`, by meaning |
 | [`diff`](verbs/diff.md) | what distinguishes two sets | the post-incident answer |
 | [`outliers`](verbs/outliers.md) | the items least like the rest | novelty, surfaced |
-| [`graph`](verbs/graph.md) | corpus → entity/relationship graph; `--fast` is free | the case wall, with citations |
+| [`graph`](verbs/graph.md) | corpus → entity/relationship graph; `--fast` is free by default | the case wall, with citations |
 
 **Free verbs** never call a model. Run them first to cut the corpus before any
 paid stage:

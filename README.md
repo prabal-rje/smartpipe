@@ -120,8 +120,9 @@ paid stage:
 Some semantic verbs have a **conditionally free mode**: `join --on` (key
 equality, no prompt), `distinct --exact` (hash-only folding), `graph --fast`
 (local NER, on-device), `map`/`extend` `--dry-run` (compose without sending),
-and `smartpipe schema` with a braces/DSL expression. Each stays at zero model
-calls by construction.
+and `smartpipe schema` with a braces/DSL expression. Each makes no chat-model
+calls; `graph --fast` is $0 by default and spends only if you configure a
+cloud `--embed-model` or a remote `--stt-model` (both disclosed at run time).
 
 ## A one-minute tour
 
@@ -177,7 +178,7 @@ what a "model" is.
 ### Highlight: the knowledge graph
 
 Number 9 is new: `graph --fast` turns a folder of mixed files into an
-interactive, **cited** knowledge graph without a single model call - a local
+interactive, **cited** knowledge graph entirely on-device by default - a local
 NER model finds the entities you name, co-occurrence weights the edges, and
 hovering any edge shows the files behind it. A focus prompt upgrades the
 strongest edges to model-read relations. Full story:
