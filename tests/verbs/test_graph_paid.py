@@ -787,6 +787,24 @@ async def test_adopt_subject_relation_object_rows_fold_and_serialize(
     )
 
 
+async def test_adopt_receipt_reports_real_spend_once_the_meter_moves(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """C3 #28: adopt's receipt reads the LIVE meter (receipt_tail) — a paid
+    fold can no longer hide behind a hardcoded ``· 0 tok``."""
+    from smartpipe.io import metering
+
+    metering.add_tokens(tokens_in=48_000, tokens_out=12_000)
+    code, out = await _run(
+        GraphRequest(), _context(FakeChat()), '{"source": "Ann", "target": "Bob"}\n'
+    )
+    assert code is ExitCode.OK
+    assert out  # the adopted edge reached stdout
+    err = capsys.readouterr().err
+    assert "· run: ↑48.0k ↓12.0k tok" in err
+    assert "· 0 tok" not in err
+
+
 async def test_adopt_source_target_rows_keep_weight_relation_and_provenance() -> None:
     row = json.dumps(
         {

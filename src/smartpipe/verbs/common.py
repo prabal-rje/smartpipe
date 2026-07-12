@@ -231,7 +231,8 @@ async def ensure_text(
                 else:
                     spoken = await asyncio.to_thread(transcriber, audio)
                     if log is not None:
-                        log.note(where, "audio → text", _whisper_detail())
+                        # a planned transcription — the converted channel (C3 #33)
+                        log.convert(where, "audio → text", _whisper_detail())
                 text = _merge(text, spoken)
             case VideoData() as video:
                 if converter is not None:

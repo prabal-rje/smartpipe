@@ -28,6 +28,20 @@ def test_graph_help_carries_the_paid_half(run_cli: RunCli) -> None:
     assert "focus prompt" in out
 
 
+def test_graph_help_says_true_things_about_fast(run_cli: RunCli) -> None:
+    """C3 #31: the --fast claims are qualified — both paid exceptions named
+    (a cloud embed fold, a remote stt wire), the privacy clause present, and
+    "zero model calls" gone. Click wraps help text, so the pins run against
+    whitespace-normalized output."""
+    code, out, _ = run_cli(["graph", "--help"])
+    assert code == 0
+    words = " ".join(out.split())
+    assert "a cloud --embed-model or remote --stt-model spends (disclosed)" in words
+    assert "entity names leave the machine" in words
+    assert "audio leaves the machine" in words
+    assert "zero model calls" not in words.lower()
+
+
 def test_graph_without_fast_is_a_usage_fault(run_cli: RunCli) -> None:
     code, out, err = run_cli(["graph"], stdin="hello\n")
     assert code == 64

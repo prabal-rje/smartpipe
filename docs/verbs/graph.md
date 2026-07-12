@@ -1,10 +1,13 @@
 # graph - the corpus as a knowledge graph
 
 Point `graph` at a folder of mixed files and get back who and what connects,
-as weighted edges with a source citation on every one. `--fast` does it with
-**zero model calls** - a local NER model finds the entities, co-occurrence
-draws the edges, and corpus data stays on the machine. First use may download
-the local model weights.
+as weighted edges with a source citation on every one. `--fast` does it
+**on-device, with no chat-model calls** - a local NER model finds the
+entities, co-occurrence draws the edges, and corpus data stays on the
+machine, with two disclosed exceptions you configure yourself: a cloud
+[`embed-model`](../concepts/models-and-providers.md) spends on the name fold
+(entity names ride that wire), and a remote `stt-model` spends per clip
+(audio rides that wire). First use may download the local model weights.
 
 ![The interactive HTML view: colored entity nodes sized by mentions, with a hovered edge showing its per-file provenance card](../assets/graph-hero.png)
 
@@ -13,7 +16,8 @@ hover shows the files that back it.*
 
 ## The three cost forms
 
-**Free** - local NER + co-occurrence, `$0` by construction:
+**Free** - local NER + co-occurrence, `$0` by default (only a configured
+cloud `embed-model` or remote `stt-model` spends, disclosed):
 
 ```bash
 smartpipe graph --fast 'case/*.md' --entities "person, organization, vessel, account" --save case.html
@@ -206,7 +210,7 @@ without re-reading the corpus.
 
 | Flag | Meaning |
 |---|---|
-| `--fast` | the free mode: local NER + co-occurrence, zero model calls |
+| `--fast` | the free mode: local NER + co-occurrence, on-device (a cloud `embed-model` or remote `stt-model` spends, disclosed) |
 | `--entities "a, b"` | entity types to find (default `"person, organization, location"`); with a focus prompt they become the subject/object type enum |
 | `--relations "pays, owns"` | closed relation vocabulary for the model-read modes (typed ontology) |
 | `--name-top N` | hybrid mode: free pass, then one naming call per edge for the N strongest (repair retries and the fold's embedding calls also count against `--max-calls`) |

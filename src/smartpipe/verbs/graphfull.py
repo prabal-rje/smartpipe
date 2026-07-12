@@ -120,7 +120,7 @@ def three_forms_fault(where: str | None = None) -> UsageFault:
     )
     return UsageFault(
         f"{head}\n"
-        "  --fast                   the free co-occurrence mode — local NER, zero model calls\n"
+        "  --fast                   the free co-occurrence mode — local NER, on-device\n"
         '  a focus prompt           graph "who pays whom" notes/*.md — model extraction\n'
         '  edge records on stdin    {"source", "target"} or {"subject", "relation", "object"} '
         "rows"
@@ -911,8 +911,10 @@ async def run_adopt(
     if request.save is not None:
         save_graph(request.save, nodes, kept, top=request.top)
     diagnostics.note(
+        # C3 #28: the cost segment reads the LIVE meter — byte-identical
+        # "0 tok" when nothing metered, the truth once a paid fold spends.
         f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
-        f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
+        f"{len(kept):,} edges ({pruned:,} pruned) · {receipt_tail()}"
     )
     fold_partial = fold_cut_flips_partial(fold.cut)
     if stop is not None and stop.is_set() and not fold_partial:

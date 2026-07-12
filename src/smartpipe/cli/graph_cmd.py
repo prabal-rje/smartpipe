@@ -1,5 +1,6 @@
-"""``smartpipe graph`` — the entity/relationship graph (free with --fast, model-read
-with a focus prompt or --name-top, adoption for edge records on stdin)."""
+"""``smartpipe graph`` — the entity/relationship graph (on-device with --fast, where
+only a configured cloud embed or remote stt role spends — disclosed; model-read with
+a focus prompt or --name-top, adoption for edge records on stdin)."""
 
 from __future__ import annotations
 
@@ -34,7 +35,8 @@ __all__ = ["graph_command"]
 @click.option(
     "--fast",
     is_flag=True,
-    help="The free mode: local NER + co-occurrence — zero model calls, on-device.",
+    help="The free mode: local NER + co-occurrence, on-device — no chat-model "
+    "calls; a cloud --embed-model or remote --stt-model spends (disclosed).",
 )
 @click.option(
     "--entities",
@@ -142,7 +144,7 @@ def graph_command(
     strict_rows: bool,
     args: tuple[str, ...],
 ) -> None:
-    """Build an entity/relationship graph — free with --fast, model-read with a focus.
+    """Build an entity/relationship graph — on-device with --fast, model-read with a focus.
 
     \b
     Examples:
@@ -157,8 +159,11 @@ def graph_command(
     "sources"} — sorted heaviest first, with spine-ref provenance on every
     edge. --fast finds the entities you name with a local NER model (one
     ~190 MB download, then free forever), folds near-duplicate names, and
-    counts co-occurrence inside --window. Zero model calls; corpus data stays
-    on the machine.
+    counts co-occurrence inside --window. No chat-model calls, and corpus
+    data stays on the machine — with two disclosed exceptions you configure
+    yourself: a cloud --embed-model spends on the name fold (entity names
+    leave the machine on that wire), and a remote --stt-model spends per
+    clip (audio leaves the machine on that wire).
 
     \b
     The model-read modes (spend, belted by --max-calls):

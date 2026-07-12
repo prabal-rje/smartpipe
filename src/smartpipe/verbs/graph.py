@@ -2,10 +2,13 @@
 
 Four ways in, one fold + serialize spine (waves G1/G2):
 
-- ``--fast`` (G1): local NER + co-occurrence — zero model calls, on-device,
-  free by construction (the tests pin it). This module owns that half and the
-  shared machinery every mode reuses: the corpus scan, the canonicalization
-  fold, the JSONL edge writer, ``--save``, and the receipt tail.
+- ``--fast`` (G1): local NER + co-occurrence, on-device — no chat-model calls;
+  the bare run is free by construction (the tests pin it), and only two
+  configured roles spend, disclosed: a cloud ``--embed-model`` on the fold
+  (entity names ride that wire) and a remote ``--stt-model`` per clip (audio
+  rides that wire). This module owns that half and the shared machinery every
+  mode reuses: the corpus scan, the canonicalization fold, the JSONL edge
+  writer, ``--save``, and the receipt tail.
 - A positional focus prompt (G2, FULL), ``--name-top`` (G2, HYBRID), and
   edge-shaped stdin records (G2, ADOPT) live in ``verbs/graphfull`` and are
   dispatched to from here — imported lazily so ``--fast`` never pays for them.

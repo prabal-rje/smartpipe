@@ -407,8 +407,9 @@ async def test_each_parsed_row_is_disclosed(
     )
     await _drain(items)
     err = capsys.readouterr().err
-    voice = "degraded: scan.pdf p.1 document → markdown (parsed by mistral/mistral-ocr-latest)"
-    assert voice in err
+    voice = "converted: scan.pdf p.1 document → markdown (parsed by mistral/mistral-ocr-latest)"
+    assert voice in err  # the expected-conversion channel (C3 #33), calm
+    assert "degraded:" not in err  # a configured parser doing its job is no loss
     assert "scan.pdf p.2" in err
 
 

@@ -484,14 +484,14 @@ async def ocr_parse_file(path: Path, ordinal: int, ocr: OcrIngest) -> list[Item]
             markdown = await ocr.parse_ingest_image(
                 ImageData(data=path.read_bytes(), mime=image_mime(path)), str(path)
             )
-            ocr.log.note(name, "document → markdown", detail)
+            ocr.log.convert(name, "document → markdown", detail)
             return [item_from_file(markdown, str(path), ordinal)]
         pages = await ocr.parse_pdf(path)
         group = source_accounting.new_group(size=len(pages))
         items: list[Item] = []
         for page in pages:
             marker = name if len(pages) == 1 else f"{name} p.{page.index + 1}"
-            ocr.log.note(marker, "document → markdown", detail)
+            ocr.log.convert(marker, "document → markdown", detail)
             items.append(
                 Item(
                     raw=page.markdown,
@@ -991,7 +991,7 @@ async def _ocr_stdin_document(payload: _StdinDocument, ocr: OcrIngest) -> list[I
     items: list[Item] = []
     for page in pages:
         marker = "<stdin>" if len(pages) == 1 else f"<stdin> p.{page.index + 1}"
-        ocr.log.note(marker, "document → markdown", detail)
+        ocr.log.convert(marker, "document → markdown", detail)
         items.append(
             Item(
                 raw=page.markdown,
@@ -1023,7 +1023,7 @@ async def _ocr_stdin_image(payload: ImageData, ocr: OcrIngest) -> Item | None:
             raise_ocr_wire_stop(exc, where="<stdin>")
         diagnostics.warn(note)
         return None
-    ocr.log.note("<stdin>", "document → markdown", f"parsed by {parser.ref}")
+    ocr.log.convert("<stdin>", "document → markdown", f"parsed by {parser.ref}")
     return item_from_file(markdown, "<stdin>", 0)
 
 

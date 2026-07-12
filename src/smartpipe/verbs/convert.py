@@ -2,7 +2,9 @@
 
 One ladder per modality, one cost fence: a LOCAL chat model converts for free,
 automatically; a cloud model converts only behind ``--allow-captions``; whisper
-is audio's always-there fallback. Every conversion is a per-row degraded note.
+is audio's always-there fallback. Every conversion is a per-row converted note
+(the calm expected-conversion channel, C3 #33) — only genuine loss (frames
+dropped) keeps the ⚠ degraded voice.
 """
 
 from __future__ import annotations
@@ -43,8 +45,9 @@ VIDEO_TO_TEXT_SYSTEM = (
 )
 
 IMAGE_NEEDS_CAPTION = (
-    "image needs a description to embed — a local vision model does it free "
-    "(smartpipe use ollama), or opt into paid captions: --allow-captions"
+    "image needs a description to embed — an on-device vision model does it free "
+    "(smartpipe use ollama; :cloud tags ride Ollama's cloud, off-device), "
+    "or opt into paid captions: --allow-captions"
 )
 
 _CONVERT_MAX_TOKENS = 512
@@ -102,7 +105,7 @@ class Converter:
             if transcript:
                 # Remote STT meters at its provider boundary. Using the chat
                 # ref here misclassified the spend (and could double-count it).
-                self.log.note(
+                self.log.convert(
                     where,
                     "audio → text",
                     f"transcribed by {self.stt.ref.provider}/{self.stt.ref.name}",
@@ -127,7 +130,7 @@ class Converter:
                 text = None  # the model can't hear — fall through to whisper
             if text is not None and text.strip():
                 self._meter_paid()
-                self.log.note(where, "audio → text", f"heard by {self._rung_name()}")
+                self.log.convert(where, "audio → text", f"heard by {self._rung_name()}")
                 return text.strip()
         import asyncio
 
@@ -135,7 +138,7 @@ class Converter:
 
         transcript = await asyncio.to_thread(_whisper_or_skip, audio)
 
-        self.log.note(where, "audio → text", f"whisper {configured_whisper_size()}")
+        self.log.convert(where, "audio → text", f"whisper {configured_whisper_size()}")
         return transcript
 
     async def video_halves(self, video: VideoData, where: str) -> tuple[str | None, str | None]:
@@ -161,7 +164,7 @@ class Converter:
                 speech = str(halves.get("transcript") or "").strip() or None
                 if visual or speech:
                     self._meter_paid()
-                    self.log.note(where, "video → text", f"watched by {self._rung_name()}")
+                    self.log.convert(where, "video → text", f"watched by {self._rung_name()}")
                     return visual, speech
             except ItemError as fault:
                 if not is_recoverable_item_error(fault):
@@ -207,7 +210,7 @@ class Converter:
                     raise
                 read = ""  # the parser hiccuped — the vision-chat rung continues below
             if read.strip():
-                self.log.note(where, "image → text", f"parsed by {self.ocr.ref}")
+                self.log.convert(where, "image → text", f"parsed by {self.ocr.ref}")
                 return read.strip()
         if not self._model_may_convert():
             raise ItemError(IMAGE_NEEDS_CAPTION)
@@ -223,7 +226,7 @@ class Converter:
             )
         )
         self._meter_paid()
-        self.log.note(where, "image → text", f"described by {self._rung_name()}")
+        self.log.convert(where, "image → text", f"described by {self._rung_name()}")
         return text.strip()
 
 
