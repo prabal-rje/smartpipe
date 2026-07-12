@@ -1439,6 +1439,43 @@ async def test_build_container_resets_the_bank_on_error_too(tmp_path: Path) -> N
     assert configured_transcript_cache() is None
 
 
+async def test_build_container_unwinds_tokens_and_client_on_a_mid_build_fault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C5 review: a fault BETWEEN token installs and the yield (bank dir, budget,
+    policy construction) must reset the already-installed ContextVars and close
+    the HTTP client — previously both leaked past the invocation."""
+    import smartpipe.container as container_module
+    from smartpipe.models.http_support import make_client
+    from smartpipe.parsing.extract import configured_transcript_cache, configured_whisper_size
+
+    built: list[httpx.AsyncClient] = []
+
+    def capturing_client(*, trust_env: bool) -> httpx.AsyncClient:
+        instance = make_client(trust_env=trust_env)
+        built.append(instance)
+        return instance
+
+    def exploding_cache_dir(env: Mapping[str, str]) -> Path:
+        raise RuntimeError("mid-build explosion")
+
+    monkeypatch.setattr(container_module, "make_client", capturing_client)
+    monkeypatch.setattr(container_module, "_cache_dir", exploding_cache_dir)
+    env = {
+        "SMARTPIPE_CACHE": "on",  # forces the bank path → the exploding cache dir
+        "SMARTPIPE_WHISPER_MODEL": "small",
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "APPDATA": str(tmp_path / "config"),
+    }
+    with pytest.raises(RuntimeError, match="mid-build explosion"):
+        async with build_container(env):
+            raise AssertionError("the container must not be yielded")  # pragma: no cover
+    assert configured_whisper_size() == "tiny"  # the installed size token unwound
+    assert configured_transcript_cache() is None  # never installed, still None
+    assert len(built) == 1 and built[0].is_closed  # the client did not leak
+
+
 async def test_build_container_keeps_the_bank_off_when_caching_is_off(
     tmp_path: Path,
 ) -> None:

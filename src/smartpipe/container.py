@@ -838,31 +838,45 @@ async def build_container(
     reset_run_disclosures()  # native-embedding/date notes are once per invocation
     manifest.reset()  # the --manifest collector is run-scoped too (item 65a); begin() re-arms
     source_accounting.reset()  # dropped inputs/OCR owners are invocation-scoped
-    whisper_token = configure_whisper_size(whisper_size(resolved_env))
-    # the local whisper transcript bank (#22) rides the same ContextVar-at-seam
-    # pattern as the size above: installed here, reset in the same finally;
-    # posture off ⇒ None ⇒ transcribe_audio stays byte-identical
-    bank = None
-    if _cache_enabled(resolved_env, config):
-        from smartpipe.models.cache import TranscriptBank
+    # C5 review: the construction window below can raise (bank/cache-dir, budget,
+    # policy) — a mid-build fault must reset every token already installed and
+    # close the client, or invocation state and the HTTP client leak past this
+    # invocation. None-sentinels track exactly what to unwind.
+    whisper_token = None
+    transcript_token = None
+    try:
+        whisper_token = configure_whisper_size(whisper_size(resolved_env))
+        # the local whisper transcript bank (#22) rides the same ContextVar-at-seam
+        # pattern as the size above: installed here, reset in the same finally;
+        # posture off ⇒ None ⇒ transcribe_audio stays byte-identical
+        bank = None
+        if _cache_enabled(resolved_env, config):
+            from smartpipe.models.cache import TranscriptBank
 
-        bank = TranscriptBank(_cache_dir(resolved_env))
-    transcript_token = configure_transcript_cache(bank)
-    container = AppContainer(
-        # env > stored key, per provider — `auth login`'s store fills only the gaps
-        env=resolved_env,
-        config=config,
-        http_client=client,
-        color_mode=color_mode,
-        budget=None if limit is None else CallBudget(limit=limit, stop=stop),
-        stop=stop,
-        call_policy=OutboundCallPolicy(
-            concurrency=call_concurrency,
-            breaker_limit=breaker_limit,
-        ),
-    )
-    if bank is not None:
-        container.caches.append(bank)  # the receipt and the daily sweep both see it
+            bank = TranscriptBank(_cache_dir(resolved_env))
+        transcript_token = configure_transcript_cache(bank)
+        container = AppContainer(
+            # env > stored key, per provider — `auth login`'s store fills only the gaps
+            env=resolved_env,
+            config=config,
+            http_client=client,
+            color_mode=color_mode,
+            budget=None if limit is None else CallBudget(limit=limit, stop=stop),
+            stop=stop,
+            call_policy=OutboundCallPolicy(
+                concurrency=call_concurrency,
+                breaker_limit=breaker_limit,
+            ),
+        )
+        if bank is not None:
+            container.caches.append(bank)  # the receipt and the daily sweep both see it
+    except BaseException:
+        if transcript_token is not None:
+            reset_transcript_cache(transcript_token)
+        if whisper_token is not None:
+            reset_whisper_size(whisper_token)
+        await client.aclose()
+        raise
     try:
         yield container
     finally:
@@ -882,6 +896,8 @@ async def build_container(
             _cache_receipt(container)
         finally:
             source_accounting.discard()
+            # pyright proves both tokens non-None here: the yield is reachable
+            # only after the construction try completed both assignments
             reset_whisper_size(whisper_token)
             reset_transcript_cache(transcript_token)
 
