@@ -23,7 +23,7 @@ def test_origins_default_when_nothing_set() -> None:
     assert by_key["media-embed-model"] == Setting(
         "media-embed-model", "(none - media rides embed-model)", "default"
     )
-    assert by_key["cache"] == Setting("cache", "off", "default")
+    assert by_key["cache"] == Setting("cache", "on", "default")  # owner directive: default on
     assert by_key["update-check"] == Setting("update-check", "on", "default")
     assert by_key["media-previews"] == Setting("media-previews", "on", "default")
 
@@ -57,7 +57,7 @@ def test_cache_env_values_win_and_normalize() -> None:
     off = {s.key: s for s in settings_with_origin({"SMARTPIPE_CACHE": "off"}, Config(cache=True))}
     assert off["cache"] == Setting("cache", "off", "env")
     junk = {s.key: s for s in settings_with_origin({"SMARTPIPE_CACHE": "maybe"}, Config())}
-    assert junk["cache"] == Setting("cache", "off", "default")  # the container ignores junk too
+    assert junk["cache"] == Setting("cache", "on", "default")  # junk falls through to default on
 
 
 def test_batching_row_mirrors_the_container_ladder() -> None:
@@ -113,7 +113,7 @@ def test_render_show_is_aligned_and_ends_with_file_path() -> None:
         ("media-embed-model", "(none - media rides embed-model)", "(default)"),
         ("concurrency", "4", "(default)"),
         ("output", "auto", "(default)"),
-        ("cache", "off", "(default)"),
+        ("cache", "on", "(default)"),
         ("batching", "on", "(default)"),
         ("update-check", "on", "(default)"),
         ("media-previews", "on", "(default)"),

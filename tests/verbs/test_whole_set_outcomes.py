@@ -101,7 +101,8 @@ class _Context:
         del labels
         return _Finder()
 
-    def fold_embedder(self) -> _FailedEmbedding:
+    async def fold_embedder(self, flag: str | None = None) -> _FailedEmbedding:
+        del flag
         return _FailedEmbedding()
 
     def writer(

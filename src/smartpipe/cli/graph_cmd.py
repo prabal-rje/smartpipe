@@ -91,6 +91,12 @@ __all__ = ["graph_command"]
     shell_complete=complete_chat_models,
     help="Chat model to switch to if the primary looks down (circuit breaker).",
 )
+@click.option(
+    "--embed-model",
+    "embed_model_flag",
+    help="Embedder for the name-canonicalization fold (e.g. openai/text-embedding-3-small); "
+    "defaults to the on-device local model. A cloud model here spends, even with --fast.",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option(
     "--max-calls",
@@ -113,6 +119,7 @@ def graph_command(
     top: int | None,
     model_flag: str | None,
     fallback_flag: str | None,
+    embed_model_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
     ocr_model_flag: str | None,
@@ -171,6 +178,7 @@ def graph_command(
         top=top,
         model_flag=model_flag,
         fallback_flag=fallback_flag,
+        embed_model_flag=embed_model_flag,
         concurrency_flag=concurrency_flag,
         ocr_model_flag=ocr_model_flag,
         input=input_spec(

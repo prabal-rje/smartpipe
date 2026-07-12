@@ -32,7 +32,7 @@ _DEFAULTS = {
     "media-embed-model": "(none - media rides embed-model)",
     "concurrency": "4",
     "output": "auto",
-    "cache": "off",
+    "cache": "on",
     "batching": "on",
     "update-check": "on",
     "media-previews": "on",

@@ -6,6 +6,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 ## [Unreleased]
 
 ### Changed
+- **Result caching now ships ON by default (owner directive: always cache).** The
+  posture ladder is unchanged (SMARTPIPE_CACHE > config `cache`), but the unset
+  default flips from off to on, mirroring batching's default-on: `_cache_enabled`
+  now returns `config.cache is not False`, and `config show` / `using` reports
+  `cache  on  (default)`. Every explicit opt-out still works untouched
+  (SMARTPIPE_CACHE=0/off/false/no at the env, or `cache = false` in config.toml).
+- **The `graph` fold embedder now honors the configured embed-model, with a
+  local fallback (owner ruling: specified wins).** The name-canonicalization
+  fold in every graph mode (`--fast`, a focus prompt, `--name-top`, adopt) now
+  resolves its embedder through the same chain `embed` uses - a new
+  `--embed-model` flag > SMARTPIPE_EMBED_MODEL > config `embed-model` - and falls
+  back to the free on-device local model only when nothing is set (the prior
+  always-local behavior). Because a configured cloud embedder then spends even on
+  the "free" `--fast` path, `fold_vectors` emits a one-line stderr disclosure
+  (`folding N entity names via <ref> (paid embeddings)`) whenever the resolved
+  fold embedder is not local.
 - **The chat wire's breaker, concurrency gate, and failover are now composed as
   decorators at the composition root.** A new `models/resilience.py` provides
   native-Python resilience combinators (`retried`, `circuit_broken`,

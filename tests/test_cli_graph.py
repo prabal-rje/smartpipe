@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 if TYPE_CHECKING:
+    from smartpipe.verbs.graph import GraphRequest
     from tests.conftest import RunCli
 
 
@@ -52,3 +55,34 @@ def test_graph_fast_refuses_a_bad_save_extension_before_reading(run_cli: RunCli)
     assert code == 64
     assert out == ""
     assert ".graphml" in err
+
+
+def test_graph_help_carries_the_embed_model_flag(run_cli: RunCli) -> None:
+    code, out, _ = run_cli(["graph", "--help"])
+    assert code == 0
+    assert "--embed-model" in out
+    assert "fold" in out  # the canonicalization fold it feeds
+
+
+def test_embed_model_flag_flows_from_the_cli_into_the_request(
+    run_cli: RunCli, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--embed-model reaches GraphRequest.embed_model_flag, which fold_vectors threads
+    to the fold embedder (specified wins, local fallback)."""
+    from smartpipe.cli import graph_cmd
+    from smartpipe.core.errors import ExitCode
+
+    captured: list[GraphRequest] = []
+
+    async def fake_run_graph(request: GraphRequest, *args: object, **kwargs: object) -> ExitCode:
+        captured.append(request)
+        return ExitCode.OK
+
+    monkeypatch.setattr(graph_cmd, "run_graph", fake_run_graph)
+    code, _out, _err = run_cli(
+        ["graph", "--fast", "--embed-model", "openai/text-embedding-3-small"],
+        stdin="Ann met Bob\n",
+    )
+    assert code == 0
+    assert len(captured) == 1
+    assert captured[0].embed_model_flag == "openai/text-embedding-3-small"

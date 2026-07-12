@@ -90,7 +90,8 @@ class PaidContext:
         self.finder_labels = tuple(labels)
         return self.finder
 
-    def fold_embedder(self) -> FakeEmbedder:
+    async def fold_embedder(self, flag: str | None = None) -> FakeEmbedder:
+        del flag
         return self.embedder
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:

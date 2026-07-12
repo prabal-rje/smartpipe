@@ -406,14 +406,16 @@ class AppContainer:
         manifest.record_model("ner", f"local/gliner-small-v2.1@{precision}")
         return GlinerEntityFinder(labels=tuple(labels), precision=precision)
 
-    def fold_embedder(self) -> EmbeddingModel:
-        """``graph --fast``'s canonicalization embedder: ALWAYS local, whatever
-        ``embed-model`` says — free by definition means no cloud vectors."""
-        from smartpipe.models.local_embed import LocalEmbeddingModel
-
-        ref = parse_model_ref("local/nomic-embed-text-v1.5")
+    async def fold_embedder(self, flag: str | None = None) -> EmbeddingModel:
+        """The graph's canonicalization fold embedder (owner ruling: specified
+        wins, local fallback). It honors ``--embed-model`` > SMARTPIPE_EMBED_MODEL
+        > config ``embed-model`` — the SAME resolution ``embedding_model`` uses —
+        and falls back to the on-device local model (free) only when nothing is
+        set. A configured cloud embed-model therefore folds through paid vectors
+        in EVERY mode (``--fast`` included); ``fold_vectors`` discloses that."""
+        ref = resolve_embed_ref(flag, self.env, self.config)
         manifest.record_model("fold_embed", str(ref))
-        return LocalEmbeddingModel(ref=ref)
+        return self._wrap_embed(self._build_embed(ref))
 
     def concurrency(self, flag: int | None = None) -> int:
         """Max parallel model calls: flag > SMARTPIPE_CONCURRENCY > config > default 4."""
@@ -697,7 +699,7 @@ def _cache_enabled(env: Mapping[str, str], config: Config) -> bool:
         return True
     if flag in ("0", "false", "off", "no"):
         return False
-    return bool(config.cache)
+    return config.cache is not False  # unset = on
 
 
 def _batching_enabled(env: Mapping[str, str], config: Config) -> bool:

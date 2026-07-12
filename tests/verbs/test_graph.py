@@ -13,7 +13,13 @@ from smartpipe.core.errors import ExitCode, ItemError, UsageFault
 from smartpipe.engine.graphkg import EntitySpan
 from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.inputs import InputSpec
-from smartpipe.verbs.graph import DEFAULT_ENTITIES, GraphRequest, parse_entities, run_graph
+from smartpipe.verbs.graph import (
+    DEFAULT_ENTITIES,
+    GraphRequest,
+    fold_vectors,
+    parse_entities,
+    run_graph,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -93,7 +99,8 @@ class FakeContext:
         self.finder_labels = tuple(labels)
         return self.finder
 
-    def fold_embedder(self) -> FakeEmbedder:
+    async def fold_embedder(self, flag: str | None = None) -> FakeEmbedder:
+        del flag  # the fake's embedder is fixed; flag-honoring is proven at the container
         return self.embedder
 
     async def chat_model(self, flag: str | None = None) -> ChatModel:
@@ -682,3 +689,63 @@ async def test_top_caps_display_formats_and_mermaid_notes_it(
     html = tmp_path / "g.html"
     await _run(_save_request(str(html), top=1), _context(PEOPLE), CORPUS)
     assert '"id": "Bob"' not in html.read_text(encoding="utf-8")
+
+
+# --- fold embedder disclosure: a non-local fold is a paid spend, so say so ----
+
+
+class _RefEmbedder:
+    """A stand-in embedder that reports whatever ref it is told to — the
+    disclosure keys on ``ref.provider``, so this drives both branches."""
+
+    def __init__(self, ref_text: str) -> None:
+        from smartpipe.models.base import parse_model_ref
+
+        self._ref = parse_model_ref(ref_text)
+
+    @property
+    def ref(self) -> ModelRef:
+        return self._ref
+
+    async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+        return tuple((float(index),) * 4 for index, _ in enumerate(texts))
+
+
+@dataclass
+class _FoldOnlyContext:
+    """The minimal fold seam: records the embed flag it is handed and returns
+    a fixed embedder — the paid-modes' fold path in miniature."""
+
+    embedder: _RefEmbedder
+    seen_flags: list[str | None] = field(default_factory=list["str | None"])
+
+    def entity_finder(self, labels: Sequence[str]) -> FakeFinder:  # pragma: no cover - unused
+        raise AssertionError("fold_vectors must not resolve the NER model")
+
+    async def fold_embedder(self, flag: str | None = None) -> _RefEmbedder:
+        self.seen_flags.append(flag)
+        return self.embedder
+
+
+async def test_fold_vectors_discloses_a_paid_non_local_embedder(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    context = _FoldOnlyContext(_RefEmbedder("openai/text-embedding-3-small"))
+    vectors = await fold_vectors(context, ["Alice", "Bob"])
+    assert set(vectors) == {"Alice", "Bob"}
+    err = capsys.readouterr().err
+    assert "folding 2 entity names via openai/text-embedding-3-small (paid embeddings)" in err
+
+
+async def test_fold_vectors_stays_quiet_for_a_local_embedder(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    context = _FoldOnlyContext(_RefEmbedder("local/nomic-embed-text-v1.5"))
+    await fold_vectors(context, ["Alice", "Bob"])
+    assert "paid embeddings" not in capsys.readouterr().err
+
+
+async def test_fold_vectors_threads_the_embed_flag_to_the_context() -> None:
+    context = _FoldOnlyContext(_RefEmbedder("local/nomic-embed-text-v1.5"))
+    await fold_vectors(context, ["Alice", "Bob"], embed_flag="openai/text-embedding-3-large")
+    assert context.seen_flags == ["openai/text-embedding-3-large"]

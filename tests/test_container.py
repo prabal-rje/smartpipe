@@ -50,6 +50,11 @@ def _container(
     isolated = {
         "XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests",
         "APPDATA": "/nonexistent-smartpipe-tests",  # the windows config root (D09)
+        # caching ships ON now (owner directive), but these construction tests assert the
+        # WIRE, not the outer cache layer — pin it off so the structure stays legible; the
+        # cache-wiring tests below set SMARTPIPE_CACHE=on explicitly. (This explicit env
+        # dict bypasses conftest's os.environ pin.)
+        "SMARTPIPE_CACHE": "off",
         **(env or {}),
     }
     return AppContainer(env=isolated, config=config or Config(), http_client=client, retry=FAST)
@@ -358,6 +363,7 @@ async def test_build_container_overlays_stored_keys(tmp_path: Path) -> None:
         "APPDATA": str(tmp_path / "cfg"),
         "XDG_DATA_HOME": str(tmp_path / "data"),
         "LOCALAPPDATA": str(tmp_path / "data"),
+        "SMARTPIPE_CACHE": "off",  # this test asserts the WIRE, not the default-on cache layer
     }
     save_api_key(keys_path(env), "mistral", "mk-stored")
     async with build_container(env) as container:
@@ -876,7 +882,9 @@ async def test_batch_receipt_notes_once_per_run(capsys: pytest.CaptureFixture[st
     from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.models.coalesce import CoalescingChatModel
 
-    async with build_container({"OPENAI_API_KEY": "sk-x"}) as container:
+    # cache off so the OUTERMOST layer is the coalescer this test drives (default-on cache
+    # would wrap it and its miss would add a "cache:" receipt note)
+    async with build_container({"OPENAI_API_KEY": "sk-x", "SMARTPIPE_CACHE": "off"}) as container:
         model = await container.chat_model("ollama/qwen3:8b")
         assert isinstance(model, CoalescingChatModel)
         model.packed_calls = 42
@@ -888,7 +896,7 @@ async def test_batch_receipt_notes_once_per_run(capsys: pytest.CaptureFixture[st
 
 
 async def test_no_batch_note_when_nothing_batched(capsys: pytest.CaptureFixture[str]) -> None:
-    async with build_container({"OPENAI_API_KEY": "sk-x"}) as container:
+    async with build_container({"OPENAI_API_KEY": "sk-x", "SMARTPIPE_CACHE": "off"}) as container:
         await container.chat_model("ollama/qwen3:8b")  # built, but nothing flew packed
     assert "batched" not in capsys.readouterr().err
 
@@ -911,6 +919,99 @@ async def test_cache_receipt_names_item_misses_not_calls(
         cached.misses = 7
         container.caches.append(cached)
     assert "cache: 2 hits · 7 misses" in capsys.readouterr().err
+
+
+# --- caching defaults ON (owner directive: always enable caching) ------------
+#
+# The posture is exercised through the PUBLIC surface (the chat wire the container
+# hands verbs): a cached run wraps the wire OUTERMOST in a CachingChatModel. These
+# build the container DIRECTLY (not via `_container`, which pins the posture off)
+# so the unset default is what's under test.
+
+
+def _unpinned(
+    client: httpx.AsyncClient,
+    *,
+    env: Mapping[str, str] | None = None,
+    config: Config | None = None,
+) -> AppContainer:
+    isolated = {
+        "XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests",
+        "XDG_CACHE_HOME": "/nonexistent-smartpipe-tests",  # never the developer's real cache
+        **(env or {}),
+    }
+    return AppContainer(
+        env=isolated,
+        config=config or Config(model="ollama/qwen3:8b"),
+        http_client=client,
+        retry=FAST,
+    )
+
+
+async def test_chat_model_is_cached_by_default_when_unset(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.cache import CachingChatModel
+
+    model = await _unpinned(client).chat_model()  # nothing configured → default on
+    assert isinstance(model, CachingChatModel)
+
+
+async def test_chat_model_env_opt_out_still_bypasses_the_cache(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.cache import CachingChatModel
+
+    for value in ("off", "0", "no", "false"):
+        model = await _unpinned(client, env={"SMARTPIPE_CACHE": value}).chat_model()
+        assert not isinstance(model, CachingChatModel)
+
+
+async def test_chat_model_config_opt_out_still_bypasses_the_cache(
+    client: httpx.AsyncClient,
+) -> None:
+    from smartpipe.models.cache import CachingChatModel
+
+    # config `cache = false` is preserved as the one non-default falsy posture
+    container = _unpinned(client, config=Config(model="ollama/qwen3:8b", cache=False))
+    assert not isinstance(await container.chat_model(), CachingChatModel)
+
+
+async def test_chat_model_env_on_beats_a_config_opt_out(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.cache import CachingChatModel
+
+    container = _unpinned(
+        client, env={"SMARTPIPE_CACHE": "on"}, config=Config(model="ollama/qwen3:8b", cache=False)
+    )
+    assert isinstance(await container.chat_model(), CachingChatModel)
+
+
+# --- fold embedder honors the configured embed-model (specified wins, local fallback) --
+
+
+async def test_fold_embedder_falls_back_to_local_when_nothing_configured(
+    client: httpx.AsyncClient,
+) -> None:
+    container = _container(client)
+    embedder = await container.fold_embedder()
+    assert embedder.ref.provider == "local"
+    assert str(embedder.ref) == "local/nomic-embed-text-v1.5"
+
+
+async def test_fold_embedder_honors_config_embed_model(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x"},
+        config=Config(embed_model="openai/text-embedding-3-small"),
+    )
+    embedder = await container.fold_embedder()
+    assert str(embedder.ref) == "openai/text-embedding-3-small"
+
+
+async def test_fold_embedder_flag_beats_config(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x"},
+        config=Config(embed_model="openai/text-embedding-3-small"),
+    )
+    embedder = await container.fold_embedder("openai/text-embedding-3-large")
+    assert str(embedder.ref) == "openai/text-embedding-3-large"
 
 
 def test_concurrency_configures_the_shared_outbound_policy_once(
@@ -937,14 +1038,16 @@ async def test_container_closes_coalescers_before_the_http_client(
         await original(model)
 
     monkeypatch.setattr(CoalescingChatModel, "aclose", recording_close)
-    async with build_container({}) as container:
+    # cache off: this test drives coalescer close ordering, not the cache (default-on
+    # would otherwise build a wrapper pointed at the real ~/.cache and sweep it at exit)
+    async with build_container({"SMARTPIPE_CACHE": "off"}) as container:
         client = container.http_client
         await container.chat_model("ollama/qwen3:8b")
     assert observed == [True]
     assert client.is_closed
 
 
-def test_graph_internal_models_are_resolved_and_disclosed_at_the_composition_root(
+async def test_graph_internal_models_are_resolved_and_disclosed_at_the_composition_root(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -964,7 +1067,7 @@ def test_graph_internal_models_are_resolved_and_disclosed_at_the_composition_roo
     container = _container(client, env={"SMARTPIPE_NER_PRECISION": "fp32"})
 
     finder = container.entity_finder(("person",))
-    embedder = container.fold_embedder()
+    embedder = await container.fold_embedder()
 
     assert isinstance(finder, GlinerEntityFinder)
     assert finder.precision == "fp32"

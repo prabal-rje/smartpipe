@@ -117,6 +117,8 @@ class GraphRequest:
     fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
     concurrency_flag: int | None = None  # --concurrency (G2)
     ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (G2)
+    # --embed-model: the canonicalization fold embedder (specified wins, local fallback)
+    embed_model_flag: str | None = None
     input: InputSpec = STDIN
 
 
@@ -125,7 +127,7 @@ class GraphContext(Protocol):
     cannot ask for a paid model even by accident."""
 
     def entity_finder(self, labels: Sequence[str]) -> EntityFinder: ...
-    def fold_embedder(self) -> EmbeddingModel: ...
+    async def fold_embedder(self, flag: str | None = None) -> EmbeddingModel: ...
 
 
 class GraphModelContext(GraphContext, ExecutionPolicySource, Protocol):
@@ -372,7 +374,9 @@ async def scan_corpus(
     # event loop so a single Ctrl-C is delivered and the fold-stage bar redraws;
     # the pure fold polls ``should_stop`` per window and salvages a clean partial.
     counts = await asyncio.to_thread(surface_counts, gathered)
-    vectors = await fold_vectors(context, [surface.name for surface in counts])
+    vectors = await fold_vectors(
+        context, [surface.name for surface in counts], request.embed_model_flag
+    )
     canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
@@ -532,12 +536,21 @@ def spine_ref(source: ItemSource) -> SpineRef:
     )
 
 
-async def fold_vectors(context: GraphContext, names: Sequence[str]) -> dict[str, tuple[float, ...]]:
-    """Embed the distinct surface names for the canonicalization fold — local,
-    free. An unavailable embedder degrades to no folding, disclosed."""
+async def fold_vectors(
+    context: GraphContext, names: Sequence[str], embed_flag: str | None = None
+) -> dict[str, tuple[float, ...]]:
+    """Embed the distinct surface names for the canonicalization fold. The
+    embedder honors the configured ``embed-model``/``--embed-model`` (specified
+    wins) and falls back to the on-device local model when nothing is set. A
+    non-local (paid) fold is disclosed once, since it spends even on ``--fast``.
+    An unavailable embedder degrades to no folding, disclosed."""
     if len(names) < 2:
         return {}
-    embedder = context.fold_embedder()
+    embedder = await context.fold_embedder(embed_flag)
+    if embedder.ref.provider != "local":  # the local wire self-notes; only paid wires disclose here
+        diagnostics.note(
+            f"folding {len(names):,} entity names via {embedder.ref} (paid embeddings)"
+        )
     fold_bar = stage("fold")
     fold_bar.start(len(names))
     vectors: dict[str, tuple[float, ...]] = {}

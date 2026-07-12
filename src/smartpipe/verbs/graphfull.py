@@ -357,7 +357,9 @@ async def run_full(
     # delivered and the bar redraws; fold_surfaces polls ``should_stop`` and
     # degrades to a clean partial canonical map on a stop.
     counts = await asyncio.to_thread(assertion_surface_counts, assertions)
-    vectors = await fold_vectors(context, [surface.name for surface in counts])
+    vectors = await fold_vectors(
+        context, [surface.name for surface in counts], request.embed_model_flag
+    )
     canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
@@ -786,7 +788,9 @@ async def run_adopt(
     # B1: the fold trio runs off the event loop (see run_full) so a Ctrl-C is
     # delivered even on a large adopted corpus.
     counts = await asyncio.to_thread(assertion_surface_counts, assertions)
-    vectors = await fold_vectors(context, [surface.name for surface in counts])
+    vectors = await fold_vectors(
+        context, [surface.name for surface in counts], request.embed_model_flag
+    )
     canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
