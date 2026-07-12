@@ -988,10 +988,18 @@ async def test_chat_model_env_on_beats_a_config_opt_out(client: httpx.AsyncClien
 async def test_fold_embedder_falls_back_to_local_when_nothing_configured(
     client: httpx.AsyncClient,
 ) -> None:
+    from importlib.util import find_spec
+
     container = _container(client)
     embedder = await container.fold_embedder()
-    assert embedder.ref.provider == "local"
-    assert str(embedder.ref) == "local/nomic-embed-text-v1.5"
+    # D44: on-device fastembed where its wheels exist (pythons < 3.14), else the
+    # free ollama loopback default — same nomic family either way, never a paid wire.
+    if find_spec("fastembed") is not None:
+        assert embedder.ref.provider == "local"
+        assert str(embedder.ref) == "local/nomic-embed-text-v1.5"
+    else:
+        assert embedder.ref.provider == "ollama"
+        assert str(embedder.ref) == "ollama/nomic-embed-text"
 
 
 async def test_fold_embedder_honors_config_embed_model(client: httpx.AsyncClient) -> None:
@@ -1051,6 +1059,8 @@ async def test_graph_internal_models_are_resolved_and_disclosed_at_the_compositi
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from importlib.util import find_spec
+
     from smartpipe.io import manifest
     from smartpipe.models.local_ner import GlinerEntityFinder
 
@@ -1069,12 +1079,19 @@ async def test_graph_internal_models_are_resolved_and_disclosed_at_the_compositi
     finder = container.entity_finder(("person",))
     embedder = await container.fold_embedder()
 
+    # D44: the fold default is on-device local where fastembed's wheels exist,
+    # else the free ollama loopback (Python 3.14+) — assert whichever this runs on.
+    fold_ref = (
+        "local/nomic-embed-text-v1.5"
+        if find_spec("fastembed") is not None
+        else "ollama/nomic-embed-text"
+    )
     assert isinstance(finder, GlinerEntityFinder)
     assert finder.precision == "fp32"
-    assert str(embedder.ref) == "local/nomic-embed-text-v1.5"
+    assert str(embedder.ref) == fold_ref
     assert recorded == [
         ("ner", "local/gliner-small-v2.1@fp32"),
-        ("fold_embed", "local/nomic-embed-text-v1.5"),
+        ("fold_embed", fold_ref),
     ]
 
 

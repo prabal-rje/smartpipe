@@ -10,7 +10,7 @@ from pathlib import Path
 
 import click
 
-from smartpipe.cli.completions import complete_chat_models
+from smartpipe.cli.completions import complete_chat_models, complete_embed_models
 from smartpipe.cli.input_options import (
     input_options,
     input_spec,
@@ -94,6 +94,7 @@ __all__ = ["graph_command"]
 @click.option(
     "--embed-model",
     "embed_model_flag",
+    shell_complete=complete_embed_models,
     help="Embedder for the name-canonicalization fold (e.g. openai/text-embedding-3-small); "
     "defaults to the on-device local model. A cloud model here spends, even with --fast.",
 )
