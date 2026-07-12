@@ -342,6 +342,23 @@ async def test_figure_cap_garbage_faults_on_the_right_side_door(
         await readers.read_right_items(tmp_path / "right.txt", None)
 
 
+async def test_right_dash_grammar_refusal_outranks_a_garbage_figure_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Coordinator spot-check (#35): `--right -` is a GRAMMAR refusal and must
+    stay UsageFault (exit 64) even when the figure knob is garbage — grammar
+    refusals outrank wiring/config faults (the C1 bare-terminal precedence).
+    The census that validates the knob constructs right AFTER the dash guard:
+    still door-entry for every real path, but `-` reads nothing."""
+    from pathlib import Path
+
+    from smartpipe.io import readers
+
+    monkeypatch.setenv("SMARTPIPE_FIGURE_CAP", "garbage")
+    with pytest.raises(UsageFault, match="--right - reads nothing"):
+        await readers.read_right_items(Path("-"), None)
+
+
 def test_figure_cap_refuses_a_decimal_beyond_the_int_conversion_limit() -> None:
     """Codex review SHOULD-FIX (#35): isdecimal admits strings int() still
     refuses — a ~4300+-digit value trips CPython's integer-string conversion

@@ -1286,9 +1286,12 @@ async def from_files_items(
 
 async def read_right_items(path: Path, ocr: OcrIngest | None) -> list[Item]:
     """Load a finite right/build side without ever decoding binary as text."""
-    census = FigureCensus()  # the DOOR validates the figure knob (#35) — every branch, at entry
     if str(path) == "-":
         raise UsageFault("--right - reads nothing — stdin is already the left side")
+    # The DOOR validates the figure knob (#35) — every branch, at entry — but AFTER
+    # the `-` grammar refusal: grammar outranks wiring/config faults (C1 precedence),
+    # and `--right -` reads nothing for a census to govern.
+    census = FigureCensus()
     from smartpipe.io import manifest
 
     manifest.guard_manifest_alias(path, role="--right input")
