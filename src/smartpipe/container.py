@@ -415,7 +415,15 @@ class AppContainer:
         in EVERY mode (``--fast`` included); ``fold_vectors`` discloses that."""
         ref = resolve_embed_ref(flag, self.env, self.config)
         manifest.record_model("fold_embed", str(ref))
-        return self._wrap_embed(self._build_embed(ref))
+        model = self._build_embed(ref)
+        # The fold is graph infrastructure (like NER), not the user's metered
+        # per-item work: the free on-device wire stays OFF the billable belt - as
+        # the local fold did before it became configurable - so a bare ``--fast``
+        # run can't charge --max-calls or flip a $0 fold to PARTIAL. A paid cloud
+        # fold is metered + admitted + disclosed through ``_wrap_embed``.
+        if ref.provider == "local":
+            return model
+        return self._wrap_embed(model)
 
     def concurrency(self, flag: int | None = None) -> int:
         """Max parallel model calls: flag > SMARTPIPE_CONCURRENCY > config > default 4."""

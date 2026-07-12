@@ -1022,6 +1022,33 @@ async def test_fold_embedder_flag_beats_config(client: httpx.AsyncClient) -> Non
     assert str(embedder.ref) == "openai/text-embedding-3-large"
 
 
+async def test_free_on_device_fold_stays_off_the_billable_belt(
+    client: httpx.AsyncClient,
+) -> None:
+    """The canonicalization fold is graph infrastructure (like NER), not the
+    user's metered per-item work: the free on-device wire must NOT draw from the
+    --max-calls belt, or a bare ``graph --fast --max-calls N`` would charge a $0
+    fold and could flip a fully-completed run to PARTIAL. Restores the pre-configurable
+    behavior (the local fold was never budget-wrapped)."""
+    import asyncio
+    from importlib.util import find_spec
+
+    from smartpipe.models.budget import CallBudget
+    from smartpipe.models.local_embed import LocalEmbeddingModel
+
+    if find_spec("fastembed") is None:  # 3.14: the free default folds via ollama, not local
+        pytest.skip("the on-device local fold default needs fastembed wheels")
+    container = AppContainer(
+        env={"XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests"},
+        config=Config(),
+        http_client=client,
+        retry=FAST,
+        budget=CallBudget(limit=1, stop=asyncio.Event()),
+    )
+    embedder = await container.fold_embedder()  # nothing configured -> on-device local
+    assert isinstance(embedder, LocalEmbeddingModel)  # raw, not a _BudgetedEmbed wrapper
+
+
 def test_concurrency_configures_the_shared_outbound_policy_once(
     client: httpx.AsyncClient,
 ) -> None:
