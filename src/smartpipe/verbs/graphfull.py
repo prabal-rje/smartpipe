@@ -377,10 +377,16 @@ async def run_full(
     )
     surface_bar = stage("fold")  # D4 (#37): the label-cluster fold stays visible
     surface_bar.start(None)
-    canonical = await asyncio.to_thread(
-        fold_surfaces, counts, fold.vectors, should_stop=should_stop, progress=surface_bar.advance
-    )
-    surface_bar.finish()
+    try:  # C2 review: a cancel/fault mid-fold must still clear the row + deregister
+        canonical = await asyncio.to_thread(
+            fold_surfaces,
+            counts,
+            fold.vectors,
+            should_stop=should_stop,
+            progress=surface_bar.advance,
+        )
+    finally:
+        surface_bar.finish()
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)
@@ -842,10 +848,16 @@ async def run_adopt(
     )
     surface_bar = stage("fold")  # D4 (#37): the label-cluster fold stays visible
     surface_bar.start(None)
-    canonical = await asyncio.to_thread(
-        fold_surfaces, counts, fold.vectors, should_stop=should_stop, progress=surface_bar.advance
-    )
-    surface_bar.finish()
+    try:  # C2 review: a cancel/fault mid-fold must still clear the row + deregister
+        canonical = await asyncio.to_thread(
+            fold_surfaces,
+            counts,
+            fold.vectors,
+            should_stop=should_stop,
+            progress=surface_bar.advance,
+        )
+    finally:
+        surface_bar.finish()
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)

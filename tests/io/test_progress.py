@@ -259,7 +259,10 @@ def test_tick_draws_the_pending_line_without_counting_progress(
     assert spinner._done == 0  # pyright: ignore[reportPrivateUsage] — a wait is not progress
 
 
-def test_tick_colorizes_the_frame_like_the_unknown_bar() -> None:
+def test_tick_colorizes_the_frame_like_the_unknown_bar(monkeypatch: pytest.MonkeyPatch) -> None:
+    # C2 review NIT: an ambient NO_COLOR (CI shells export it) would strip the
+    # very escapes this exact-byte pin asserts — make the color path hermetic.
+    monkeypatch.delenv("NO_COLOR", raising=False)
     stream = io.StringIO()
     clock = _Clock()
     spinner = Spinner(
