@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import io
+from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.io import tty
+from smartpipe.io import progress, tty
 from smartpipe.io.progress import (
     Spinner,
     make_stderr_spinner,
@@ -13,6 +14,9 @@ from smartpipe.io.progress import (
     set_stage_label,
     stage_label,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # --- pure formatting ----------------------------------------------------------
 
@@ -350,6 +354,130 @@ def test_paused_erases_then_redraws_the_status_line() -> None:
         marker = len(terminal.writes)
     assert terminal.writes[marker - 1] == "\r\x1b[K"  # erased before the block
     assert terminal.writes[-1] == drawn  # the same line came back after
+
+
+# --- D2: the module arbiter — diagnostics never land under the status line -----
+
+
+def _emit(terminal: _Terminal, text: str) -> Callable[[], None]:
+    """A void emit callback (interject takes ``() -> None``; write returns int)."""
+
+    def emit() -> None:
+        terminal.write(text)
+
+    return emit
+
+
+def test_interject_erases_emits_and_redraws_around_the_active_line() -> None:
+    terminal = _Terminal()
+    clock = _Clock()
+    spinner = Spinner(stream=terminal, enabled=True, ascii_only=True, clock=clock)
+    spinner.start(total=4)
+    clock.t = 1.0
+    spinner.advance()
+    drawn = terminal.writes[-1]
+    marker = len(terminal.writes)
+    progress.interject(_emit(terminal, "note: hello\n"))
+    assert terminal.writes[marker] == "\r\x1b[K"  # erased first
+    assert terminal.writes[marker + 1] == "note: hello\n"  # the line landed whole
+    assert terminal.writes[-1] == drawn  # the same status line came back
+    assert _writes_while_status_line_up(terminal.writes) == []
+
+
+def test_interject_with_no_active_line_emits_plainly() -> None:
+    terminal = _Terminal()
+    progress.interject(_emit(terminal, "note: hello\n"))
+    assert terminal.writes == ["note: hello\n"]
+
+
+def test_finish_deregisters_the_active_line() -> None:
+    terminal = _Terminal()
+    clock = _Clock()
+    spinner = Spinner(stream=terminal, enabled=True, ascii_only=True, clock=clock)
+    spinner.start(total=2)
+    clock.t = 1.0
+    spinner.advance()
+    spinner.finish()
+    progress.interject(_emit(terminal, "note: after\n"))
+    assert terminal.writes[-1] == "note: after\n"  # no erase, no redraw — plain
+
+
+def test_interject_inside_a_guarded_write_emits_plainly() -> None:
+    """The reentry guard: a diagnostic fired from INSIDE a guarded result write
+    (the line is already erased) must land plainly — never redraw into a row the
+    surrounding pause is about to redraw itself."""
+    terminal = _Terminal()
+    clock = _Clock()
+    spinner = Spinner(stream=terminal, enabled=True, ascii_only=True, clock=clock)
+    spinner.start(total=2)
+    clock.t = 1.0
+    spinner.advance()
+    with spinner.paused():
+        marker = len(terminal.writes)
+        progress.interject(_emit(terminal, "note: nested\n"))
+        assert terminal.writes[marker:] == ["note: nested\n"]  # plain — no erase/redraw
+    assert terminal.writes[-1].startswith("\r")  # the pause exit redrew exactly once
+    assert _writes_while_status_line_up(terminal.writes) == []
+
+
+def test_cross_thread_advances_and_interjects_never_scribble() -> None:
+    """A worker thread redrawing the bar races the loop thread's diagnostics —
+    both must serialize under the arbiter lock, no write ever landing mid-row."""
+    import threading
+
+    terminal = _Terminal()
+    clock = _Clock()
+    spinner = Spinner(stream=terminal, enabled=True, ascii_only=True, clock=clock)
+    spinner.start(total=None)
+    done = threading.Event()
+
+    def advancing() -> None:
+        while not done.is_set():
+            clock.t += 0.2
+            spinner.advance()
+
+    thread = threading.Thread(target=advancing)
+    thread.start()
+    try:
+        for n in range(300):
+            progress.interject(_emit(terminal, f"note: {n}\n"))
+    finally:
+        done.set()
+        thread.join()
+    spinner.finish()
+    assert _writes_while_status_line_up(terminal.writes) == []
+    assert "note: 299\n" in terminal.writes
+
+
+async def test_ner_note_never_lands_against_the_pending_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exact #32 repro: the local-NER pending caption is up (spin_pending)
+    while a worker thread fires diagnostics.note — the visible text must never
+    read '…modelnote:' (the note gluing onto the un-erased caption)."""
+    import asyncio
+    import re
+    import sys
+    import time
+
+    from smartpipe.io import diagnostics
+    from smartpipe.verbs.common import spin_pending
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    terminal = _Terminal()
+    monkeypatch.setattr(sys, "stderr", terminal)
+    spinner = Spinner(stream=terminal, enabled=True, ascii_only=True, clock=time.monotonic)
+
+    async def load_in_a_thread() -> None:
+        # runs after spin_pending's start() painted the caption (start paints
+        # synchronously before the first await), so the note truly collides
+        await asyncio.to_thread(diagnostics.note, "3 files skipped")
+
+    await spin_pending(spinner, "preparing local NER model", load_in_a_thread())
+    plain = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", terminal.getvalue())
+    assert "modelnote:" not in plain
+    assert "note: 3 files skipped\n" in terminal.writes
+    assert _writes_while_status_line_up(terminal.writes) == []
 
 
 def test_paused_before_any_draw_touches_nothing() -> None:
