@@ -212,6 +212,12 @@ async def run_graph(
             "or --name-top\n"
             '  Example: smartpipe graph "who pays whom" --relations "pays, owns" notes/*.md'
         )
+    # Grammar outranks wiring (#27 review): every request-only validation runs
+    # BEFORE the fold-embedder preflight below, so a bad dial refuses at USAGE
+    # even when the embed config is also broken. Both parsers are pure and
+    # cheap; the modes re-parse for their own use (signatures stay stable).
+    parse_entities(request.entities)
+    parse_relations(request.relations)
     concurrency = context.concurrency(request.concurrency_flag)
     adopt_dispatch = not request.fast and request.focus is None and request.name_top is None
     if (

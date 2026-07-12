@@ -53,6 +53,7 @@ from smartpipe.models.base import AudioData, ImageData, VideoData
 from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code
 from smartpipe.verbs.graph import (
     FastScan,
+    FoldCut,
     GraphModelContext,
     GraphRequest,
     fold_cut_flips_partial,
@@ -411,7 +412,16 @@ async def run_full(
             halted.last_reason,
             source_counts=source_counts,
         ) from halted
-    if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
+    # The stop event conflates a Ctrl-C with the belt's own drain, and the belt
+    # latch is HISTORICAL (review blocker): the last extraction can exactly
+    # exhaust the belt (run complete, stop set, no shortfall) BEFORE the user
+    # Ctrl-Cs the free fold. The fold's own INTERRUPT report is the truth about
+    # a real Ctrl-C there, so it overrides the latch — never silently swallowed.
+    if (
+        stop is not None
+        and stop.is_set()
+        and (fold.cut is FoldCut.INTERRUPT or not (budget is not None and budget.exhausted))
+    ):
         diagnostics.interrupted_summary(processed=done, skipped=chunk_skipped)
         return interrupted_exit_code(
             done=len(ok_sources),
@@ -707,13 +717,20 @@ async def run_hybrid(
             failed=scan.failed,
             partial=True,
         )
-    if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
+    # The same historical-latch trap as run_full (review blocker), carried out
+    # through FastScan.fold_cut: a fold-reported INTERRUPT is a real Ctrl-C and
+    # overrides an exhausted belt; a cut fold also makes the salvage partial.
+    if (
+        stop is not None
+        and stop.is_set()
+        and (scan.fold_cut is FoldCut.INTERRUPT or not (budget is not None and budget.exhausted))
+    ):
         diagnostics.interrupted_summary(processed=len(scan.gathered), skipped=scan.skipped)
         return interrupted_exit_code(
             done=len(scan.gathered),
             skipped=scan.skipped,
             failed=scan.failed,
-            partial=bool(naming_skips),
+            partial=bool(naming_skips) or scan.fold_cut is FoldCut.INTERRUPT,
         )
     return outcome_exit_code(
         done=len(scan.gathered),

@@ -1327,6 +1327,26 @@ async def test_bare_terminal_refusal_outranks_a_broken_embed_config() -> None:
         )
 
 
+async def test_invalid_entities_outranks_a_broken_embed_config() -> None:
+    """#27 review SHOULD-FIX: grammar outranks wiring — an --entities dial that
+    parses empty refuses at USAGE even when the embed config is also broken."""
+    with pytest.raises(UsageFault, match="--entities"):
+        await _run(
+            GraphRequest(fast=True, entities=" , "), _broken_fold_context(FakeChat()), "Ann\n"
+        )
+
+
+async def test_invalid_relations_outranks_a_broken_embed_config() -> None:
+    """The --relations twin: an all-blank vocabulary refuses at USAGE before
+    the fold-embedder preflight can fault at SETUP."""
+    with pytest.raises(UsageFault, match="--relations"):
+        await _run(
+            GraphRequest(focus="who pays whom", relations=" , "),
+            _broken_fold_context(FakeChat()),
+            "Ann\n",
+        )
+
+
 # --- #29: a belt-cut fold flips the run to PARTIAL — in every mode --------------------
 
 # 65 names → a 64-batch plus one; fixed-width so FakeFinder's substring match
@@ -1428,6 +1448,67 @@ async def test_adopt_belt_cut_fold_exits_partial_not_interrupted(
     err = capsys.readouterr().err
     assert "done: interrupted" not in err  # a belt stop is not a Ctrl-C
     assert "entity folding stopped early (call budget reached (--max-calls 1))" in err
+
+
+async def test_full_mode_sigint_after_an_exact_belt_still_reports_interrupted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Review BLOCKER: the belt latch is HISTORICAL. When the last extraction
+    exactly exhausts --max-calls (run complete, no shortfall) and the user THEN
+    Ctrl-Cs during the free fold, the fold's INTERRUPT cut must take the
+    drain-summary path — the latch must not silently swallow the Ctrl-C."""
+    stop = asyncio.Event()
+    budget = CallBudget(limit=2, stop=stop)  # canary + the one chunk: exactly exhausted
+    chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
+    context = _context(budgeted_chat(chat, budget))
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(focus="pays"),
+        context,
+        stdin=io.StringIO("Ann pays Bob\n"),
+        stdout=out,
+        stop=stop,
+        should_stop=lambda: True,  # the SIGINT lands as the free fold starts
+        clock=lambda: 0.0,
+        ask=None,
+        budget=budget,
+    )
+    assert code is ExitCode.PARTIAL  # the cut fold is a salvaged partial
+    err = capsys.readouterr().err
+    assert "done: interrupted" in err  # the Ctrl-C is acknowledged, not swallowed
+    assert "entity folding interrupted — 0 of 2 names embedded" in err
+
+
+async def test_hybrid_sigint_during_the_fold_after_the_belt_latch_reports_interrupted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Review BLOCKER, hybrid twin. Hybrid's fold precedes naming, so the
+    concrete case is a paid fold whose first batch exactly latches the belt;
+    the user's Ctrl-C before the second batch is an INTERRUPT cut and must not
+    be suppressed by the (already latched) exhaustion flag."""
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)  # batch one exactly latches the belt
+    polls = iter((False,))  # False once, then latched true — a SIGINT between batches
+    context = PaidContext(
+        chat=FakeChat(),
+        finder=FakeFinder(_BELT_NAMES),
+        embedder=budgeted_embed(FakeEmbedder({}), budget),
+    )
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(name_top=3),
+        context,
+        stdin=io.StringIO(_BELT_CORPUS),
+        stdout=out,
+        stop=stop,
+        should_stop=lambda: next(polls, True),
+        clock=lambda: 0.0,
+        budget=budget,
+    )
+    assert code is ExitCode.PARTIAL  # the cut fold is a salvaged partial
+    err = capsys.readouterr().err
+    assert "done: interrupted" in err  # the Ctrl-C is acknowledged, not swallowed
+    assert "entity folding interrupted — 64 of 65 names embedded" in err
 
 
 # --- A4: --fallback-model failover into both paid modes (item 11) --------------------

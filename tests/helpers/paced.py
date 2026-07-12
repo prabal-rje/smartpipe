@@ -106,6 +106,10 @@ class PacedOllama:
         for text in map(str, entries):
             with self._cond:  # slot assignment is shared across handler threads
                 slot = self._embed_slots.setdefault(text, len(self._embed_slots))
+            assert slot < _EMBED_DIMS, (
+                f"PacedOllama's default one-hot table is full ({_EMBED_DIMS} distinct "
+                "inputs) — pass embed_reply= for a bigger corpus"
+            )
             row = [0.0] * _EMBED_DIMS
             row[slot] = 1.0
             rows.append(row)
