@@ -204,6 +204,44 @@ def test_hard_exit_leaves_no_manifest_temp(tmp_path: Path) -> None:
         assert "Traceback" not in err
 
 
+# --- #30: SIGINT during the paid fold salvages every adopted row -------------------
+
+
+def test_graph_adopt_sigint_mid_fold_salvages_every_row_and_exits_partial() -> None:
+    """The owner's 28-minute loss: a Ctrl-C during the embed fold must keep the
+    already-embedded vectors, write EVERY adopted edge, and exit PARTIAL —
+    never 0 bytes. The fold's second batch is never sent after the cut."""
+    rows = "".join(json.dumps({"source": f"Src{n}", "target": f"Dst{n}"}) + "\n" for n in range(80))
+    with PacedOllama(_match_all) as server:
+        env = {
+            **os.environ,
+            "OLLAMA_HOST": server.url,
+            "SMARTPIPE_EMBED_MODEL": "ollama/nomic-embed-text",
+            "SMARTPIPE_CACHE": "off",
+        }
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "smartpipe", "graph"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        assert proc.stdin is not None
+        proc.stdin.write(rows)
+        proc.stdin.close()
+        proc.stdin = None  # see _spawn_filter: communicate() must skip the flush
+        server.wait_for_arrivals(1)  # the first 64-name embed batch is parked
+        proc.send_signal(signal_module.SIGINT)
+        server.release(1)  # the paid batch completes during the drain
+        out, err = proc.communicate(timeout=30)
+        assert proc.returncode == 1  # PARTIAL — a cut fold is never a clean 0
+        assert len(out.splitlines()) == 80  # EVERY adopted row survived the cut
+        assert "interrupted" in err
+        assert "entity folding interrupted — 64 of 160 names embedded" in err
+        assert server.arrived == 1  # batch two was never sent after the cut
+
+
 _STUCK_FOLD_PROBE = (
     "import asyncio, os, time\n"
     "from smartpipe.cli.interrupts import graceful_interrupts\n"

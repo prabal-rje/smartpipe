@@ -9,12 +9,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.core.errors import ExitCode, ItemError, SetupFault, UsageFault
 from smartpipe.engine.graphkg import EntitySpan
 from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.inputs import InputSpec
 from smartpipe.verbs.graph import (
     DEFAULT_ENTITIES,
+    FoldCut,
+    FoldOutcome,
     GraphRequest,
     fold_vectors,
     parse_entities,
@@ -25,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
-    from smartpipe.models.base import ChatModel, ModelRef
+    from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
     from smartpipe.models.resilience import WiredChat
 
 
@@ -731,8 +733,9 @@ async def test_fold_vectors_discloses_a_paid_non_local_embedder(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     context = _FoldOnlyContext(_RefEmbedder("openai/text-embedding-3-small"))
-    vectors = await fold_vectors(context, ["Alice", "Bob"])
-    assert set(vectors) == {"Alice", "Bob"}
+    outcome = await fold_vectors(context, ["Alice", "Bob"])
+    assert set(outcome.vectors) == {"Alice", "Bob"}
+    assert outcome.cut is FoldCut.NONE
     err = capsys.readouterr().err
     assert "folding 2 entity names via openai/text-embedding-3-small (paid embeddings)" in err
 
@@ -761,3 +764,126 @@ async def test_fold_vectors_threads_the_embed_flag_to_the_context() -> None:
     context = _FoldOnlyContext(_RefEmbedder("local/nomic-embed-text-v1.5"))
     await fold_vectors(context, ["Alice", "Bob"], embed_flag="openai/text-embedding-3-large")
     assert context.seen_flags == ["openai/text-embedding-3-large"]
+
+
+# --- #30: paid work is never lost — the fold salvages on ANY cut ----------------------
+
+_MANY_NAMES = tuple(f"N{n}" for n in range(65))  # 65 names → a full 64-batch plus one
+
+
+@dataclass
+class _CutFoldContext:
+    """The minimal fold seam for the salvage tests — the embedder field is typed
+    to the protocol so budgeted wrappers ride in under pyright strict."""
+
+    embedder: EmbeddingModel
+
+    def entity_finder(self, labels: Sequence[str]) -> FakeFinder:  # pragma: no cover - unused
+        raise AssertionError("fold_vectors must not resolve the NER model")
+
+    async def fold_embedder(self, flag: str | None = None) -> EmbeddingModel:
+        del flag
+        return self.embedder
+
+
+class _DiesOnSecondBatch:
+    """Embeds the first batch cleanly, then raises the scripted exception."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+        self._inner = FakeEmbedder({})
+        self.batches = 0
+
+    @property
+    def ref(self) -> ModelRef:
+        return self._inner.ref
+
+    async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+        self.batches += 1
+        if self.batches > 1:
+            raise self._exc
+        return await self._inner.embed(texts)
+
+
+async def test_interrupt_mid_fold_keeps_the_embedded_batch(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A drained Ctrl-C between batches keeps every vector already embedded —
+    the poll is per batch, on the synchronous predicate only."""
+    embedder = FakeEmbedder({})
+    flips = iter((False, True))
+    outcome = await fold_vectors(
+        _CutFoldContext(embedder), _MANY_NAMES, should_stop=lambda: next(flips)
+    )
+    assert outcome.cut is FoldCut.INTERRUPT
+    assert set(outcome.vectors) == set(_MANY_NAMES[:64])  # batch one salvaged, never reset
+    assert embedder.batches == [list(_MANY_NAMES[:64])]  # batch two was never sent
+    assert (
+        "entity folding interrupted — 64 of 65 names embedded; the rest keep their spelling"
+    ) in capsys.readouterr().err
+
+
+async def test_mid_fold_item_error_salvages_and_says_stopped_early(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    embedder = _DiesOnSecondBatch(ItemError("onnx died mid-run"))
+    outcome = await fold_vectors(_CutFoldContext(embedder), _MANY_NAMES)
+    assert outcome.cut is FoldCut.FAULT
+    assert len(outcome.vectors) == 64  # the embedded batch is kept, never reset
+    assert (
+        "entity folding stopped early (onnx died mid-run) — 64 of 65 names embedded; "
+        "the rest keep their spelling"
+    ) in capsys.readouterr().err
+
+
+async def test_mid_fold_wire_death_degrades_instead_of_killing_the_run(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Ruling 5: a runtime SetupFault (the wire died mid-run) degrades to a
+    partial fold — build faults stay fatal via the #27 preflight, not here."""
+    embedder = _DiesOnSecondBatch(SetupFault("the embed wire died mid-run"))
+    outcome = await fold_vectors(_CutFoldContext(embedder), _MANY_NAMES)
+    assert outcome.cut is FoldCut.FAULT
+    assert len(outcome.vectors) == 64
+    assert (
+        "entity folding stopped early (the embed wire died mid-run) — 64 of 65 names embedded"
+    ) in capsys.readouterr().err
+
+
+async def test_belt_cut_mid_fold_is_belt_not_fault(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """UnsentError is an ItemError subclass: the BELT arm must catch it FIRST,
+    or the belt cut is indistinguishable from a wire fault."""
+    import asyncio
+
+    from smartpipe.models.budget import CallBudget, budgeted_embed
+
+    budget = CallBudget(limit=1, stop=asyncio.Event())
+    outcome = await fold_vectors(
+        _CutFoldContext(budgeted_embed(FakeEmbedder({}), budget)), _MANY_NAMES
+    )
+    assert outcome.cut is FoldCut.BELT
+    assert len(outcome.vectors) == 64  # the paid batch is kept — never re-spent
+    assert (
+        "entity folding stopped early (call budget reached (--max-calls 1)) — "
+        "64 of 65 names embedded; the rest keep their spelling"
+    ) in capsys.readouterr().err
+
+
+async def test_nothing_embedded_keeps_the_pinned_skip_wording(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The empty-case wording stays byte-identical to the pre-#30 disclosure."""
+    outcome = await fold_vectors(_CutFoldContext(FakeEmbedder({}, broken=True)), ["Ann", "Bob"])
+    assert outcome.cut is FoldCut.FAULT
+    assert outcome.vectors == {}
+    assert (
+        "entity folding skipped (local embedding failed (onnx says no)) — "
+        "every surface form keeps its node"
+    ) in capsys.readouterr().err
+
+
+async def test_fewer_than_two_names_is_a_none_cut() -> None:
+    outcome = await fold_vectors(_CutFoldContext(FakeEmbedder({})), ["Ann"])
+    assert outcome == FoldOutcome(vectors={}, cut=FoldCut.NONE)

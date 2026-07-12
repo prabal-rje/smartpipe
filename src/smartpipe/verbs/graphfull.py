@@ -349,24 +349,29 @@ async def run_full(
 
     # Salvage runs through the SAME fold/write path a clean exit takes: the
     # already-extracted assertions are folded, pruned, and written below BEFORE any
-    # halt re-raise. The fold is a prerequisite (edges need canonical names), so if
-    # the fold wire itself fails here the resulting SetupFault is fatal for a clean
-    # run too — it is orthogonal to A1's extraction-halt salvage, not a regression
-    # of it (fold-path resilience is tracked separately as B1).
+    # halt re-raise. The fold itself salvages too (#30): fold_vectors keeps every
+    # vector embedded before a Ctrl-C, a mid-fold wire fault, or the belt
+    # (FoldOutcome), so a cut fold means fewer folded names — never a lost run.
     # B1: the fold trio runs OFF the event loop so a Ctrl-C during it is
     # delivered and the bar redraws; fold_surfaces polls ``should_stop`` and
-    # degrades to a clean partial canonical map on a stop.
+    # degrades to a clean partial canonical map on a stop. fold_assertions runs
+    # UNGATED (the deliberate B1-review rollback): a latched SIGINT would cut it
+    # at assertion #1 and the salvage would write an EMPTY graph — the write
+    # below is cheap and must carry everything already paid for.
     counts = await asyncio.to_thread(assertion_surface_counts, assertions)
-    vectors = await fold_vectors(
-        context, [surface.name for surface in counts], request.embed_model_flag
+    fold = await fold_vectors(
+        context,
+        [surface.name for surface in counts],
+        request.embed_model_flag,
+        should_stop=should_stop,
     )
-    canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
+    canonical = await asyncio.to_thread(
+        fold_surfaces, counts, fold.vectors, should_stop=should_stop
+    )
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)
-    folded_edges = await asyncio.to_thread(
-        fold_assertions, assertions, canonical, should_stop=should_stop
-    )
+    folded_edges = await asyncio.to_thread(fold_assertions, assertions, canonical)
     kept, _ = prune_edges(folded_edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
@@ -787,18 +792,23 @@ async def run_adopt(
         raise three_forms_fault()
 
     # B1: the fold trio runs off the event loop (see run_full) so a Ctrl-C is
-    # delivered even on a large adopted corpus.
+    # delivered even on a large adopted corpus. fold_vectors salvages on any cut
+    # (#30) and fold_assertions runs UNGATED (the B1-review rollback, see
+    # run_full): a latched SIGINT must not zero the write below.
     counts = await asyncio.to_thread(assertion_surface_counts, assertions)
-    vectors = await fold_vectors(
-        context, [surface.name for surface in counts], request.embed_model_flag
+    fold = await fold_vectors(
+        context,
+        [surface.name for surface in counts],
+        request.embed_model_flag,
+        should_stop=should_stop,
     )
-    canonical = await asyncio.to_thread(fold_surfaces, counts, vectors, should_stop=should_stop)
+    canonical = await asyncio.to_thread(
+        fold_surfaces, counts, fold.vectors, should_stop=should_stop
+    )
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)
-    folded_edges = await asyncio.to_thread(
-        fold_assertions, assertions, canonical, should_stop=should_stop
-    )
+    folded_edges = await asyncio.to_thread(fold_assertions, assertions, canonical)
     kept, pruned = prune_edges(folded_edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
