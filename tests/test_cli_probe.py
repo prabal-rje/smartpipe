@@ -273,6 +273,36 @@ async def test_configured_role_exercises_are_independent_and_count_sent_calls() 
     assert sent == 2
 
 
+def test_whitespace_only_role_config_is_unset_not_a_crash() -> None:
+    """Fable review: the container ladders treat a whitespace-only config value
+    as unset, but the plan entered the role branch and died on a raw
+    AssertionError out of ``doctor --probe`` — a user-reachable assert. The
+    plan now strips config exactly like the ladders: the role is skipped."""
+    import asyncio
+
+    from smartpipe.cli.probe_cmd import plan_role_probes
+    from smartpipe.config.store import Config
+
+    class Container:
+        config = Config(ocr_model=" ", fallback_model="\t", media_embed_model="  ")
+
+        @property
+        def env(self) -> dict[str, str]:
+            return {}
+
+        def probe_document_parser(self) -> None:
+            raise AssertionError("a whitespace role must never build")
+
+        def probe_fallback_model(self) -> None:
+            raise AssertionError("a whitespace role must never build")
+
+        async def probe_media_embedding_model(self) -> None:
+            raise AssertionError("a whitespace role must never build")
+
+    plans, faults = asyncio.run(plan_role_probes(Container()))
+    assert plans == () and faults == ()
+
+
 def test_role_probe_planning_build_fault_makes_no_call_and_later_roles_survive() -> None:
     from collections.abc import Sequence
 

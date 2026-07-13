@@ -83,16 +83,20 @@ async def plan_role_probes(
     plans: list[RoleProbe] = []
     faults: list[str] = []
     configured = (
-        ("ocr", container.env.get("SMARTPIPE_OCR_MODEL", "").strip() or container.config.ocr_model),
+        (
+            "ocr",
+            container.env.get("SMARTPIPE_OCR_MODEL", "").strip()
+            or (container.config.ocr_model or "").strip(),
+        ),
         (
             "fallback-model",
             container.env.get("SMARTPIPE_FALLBACK_MODEL", "").strip()
-            or container.config.fallback_model,
+            or (container.config.fallback_model or "").strip(),
         ),
         (
             "media-embed",
             container.env.get("SMARTPIPE_MEDIA_EMBED_MODEL", "").strip()
-            or container.config.media_embed_model,
+            or (container.config.media_embed_model or "").strip(),
         ),
     )
 
@@ -174,8 +178,10 @@ async def run_probe(env: Mapping[str, str]) -> str:
 
     del env  # the container reads the process environment itself
     async with build_container(os.environ) as container:
-        chat = await container.chat_model()
-        embed = await container.embedding_model()
+        # probe wires bypass every result cache: a banked reply answers nothing
+        # about today's wire (the 587c9bc rule); belt + breaker still ride
+        chat = await container.probe_chat_model()
+        embed = await container.probe_embedding_model()
         probe_stt = stt_probe_plan(container, chat.ref)
         role_probes, role_faults = await plan_role_probes(container)
         calls = 5 + int(probe_stt.transcriber is not None) + len(role_probes)
@@ -246,7 +252,7 @@ def stt_probe_plan(container: AppContainer, chat_ref: ModelRef) -> SttProbe:
             return SttProbe(line="  stt: – local whisper ready (not exercised)")  # noqa: RUF001
         return SttProbe(line="  stt: ✗ local whisper unavailable — reinstall smartpipe")
     try:
-        transcriber = container.remote_transcriber(chat_ref)
+        transcriber = container.remote_transcriber(chat_ref, use_cache=False)
     except SempipeError as exc:
         return SttProbe(line=f"  stt: ✗ {_first_line(exc)}")
     assert transcriber is not None  # a remote resolution always builds a wire

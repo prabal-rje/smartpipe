@@ -817,6 +817,42 @@ def test_probe_document_parser_bypasses_result_caches_on_both_routes(
     assert isinstance(probed, VisionOcrParser) and not isinstance(probed.chat, CachingChatModel)
 
 
+async def test_probe_chat_embed_and_stt_wires_bypass_result_caches(
+    client: httpx.AsyncClient,
+) -> None:
+    """Fable review: the schema probe rode the cached chat wire, so a second
+    `doctor --probe` within the TTL announced "tiny paid calls" while every
+    verdict came from banked replies with zero wire exercise. Probe accessors
+    bypass the caches on ALL the matrix wires (chat, embed, stt)."""
+    from smartpipe.models.cache import (
+        CachingChatModel,
+        CachingEmbeddingModel,
+        CachingMediaEmbeddingModel,
+        CachingTranscriber,
+    )
+
+    container = _container(
+        client,
+        env={
+            "OPENAI_API_KEY": "sk-x",
+            "SMARTPIPE_STT_MODEL": "openai/whisper-1",
+            "SMARTPIPE_CACHE": "on",
+        },
+        config=Config(model="ollama/qwen3:8b", embed_model="openai/text-embedding-3-small"),
+    )
+    assert isinstance(await container.chat_model(), CachingChatModel)
+    assert not isinstance(await container.probe_chat_model(), CachingChatModel)
+    assert isinstance(
+        await container.embedding_model(), CachingEmbeddingModel | CachingMediaEmbeddingModel
+    )
+    assert not isinstance(
+        await container.probe_embedding_model(),
+        CachingEmbeddingModel | CachingMediaEmbeddingModel,
+    )
+    assert isinstance(container.remote_transcriber(), CachingTranscriber)
+    assert not isinstance(container.remote_transcriber(use_cache=False), CachingTranscriber)
+
+
 def test_ocr_role_flag_beats_env_beats_config(client: httpx.AsyncClient) -> None:
     container = _container(
         client,

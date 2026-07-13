@@ -269,6 +269,24 @@ class AppContainer:
             return None
         return self._resilient_chat_core(self._build_chat(ref))
 
+    async def probe_chat_model(self) -> ChatModel:
+        """The chat wire for ``doctor --probe`` WITHOUT the result cache or
+        coalescer: a probe must exercise the wire, never yesterday's banked
+        reply — a cached "✓" answers nothing about today's wire. Breaker,
+        gate, and belt still ride (a probe is a disclosed tiny paid call)."""
+        resolved = await resolve_chat_ref(None, self.env, self.config, self.probe_ollama)
+        if resolved.notice is not None:
+            diagnostics.note(resolved.notice)
+        manifest.record_model("chat", str(resolved.ref))
+        return self._resilient_chat_core(self._build_chat(resolved.ref))
+
+    async def probe_embedding_model(self) -> EmbeddingModel:
+        """The embed wire for ``doctor --probe`` without the vector cache —
+        same honesty rule as ``probe_chat_model``; budget+admission ride."""
+        ref = resolve_embed_ref(None, self.env, self.config)
+        manifest.record_model("embed", str(ref))
+        return self._wrap_embed(self._build_embed(ref), use_cache=False)
+
     def probe_document_parser(self) -> DocumentParser | None:
         """Build the effective OCR role without its outer result cache."""
         return self.document_parser(use_cache=False)
@@ -413,7 +431,7 @@ class AppContainer:
         return VisionOcrParser(chat=self._resilient_chat_core(self._build_chat(ref)))
 
     def remote_transcriber(
-        self, chat_ref: ModelRef | None = None, *, flag: str | None = None
+        self, chat_ref: ModelRef | None = None, *, flag: str | None = None, use_cache: bool = True
     ) -> Transcriber | None:
         """The stt-model role (D39/05), resolved through the shared matrix
         (``resolve_stt``): an explicit flag (#20: graph's ``--stt-model``) or
@@ -466,8 +484,10 @@ class AppContainer:
         )
         wired = adapter if self.budget is None else budgeted_transcriber(adapter, self.budget)
         # cache OUTERMOST (#22): a banked transcription never re-pays the wire,
-        # admission, or the belt — reruns of the same clip are free
-        return self._cache_stt(admitted_transcriber(wired, self.call_policy))
+        # admission, or the belt — reruns of the same clip are free. Probe wires
+        # (use_cache=False) skip the bank: a probe must exercise the wire itself.
+        admitted = admitted_transcriber(wired, self.call_policy)
+        return self._cache_stt(admitted) if use_cache else admitted
 
     def entity_finder(self, labels: Sequence[str]) -> EntityFinder:
         """``graph --fast``'s NER (wave G1): ALWAYS the local GLiNER wire —
@@ -611,20 +631,22 @@ class AppContainer:
             retry=self.retry,
         )
 
-    def _wrap_embed(self, model: EmbeddingModel) -> EmbeddingModel:
+    def _wrap_embed(self, model: EmbeddingModel, *, use_cache: bool = True) -> EmbeddingModel:
         """Budget then admit one remote embedding request, then cache OUTERMOST.
 
         The built-in on-device embedder performs no API call, so it stays off
         the API-call semaphore. Ollama remains admitted: it is an HTTP API even
         when its endpoint is loopback. Both returns ride ``_cache_embed`` (#22)
-        so a banked text never reaches admission or the belt.
+        so a banked text never reaches admission or the belt — except probe
+        wires (``use_cache=False``), which must exercise the wire itself.
         """
         wired = model if self.budget is None else budgeted_embed(model, self.budget)
         if model.ref.provider == "local":
-            return self._cache_embed(wired)
+            return self._cache_embed(wired) if use_cache else wired
         from smartpipe.models.admission import admitted_embed
 
-        return self._cache_embed(admitted_embed(wired, self.call_policy))
+        admitted = admitted_embed(wired, self.call_policy)
+        return self._cache_embed(admitted) if use_cache else admitted
 
     def _fence(self, ref: ModelRef, role: str) -> None:
         """--local-only (item 65d): refuse any wire that would leave this
