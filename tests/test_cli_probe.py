@@ -290,7 +290,11 @@ def test_role_probe_planning_build_fault_makes_no_call_and_later_roles_survive()
             media_embed_model="jina/jina-clip-v2",
         )
 
-        def document_parser(self):
+        @property
+        def env(self) -> dict[str, str]:
+            return {}
+
+        def probe_document_parser(self):
             built.append("ocr")
             raise SetupFault("error: MISTRAL_API_KEY missing")
 
@@ -305,7 +309,7 @@ def test_role_probe_planning_build_fault_makes_no_call_and_later_roles_survive()
             built.append("fallback-model")
             return Chat()
 
-        async def media_embedding_model(self):
+        async def probe_media_embedding_model(self):
             class MediaEmbed:
                 ref: ModelRef = parse_model_ref("jina/jina-clip-v2")
 
@@ -325,3 +329,68 @@ def test_role_probe_planning_build_fault_makes_no_call_and_later_roles_survive()
     assert tuple(plan.role for plan in plans) == ("fallback-model", "media-embed")
     assert faults == ("  ocr: ✗ MISTRAL_API_KEY missing",)
     assert len(plans) == 2
+
+
+def test_role_probe_planning_honors_env_overrides_and_binds_each_ref() -> None:
+    import asyncio
+    from collections.abc import Sequence
+
+    from smartpipe.cli.probe_cmd import exercise_role_probes, plan_role_probes
+    from smartpipe.config.store import Config
+    from smartpipe.models.base import CompletionRequest, ImageData, ModelRef, parse_model_ref
+    from smartpipe.models.ocr import OcrBilling, OcrPage
+
+    class Parser:
+        ref = parse_model_ref("mistral/env-ocr")
+        billing = OcrBilling.PAGE
+
+        async def parse_image(self, image: ImageData) -> str:
+            return "ok"
+
+        async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+            del path
+            return ()
+
+    class Chat:
+        ref: ModelRef = parse_model_ref("openai/env-fallback")
+
+        async def complete(self, request: CompletionRequest) -> str:
+            return "OK"
+
+    class Embed:
+        ref: ModelRef = parse_model_ref("jina/env-media")
+
+        async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            return ((0.0,),)
+
+        async def embed_parts(
+            self, parts: Sequence[str | ImageData]
+        ) -> tuple[tuple[float, ...], ...]:
+            return ((0.0,),)
+
+    class Container:
+        config = Config()
+
+        @property
+        def env(self) -> dict[str, str]:
+            return {
+                "SMARTPIPE_OCR_MODEL": "mistral/env-ocr",
+                "SMARTPIPE_FALLBACK_MODEL": "openai/env-fallback",
+                "SMARTPIPE_MEDIA_EMBED_MODEL": "jina/env-media",
+            }
+
+        def probe_document_parser(self):
+            return Parser()
+
+        def probe_fallback_model(self):
+            return Chat()
+
+        async def probe_media_embedding_model(self):
+            return Embed()
+
+    plans, faults = asyncio.run(plan_role_probes(Container()))
+    lines, sent = asyncio.run(exercise_role_probes(plans))
+    assert faults == () and sent == 3
+    assert "via mistral/env-ocr" in lines[0]
+    assert "via openai/env-fallback" in lines[1]
+    assert "via jina/env-media" in lines[2]

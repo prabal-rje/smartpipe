@@ -263,12 +263,19 @@ class AppContainer:
         return wrapper
 
     def probe_fallback_model(self) -> ChatModel | None:
-        """Build the configured fallback as a direct probe wire, without waiting
-        for a breaker trip. This is probe-only composition-root wiring."""
+        """Build the effective fallback directly and bypass result caching."""
         ref = self.fallback_ref()
         if ref is None:
             return None
-        return self._wrap_chat(self._build_chat(ref))
+        return self._resilient_chat_core(self._build_chat(ref))
+
+    def probe_document_parser(self) -> DocumentParser | None:
+        """Build the effective OCR role without its outer result cache."""
+        return self.document_parser(use_cache=False)
+
+    async def probe_media_embedding_model(self) -> EmbeddingModel | None:
+        """Build the effective media embed role without its outer result cache."""
+        return await self.media_embedding_model(use_cache=False)
 
     def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
         """The chat failover target (item 11): --fallback-model >
@@ -318,7 +325,9 @@ class AppContainer:
         manifest.record_model("embed", str(ref))
         return self._wrap_embed(self._build_embed(ref))
 
-    async def media_embedding_model(self, flag: str | None = None) -> EmbeddingModel | None:
+    async def media_embedding_model(
+        self, flag: str | None = None, *, use_cache: bool = True
+    ) -> EmbeddingModel | None:
         """The ``media-embed-model`` role (item 40): a JOINT text+image space
         that media items route to while text items keep ``embed-model``. Unset
         = None (today's resolution). A text-only ref is refused here, before
@@ -346,9 +355,16 @@ class AppContainer:
                 '  Set one in config.toml: media-embed-model = "jina/jina-clip-v2" — '
                 "or unset the role."
             )
-        return self._wrap_embed(model)
+        if use_cache:
+            return self._wrap_embed(model)
+        wired = model if self.budget is None else budgeted_embed(model, self.budget)
+        from smartpipe.models.admission import admitted_embed
 
-    def document_parser(self, flag: str | None = None) -> DocumentParser | None:
+        return admitted_embed(wired, self.call_policy)
+
+    def document_parser(
+        self, flag: str | None = None, *, use_cache: bool = True
+    ) -> DocumentParser | None:
         """The ``ocr-model`` role (item 40): when set, ingested PDFs and images
         parse through it (owner ruling — configuring the role IS the consent;
         every use is disclosed per row). A mistral ref rides the dedicated
@@ -384,10 +400,17 @@ class AppContainer:
             wired = parser if self.budget is None else budgeted_parser(parser, self.budget)
             # A7: cache OUTERMOST so a rerun banks the paid page conversions —
             # the hit short-circuits before admission gates or the belt meters it
-            return self._cache_parser(admitted_parser(wired, self.call_policy))
+            admitted = admitted_parser(wired, self.call_policy)
+            return self._cache_parser(admitted) if use_cache else admitted
         from smartpipe.models.ocr import VisionOcrParser
 
-        return VisionOcrParser(chat=self._wrap_chat(self._build_chat(ref)))
+        if use_cache:
+            return VisionOcrParser(chat=self._wrap_chat(self._build_chat(ref)))
+        # probe wiring (C8): the vision rung's page calls ride the CHAT cache, so a
+        # probe against a cached wire would "pass" on yesterday's reply without ever
+        # exercising the wire — the exact false-positive class the probes exist to
+        # kill. Bypass the result cache the same way probe_fallback_model does.
+        return VisionOcrParser(chat=self._resilient_chat_core(self._build_chat(ref)))
 
     def remote_transcriber(
         self, chat_ref: ModelRef | None = None, *, flag: str | None = None

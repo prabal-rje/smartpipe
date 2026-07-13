@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from smartpipe.config.store import Config
     from smartpipe.container import AppContainer
-    from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.base import ChatModel, EmbeddingModel, MediaEmbeddingModel, ModelRef
     from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import Transcriber
 
@@ -59,11 +59,14 @@ class _RoleContainer(Protocol):
     @property
     def config(self) -> Config: ...
 
-    def document_parser(self) -> DocumentParser | None: ...
+    @property
+    def env(self) -> Mapping[str, str]: ...
+
+    def probe_document_parser(self) -> DocumentParser | None: ...
 
     def probe_fallback_model(self) -> ChatModel | None: ...
 
-    async def media_embedding_model(self) -> EmbeddingModel | None: ...
+    async def probe_media_embedding_model(self) -> EmbeddingModel | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,55 +79,78 @@ class RoleProbe:
 async def plan_role_probes(
     container: _RoleContainer,
 ) -> tuple[tuple[RoleProbe, ...], tuple[str, ...]]:
-    """Build configured roles independently; build faults spend nothing."""
+    """Build effective configured roles independently; build faults spend nothing."""
     plans: list[RoleProbe] = []
     faults: list[str] = []
+    configured = (
+        ("ocr", container.env.get("SMARTPIPE_OCR_MODEL", "").strip() or container.config.ocr_model),
+        (
+            "fallback-model",
+            container.env.get("SMARTPIPE_FALLBACK_MODEL", "").strip()
+            or container.config.fallback_model,
+        ),
+        (
+            "media-embed",
+            container.env.get("SMARTPIPE_MEDIA_EMBED_MODEL", "").strip()
+            or container.config.media_embed_model,
+        ),
+    )
 
-    if container.config.ocr_model:
-        ref = container.config.ocr_model
+    for role, raw in configured:
+        if not raw:
+            continue
         try:
-            parser = container.document_parser()
-            assert parser is not None
+            # arm-distinct names (a shared `exercise` would union three
+            # signatures under pyright); default-arg binding pins each loop
+            # variable at definition time (ruff B023) while keeping every
+            # closure callable as a plain () -> Awaitable[str]
+            probe: Callable[[], Awaitable[str]]
+            match role:
+                case "ocr":
+                    parser = container.probe_document_parser()
+                    assert parser is not None
+                    ref = str(parser.ref)
 
-            async def exercise_ocr() -> str:
-                await parser.parse_image(ImageData(_asset("probe.png"), "image/png"))
-                return f"parsed one page via {ref}"
+                    async def exercise_ocr(parser: DocumentParser = parser, ref: str = ref) -> str:
+                        await parser.parse_image(ImageData(_asset("probe.png"), "image/png"))
+                        return f"parsed one page via {ref}"
 
-            plans.append(RoleProbe("ocr", ref, exercise_ocr))
+                    probe = exercise_ocr
+                case "fallback-model":
+                    fallback = container.probe_fallback_model()
+                    assert fallback is not None
+                    ref = str(fallback.ref)
+
+                    async def exercise_fallback(
+                        fallback: ChatModel = fallback, ref: str = ref
+                    ) -> str:
+                        reply = await fallback.complete(
+                            CompletionRequest(
+                                system=None, user="Reply with exactly: OK", max_tokens=8
+                            )
+                        )
+                        return f"replied {reply.strip()[:16]!r} via {ref}"
+
+                    probe = exercise_fallback
+                case "media-embed":
+                    media_embed = await container.probe_media_embedding_model()
+                    assert media_embed is not None and supports_media_embedding(media_embed)
+                    ref = str(media_embed.ref)
+
+                    async def exercise_media(
+                        media_embed: MediaEmbeddingModel = media_embed, ref: str = ref
+                    ) -> str:
+                        vectors = await media_embed.embed_parts(
+                            [ImageData(_asset("probe.png"), "image/png")]
+                        )
+                        return f"{len(vectors[0])}-dim image vector via {ref}"
+
+                    probe = exercise_media
+                case _:
+                    raise AssertionError(f"unknown role: {role}")
+            plans.append(RoleProbe(role, ref, probe))
         except SempipeError as exc:
-            faults.append(f"  ocr: ✗ {_first_line(exc)}")
-
-    if container.config.fallback_model:
-        ref = container.config.fallback_model
-        try:
-            fallback = container.probe_fallback_model()
-            assert fallback is not None
-
-            async def exercise_fallback() -> str:
-                reply = await fallback.complete(
-                    CompletionRequest(system=None, user="Reply with exactly: OK", max_tokens=8)
-                )
-                return f"replied {reply.strip()[:16]!r} via {ref}"
-
-            plans.append(RoleProbe("fallback-model", ref, exercise_fallback))
-        except SempipeError as exc:
-            faults.append(f"  fallback-model: ✗ {_first_line(exc)}")
-
-    if container.config.media_embed_model:
-        ref = container.config.media_embed_model
-        try:
-            media_embed = await container.media_embedding_model()
-            assert media_embed is not None and supports_media_embedding(media_embed)
-
-            async def exercise_media_embed() -> str:
-                vectors = await media_embed.embed_parts(
-                    [ImageData(_asset("probe.png"), "image/png")]
-                )
-                return f"{len(vectors[0])}-dim image vector via {ref}"
-
-            plans.append(RoleProbe("media-embed", ref, exercise_media_embed))
-        except SempipeError as exc:
-            faults.append(f"  media-embed: ✗ {_first_line(exc)}")
+            faults.append(f"  {role}: ✗ {_first_line(exc)}")
 
     return tuple(plans), tuple(faults)
 

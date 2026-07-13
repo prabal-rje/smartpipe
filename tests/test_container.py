@@ -787,6 +787,36 @@ def test_ocr_role_other_refs_ride_the_vision_wire(client: httpx.AsyncClient) -> 
     assert str(parser.ref) == "ollama/llava"
 
 
+def test_probe_document_parser_bypasses_result_caches_on_both_routes(
+    client: httpx.AsyncClient,
+) -> None:
+    """C8: a probe must exercise the WIRE, never yesterday's cache. The mistral
+    route banks page conversions (A7) and the vision route's page calls ride the
+    CHAT cache — a probe against either would "pass" on a cached reply without a
+    single call, the exact false-positive class the role probes exist to kill."""
+    from smartpipe.models.cache import CachingChatModel, CachingDocumentParser
+    from smartpipe.models.ocr import VisionOcrParser
+
+    mistral = _container(
+        client,
+        env={"MISTRAL_API_KEY": "mk", "SMARTPIPE_CACHE": "on"},
+        config=Config(ocr_model="mistral/mistral-ocr-latest"),
+    )
+    assert isinstance(mistral.document_parser(), CachingDocumentParser)
+    probe = mistral.probe_document_parser()
+    assert probe is not None and not isinstance(probe, CachingDocumentParser)
+
+    vision = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x", "SMARTPIPE_CACHE": "on"},
+        config=Config(ocr_model="openai/gpt-4o-mini"),
+    )
+    cached = vision.document_parser()
+    assert isinstance(cached, VisionOcrParser) and isinstance(cached.chat, CachingChatModel)
+    probed = vision.probe_document_parser()
+    assert isinstance(probed, VisionOcrParser) and not isinstance(probed.chat, CachingChatModel)
+
+
 def test_ocr_role_flag_beats_env_beats_config(client: httpx.AsyncClient) -> None:
     container = _container(
         client,
