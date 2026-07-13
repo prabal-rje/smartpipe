@@ -1743,7 +1743,7 @@ async def test_full_mode_surface_fold_owns_a_visible_element(
     code, _ = await _run(GraphRequest(focus="who pays whom"), _context(chat), "Ann pays Bob\n")
     assert code == ExitCode.OK
     err = capsys.readouterr().err
-    assert any("[fold]" in frame and "Processing [0]" in frame for frame in err.split("\r"))
+    assert any("[fold]" in frame and "0/" in frame for frame in err.split("\r"))
 
 
 async def test_adopt_surface_fold_owns_a_visible_element(
@@ -1759,7 +1759,7 @@ async def test_adopt_surface_fold_owns_a_visible_element(
     assert out  # the adopted edges reached stdout
     assert chat.calls == []  # adopt spends nothing
     err = capsys.readouterr().err
-    assert any("[fold]" in frame and "Processing [0]" in frame for frame in err.split("\r"))
+    assert any("[fold]" in frame and "0/" in frame for frame in err.split("\r"))
 
 
 def _counting_load(monkeypatch: pytest.MonkeyPatch, events: list[str]) -> None:

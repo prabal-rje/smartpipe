@@ -1251,5 +1251,5 @@ async def test_fast_surface_fold_owns_a_visible_element(
     assert code is ExitCode.OK
     err = capsys.readouterr().err
     assert any(
-        "[fold]" in frame and "Processing [0]" in frame for frame in err.split("\r")
+        "[fold]" in frame and "0/" in frame for frame in err.split("\r")
     )  # the surface fold's zero state wore the fold label

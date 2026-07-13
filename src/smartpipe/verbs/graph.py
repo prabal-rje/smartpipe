@@ -494,12 +494,16 @@ async def scan_corpus(
         request.embed_model_flag,
         should_stop=should_stop,
     )
+    # C9: the label-cluster fold reports exact per-name progress.
+    from smartpipe.engine.clustering import select_leader_clustering
+
+    clustering = select_leader_clustering()
     # D4 (#37): the label-cluster fold owns a visible element too — an unknown-
     # total count line (groups, not items), advanced by the injected callback
     # from the worker thread (the arbiter lock makes that safe). Distinct name:
     # ``fold_bar`` below is the co-occurrence fold's.
     surface_bar = stage("fold")
-    surface_bar.start(None)
+    surface_bar.start(len(counts))
     try:  # C2 review: a cancel/fault mid-fold must still clear the row + deregister
         canonical = await asyncio.to_thread(
             fold_surfaces,
@@ -507,6 +511,7 @@ async def scan_corpus(
             fold.vectors,
             should_stop=should_stop,
             progress=surface_bar.advance,
+            clustering=clustering,
         )
     finally:
         surface_bar.finish()

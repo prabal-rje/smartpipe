@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import ExitCode, UsageFault
-from smartpipe.engine.clustering import leader_clusters
 from smartpipe.engine.runner import Done
 from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.inputs import STDIN
@@ -160,7 +159,11 @@ async def run_distinct(
             )
     log.finish()
     # unexamined rows are KEPT in the output but never compared - the honest skip count
-    clusters = leader_clusters([vectors[p] for p in embed_order], threshold=request.threshold)
+    from smartpipe.engine.clustering import select_leader_clustering
+
+    clusters = select_leader_clustering()(
+        [vectors[p] for p in embed_order], threshold=request.threshold
+    )
     kept: set[int] = set(unexamined)
     near_dupes_of: dict[int, list[int]] = {}
     near_folded = 0

@@ -401,8 +401,12 @@ async def run_full(
         request.embed_model_flag,
         should_stop=should_stop,
     )
+    # C9: inject the accelerated exact clustering strategy + a determinate
+    # per-name bar (this is the fold the AFG incident starved on — 36,899 names).
+    from smartpipe.engine.clustering import select_leader_clustering
+
     surface_bar = stage("fold")  # D4 (#37): the label-cluster fold stays visible
-    surface_bar.start(None)
+    surface_bar.start(len(counts))
     try:  # C2 review: a cancel/fault mid-fold must still clear the row + deregister
         canonical = await asyncio.to_thread(
             fold_surfaces,
@@ -410,6 +414,7 @@ async def run_full(
             fold.vectors,
             should_stop=should_stop,
             progress=surface_bar.advance,
+            clustering=select_leader_clustering(),
         )
     finally:
         surface_bar.finish()
@@ -890,8 +895,12 @@ async def run_adopt(
         request.embed_model_flag,
         should_stop=should_stop,
     )
+    # C9: inject the accelerated exact clustering strategy + a determinate
+    # per-name bar (this is the fold the AFG incident starved on — 36,899 names).
+    from smartpipe.engine.clustering import select_leader_clustering
+
     surface_bar = stage("fold")  # D4 (#37): the label-cluster fold stays visible
-    surface_bar.start(None)
+    surface_bar.start(len(counts))
     try:  # C2 review: a cancel/fault mid-fold must still clear the row + deregister
         canonical = await asyncio.to_thread(
             fold_surfaces,
@@ -899,6 +908,7 @@ async def run_adopt(
             fold.vectors,
             should_stop=should_stop,
             progress=surface_bar.advance,
+            clustering=select_leader_clustering(),
         )
     finally:
         surface_bar.finish()
