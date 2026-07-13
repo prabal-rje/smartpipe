@@ -119,3 +119,39 @@ def test_numpy_rechecks_boundary_candidates_with_reference_cosine() -> None:
         == leader_clusters(vectors, threshold=threshold)
         == [[0], [1]]
     )
+
+
+def test_numpy_strategy_matches_pure_on_a_seeded_random_corpus() -> None:
+    """Property check across chunk boundaries: 300 seeded 8-dim vectors, a
+    mid-range threshold, and chunks smaller than the corpus so prior-leader
+    GEMM candidates AND within-chunk founders both exercise. The reference
+    ``cosine`` arbiter makes the two paths decision-identical by construction;
+    this pins it against regressions in the chunking bookkeeping."""
+    import random
+
+    rng = random.Random(20260712)
+    vectors = [tuple(rng.uniform(-1.0, 1.0) for _ in range(8)) for _ in range(300)]
+    for threshold in (0.55, 0.8, 0.95):
+        expected = leader_clusters(vectors, threshold=threshold)
+        for chunk_size in (7, 64, 512):
+            assert (
+                numpy_leader_clusters(vectors, threshold=threshold, chunk_size=chunk_size)
+                == expected
+            )
+
+
+def test_numpy_stop_mid_chunk_yields_the_same_clean_partial_as_pure() -> None:
+    ticks: list[int] = []
+
+    def stopped() -> bool:
+        return len(ticks) == 3
+
+    clusters = numpy_leader_clusters(
+        [RIGHT, NEARLY_RIGHT, UP, (-1.0, 0.0), (0.8, 0.6)],
+        threshold=0.9,
+        should_stop=stopped,
+        progress=lambda: ticks.append(1),
+        chunk_size=2,  # the stop lands mid-corpus, across a chunk boundary
+    )
+    assert ticks == [1, 1, 1]
+    assert clusters == [[0, 1], [2], [3], [4]]

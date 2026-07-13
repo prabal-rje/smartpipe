@@ -15,6 +15,9 @@ from smartpipe.engine.ranking import cosine
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from numpy import float64
+    from numpy.typing import NDArray
+
 ClusteringStrategy: TypeAlias = Callable[..., list[list[int]]]
 
 __all__ = [
@@ -58,9 +61,19 @@ def numpy_leader_clusters(
     threshold: float,
     should_stop: Callable[[], bool] | None = None,
     progress: Callable[[], None] | None = None,
-    chunk_size: int = 4_096,
+    chunk_size: int = 512,
 ) -> list[list[int]]:
-    """Exact greedy clustering using chunked NumPy GEMM against current leaders."""
+    """Exact greedy clustering, accelerated: one NumPy GEMM per QUERY chunk.
+
+    Chunking queries (not leaders) reads the leader matrix once per chunk
+    instead of once per name — compute-bound GEMM, not memory-bound GEMV. The
+    GEMM is a PREFILTER only: every candidate is re-checked with the reference
+    ``cosine`` before it can win, so the decision arithmetic (and therefore the
+    clustering) is identical to ``leader_clusters`` even where BLAS summation
+    order drifts a few ulps; the prefilter keeps a small margin so a low BLAS
+    rounding cannot hide a true candidate. Leaders founded INSIDE the current
+    chunk are checked by the in-order loop below the GEMM, preserving
+    first-match founding order exactly."""
     import numpy as np
 
     if not vectors:
@@ -70,32 +83,55 @@ def numpy_leader_clusters(
     normalized = np.divide(
         matrix, norms[:, None], out=np.zeros_like(matrix), where=norms[:, None] != 0.0
     )
+    step = max(1, chunk_size)
     clusters: list[list[int]] = []
     leaders: list[int] = []
-    for index in range(len(vectors)):
-        if should_stop is not None and should_stop():
-            clusters.extend([position] for position in range(index, len(vectors)))
-            break
-        match_index: int | None = None
-        for start in range(0, len(leaders), chunk_size):
-            positions = leaders[start : start + chunk_size]
-            similarities = normalized[positions] @ normalized[index]
-            hit_positions = tuple(
-                position
-                for position, similarity in enumerate(similarities.tolist())
-                if similarity >= threshold
-                and cosine(vectors[positions[position]], vectors[index]) >= threshold
-            )
-            if hit_positions:
-                match_index = start + hit_positions[0]
+    total = len(vectors)
+    stopped_at: int | None = None
+    # leaders founded inside the CURRENT chunk, as a contiguous buffer so the
+    # in-chunk check below is one small numpy product, never a Python scan
+    fresh_buffer: NDArray[float64] = np.empty((step, normalized.shape[1]), dtype=np.float64)
+    for start in range(0, total, step):
+        end = min(start + step, total)
+        prior = len(leaders)  # leaders founded before this chunk, in founding order
+        fresh_count = 0
+        similarities = (
+            normalized[start:end] @ normalized[np.asarray(leaders)].T if leaders else None
+        )
+        for index in range(start, end):
+            if should_stop is not None and should_stop():
+                stopped_at = index
                 break
-        if match_index is None:
-            leaders.append(index)
-            clusters.append([index])
-        else:
-            clusters[match_index].append(index)
-        if progress is not None:
-            progress()
+            match_index: int | None = None
+            if similarities is not None:
+                row: NDArray[float64] = similarities[index - start]
+                mask = row >= threshold - 1e-9
+                candidates: list[int] = [int(p) for p in mask.nonzero()[0].tolist()]
+                for position in candidates:  # ascending = founding order
+                    if cosine(vectors[leaders[position]], vectors[index]) >= threshold:
+                        match_index = position
+                        break
+            if match_index is None and fresh_count:  # then leaders founded in this chunk
+                fresh_row: NDArray[float64] = fresh_buffer[:fresh_count] @ normalized[index]
+                fresh_mask = fresh_row >= threshold - 1e-9
+                fresh_hits: list[int] = [int(p) for p in fresh_mask.nonzero()[0].tolist()]
+                for offset in fresh_hits:  # ascending = founding order within the chunk
+                    if cosine(vectors[leaders[prior + offset]], vectors[index]) >= threshold:
+                        match_index = prior + offset
+                        break
+            if match_index is None:
+                fresh_buffer[fresh_count] = normalized[index]
+                fresh_count += 1
+                leaders.append(index)
+                clusters.append([index])
+            else:
+                clusters[match_index].append(index)
+            if progress is not None:
+                progress()
+        if stopped_at is not None:
+            break
+    if stopped_at is not None:
+        clusters.extend([position] for position in range(stopped_at, total))
     return clusters
 
 
