@@ -69,15 +69,25 @@ def numpy_leader_clusters(
     instead of once per name — compute-bound GEMM, not memory-bound GEMV. The
     GEMM is a PREFILTER only: every candidate is re-checked with the reference
     ``cosine`` before it can win, so the decision arithmetic (and therefore the
-    clustering) is identical to ``leader_clusters`` even where BLAS summation
-    order drifts a few ulps; the prefilter keeps a small margin so a low BLAS
-    rounding cannot hide a true candidate. Leaders founded INSIDE the current
-    chunk are checked by the in-order loop below the GEMM, preserving
-    first-match founding order exactly."""
+    clustering) is identical to ``leader_clusters`` for rectangular inputs —
+    ragged (mixed-dimension) inputs delegate to the reference loop, which
+    tolerates them. The prefilter's margin covers embedding-scale float drift
+    (BLAS dot error is O(d·eps), orders below 1e-9 at d≈1536); a low BLAS
+    rounding therefore cannot hide a true candidate, and no acceptance ever
+    rides BLAS alone. Leaders founded INSIDE the current chunk are checked by
+    the in-order loop below the GEMM, preserving first-match founding order
+    exactly."""
     import numpy as np
 
     if not vectors:
         return []
+    width = len(vectors[0])
+    if any(len(vector) != width for vector in vectors):
+        # a ragged corpus cannot form the rectangle the GEMM needs; the
+        # reference loop compares tuples of any shape — byte-identity holds
+        return leader_clusters(
+            vectors, threshold=threshold, should_stop=should_stop, progress=progress
+        )
     matrix = np.asarray(vectors, dtype=np.float64)
     norms = np.sqrt(np.sum(matrix * matrix, axis=1))
     normalized = np.divide(

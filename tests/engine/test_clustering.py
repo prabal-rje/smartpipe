@@ -140,6 +140,26 @@ def test_numpy_strategy_matches_pure_on_a_seeded_random_corpus() -> None:
             )
 
 
+def test_import_failure_selects_the_pure_strategy() -> None:
+    """The Python 3.14 story: no fastembed wheels means numpy may be absent
+    entirely — the selector must land the reference loop, not crash."""
+    import sys
+    from unittest import mock
+
+    from smartpipe.engine.clustering import select_leader_clustering
+
+    with mock.patch.dict(sys.modules, {"numpy": None}):
+        assert select_leader_clustering() is leader_clusters
+    assert select_leader_clustering() is numpy_leader_clusters  # restored → fast path
+
+
+def test_ragged_vectors_delegate_to_the_reference_loop() -> None:
+    """Mixed-dimension corpora cannot form the GEMM rectangle; the numpy path
+    must produce the reference answer, never a ValueError."""
+    ragged = [(1.0,), (1.0, 2.0), (0.5,)]
+    assert numpy_leader_clusters(ragged, threshold=0.5) == leader_clusters(ragged, threshold=0.5)
+
+
 def test_numpy_stop_mid_chunk_yields_the_same_clean_partial_as_pure() -> None:
     ticks: list[int] = []
 

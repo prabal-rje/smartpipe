@@ -241,6 +241,10 @@ def fold_surfaces(
     through: on a stop request the remaining label groups are left unclustered —
     each keeps its own node, the same graceful degradation an absent embedder
     gives — so the returned map is always a clean partial, never a crash.
+    ``progress`` ticks exactly ``len(counts)`` times on a full run; an
+    interrupted run ticks SHORT by design — a determinate bar ending below its
+    total is the honest picture of a cut fold, and the caller's ``finish()``
+    clears the row either way.
     """
     representative: dict[str, str] = {}
     representatives: list[SurfaceCount] = []
