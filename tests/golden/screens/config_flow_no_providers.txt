@@ -1,6 +1,7 @@
-smartpipe setup - text model, then embeddings, then documents
+smartpipe setup - text model, then embeddings, then documents, then speech
 
-Text model - pick a provider:
+TEXT MODEL - pick a provider
+
   1. ollama                  needs install (ollama.com)
   2. openai (API key)        needs key
   3. openai (ChatGPT login)  needs login
@@ -8,27 +9,50 @@ Text model - pick a provider:
   5. anthropic               needs key
   6. mistral                 needs key
   7. openrouter              needs key
+
   8. skip - decide later
   9. cancel setup - leave config unchanged
   install from https://ollama.com, then: ollama serve
-Embedding model - powers embed, top_k, cluster, distinct:
+
+EMBEDDING MODEL - powers embed, top_k, cluster, distinct
+
   1. local (built-in, on-device)  ✓ local
   2. ollama                       needs install (ollama.com)
   3. openai (API key)             needs key
   4. gemini                       needs key
   5. mistral                      needs key
   6. jina                         needs key
+
   7. skip - keep the built-in default (local, free)
   8. back - text model
+
+DOCUMENT OCR (optional)
   changes document parsing at ingestion - PDFs/images read through the model (configuring it is the consent; every use is disclosed)
-Document OCR - optional:
+
   1. skip - documents parse with the built-in local extraction
+
   2. mistral/mistral-ocr-latest - the dedicated OCR wire
+
   3. type a model name instead…
   4. back - embedding model
-Review setup:
+
+SPEECH-TO-TEXT (optional)
+  changes how audio becomes text at ingestion - remote is paid and verbatim; local whisper runs on-device, free
+
+  1. skip - auto (whisper-1 with an OpenAI key, else local whisper)
+
+  2. local whisper - transcribes on-device (free, private)
+  3. openai/gpt-4o-transcribe - best transcription quality (needs an OpenAI API key)
+  4. openai/gpt-4o-mini-transcribe - cheaper, nearly as good
+  5. openai/whisper-1 - the verbatim classic
+
+  6. type a model name instead…
+  7. back - document OCR
+
+REVIEW SETUP
+
   1. finish - keep current config
-  2. back - document OCR
+  2. back - speech-to-text
 
   nothing changed - config left as it was
 

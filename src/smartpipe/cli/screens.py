@@ -91,6 +91,19 @@ def heading(text: str) -> str:
     return tint(text, "1;36")  # bold cyan — every section/column title, one voice
 
 
+def stage_title(name: str, *, optional: bool = False, hint: str | None = None) -> str:
+    """The wizard's stage headers, one voice (owner ruling 2026-07-12): the
+    stage NAME in caps + the heading color, "(optional)" for the genuinely
+    skippable role stages (dim), any hint dim after a dash. A piped stdout or
+    NO_COLOR renders plain caps (``tint``'s gate), so goldens stay ANSI-free."""
+    title = heading(name.upper())
+    if optional:
+        title += " " + tint("(optional)", "2")
+    if hint is not None:
+        title += tint(f" - {hint}", "2")
+    return title
+
+
 def good(text: str) -> str:
     return tint(text, "32")
 

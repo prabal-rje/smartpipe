@@ -46,7 +46,7 @@ _RC_FILES = {"zsh": "~/.zshrc", "bash": "~/.bashrc"}
 @click.option(
     "--probe",
     is_flag=True,
-    help="Also send 4 tiny PAID calls to chart which modalities really work.",
+    help="Also send 5 tiny PAID calls to chart which modalities really work.",
 )
 def doctor_command(probe: bool) -> None:
     """Check that smartpipe is set up and ready — without spending a model call.
@@ -62,7 +62,7 @@ def doctor_command(probe: bool) -> None:
     if not probe:
         click.secho(
             "\n⚠ these checks verify SETUP, not ABILITY — run `smartpipe doctor --probe`\n"
-            "  to test what your models can actually see and hear (4 tiny paid calls)",
+            "  to test what your models can actually see and hear (5 tiny paid calls)",
             fg="yellow",
             bold=True,
         )
@@ -81,8 +81,11 @@ async def _gather(env: Mapping[str, str]) -> list[CheckResult]:
     results = [config_result]
     names = await _probe(env)
     results.append(_check_ollama(env, names))
-    results.append(_check_model("chat", _effective_chat(env, config), names))
+    chat = _effective_chat(env, config)
+    results.append(_check_model("chat", chat, names))
+    results.append(_check_schema(chat))
     results.append(_check_model("embed", _effective_embed(env, config), names))
+    results.append(_check_stt(env, config))
     results.append(_check_keys(env))
     results.append(_check_login(env))
     results.append(_check_extras())
@@ -158,6 +161,90 @@ def _check_model(
     return CheckResult(
         section, "fail", f"{ref.name} not in ollama list — fix: ollama pull {ref.name}"
     )
+
+
+def _check_schema(configured: str | None) -> CheckResult:
+    from smartpipe.core.errors import UsageFault
+    from smartpipe.models.base import parse_model_ref
+
+    if configured is None:
+        return CheckResult("schema", "skip", "no chat model configured")
+    try:
+        ref = parse_model_ref(configured)
+    except UsageFault:
+        return CheckResult("schema", "skip", "chat model is invalid")
+    if ref.provider == "ollama" and ref.name.endswith(":cloud"):
+        return CheckResult("schema", "fail", f"{ref} does not enforce structured outputs")
+    if ref.provider == "ollama":
+        return CheckResult("schema", "skip", f"{ref} accepts a schema; enforcement is unverified")
+    return CheckResult(
+        "schema", "skip", f"{ref} adapter requests structured output; enforcement unverified"
+    )
+
+
+def _check_stt(env: Mapping[str, str], config: Config | None) -> CheckResult:
+    """Where audio transcription would go (D39/05), resolved through the
+    SHARED matrix — the same one the container wires at run time, so this
+    row can never drift from what actually happens."""
+    import sys
+    from importlib.util import find_spec
+
+    from smartpipe.core.errors import UsageFault
+    from smartpipe.models.base import parse_model_ref
+    from smartpipe.models.resolve import resolve_stt
+
+    chat = _effective_chat(env, config)
+    provider: str | None = None
+    if chat is not None:
+        try:
+            provider = parse_model_ref(chat).provider
+        except UsageFault:
+            provider = None  # the chat row reports the parse failure itself
+    resolution = resolve_stt(env, config.stt_model if config else None, provider)
+    whisper = find_spec("faster_whisper") is not None
+    if resolution.kind == "ladder":
+        detail = "auto — chat-model hearing, else local whisper (tiny)"
+        if not whisper:
+            detail += "; whisper unavailable"
+        return CheckResult("stt", "skip", detail)
+    if resolution.kind == "local":
+        if whisper:
+            return CheckResult(
+                "stt", "ok", f"local whisper ({resolution.source}) — on-device, free"
+            )
+        if sys.version_info >= (3, 14):
+            return CheckResult(
+                "stt", "skip", "stt-model local — waiting on upstream Python 3.14 wheels"
+            )
+        return CheckResult(
+            "stt", "fail", "stt-model local but whisper is unavailable — reinstall smartpipe"
+        )
+    assert resolution.ref is not None
+    try:
+        ref = parse_model_ref(resolution.ref)
+    except UsageFault as exc:
+        return CheckResult("stt", "fail", str(exc).splitlines()[0])
+    if ref.provider != "openai":
+        return CheckResult(
+            "stt",
+            "fail",
+            f"no STT wire for '{ref.provider}' yet — "
+            'fix: stt-model = "openai/whisper-1" or "local"',
+        )
+    if not env.get("OPENAI_API_KEY", "").strip():
+        return CheckResult(
+            "stt",
+            "fail",
+            f"{ref} needs OPENAI_API_KEY — "
+            'fix: export OPENAI_API_KEY=… (or set stt-model = "local")',
+        )
+    if resolution.source == "auto":
+        return CheckResult(
+            "stt",
+            "ok",
+            f"{ref} (auto: openai chat + OPENAI_API_KEY) — prefer free local? smartpipe use",
+        )
+    return CheckResult("stt", "ok", f"{ref} — remote transcription ({resolution.source})")
 
 
 def _check_keys(env: Mapping[str, str]) -> CheckResult:

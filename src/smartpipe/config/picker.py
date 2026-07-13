@@ -22,6 +22,7 @@ __all__ = [
     "JINA_EMBED_MODELS",
     "LOCAL_EMBED_MODELS",
     "MENU_CAP",
+    "STT_STAGE_MODELS",
     "CapChips",
     "ChipSources",
     "ProbeChip",
@@ -51,6 +52,7 @@ __all__ = [
     "parse_openrouter_catalog",
     "preferred_index",
     "stage_labels",
+    "stt_stage_rows",
     "text_stage_entries",
     "vision_ocr_candidates",
 ]
@@ -67,7 +69,7 @@ class ProbeChip:
     ts: float
 
 
-# --- the three-stage flow's provider menus (TEXT → EMBED → OCR) --------------------------
+# --- the staged flow's provider menus (TEXT → EMBED → OCR → STT) -------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,12 +164,51 @@ def stage_labels(entries: tuple[StageEntry, ...]) -> tuple[str, ...]:
 
 def vision_ocr_candidates(chips: ChipSources) -> tuple[str, ...]:
     """Every catalog ref a chip source says can SEE (item 73c) — the OCR
-    stage's menu fodder. Source order is the chip precedence: a paid probe
-    outranks the registry outranks a self-claim; refs dedupe on first sight."""
+    stage's menu fodder, CURATED like the text stage rather than dumped raw.
+    Source order is the chip precedence (a paid probe outranks the registry
+    outranks a self-claim; refs dedupe on first sight); then the SAME openai
+    noise denylist + dated-snapshot drop the chat stage applies weeds out the
+    ``chatgpt-image-latest``/``gpt-realtime`` variants models.dev tags
+    image-input but that are no document parsers; then the survivors lead with
+    one model per provider so a single long provider list can't bury the rest
+    under ``MENU_CAP``.
+
+    Deferred second pass (item C1): a hardcoded per-provider flagship shortlist
+    and TITLED provider section headers (``io/arrow_menu`` now has blank
+    separator rows; headers with text remain deferred). This pass curates and
+    orders the DISCOVERED
+    candidates only — the dedicated ``mistral-ocr-latest`` wire and the picked
+    vision chat model already lead the menu as their own rows in
+    ``ocr_stage_rows``. A newest-first sort like the chat stage's needs a
+    ``created`` stamp the models.dev registry does not carry, so ordering here
+    is provider-diverse rather than dated."""
     probed = (ref for ref, chip in chips.probed.items() if chip.sees)
     declared = (ref for ref, claims in chips.declared.items() if "image" in claims)
     registry = (ref for ref, caps in chips.registry.items() if caps.image)
-    return _deduped((*probed, *declared, *registry))
+    seen = _deduped((*probed, *declared, *registry))
+    return _provider_diverse(tuple(ref for ref in seen if _ocr_menu_worthy(ref)))
+
+
+def _ocr_menu_worthy(ref: str) -> bool:
+    """A vision ref fit for the OCR pick list: no openai capability-dump noise,
+    no dated snapshot — the same curation the text/chat stage applies."""
+    provider, _, name = ref.partition("/")
+    if provider == "openai" and _is_openai_noise(name):
+        return False
+    return not _is_dated_snapshot(name)
+
+
+def _provider_diverse(refs: tuple[str, ...]) -> tuple[str, ...]:
+    """Lead with one ref per provider (first-seen order), then each provider's
+    tail in original order — provider breadth survives the menu cap instead of
+    one provider's long list crowding everyone else out."""
+    by_provider: dict[str, list[str]] = {}
+    for ref in refs:
+        by_provider.setdefault(ref.partition("/")[0], []).append(ref)
+    groups = tuple(by_provider.values())
+    firsts = tuple(group[0] for group in groups)
+    tails = tuple(ref for group in groups for ref in group[1:])
+    return firsts + tails
 
 
 def ocr_stage_rows(
@@ -182,20 +223,56 @@ def ocr_stage_rows(
         ("keep", "skip - documents parse with the built-in local extraction")
         if current is None
         else ("keep", f"keep current: {current}"),
+        ("sep", ""),  # paragraph break: keep/skip | the model rows
         ("mistral", "mistral/mistral-ocr-latest - the dedicated OCR wire"),
     ]
     if chat_model is not None:
         rows.append(("vision", f"{chat_model} - vision chat, extract-the-text framing"))
-    fixed = len(rows) + 1 + (1 if current is not None else 0)  # + typed [+ unset]
+    fixed = len(rows) + 2 + (1 if current is not None else 0)  # + sep + typed [+ unset]
     exclude = {"mistral/mistral-ocr-latest", chat_model, current}
     candidates = [ref for ref in vision if ref not in exclude]
     room = max(0, MENU_CAP - fixed)
     shown, hidden = candidates[:room], max(0, len(candidates) - room)
     rows.extend(("pick", ref) for ref in shown)
     type_it = "type a model name instead…"
+    rows.append(("sep", ""))  # paragraph break: model rows | the escape hatches
     rows.append(("typed", type_it if not hidden else f"{type_it} ({hidden} more not shown)"))
     if current is not None:
         rows.append(("unset", "unset - back to the built-in local extraction"))
+    return tuple(rows)
+
+
+_STT_AUTO_HINT = "auto (whisper-1 with an OpenAI key, else local whisper)"
+
+# Owner ruling 2026-07-12: the openai transcription wires, best quality first —
+# they all ride the same /v1/audio/transcriptions endpoint and the same key
+# door. Each row's ACTION carries its full ref so ONE stage arm handles all of
+# them; the label leads with the ref plus a short honest suffix. Completions
+# (``suggest_stt_models``) derive their curated order from this tuple.
+STT_STAGE_MODELS: tuple[tuple[str, str], ...] = (
+    ("openai/gpt-4o-transcribe", "best transcription quality (needs an OpenAI API key)"),
+    ("openai/gpt-4o-mini-transcribe", "cheaper, nearly as good"),
+    ("openai/whisper-1", "the verbatim classic"),
+)
+
+
+def stt_stage_rows(current: str | None) -> tuple[tuple[str, str], ...]:
+    """The STT menu as (action, label) rows - the first row is always the
+    one-keypress skip/keep, so Enter never changes anything (the same pin as
+    OCR). ``local`` pins on-device whisper; the openai rows (best first) each
+    carry their full ref as the action — one arm, one key door."""
+    rows: list[tuple[str, str]] = [
+        ("keep", f"skip - {_STT_AUTO_HINT}")
+        if current is None
+        else ("keep", f"keep current: {current}"),
+        ("sep", ""),  # paragraph break: keep/skip | the engine rows
+        ("local", "local whisper - transcribes on-device (free, private)"),
+        *((ref, f"{ref} - {suffix}") for ref, suffix in STT_STAGE_MODELS),
+        ("sep", ""),  # paragraph break: engine rows | the escape hatches
+        ("typed", "type a model name instead…"),
+    ]
+    if current is not None:
+        rows.append(("unset", f"unset - back to {_STT_AUTO_HINT}"))
     return tuple(rows)
 
 
@@ -248,6 +325,17 @@ _OPENAI_NOISE = (
 _DATED_SNAPSHOT = re.compile(r"-\d{4}-\d{2}-\d{2}$")
 
 
+def _is_openai_noise(name: str) -> bool:
+    """A capability-dump id (realtime/image/audio/search/embed…) — not a chat
+    or document model. Shared by the text stage and the OCR stage's curation."""
+    return any(noise in name for noise in _OPENAI_NOISE)
+
+
+def _is_dated_snapshot(name: str) -> bool:
+    """A `-YYYY-MM-DD` pin that repeats an undated alias; the alias is enough."""
+    return _DATED_SNAPSHOT.search(name) is not None
+
+
 def parse_openai_catalog(payload: object) -> tuple[str, ...]:
     """Chat completions models only — the /v1/models list mixes in embeddings,
     audio, image, and moderation endpoints that would poison the menu. The
@@ -262,8 +350,8 @@ def parse_openai_catalog(payload: object) -> tuple[str, ...]:
         if (entry := as_record(item)) is not None
         and (name := as_str(entry.get("id"))) is not None
         and _OPENAI_CHAT.match(name)
-        and not any(noise in name for noise in _OPENAI_NOISE)
-        and not _DATED_SNAPSHOT.search(name)
+        and not _is_openai_noise(name)
+        and not _is_dated_snapshot(name)
     ]
     rows.sort(key=lambda pair: pair[0], reverse=True)  # stable: ties keep arrival order
     return _deduped(name for _, name in rows)
@@ -539,7 +627,11 @@ def model_labels(
     for name in names:
         ref = f"{provider}/{name}"
         chips = chips_for(ref, sources, now)
-        labels.append(ref if chips is None else f"{ref}  ({chip_label(chips)})")
+        if provider == "ollama" and name.endswith(":cloud"):
+            capability = "" if chips is None else f"{chip_label(chips)} · "
+            labels.append(f"{ref}  ({capability}cloud · schema unverified)")
+        else:
+            labels.append(ref if chips is None else f"{ref}  ({chip_label(chips)})")
     return tuple(labels)
 
 

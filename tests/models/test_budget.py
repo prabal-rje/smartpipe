@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from smartpipe.core.errors import ItemError, SetupFault, UnsentError
+from smartpipe.core.errors import ItemError, RetryableError, SetupFault, UnsentError
 from smartpipe.models.base import CompletionRequest, ModelRef
 from smartpipe.models.budget import (
     CallBudget,
@@ -169,6 +169,116 @@ async def test_ocr_pdf_reserves_every_page_before_upload(tmp_path: Path) -> None
     assert budget.model_calls == 0 and budget.ocr_pages == 0
     assert budget.describe_usage() == "0 OCR pages processed"
     assert budget.exhausted and stop.is_set()
+
+
+async def test_ocr_pdf_failure_releases_the_reserved_pages(tmp_path: Path) -> None:
+    """A 429-exhausted upload converted no pages, so its reservation must be
+    refunded — a failed document may not eat a later document's belt share."""
+    pdf = tmp_path / "three.pdf"
+    pdf.write_bytes(minimal_pdf(["one", "two", "three"]))
+
+    class FailingParser:
+        ref = ModelRef("mistral", "mistral-ocr-latest")
+
+        async def parse_image(self, image: object) -> str:
+            raise AssertionError("not an image test")
+
+        async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+            del path
+            raise RetryableError("429 rate limited")
+
+    budget = CallBudget(limit=10, stop=asyncio.Event())
+    parser = budgeted_parser(FailingParser(), budget)  # type: ignore[arg-type]
+
+    with pytest.raises(RetryableError, match="rate limited"):
+        await parser.parse_pdf(pdf)
+
+    assert budget.calls == 0  # the three reserved pages were refunded
+    assert budget.ocr_pages == 0
+    assert not budget.exhausted  # 3 < 10, and the refund cleared the reservation
+
+
+async def test_ocr_image_failure_releases_the_reserved_page() -> None:
+    from smartpipe.models.base import ImageData
+
+    class FailingParser:
+        ref = ModelRef("mistral", "mistral-ocr-latest")
+
+        async def parse_image(self, image: object) -> str:
+            del image
+            raise RetryableError("429 rate limited")
+
+        async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+            raise AssertionError("not a pdf test")
+
+    budget = CallBudget(limit=5, stop=asyncio.Event())
+    parser = budgeted_parser(FailingParser(), budget)  # type: ignore[arg-type]
+
+    with pytest.raises(RetryableError, match="rate limited"):
+        await parser.parse_image(ImageData(b"png", "image/png"))
+
+    assert budget.calls == 0 and budget.ocr_pages == 0
+    assert not budget.exhausted
+
+
+async def test_ocr_image_over_belt_reservation_is_never_refunded() -> None:
+    """The reserve for parse_image can trip the belt and raise BEFORE it charges;
+    that raise happens OUTSIDE the try, so no release runs. A refactor that moved
+    the reserve inside the try would double-refund and drive ``calls`` negative,
+    handing a later document phantom belt — this pins the "no refund owed" edge."""
+    from smartpipe.models.base import ImageData
+
+    class ProbeParser:
+        ref = ModelRef("mistral", "mistral-ocr-latest")
+
+        async def parse_image(self, image: object) -> str:
+            del image
+            raise AssertionError("an over-belt reservation must raise before the wire")
+
+        async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+            raise AssertionError("not a pdf test")
+
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    budget.charge()  # the belt is now exactly full: one unit of one
+    parser = budgeted_parser(ProbeParser(), budget)  # type: ignore[arg-type]
+
+    with pytest.raises(UnsentError, match="call budget"):
+        await parser.parse_image(ImageData(b"png", "image/png"))
+
+    assert budget.calls == 1  # the charge stands — no phantom refund below the floor
+    assert budget.ocr_pages == 0
+    assert budget.exhausted and stop.is_set()
+
+
+async def test_exact_fill_ocr_failure_refunds_but_keeps_the_drain_latched() -> None:
+    """A reservation that EXACTLY fills the belt latches ``exhausted`` + ``stop`` on
+    a SUCCESSFUL reserve; if that upload then fails, the refund lowers ``calls`` back
+    but the latch stands — un-setting a drain already in motion is never safe. Guards
+    a future "fix" that clears the latch on refund and un-freezes a drained run."""
+    from smartpipe.models.base import ImageData
+
+    class FailingParser:
+        ref = ModelRef("mistral", "mistral-ocr-latest")
+
+        async def parse_image(self, image: object) -> str:
+            del image
+            raise RetryableError("429 rate limited")
+
+        async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
+            raise AssertionError("not a pdf test")
+
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)  # one page exactly fills it
+    parser = budgeted_parser(FailingParser(), budget)  # type: ignore[arg-type]
+
+    with pytest.raises(RetryableError, match="rate limited"):
+        await parser.parse_image(ImageData(b"png", "image/png"))
+
+    assert budget.calls == 0  # the failed page was refunded...
+    assert budget.ocr_pages == 0
+    assert budget.exhausted  # ...but the exhausted latch it tripped stands
+    assert stop.is_set()  # and the drain it set is never un-set
 
 
 async def test_ocr_pdf_charges_its_page_count_once(tmp_path: Path) -> None:

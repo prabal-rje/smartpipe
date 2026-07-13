@@ -309,6 +309,14 @@ def test_model_labels_annotate_from_any_source() -> None:
         "ollama/qwen3:8b  (text · image - declared)",
         "ollama/phi4",
     )
+    cloud_sources = ChipSources(
+        probed={"ollama/qwen3.5:cloud": ProbeChip(sees=True, hears=False, ts=now)},
+        registry={},
+        declared={},
+    )
+    assert model_labels("ollama", ("qwen3.5:cloud",), cloud_sources, now) == (
+        "ollama/qwen3.5:cloud  (text · image - probed today · cloud · schema unverified)",
+    )
 
 
 # --- cache staleness ------------------------------------------------------------------
@@ -438,7 +446,7 @@ def test_ocr_rows_unset_lead_with_the_skip() -> None:
     assert rows[0][0] == "keep"
     assert rows[0][1].startswith("skip - ")
     actions = [action for action, _label in rows]
-    assert actions == ["keep", "mistral", "vision", "typed"]
+    assert actions == ["keep", "sep", "mistral", "vision", "sep", "typed"]
     assert any("extract-the-text" in label for _a, label in rows)
 
 
@@ -446,7 +454,7 @@ def test_ocr_rows_set_offer_keep_and_unset() -> None:
     rows = ocr_stage_rows("mistral/mistral-ocr-latest", None)
     assert rows[0] == ("keep", "keep current: mistral/mistral-ocr-latest")
     actions = [action for action, _label in rows]
-    assert actions == ["keep", "mistral", "typed", "unset"]
+    assert actions == ["keep", "sep", "mistral", "sep", "typed", "unset"]
 
 
 def test_vision_candidates_follow_chip_precedence_and_dedupe() -> None:
@@ -471,6 +479,63 @@ def test_vision_candidates_follow_chip_precedence_and_dedupe() -> None:
     )
 
 
+def test_vision_candidates_drop_openai_capability_dump_noise() -> None:
+    from smartpipe.config.picker import vision_ocr_candidates
+
+    # models.dev flags these openai variants image-input, but they are NOT
+    # document parsers — the same noise the text/chat stage already denylists.
+    chips = ChipSources(
+        probed={},
+        registry={
+            "openai/chatgpt-image-latest": RegistryCaps(image=True, audio=False),
+            "openai/gpt-realtime-2.1": RegistryCaps(image=True, audio=False),
+            "openai/gpt-4o-search-preview": RegistryCaps(image=True, audio=False),
+            "openai/gpt-5.4": RegistryCaps(image=True, audio=False),
+        },
+        declared={},
+    )
+    assert vision_ocr_candidates(chips) == ("openai/gpt-5.4",)
+
+
+def test_vision_candidates_drop_dated_snapshots() -> None:
+    from smartpipe.config.picker import vision_ocr_candidates
+
+    chips = ChipSources(
+        probed={},
+        registry={
+            "openai/gpt-4o-2024-08-06": RegistryCaps(image=True, audio=False),  # dated pin
+            "openai/gpt-4o": RegistryCaps(image=True, audio=False),
+        },
+        declared={},
+    )
+    assert vision_ocr_candidates(chips) == ("openai/gpt-4o",)
+
+
+def test_vision_candidates_lead_with_one_model_per_provider() -> None:
+    from smartpipe.config.picker import vision_ocr_candidates
+
+    # a long openai list must not bury the other providers under the menu cap:
+    # the survivors lead with one model per provider (first-seen), then the rest.
+    chips = ChipSources(
+        probed={},
+        registry={
+            "openai/gpt-4o": RegistryCaps(image=True, audio=False),
+            "openai/gpt-4.1": RegistryCaps(image=True, audio=False),
+            "openai/gpt-5.4": RegistryCaps(image=True, audio=False),
+            "anthropic/claude-opus-4-8": RegistryCaps(image=True, audio=False),
+            "gemini/gemini-3.1-flash": RegistryCaps(image=True, audio=False),
+        },
+        declared={},
+    )
+    assert vision_ocr_candidates(chips) == (
+        "openai/gpt-4o",  # one per provider first…
+        "anthropic/claude-opus-4-8",
+        "gemini/gemini-3.1-flash",
+        "openai/gpt-4.1",  # …then each provider's tail, in order
+        "openai/gpt-5.4",
+    )
+
+
 def test_ocr_rows_list_vision_candidates_between_vision_chat_and_typed() -> None:
     rows = ocr_stage_rows(
         None,
@@ -479,8 +544,8 @@ def test_ocr_rows_list_vision_candidates_between_vision_chat_and_typed() -> None
     )
     actions = [action for action, _label in rows]
     # the picked chat model and the dedicated wire never repeat as pick rows
-    assert actions == ["keep", "mistral", "vision", "pick", "typed"]
-    assert rows[3] == ("pick", "ollama/llava")
+    assert actions == ["keep", "sep", "mistral", "vision", "pick", "sep", "typed"]
+    assert rows[4] == ("pick", "ollama/llava")
 
 
 def test_ocr_rows_cap_at_the_menu_height_and_count_the_hidden() -> None:
@@ -493,3 +558,61 @@ def test_ocr_rows_cap_at_the_menu_height_and_count_the_hidden() -> None:
     typed = next(label for action, label in rows if action == "typed")
     assert typed == f"type a model name instead… ({hidden} more not shown)"
     assert rows[-1][0] == "unset"  # the escape rows survive the cap
+
+
+# --- the STT stage's rows ----------------------------------------------------------------
+
+
+def test_stt_rows_unset_lead_with_the_auto_skip() -> None:
+    from smartpipe.config.picker import stt_stage_rows
+
+    rows = stt_stage_rows(None)
+    assert rows[0][0] == "keep"  # Enter never changes anything (the OCR pin)
+    assert rows[0][1].startswith("skip - auto")
+    actions = [action for action, _label in rows]
+    # owner ruling 2026-07-12: local second, then the openai wires best-first,
+    # each ("pick"-style) row's ACTION carrying its full ref through one key door
+    assert actions == [
+        "keep",
+        "sep",
+        "local",
+        "openai/gpt-4o-transcribe",
+        "openai/gpt-4o-mini-transcribe",
+        "openai/whisper-1",
+        "sep",
+        "typed",
+    ]
+    assert any("on-device" in label for _a, label in rows)
+
+
+def test_stt_rows_carry_honest_suffixes_and_lead_with_their_ref() -> None:
+    from smartpipe.config.picker import stt_stage_rows
+
+    labels = dict(stt_stage_rows(None))
+    assert labels["openai/gpt-4o-transcribe"].startswith(
+        "openai/gpt-4o-transcribe - best transcription quality"
+    )
+    assert labels["openai/gpt-4o-mini-transcribe"].startswith(
+        "openai/gpt-4o-mini-transcribe - cheaper"
+    )
+    assert labels["openai/whisper-1"].startswith("openai/whisper-1 - the verbatim classic")
+
+
+def test_stt_rows_set_offer_keep_and_unset() -> None:
+    from smartpipe.config.picker import stt_stage_rows
+
+    rows = stt_stage_rows("local")
+    assert rows[0] == ("keep", "keep current: local")
+    actions = [action for action, _label in rows]
+    assert actions == [
+        "keep",
+        "sep",
+        "local",
+        "openai/gpt-4o-transcribe",
+        "openai/gpt-4o-mini-transcribe",
+        "openai/whisper-1",
+        "sep",
+        "typed",
+        "unset",
+    ]
+    assert rows[-1][1].startswith("unset - back to auto")

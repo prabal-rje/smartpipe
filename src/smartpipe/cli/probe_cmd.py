@@ -3,14 +3,16 @@
 ``doctor`` alone never spends a cent (D18); this flag is the explicit opt-in
 that answers what the docs can only claim: which modalities *actually* reach
 your configured models. Marks: check = native; dash+star = works via a
-footnote names it); cross = no path. Four tiny paid calls, announced first.
+footnote names it); cross = no path. Five tiny paid calls - six when a
+remote stt-model resolves - announced first.
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from importlib import resources
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import SempipeError
 from smartpipe.io import diagnostics
@@ -22,11 +24,24 @@ from smartpipe.models.base import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Awaitable, Callable, Mapping
 
-    from smartpipe.models.base import ChatModel, EmbeddingModel
+    from smartpipe.config.store import Config
+    from smartpipe.container import AppContainer
+    from smartpipe.models.base import ChatModel, EmbeddingModel, MediaEmbeddingModel, ModelRef
+    from smartpipe.models.ocr import DocumentParser
+    from smartpipe.models.stt import Transcriber
 
-__all__ = ["render_matrix", "run_probe"]
+__all__ = [
+    "RoleProbe",
+    "SttProbe",
+    "exercise_role_probes",
+    "exercise_stt",
+    "plan_role_probes",
+    "render_matrix",
+    "run_probe",
+    "stt_probe_plan",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +55,121 @@ def _asset(name: str) -> bytes:
     return (resources.files("smartpipe.assets") / name).read_bytes()
 
 
+class _RoleContainer(Protocol):
+    @property
+    def config(self) -> Config: ...
+
+    @property
+    def env(self) -> Mapping[str, str]: ...
+
+    def probe_document_parser(self) -> DocumentParser | None: ...
+
+    def probe_fallback_model(self) -> ChatModel | None: ...
+
+    async def probe_media_embedding_model(self) -> EmbeddingModel | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class RoleProbe:
+    role: str
+    ref: str
+    exercise: Callable[[], Awaitable[str]]
+
+
+async def plan_role_probes(
+    container: _RoleContainer,
+) -> tuple[tuple[RoleProbe, ...], tuple[str, ...]]:
+    """Build effective configured roles independently; build faults spend nothing."""
+    plans: list[RoleProbe] = []
+    faults: list[str] = []
+    configured = (
+        (
+            "ocr",
+            container.env.get("SMARTPIPE_OCR_MODEL", "").strip()
+            or (container.config.ocr_model or "").strip(),
+        ),
+        (
+            "fallback-model",
+            container.env.get("SMARTPIPE_FALLBACK_MODEL", "").strip()
+            or (container.config.fallback_model or "").strip(),
+        ),
+        (
+            "media-embed",
+            container.env.get("SMARTPIPE_MEDIA_EMBED_MODEL", "").strip()
+            or (container.config.media_embed_model or "").strip(),
+        ),
+    )
+
+    for role, raw in configured:
+        if not raw:
+            continue
+        try:
+            # arm-distinct names (a shared `exercise` would union three
+            # signatures under pyright); default-arg binding pins each loop
+            # variable at definition time (ruff B023) while keeping every
+            # closure callable as a plain () -> Awaitable[str]
+            probe: Callable[[], Awaitable[str]]
+            match role:
+                case "ocr":
+                    parser = container.probe_document_parser()
+                    assert parser is not None
+                    ref = str(parser.ref)
+
+                    async def exercise_ocr(parser: DocumentParser = parser, ref: str = ref) -> str:
+                        await parser.parse_image(ImageData(_asset("probe.png"), "image/png"))
+                        return f"parsed one page via {ref}"
+
+                    probe = exercise_ocr
+                case "fallback-model":
+                    fallback = container.probe_fallback_model()
+                    assert fallback is not None
+                    ref = str(fallback.ref)
+
+                    async def exercise_fallback(
+                        fallback: ChatModel = fallback, ref: str = ref
+                    ) -> str:
+                        reply = await fallback.complete(
+                            CompletionRequest(
+                                system=None, user="Reply with exactly: OK", max_tokens=8
+                            )
+                        )
+                        return f"replied {reply.strip()[:16]!r} via {ref}"
+
+                    probe = exercise_fallback
+                case "media-embed":
+                    media_embed = await container.probe_media_embedding_model()
+                    assert media_embed is not None and supports_media_embedding(media_embed)
+                    ref = str(media_embed.ref)
+
+                    async def exercise_media(
+                        media_embed: MediaEmbeddingModel = media_embed, ref: str = ref
+                    ) -> str:
+                        vectors = await media_embed.embed_parts(
+                            [ImageData(_asset("probe.png"), "image/png")]
+                        )
+                        return f"{len(vectors[0])}-dim image vector via {ref}"
+
+                    probe = exercise_media
+                case _:
+                    raise AssertionError(f"unknown role: {role}")
+            plans.append(RoleProbe(role, ref, probe))
+        except SempipeError as exc:
+            faults.append(f"  {role}: ✗ {_first_line(exc)}")
+
+    return tuple(plans), tuple(faults)
+
+
+async def exercise_role_probes(probes: tuple[RoleProbe, ...]) -> tuple[tuple[str, ...], int]:
+    lines: list[str] = []
+    for probe in probes:
+        try:
+            detail = await probe.exercise()
+            lines.append(f"  {probe.role}: ✓ {detail}")
+        except SempipeError as exc:
+            lines.append(f"  {probe.role}: ✗ {_first_line(exc)}")
+    return tuple(lines), len(probes)
+
+
 async def run_probe(env: Mapping[str, str]) -> str:
     """Build the matrix against the configured chat + embed models."""
     import os
@@ -48,13 +178,19 @@ async def run_probe(env: Mapping[str, str]) -> str:
 
     del env  # the container reads the process environment itself
     async with build_container(os.environ) as container:
-        chat = await container.chat_model()
-        embed = await container.embedding_model()
-        diagnostics.note(
-            "probing modalities with 4 tiny calls "
-            f"(chat: {chat.ref.name} · embed: {embed.ref.name})"
-        )
-        stt = _stt_path(os.environ, container.config.stt_model)
+        # probe wires bypass every result cache: a banked reply answers nothing
+        # about today's wire (the 587c9bc rule); belt + breaker still ride
+        chat = await container.probe_chat_model()
+        embed = await container.probe_embedding_model()
+        probe_stt = stt_probe_plan(container, chat.ref)
+        role_probes, role_faults = await plan_role_probes(container)
+        calls = 5 + int(probe_stt.transcriber is not None) + len(role_probes)
+        names = [f"chat: {chat.ref.name}", f"embed: {embed.ref.name}"]
+        if probe_stt.transcriber is not None:
+            names.append(f"stt: {probe_stt.transcriber.ref.name}")
+        names.extend(f"{probe.role}: {probe.ref}" for probe in role_probes)
+        diagnostics.note(f"probing modalities with {calls} tiny calls ({' · '.join(names)})")
+        stt = _stt_path(os.environ, container.config.stt_model, chat.ref.provider)
         chat_image = await _chat_image(chat)
         chat_audio = await _chat_audio(chat, stt)
         rows = {
@@ -67,8 +203,78 @@ async def run_probe(env: Mapping[str, str]) -> str:
                 Cell("ok", "as extracted text"),
             ),
         }
+        stt_line = (
+            probe_stt.line
+            if probe_stt.transcriber is None
+            else await exercise_stt(probe_stt.transcriber)
+        )
+        schema_line = await _exercise_schema(chat)
+        role_lines, _sent = await exercise_role_probes(role_probes)
         _remember_probe(os.environ, str(chat.ref), image=chat_image, audio=chat_audio)
-    return render_matrix(rows)
+    matrix = render_matrix(rows)
+    lines = (
+        matrix,
+        schema_line,
+        *((stt_line,) if stt_line is not None else ()),
+        *role_faults,
+        *role_lines,
+    )
+    return "\n".join(lines)
+
+
+@dataclass(frozen=True, slots=True)
+class SttProbe:
+    """What the stt role gets in this probe run (C4): a built REMOTE wire to
+    exercise (one more tiny paid call, announced in the count), or a verdict
+    line already known without spending (local wheels present/absent, a build
+    fault), or neither — the ladder resolved nothing, so no line at all."""
+
+    transcriber: Transcriber | None = None
+    line: str | None = None
+
+
+def stt_probe_plan(container: AppContainer, chat_ref: ModelRef) -> SttProbe:
+    """Resolve the stt role the way the container will at run time, and decide
+    what this probe run does about it. LOCAL is deliberately never exercised —
+    a whisper model download inside doctor is hostile — so it reports the
+    wheels honestly instead; a REMOTE build fault (missing key, unsupported
+    wire, the fence) becomes the ✗ line with the container's own wording."""
+    from importlib.util import find_spec
+
+    from smartpipe.models.resolve import resolve_stt
+
+    resolution = resolve_stt(container.env, container.config.stt_model, chat_ref.provider)
+    if resolution.kind == "ladder":
+        return SttProbe()
+    if resolution.kind == "local":
+        if find_spec("faster_whisper") is not None:
+            # the dash matches the matrix's "–" mark  # noqa: RUF003
+            return SttProbe(line="  stt: – local whisper ready (not exercised)")  # noqa: RUF001
+        return SttProbe(line="  stt: ✗ local whisper unavailable — reinstall smartpipe")
+    try:
+        transcriber = container.remote_transcriber(chat_ref, use_cache=False)
+    except SempipeError as exc:
+        return SttProbe(line=f"  stt: ✗ {_first_line(exc)}")
+    assert transcriber is not None  # a remote resolution always builds a wire
+    return SttProbe(transcriber=transcriber)
+
+
+_STT_PROBE_SECONDS = 20.0  # C4 review: a stalled wire must not hold doctor for
+# the shared 120s HTTP timeout x retries — the probe's own cap renders as ✗
+
+
+async def exercise_stt(transcriber: Transcriber) -> str:
+    """One tiny transcription through the REAL container wire — the disclosed
+    5th call. Pass or fail, the line carries the exercised truth (the wire's
+    own first error line on ✗), never a resolved display string as health."""
+    try:
+        async with asyncio.timeout(_STT_PROBE_SECONDS):
+            await transcriber.transcribe(AudioData(_asset("probe.wav"), "audio/wav"))
+    except TimeoutError:
+        return f"  stt: ✗ no reply in {_STT_PROBE_SECONDS:.0f}s — the wire is stalled"
+    except SempipeError as exc:
+        return f"  stt: ✗ {_first_line(exc)}"
+    return f"  stt: ✓ transcribed via {transcriber.ref}"
 
 
 def _remember_probe(env: Mapping[str, str], ref: str, *, image: Cell, audio: Cell) -> None:
@@ -88,18 +294,48 @@ def _remember_probe(env: Mapping[str, str], ref: str, *, image: Cell, audio: Cel
     )
 
 
-def _stt_path(env: Mapping[str, str], configured: str | None) -> str | None:
-    """The transcription path the ladder would take, if any (D39/05)."""
-    named = env.get("SMARTPIPE_STT_MODEL", "").strip() or (configured or "")
-    if named:
-        return named
-    if env.get("OPENAI_API_KEY", "").strip():
-        return "openai/whisper-1 (auto)"
+def _stt_path(
+    env: Mapping[str, str], configured: str | None, chat_provider: str | None
+) -> str | None:
+    """The transcription path the ladder would take, if any (D39/05) — the
+    shared resolver, display-only: a garbage ref renders verbatim, never dies."""
     from importlib.util import find_spec
 
-    if find_spec("faster_whisper") is not None:
+    from smartpipe.models.resolve import resolve_stt
+
+    resolution = resolve_stt(env, configured, chat_provider)
+    if resolution.kind == "remote":
+        return f"{resolution.ref} (auto)" if resolution.source == "auto" else resolution.ref
+    if resolution.kind == "local":
         return "local whisper"
-    return None
+    return "local whisper" if find_spec("faster_whisper") is not None else None
+
+
+async def _exercise_schema(chat: ChatModel) -> str:
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": {"ok": {"type": "boolean"}},
+        "required": ["ok"],
+        "additionalProperties": False,
+    }
+    try:
+        reply = await chat.complete(
+            CompletionRequest(
+                system=None,
+                user="Return ok as true.",
+                json_schema=schema,
+                max_tokens=16,
+            )
+        )
+        import json
+
+        parsed = json.loads(reply)
+        enforced = isinstance(parsed, dict) and parsed == {"ok": True}
+    except (SempipeError, ValueError):
+        enforced = False
+    mark = "✓" if enforced else "✗"
+    detail = "schema reply matched" if enforced else "schema reply drifted"
+    return f"  schema: {mark} {detail} via {chat.ref}"
 
 
 async def _chat_text(chat: ChatModel) -> Cell:

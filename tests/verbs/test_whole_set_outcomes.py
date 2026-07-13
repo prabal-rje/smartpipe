@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
     from smartpipe.io.writers import ResultWriter
     from smartpipe.models.base import EmbeddingModel
+    from smartpipe.models.resilience import WiredChat
 
 
 class _FailedEmbedding:
@@ -53,6 +54,9 @@ class _Finder:
         del text
         return ()
 
+    def load(self, *, quiet: bool = False) -> None:
+        del quiet
+
 
 class _Context:
     async def embedding_model(self, flag: str | None = None) -> EmbeddingModel:
@@ -62,6 +66,16 @@ class _Context:
     async def chat_model(self, flag: str | None = None) -> _FailedChat:
         del flag
         return _FailedChat()
+
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        # graph exercises this context only in --fast (free) mode, so the paid seam
+        # is never actually driven here; a real WiredChat keeps the type honest.
+        del flag, fallback_flag
+        from tests.helpers.wiring import build_wired
+
+        return build_wired(_FailedChat(), concurrency=1, breaker_limit=5)
 
     async def context_window(self, ref: ModelRef) -> int | None:
         del ref
@@ -79,15 +93,21 @@ class _Context:
         del flag
         return None
 
-    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> None:
-        del chat_ref
+    def batching(self) -> None:
+        return None  # these surfaces drive failure paths, never a packed call (#21)
+
+    def remote_transcriber(
+        self, chat_ref: ModelRef | None = None, *, flag: str | None = None
+    ) -> None:
+        del chat_ref, flag  # graph's GraphContext passes flag; other verbs pass chat_ref
         return None
 
     def entity_finder(self, labels: Sequence[str]) -> _Finder:
         del labels
         return _Finder()
 
-    def fold_embedder(self) -> _FailedEmbedding:
+    async def fold_embedder(self, flag: str | None = None) -> _FailedEmbedding:
+        del flag
         return _FailedEmbedding()
 
     def writer(

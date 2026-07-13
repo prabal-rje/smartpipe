@@ -173,7 +173,45 @@ def test_split_refuses_an_over_belt_pdf_before_upload(
         code, out, err = run_cli(
             ["split", "--by", "pages", "book.pdf", "--max-calls", "1"], stdin=""
         )
-    assert code == 1
-    assert route.call_count == 0
-    assert len(out.splitlines()) == 2  # the free local fallback still drains this in-hand PDF
+    # A5.1: an exhausted page belt is SYSTEMIC, so it no longer masquerades as a
+    # per-file "falling back to local extraction". The over-belt PDF is skipped and
+    # the run stops with the truth instead of silently draining near-garbage pages.
+    assert code == 3
+    assert route.call_count == 0  # the belt refused before any upload
+    assert out == ""  # no silent local-fallback drain
+    assert "falling back" not in err
+    assert "skipped: book.pdf" in err
     assert "stopped by --max-calls (0 OCR pages processed)" in err
+
+
+# --- A7: the cache banks paid page conversions across runs ------------------------------
+
+
+def test_second_ocr_run_banks_pages_and_makes_zero_calls(
+    run_cli: RunCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A7: the paid /v1/ocr wire fires ONCE across two identical runs — the rerun
+    re-reads the banked page conversions from the cache and never touches the wire
+    (a pilot re-paid 943 conversions on every rerun before this)."""
+    import httpx
+
+    monkeypatch.chdir(tmp_path)
+    _ocr_env(monkeypatch)
+    monkeypatch.setenv("SMARTPIPE_CACHE", "on")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    (tmp_path / "book.pdf").write_bytes(minimal_pdf(["one", "two"]))
+    with respx.mock:
+        route = respx.post(_OCR_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={"pages": [_page("PAGE ONE MD"), {"index": 1, "markdown": "PAGE TWO MD"}]},
+            )
+        )
+        first_code, first_out, _err = run_cli(["split", "--by", "pages", "book.pdf"], stdin="")
+        second_code, second_out, second_err = run_cli(
+            ["split", "--by", "pages", "book.pdf"], stdin=""
+        )
+    assert (first_code, second_code) == (0, 0)
+    assert first_out == second_out and first_out != ""  # identical result, the second from cache
+    assert route.call_count == 1  # the paid wire fired exactly ONCE across both runs
+    assert "cache: 1 hits · 0 misses" in second_err  # the rerun re-read the banked document

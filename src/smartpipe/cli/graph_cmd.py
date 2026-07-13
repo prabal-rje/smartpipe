@@ -1,5 +1,6 @@
-"""``smartpipe graph`` — the entity/relationship graph (free with --fast, model-read
-with a focus prompt or --name-top, adoption for edge records on stdin)."""
+"""``smartpipe graph`` — the entity/relationship graph (on-device with --fast, where
+only a configured cloud embed or remote stt role spends — disclosed; model-read with
+a focus prompt or --name-top, adoption for edge records on stdin)."""
 
 from __future__ import annotations
 
@@ -10,14 +11,18 @@ from pathlib import Path
 
 import click
 
-from smartpipe.cli.completions import complete_chat_models
+from smartpipe.cli.completions import (
+    complete_chat_models,
+    complete_embed_models,
+    complete_stt_models,
+)
 from smartpipe.cli.input_options import (
     input_options,
     input_spec,
     ocr_model_option,
     positional_paths,
 )
-from smartpipe.cli.interrupts import graceful_interrupts
+from smartpipe.cli.interrupts import graceful_interrupts, stop_requested
 from smartpipe.cli.manifest_option import begin_manifest, manifest_option, settled
 from smartpipe.core.errors import ExitCode
 from smartpipe.verbs.graph import GraphRequest, run_graph
@@ -30,7 +35,8 @@ __all__ = ["graph_command"]
 @click.option(
     "--fast",
     is_flag=True,
-    help="The free mode: local NER + co-occurrence — zero model calls, on-device.",
+    help="The free mode: local NER + co-occurrence, on-device — no chat-model "
+    "calls; a cloud --embed-model or remote --stt-model spends (disclosed).",
 )
 @click.option(
     "--entities",
@@ -85,6 +91,26 @@ __all__ = ["graph_command"]
     shell_complete=complete_chat_models,
     help="Model for the extraction/naming calls (e.g. ollama/qwen3:8b).",
 )
+@click.option(
+    "--fallback-model",
+    "fallback_flag",
+    shell_complete=complete_chat_models,
+    help="Chat model to switch to if the primary looks down (circuit breaker).",
+)
+@click.option(
+    "--embed-model",
+    "embed_model_flag",
+    shell_complete=complete_embed_models,
+    help="Embedder for the name-canonicalization fold (e.g. openai/text-embedding-3-small); "
+    "defaults to the on-device local model. A cloud model here spends, even with --fast.",
+)
+@click.option(
+    "--stt-model",
+    "stt_model_flag",
+    shell_complete=complete_stt_models,
+    help="Transcriber for audio/video in the scanning modes (--fast/--name-top): "
+    "openai/whisper-1 spends per clip, local pins free on-device whisper.",
+)
 @click.option("--concurrency", "concurrency_flag", type=int, help="Max parallel model calls.")
 @click.option(
     "--max-calls",
@@ -106,6 +132,9 @@ def graph_command(
     save_path: str | None,
     top: int | None,
     model_flag: str | None,
+    fallback_flag: str | None,
+    embed_model_flag: str | None,
+    stt_model_flag: str | None,
     concurrency_flag: int | None,
     max_calls: int | None,
     ocr_model_flag: str | None,
@@ -115,7 +144,7 @@ def graph_command(
     strict_rows: bool,
     args: tuple[str, ...],
 ) -> None:
-    """Build an entity/relationship graph — free with --fast, model-read with a focus.
+    """Build an entity/relationship graph — on-device with --fast, model-read with a focus.
 
     \b
     Examples:
@@ -130,8 +159,11 @@ def graph_command(
     "sources"} — sorted heaviest first, with spine-ref provenance on every
     edge. --fast finds the entities you name with a local NER model (one
     ~190 MB download, then free forever), folds near-duplicate names, and
-    counts co-occurrence inside --window. Zero model calls; corpus data stays
-    on the machine.
+    counts co-occurrence inside --window. No chat-model calls, and corpus
+    data stays on the machine — with two disclosed exceptions you configure
+    yourself: a cloud --embed-model spends on the name fold (entity names
+    leave the machine on that wire), and a remote --stt-model spends per
+    clip (audio leaves the machine on that wire).
 
     \b
     The model-read modes (spend, belted by --max-calls):
@@ -163,6 +195,9 @@ def graph_command(
         save=save_path,
         top=top,
         model_flag=model_flag,
+        fallback_flag=fallback_flag,
+        embed_model_flag=embed_model_flag,
+        stt_model_flag=stt_model_flag,
         concurrency_flag=concurrency_flag,
         ocr_model_flag=ocr_model_flag,
         input=input_spec(
@@ -194,6 +229,7 @@ async def _run(
                 stdin=sys.stdin,
                 stdout=sys.stdout,
                 stop=stop,
+                should_stop=stop_requested,  # B1: synchronous stop for the CPU-bound fold
                 budget=container.budget,
             ),
             None,  # graph settles its own belt inside run_graph

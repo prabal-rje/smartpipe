@@ -72,6 +72,7 @@ def isolated_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     for var in (
         "SMARTPIPE_MODEL",
         "SMARTPIPE_EMBED_MODEL",
+        "SMARTPIPE_STT_MODEL",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "MISTRAL_API_KEY",
@@ -99,6 +100,20 @@ def test_doctor_all_green_exits_zero(
     assert "config" in out and "✓" in out
     assert "qwen3:8b is installed" in out
     assert "keys" in out  # presence report, never values
+
+
+def test_doctor_does_not_claim_unprobed_provider_schema_enforcement(
+    run_cli: RunCli,
+    respx_mock: respx.MockRouter,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SMARTPIPE_MODEL", "openai/gpt-5.4-mini")
+    respx_mock.get(TAGS).mock(return_value=_tags())
+    _code, out, _err = run_cli(["doctor"])
+    schema_line = next(line for line in out.splitlines() if line.startswith("schema"))
+    assert "adapter requests structured output; enforcement unverified" in schema_line
+    assert " ✓ " not in schema_line
 
 
 def test_doctor_flags_a_missing_ollama_model(
@@ -155,3 +170,102 @@ def test_extras_line_never_doubles_the_mark(
     _code, out, _err = run_cli(["doctor"])
     extras_line = next(line for line in out.splitlines() if line.startswith("extras"))
     assert "✓ ✓" not in extras_line and "– –" not in extras_line  # noqa: RUF001 — pinned marks
+
+
+# --- the stt row (D39/05 visibility) -------------------------------------------------
+
+
+def test_doctor_stt_auto_row_names_the_ladder(
+    run_cli: RunCli, respx_mock: respx.MockRouter, isolated_home: Path
+) -> None:
+    respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b"))
+    code, out, _err = run_cli(["doctor"])
+    stt_line = next(line for line in out.splitlines() if line.startswith("stt"))
+    assert "auto — chat-model hearing, else local whisper" in stt_line
+    assert code in (0, 1)  # the ladder row itself is a skip, never a fail
+
+
+def test_doctor_stt_remote_without_key_fails_with_the_fix(
+    run_cli: RunCli, respx_mock: respx.MockRouter, isolated_home: Path
+) -> None:
+    (isolated_home / "smartpipe").mkdir()
+    (isolated_home / "smartpipe" / "config.toml").write_text(
+        'model = "ollama/qwen3:8b"\nstt-model = "openai/whisper-1"\n', encoding="utf-8"
+    )
+    respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b"))
+    code, out, _err = run_cli(["doctor"])
+    assert code == 1
+    stt_line = next(line for line in out.splitlines() if line.startswith("stt"))
+    assert "needs OPENAI_API_KEY" in stt_line
+    assert 'stt-model = "local"' in stt_line  # the free fix rides the line
+
+
+def test_doctor_stt_non_openai_wire_fails_naming_both_fixes(
+    run_cli: RunCli, respx_mock: respx.MockRouter, isolated_home: Path
+) -> None:
+    (isolated_home / "smartpipe").mkdir()
+    (isolated_home / "smartpipe" / "config.toml").write_text(
+        'stt-model = "ollama/whisper"\n', encoding="utf-8"
+    )
+    respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b"))
+    code, out, _err = run_cli(["doctor"])
+    assert code == 1
+    stt_line = next(line for line in out.splitlines() if line.startswith("stt"))
+    assert "no STT wire for 'ollama'" in stt_line
+    assert "openai/whisper-1" in stt_line and '"local"' in stt_line
+
+
+def test_doctor_stt_local_reports_the_on_device_wire(
+    run_cli: RunCli, respx_mock: respx.MockRouter, isolated_home: Path
+) -> None:
+    from importlib.util import find_spec
+
+    (isolated_home / "smartpipe").mkdir()
+    (isolated_home / "smartpipe" / "config.toml").write_text(
+        'stt-model = "local"\n', encoding="utf-8"
+    )
+    respx_mock.get(TAGS).mock(return_value=_tags("qwen3:8b"))
+    _code, out, _err = run_cli(["doctor"])
+    stt_line = next(line for line in out.splitlines() if line.startswith("stt"))
+    if find_spec("faster_whisper") is not None:
+        assert "local whisper (config) — on-device, free" in stt_line
+    else:
+        assert "whisper" in stt_line  # wheels absent: tracked, message varies by python
+
+
+def test_doctor_stt_auto_prefers_whisper_with_openai_chat_and_key(
+    run_cli: RunCli,
+    respx_mock: respx.MockRouter,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+    (isolated_home / "smartpipe").mkdir()
+    (isolated_home / "smartpipe" / "config.toml").write_text(
+        'model = "openai/gpt-5.4-mini"\n', encoding="utf-8"
+    )
+    respx_mock.get(TAGS).mock(return_value=_tags())
+    _code, out, _err = run_cli(["doctor"])
+    stt_line = next(line for line in out.splitlines() if line.startswith("stt"))
+    assert "openai/whisper-1 (auto: openai chat + OPENAI_API_KEY)" in stt_line
+
+
+def test_doctor_stt_env_local_overrides_a_remote_config(
+    run_cli: RunCli,
+    respx_mock: respx.MockRouter,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from importlib.util import find_spec
+
+    monkeypatch.setenv("SMARTPIPE_STT_MODEL", "local")
+    (isolated_home / "smartpipe").mkdir()
+    (isolated_home / "smartpipe" / "config.toml").write_text(
+        'stt-model = "openai/whisper-1"\n', encoding="utf-8"
+    )
+    respx_mock.get(TAGS).mock(return_value=_tags())
+    _code, out, _err = run_cli(["doctor"])
+    stt_line = next(line for line in out.splitlines() if line.startswith("stt"))
+    if find_spec("faster_whisper") is not None:
+        assert "local whisper (env)" in stt_line
+    assert "OPENAI_API_KEY" not in stt_line  # env local wins — no remote complaint

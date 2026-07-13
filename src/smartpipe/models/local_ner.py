@@ -13,7 +13,9 @@ loads once per instance and is injected in tests, so CI never downloads a thing.
 from __future__ import annotations
 
 import math
+import os
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
@@ -22,7 +24,7 @@ from smartpipe.engine.graphkg import EntitySpan
 from smartpipe.io import diagnostics
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Generator, Mapping, MutableMapping, Sequence
 
 __all__ = [
     "MAX_SPAN_WIDTH",
@@ -33,6 +35,7 @@ __all__ = [
     "NerEngine",
     "NerSession",
     "NerTokenizer",
+    "hf_implicit_token_env",
     "ner_precision",
     "span_grid",
     "split_words",
@@ -147,6 +150,19 @@ class GlinerEntityFinder:
     threshold: float = _THRESHOLD
     window_words: int = MAX_TEXT_WORDS
     engine: NerEngine | None = field(default=None, repr=False)  # injected in tests
+
+    def load(self, *, quiet: bool = False) -> None:
+        """Pull the weights and build the session up front (the ``EntityFinder``
+        pre-warm seam) so the one-time download shows a caller-owned status line
+        instead of a silent block inside the first ``find``. ``quiet`` suppresses
+        huggingface_hub's own progress bar because the caller owns the row."""
+        if self.engine is not None:
+            return  # injected (tests) or already loaded — nothing to download
+        if quiet:
+            with _hf_progress_silenced():
+                self._load()
+        else:
+            self._load()
 
     def find(self, text: str) -> tuple[EntitySpan, ...]:
         if not self.labels:
@@ -275,9 +291,37 @@ def _pick_spans(
     return sorted(picked)
 
 
+@contextmanager
+def _hf_progress_silenced() -> Generator[None]:  # pragma: no cover — live wire only
+    """Quiet huggingface_hub's own tqdm download bar for the duration of a load:
+    the caller (the ``preparing local NER model`` spinner) owns the terminal row,
+    so two progress animations must not fight over it. Defensive — a hub without
+    the toggle (or absent entirely) just yields."""
+    try:
+        from huggingface_hub.utils.tqdm import disable_progress_bars, enable_progress_bars
+    except ImportError:
+        yield
+        return
+    disable_progress_bars()
+    try:
+        yield
+    finally:
+        enable_progress_bars()
+
+
+def hf_implicit_token_env(env: MutableMapping[str, str]) -> None:
+    """Silence huggingface_hub's "unauthenticated requests / set a HF_TOKEN"
+    stderr warning the house way — its own documented toggle, set before the
+    import reads it (the same per-library approach as onnxruntime's
+    ``log_severity_level`` below). ``setdefault`` never overrides an operator who
+    deliberately configured the flag; stderr belongs to ``io/diagnostics``."""
+    env.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+
+
 def _load_engine(  # pragma: no cover — the live wire; CI never downloads models
     precision: str,
 ) -> NerEngine:
+    hf_implicit_token_env(os.environ)  # MUST precede the huggingface_hub import below
     try:
         import onnxruntime
         from huggingface_hub import hf_hub_download

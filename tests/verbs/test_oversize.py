@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.io.writers import TextSink
     from smartpipe.models.base import ChatModel
+    from smartpipe.models.resilience import WiredChat
 
 # past the openai table budget (128k * 0.6 - 500 ≈ 76.3k tokens): the gate engages
 BIG = "word " * 70_000  # ~87.5k estimated tokens
@@ -75,6 +76,18 @@ class Ctx:
 
     async def fallback_chat_model(self, ref: object) -> ChatModel:
         raise AssertionError("fallback never resolved without a configured ref")
+
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        from tests.helpers.wiring import build_wired
+
+        return build_wired(
+            self.model,
+            concurrency=self.concurrency(),
+            breaker_limit=self.failure_policy(self.model.ref.provider).transport_limit,
+            batching=self.batching(),
+        )
 
     def concurrency(self, flag: int | None = None) -> int:
         return 1

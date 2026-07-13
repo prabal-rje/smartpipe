@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel
+    from smartpipe.models.resilience import WiredChat
 
 
 # --- fakes --------------------------------------------------------------------
@@ -61,6 +62,35 @@ class FakeContext:
 
     async def fallback_chat_model(self, ref: object) -> ChatModel:
         raise AssertionError("fallback never resolved without a configured ref")
+
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        # Compose the run's resilient stack from THIS fake's fallback wiring, so a
+        # subclass overriding fallback_ref/fallback_chat_model (FailoverContext,
+        # KeylessContext) flows through unchanged — the seam the migrated verb runs on.
+        from tests.helpers.wiring import build_wired
+
+        ref = self.fallback_ref(fallback_flag)
+        if ref is None:
+            return build_wired(
+                self.model,
+                concurrency=self.concurrency_value,
+                breaker_limit=self.breaker_limit,
+                batching=self.batching(),
+            )
+
+        async def fallback() -> ChatModel:
+            return await self.fallback_chat_model(ref)
+
+        return build_wired(
+            self.model,
+            concurrency=self.concurrency_value,
+            breaker_limit=self.breaker_limit,
+            fallback_factory=fallback,
+            fallback_ref=ref,
+            batching=self.batching(),
+        )
 
     def concurrency(self, flag: int | None = None) -> int:
         return self.concurrency_value
@@ -199,6 +229,62 @@ async def test_rung_zero_repairs_a_fenced_reply_with_zero_extra_calls() -> None:
     assert out == '{"v":"ok","__source":{"path":"-","as":"lines","line":1}}\n'
     assert len(model.calls) == 1  # ZERO extra model calls — the repair was free
     assert deterministic_repairs() == 1  # and it is disclosed once per run
+
+
+# --- A3: the unenforced-schema warning (one loud line per run) ----------------
+
+
+async def test_unenforced_schema_warns_once_naming_the_loose_wire(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.verbs import common
+
+    monkeypatch.setattr(common, "_unenforced_schema_warned", False)
+    # both the reply AND its repair violate the attached schema → the item skips,
+    # and the run names the model that failed to hold the shape, once.
+    code, _out, _model = await _run("Extract {v}", "x\n", ["bad once", "bad twice"])
+    assert code == ExitCode.ALL_FAILED
+    err = capsys.readouterr().err
+    assert "ollama/fake" in err
+    assert "likely ignores constrained decoding" in err
+
+
+async def test_unenforced_schema_warns_only_once_across_many_failures(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.verbs import common
+
+    monkeypatch.setattr(common, "_unenforced_schema_warned", False)
+    # three items, every attempt wrong-shaped → the warning is a heads-up, not a flood
+    await _run("Extract {v}", "a\nb\nc\n", ["no", "no", "no", "no", "no", "no"])
+    assert capsys.readouterr().err.count("likely ignores constrained decoding") == 1
+
+
+async def test_strict_wire_schema_violation_flags_a_possible_regression(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.verbs import common
+
+    monkeypatch.setattr(common, "_unenforced_schema_warned", False)
+    model = FakeChat(replies=["bad once", "bad twice"])
+    model.ref = ModelRef("openai", "gpt-5.4-nano")  # a wire that DOES enforce the schema
+    context = FakeContext(model=model)
+    out = io.StringIO()
+    await run_map(_request("Extract {v}"), context, stdin=io.StringIO("x\n"), stdout=out)
+    err = capsys.readouterr().err
+    assert "openai/gpt-5.4-nano" in err
+    assert "regression" in err
+
+
+async def test_a_held_schema_never_triggers_the_unenforced_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.verbs import common
+
+    monkeypatch.setattr(common, "_unenforced_schema_warned", False)
+    # a conforming reply: no failure, so no warning
+    await _run("Extract {v}", "x\n", ['{"v": "held"}'])
+    assert "constrained decoding" not in capsys.readouterr().err
 
 
 # --- --keep-invalid -------------------------------------------------------------
@@ -388,11 +474,13 @@ async def test_map_routes_results_through_the_spinner_arbiter(
             assert not drawn, f"result bytes landed under the status line: {chunk!r}"
 
 
-async def test_piped_stdout_run_animates_nothing_on_stderr(
+async def test_piped_stdout_run_still_animates_on_stderr(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Mid-pipeline stage (stderr TTY, stdout pipe): line-atomic stderr notes
-    survive, but zero carriage-return animation bytes reach stderr."""
+    """B3: with stderr a TTY but stdout a pipe, the status bar DOES animate on
+    stderr — the bar lives on stderr and a piped stdout is how these verbs are
+    driven (``… > out.jsonl``), so carriage-return bytes reach stderr and the
+    line-atomic warning still survives, routed through the arbiter's pause."""
     from smartpipe.io import tty
 
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
@@ -402,7 +490,7 @@ async def test_piped_stdout_run_animates_nothing_on_stderr(
     code = await run_map(_request("x"), context, stdin=io.StringIO("a\nb\n"), stdout=out)
     assert code == ExitCode.PARTIAL
     err = capsys.readouterr().err
-    assert "\r" not in err
+    assert "\r" in err  # the bar animates now that stdout being piped no longer gates it off
     assert "skipped: line 2" in err  # the line-atomic warning stays
 
 
@@ -577,6 +665,40 @@ async def test_failover_receipt_splits_counts_by_model(
     assert code == ExitCode.OK
     assert out.getvalue() == "A\nA\nA\nB\nB\nB\n"
     assert "answers: ollama/fake ×3 · openai/gpt-4o-mini ×3" in capsys.readouterr().err  # noqa: RUF001
+
+
+async def test_oversize_gate_keys_on_the_fallback_window_after_a_swap() -> None:
+    """After the breaker swaps, the oversize gate must size chunks for the model
+    that WILL answer (the fallback), not the dead primary — the old worker keyed
+    the gate on ``slot.current.ref``. Here a 128k-window primary (openai) fits a
+    ~30k-token item that the 8k-window fallback (ollama) does not: keying the
+    replayed item on the primary would size it for 128k and overflow the 8k
+    fallback. The context_window spy fires only when an item exceeds the STATIC
+    budget for the ref the gate is keyed on — so pre-swap primary items never
+    probe, and the fallback ref appears iff the replay keyed on the fallback."""
+    probed: list[ModelRef] = []
+
+    class SpyContext(FailoverContext):
+        async def context_window(self, ref: object) -> int | None:
+            assert isinstance(ref, ModelRef)
+            probed.append(ref)
+            return 10_000_000  # widen so the item ultimately fits — we assert the KEY, not chunking
+
+    primary = DownModel(replies=[])
+    primary.ref = ModelRef("openai", "gpt-4o")  # 128k static window: the big item fits, no probe
+    backup = FakeChat(replies=["B"])
+    backup.ref = ModelRef("ollama", "fake")  # 8k static window: the big item does NOT fit
+    context = SpyContext(primary, backup, breaker_limit=2)
+
+    big = "a" * 120_000  # ~30k tokens: over ollama's ~4.3k budget, under openai's ~76k
+    out = io.StringIO()
+    code = await run_map(
+        _request("x"), context, stdin=io.StringIO(f"{big}\n{big}\n{big}\n{big}\n"), stdout=out
+    )
+    assert code == ExitCode.OK
+    assert out.getvalue() == "B\n" * 4  # nothing lost: the window re-ran on the fallback
+    assert backup.ref in probed  # the replayed items sized for the FALLBACK's window
+    assert primary.ref not in probed  # the big item fit the primary's 128k window — never probed
 
 
 async def test_failover_on_a_dead_backup_dies_loudly(

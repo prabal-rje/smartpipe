@@ -1,7 +1,7 @@
 """``use``, ``using``, and ``config``: the setup layer (item 30).
 
-``smartpipe use`` is THE door. Bare, it runs the SEQUENTIAL three-stage flow
-(owner-ruled): TEXT → EMBED → OCR. Each stage arrow-picks a provider from ALL
+``smartpipe use`` is THE door. Bare, it runs the SEQUENTIAL four-stage flow
+(owner-ruled): TEXT → EMBED → OCR → STT. Each stage arrow-picks a provider from ALL
 providers (connected ones badged; picking an unconnected one drops inline into
 the ``auth login`` connect flow and continues seamlessly), then that
 category's model from the live catalog. Re-runs preselect the existing
@@ -33,6 +33,7 @@ from smartpipe.config.paths import config_path, human_path
 from smartpipe.config.store import Config, load_config, save_config
 from smartpipe.core.errors import SetupFault
 from smartpipe.io import diagnostics, tty
+from smartpipe.io.arrow_menu import SEPARATOR
 from smartpipe.models.base import ModelRef, parse_model_ref
 
 if TYPE_CHECKING:
@@ -94,7 +95,7 @@ def use_command(target: str | None) -> None:
     """Set up models: bare = interactive; a provider or model stamps a bundle.
 
     \b
-      smartpipe use                 interactive setup (text, embeddings, OCR)
+      smartpipe use                 interactive setup (text, embeddings, OCR, speech)
       smartpipe use gemini          stamp gemini chat + its paired embedder
       smartpipe use ollama          stamp the best installed local model
       smartpipe use gpt-5.4-mini    stamp one model + its provider's pairing
@@ -277,7 +278,7 @@ def _update(change: Callable[[Config], Config]) -> None:
     save_config(path, change(load_config(path)), stamped_by="smartpipe config")
 
 
-# --- the three-stage flow (bare `smartpipe use`; `config` is the back-compat door) --------
+# --- the four-stage flow (bare `smartpipe use`; `config` is the back-compat door) ---------
 
 
 async def open_setup_flow(
@@ -400,6 +401,7 @@ async def open_setup_flow(
             save=partial(save_config, path, stamped_by=stamped_by),
             connect=connect,
             local_embed_available=find_spec("fastembed") is not None,
+            whisper_available=find_spec("faster_whisper") is not None,
             run_verify=verify,
             offer_completions=lambda: offer_shell_completions(
                 env=os.environ,
@@ -508,6 +510,12 @@ class _OcrChoice:
 
 
 @dataclass(frozen=True, slots=True)
+class _SttChoice:
+    value: str | None  # "local" | "openai/…"; None + changed=True means "unset"
+    changed: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _TextChoice:
     provider: str | None
     model: str | None
@@ -537,6 +545,7 @@ class _FlowStep(Enum):
     TEXT = "text"
     EMBED = "embed"
     OCR = "ocr"
+    STT = "stt"
     REVIEW = "review"
 
 
@@ -563,22 +572,29 @@ async def run_config_flow(
     save: Callable[[Config], None],
     connect: Callable[[StageEntry], Awaitable[bool]] | None = None,
     local_embed_available: bool = True,
+    whisper_available: bool = True,
     run_verify: Callable[[Config], Awaitable[None]] | None = None,
     offer_completions: Callable[[], None] | None = None,
 ) -> Config:
-    """TEXT → EMBED → OCR, then one save, the exit probe, and the try-it screen.
+    """TEXT → EMBED → OCR → STT, then one save, the exit probe, and the
+    try-it screen.
 
     ``connect`` may mutate ``env`` (an inline key connect adds the provider's
     variable) — the stages re-read it, so badges refresh mid-flow.
     """
     from smartpipe.cli.screens import good, heading, tint
 
-    say(heading("smartpipe setup") + tint(" - text model, then embeddings, then documents", "2"))
-    say("")
+    # No blank line here: the menu drivers emit one before every title
+    # (owner ruling 2026-07-12 — stages read as paragraphs).
+    say(
+        heading("smartpipe setup")
+        + tint(" - text model, then embeddings, then documents, then speech", "2")
+    )
     tags = await probe()
     updated: Config = current
     embed_base: Config = current
     ocr_base: Config = current
+    stt_base: Config = current
     pair_provider = _provider_of(current.model)
     via_pair = False
     step = _FlowStep.TEXT
@@ -675,12 +691,34 @@ async def run_config_flow(
                             updated = replace(updated, ocr_model=value)
                     case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
                         assert_never(unreachable)
+                stt_base = updated
+                step = _FlowStep.STT
+            case _FlowStep.STT:
+                updated = stt_base
+                stt = await _stage_stt(
+                    current_stt=updated.stt_model,
+                    env=env,
+                    choose=choose,
+                    ask=ask,
+                    say=say,
+                    connect=connect,
+                    whisper_available=whisper_available,
+                )
+                match stt:
+                    case _Back():
+                        step = _FlowStep.OCR
+                        continue
+                    case _SttChoice(value=value, changed=changed):
+                        if changed:
+                            updated = replace(updated, stt_model=value)
+                    case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+                        assert_never(unreachable)
                 step = _FlowStep.REVIEW
             case _FlowStep.REVIEW:
                 action = _review_action(changed=updated != current, choose=choose)
                 match action:
                     case _ReviewAction.BACK:
-                        step = _FlowStep.OCR
+                        step = _FlowStep.STT
                         continue
                     case _ReviewAction.DISCARD:
                         say(_NOT_SAVED)
@@ -727,6 +765,28 @@ async def run_config_flow(
                 + f" ocr-model {updated.ocr_model}"
                 + tint("  (documents parse through it at ingestion)", "2")
             )
+    if updated.stt_model != current.stt_model:
+        if updated.stt_model is None:
+            say(
+                "  "
+                + good("✓")
+                + " stt-model unset"
+                + tint("  (auto: whisper-1 with an OpenAI key, else local whisper)", "2")
+            )
+        elif updated.stt_model == "local":
+            say(
+                "  "
+                + good("✓")
+                + " stt-model local"
+                + tint("  (audio transcribes on-device, free)", "2")
+            )
+        else:
+            say(
+                "  "
+                + good("✓")
+                + f" stt-model {updated.stt_model}"
+                + tint("  (remote verbatim transcription at ingestion)", "2")
+            )
     if run_verify is not None:
         await run_verify(updated)
     # completions BEFORE the try-it invitation: printing a paste-me command
@@ -743,14 +803,26 @@ def _review_action(
     changed: bool,
     choose: Callable[[str, tuple[str, ...], int], int | None],
 ) -> _ReviewAction:
+    from smartpipe.cli.screens import stage_title
+
     if changed:
-        labels = ("save changes", "back - document OCR", "discard changes")
-        actions = (_ReviewAction.FINISH, _ReviewAction.BACK, _ReviewAction.DISCARD)
-        picked = choose("Review changes:", labels, 0)
-    else:
-        labels = ("finish - keep current config", "back - document OCR")
-        actions = (_ReviewAction.FINISH, _ReviewAction.BACK)
-        picked = choose("Review setup:", labels, 0)
+        # (label, action) in lockstep so the raw pick indexes straight through
+        # the separator isolating the destructive row
+        rows: tuple[tuple[str, _ReviewAction | None], ...] = (
+            ("save changes", _ReviewAction.FINISH),
+            ("back - speech-to-text", _ReviewAction.BACK),
+            (SEPARATOR, None),
+            ("discard changes", _ReviewAction.DISCARD),
+        )
+        picked = choose(stage_title("review changes"), tuple(label for label, _ in rows), 0)
+        if picked is None:
+            return _ReviewAction.DISCARD
+        action = rows[picked][1]
+        assert action is not None  # separators are unpickable
+        return action
+    labels = ("finish - keep current config", "back - speech-to-text")
+    actions = (_ReviewAction.FINISH, _ReviewAction.BACK)
+    picked = choose(stage_title("review setup"), labels, 0)
     if picked is None:
         return _ReviewAction.DISCARD
     return actions[picked]
@@ -793,16 +865,18 @@ async def _stage_text(
     connect: Callable[[StageEntry], Awaitable[bool]] | None,
 ) -> _TextChoice | _Cancel:
     """Stage 1: a provider/model choice, or terminal setup cancellation."""
-    from smartpipe.cli.screens import tint
+    from smartpipe.cli.screens import stage_title, tint
     from smartpipe.config.picker import stage_labels, text_stage_entries
 
     while True:
         entries = text_stage_entries(env, ollama_up=tags is not None, login=login())
         rows = list(stage_labels(entries))
+        rows.append(SEPARATOR)  # ¶ providers | keep-current / the tail
         keep_at: int | None = None
         if current_model is not None:
             keep_at = len(rows)
             rows.append(f"keep current: {current_model}")
+            rows.append(SEPARATOR)  # ¶ keep-current | skip/cancel
         skip_at = len(rows)
         rows.append("skip - decide later")
         cancel_at = len(rows)
@@ -812,7 +886,7 @@ async def _stage_text(
             if keep_at is not None
             else next((i for i, entry in enumerate(entries) if entry.connected), 0)
         )
-        picked = choose("Text model - pick a provider:", tuple(rows), start)
+        picked = choose(stage_title("text model", hint="pick a provider"), tuple(rows), start)
         if picked is None or picked == cancel_at:
             return _CANCEL
         if picked in (skip_at, keep_at):
@@ -858,6 +932,7 @@ async def _stage_embed(
 
     The auto-pair suggestion is the PRESELECTED first option; a deliberate
     earlier choice suppresses it (``embed_pair_allowed``)."""
+    from smartpipe.cli.screens import stage_title
     from smartpipe.config.picker import (
         embed_pair_allowed,
         embed_stage_entries,
@@ -877,8 +952,10 @@ async def _stage_embed(
         if pair is not None:
             pair_at = 0
             rows.append(f"{pair} - paired with {text_provider}")
-        providers_at = len(rows)
+            rows.append(SEPARATOR)  # ¶ pair suggestion | providers
+        providers_at = len(rows)  # captured AFTER the pair-block separator
         rows.extend(stage_labels(entries))
+        rows.append(SEPARATOR)  # ¶ providers | keep-or-skip / back
         keep_at: int | None = None
         skip_at: int | None = None
         if current_embed is not None:
@@ -892,7 +969,7 @@ async def _stage_embed(
         fallback_start = keep_at if keep_at is not None else skip_at
         start = pair_at if pair_at is not None else fallback_start
         picked = choose(
-            "Embedding model - powers embed, top_k, cluster, distinct:",
+            stage_title("embedding model", hint="powers embed, top_k, cluster, distinct"),
             tuple(rows),
             start if start is not None else 0,
         )
@@ -963,8 +1040,13 @@ async def _pick_embed_model(
         )
     shown, hidden = capped_catalog(names)
     type_it = _TYPE_IT if not hidden else f"{_TYPE_IT} ({hidden} more not shown)"
-    type_at = len(shown)
-    labels = (*(f"{provider}/{name}" for name in shown), type_it, "back - embedding provider list")
+    type_at = len(shown) + 1  # + the separator (never len(shown): that aliases it)
+    labels = (
+        *(f"{provider}/{name}" for name in shown),
+        SEPARATOR,  # ¶ catalog | the escape hatches
+        type_it,
+        "back - embedding provider list",
+    )
     start = _preselect_index(provider, shown, preselect)
     while True:
         picked = choose(f"Pick an embedding model ({provider}):", labels, start)
@@ -1018,11 +1100,15 @@ async def _stage_ocr(
 ) -> _OcrChoice | _Back:
     """Stage 3: curated + the vision-capable catalog (item 73c), one-keypress-
     skippable (unset = the built-in ladders)."""
-    from smartpipe.cli.screens import tint
+    from smartpipe.cli.screens import stage_title, tint
     from smartpipe.config.picker import key_stage_entry, ocr_stage_rows, vision_ocr_candidates
 
-    say(
-        tint(
+    # The consent explainer rides INSIDE the title block (owner ruling
+    # 2026-07-12): the stage paragraph travels together, in both menu modes.
+    title = (
+        stage_title("document ocr", optional=True)
+        + "\n"
+        + tint(
             "  changes document parsing at ingestion - PDFs/images read through the "
             "model (configuring it is the consent; every use is disclosed)",
             "2",
@@ -1032,7 +1118,7 @@ async def _stage_ocr(
         rows = ocr_stage_rows(current_ocr, chat_model, vision_ocr_candidates(chips))
         back_at = len(rows)
         labels = (*(label for _action, label in rows), "back - embedding model")
-        picked = choose("Document OCR - optional:", labels, 0)
+        picked = choose(title, labels, 0)
         if picked is None or picked == back_at:
             return _BACK
         match rows[picked][0]:
@@ -1067,6 +1153,85 @@ async def _stage_ocr(
                 if parsed is None:
                     continue
                 return _OcrChoice(str(parsed), changed=True)
+
+
+async def _stage_stt(
+    *,
+    current_stt: str | None,
+    env: Mapping[str, str],
+    choose: Callable[[str, tuple[str, ...], int], int | None],
+    ask: Callable[[str, str], str],
+    say: Callable[[str], None],
+    connect: Callable[[StageEntry], Awaitable[bool]] | None,
+    whisper_available: bool,
+) -> _SttChoice | _Back:
+    """Stage 4: how audio becomes text — the openai wires (best first, one key
+    door), on-device whisper (``local``), or the auto ladder (unset). One-
+    keypress-skippable like OCR (keep/skip is the first row)."""
+    from smartpipe.cli.screens import stage_title, tint
+    from smartpipe.config.picker import key_stage_entry, stt_stage_rows
+
+    # The consent explainer rides INSIDE the title block (owner ruling
+    # 2026-07-12): the stage paragraph travels together, in both menu modes.
+    title = (
+        stage_title("speech-to-text", optional=True)
+        + "\n"
+        + tint(
+            "  changes how audio becomes text at ingestion - remote is paid and "
+            "verbatim; local whisper runs on-device, free",
+            "2",
+        )
+    )
+    while True:
+        rows = stt_stage_rows(current_stt)
+        back_at = len(rows)
+        labels = (*(label for _action, label in rows), "back - document OCR")
+        picked = choose(title, labels, 0)
+        if picked is None or picked == back_at:
+            return _BACK
+        match rows[picked][0]:
+            case "keep":
+                return _SttChoice(current_stt, changed=False)
+            case "unset":
+                return _SttChoice(None, changed=True)
+            case "local":
+                if not whisper_available:
+                    say(
+                        tint(
+                            "  local whisper isn't available on this Python yet (upstream "
+                            "wheels) - saving anyway; doctor tracks when it lands",
+                            "2",
+                        )
+                    )
+                return _SttChoice("local", changed=True)
+            case "typed":
+                say(tint("  Type 'back' to return to the speech-to-text choices.", "2"))
+                answer = ask("STT model?", "openai/whisper-1")
+                if answer.strip().lower() == "local":
+                    return _SttChoice("local", changed=True)  # the sentinel, typed
+                parsed = _parsed_or_reprompt(answer, ask, "STT model?")
+                if parsed is None:
+                    continue
+                if parsed.provider != "openai":
+                    # validate NOW (the container would SetupFault at run time)
+                    say(
+                        tint(
+                            "  only the openai STT wire exists yet - "
+                            "openai/…, or 'local' for on-device whisper",
+                            "2",
+                        )
+                    )
+                    continue
+                return _SttChoice(str(parsed), changed=True)
+            case _ as ref:  # a curated openai wire — the action IS its full ref,
+                # so all the transcribe rows ride ONE arm through ONE key door
+                entry = key_stage_entry(env, "openai", "openai (API key)")
+                if not entry.connected and (connect is None or not await connect(entry)):
+                    if connect is None:
+                        say(tint(f"  {_connect_hint(entry)}", "2"))
+                        return _SttChoice(current_stt, changed=False)
+                    continue  # declined or failed — the menu returns with fresh badges
+                return _SttChoice(ref, changed=True)
 
 
 async def _pick_model(
@@ -1108,8 +1273,13 @@ async def _pick_model(
         )
     shown, hidden = capped_catalog(names)
     type_it = _TYPE_IT if not hidden else f"{_TYPE_IT} ({hidden} more not shown)"
-    type_at = len(shown)
-    labels = (*model_labels(provider, shown, chips, now), type_it, "back - provider list")
+    type_at = len(shown) + 1  # + the separator (never len(shown): that aliases it)
+    labels = (
+        *model_labels(provider, shown, chips, now),
+        SEPARATOR,  # ¶ catalog | the escape hatches
+        type_it,
+        "back - provider list",
+    )
     start = preferred_index(shown) if provider == "ollama" else 0
     preselected = _preselect_index(provider, shown, preselect, default=start)
     while True:
@@ -1128,7 +1298,9 @@ async def _pick_model(
             if typed is None:
                 continue
             return typed
-        return str(parse_model_ref(f"{provider}/{shown[picked]}"))
+        selected = str(parse_model_ref(f"{provider}/{shown[picked]}"))
+        _warn_ollama_cloud(selected, say=say)
+        return selected
 
 
 def _preselect_index(
@@ -1162,7 +1334,19 @@ def _typed_model(
     say(tint(f"  Type 'back' to return to the {back_to}.", "2"))
     answer = ask(question, example)
     parsed = _parsed_or_reprompt(answer, ask, question)
-    return None if parsed is None else str(parsed)
+    selected = None if parsed is None else str(parsed)
+    if selected is not None:
+        _warn_ollama_cloud(selected, say=say)
+    return selected
+
+
+def _warn_ollama_cloud(model: str, *, say: Callable[[str], None]) -> None:
+    ref = parse_model_ref(model)
+    if ref.provider == "ollama" and ref.name.endswith(":cloud"):
+        say(
+            "  warning: Ollama Cloud runs off-device and structured output is unverified; "
+            "expect schema drift."
+        )
 
 
 async def _pick_fallback(

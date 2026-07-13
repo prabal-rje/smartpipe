@@ -34,11 +34,11 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 def _wire(model: object) -> object:
     """The provider adapter under the default-on coalescer (item 62) — these
     construction tests assert the WIRE; the batching tests assert the wrapper."""
-    from smartpipe.models.admission import AdmittedChatModel
     from smartpipe.models.coalesce import CoalescingChatModel
+    from smartpipe.models.resilience import ResilientChatModel
 
     coalesced = model.inner if isinstance(model, CoalescingChatModel) else model
-    return coalesced.inner if isinstance(coalesced, AdmittedChatModel) else coalesced
+    return coalesced.inner if isinstance(coalesced, ResilientChatModel) else coalesced
 
 
 def _container(
@@ -50,6 +50,11 @@ def _container(
     isolated = {
         "XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests",
         "APPDATA": "/nonexistent-smartpipe-tests",  # the windows config root (D09)
+        # caching ships ON now (owner directive), but these construction tests assert the
+        # WIRE, not the outer cache layer — pin it off so the structure stays legible; the
+        # cache-wiring tests below set SMARTPIPE_CACHE=on explicitly. (This explicit env
+        # dict bypasses conftest's os.environ pin.)
+        "SMARTPIPE_CACHE": "off",
         **(env or {}),
     }
     return AppContainer(env=isolated, config=config or Config(), http_client=client, retry=FAST)
@@ -239,7 +244,10 @@ def test_writer_previews_never_reach_a_pipe(client: httpx.AsyncClient) -> None:
 
 
 async def test_build_container_yields_and_closes_client() -> None:
-    async with build_container({"OPENAI_API_KEY": "sk-x"}) as container:
+    # SMARTPIPE_CACHE off: an explicit env dict bypasses conftest's XDG_CACHE_HOME
+    # pin, and the default-on transcript bank (#22) would otherwise point the
+    # exit sweep at the developer's REAL cache dir
+    async with build_container({"OPENAI_API_KEY": "sk-x", "SMARTPIPE_CACHE": "off"}) as container:
         assert container.env["OPENAI_API_KEY"] == "sk-x"
         held = container.http_client
         assert not held.is_closed
@@ -256,6 +264,7 @@ async def test_build_container_resolves_breaker_policy_from_its_env_snapshot(
         "SMARTPIPE_BREAKER": "2",
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
         "XDG_DATA_HOME": str(tmp_path / "data"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),  # never the real result cache (#22 bank)
     }
 
     async with build_container(env) as container:
@@ -289,6 +298,7 @@ async def test_build_container_does_not_retain_the_prior_whisper_choice(
     base = {
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
         "XDG_DATA_HOME": str(tmp_path / "data"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),  # never the real result cache (#22 bank)
     }
     async with build_container({**base, "SMARTPIPE_WHISPER_MODEL": "small"}):
         assert configured_whisper_size() == "small"
@@ -312,6 +322,7 @@ async def test_build_container_resets_disclosures_for_each_invocation(
     env = {
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
         "XDG_DATA_HOME": str(tmp_path / "data"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),  # never the real result cache (#22 bank)
     }
     model = SimpleNamespace(ref=ModelRef("local", "joint"))
 
@@ -335,7 +346,7 @@ async def test_build_container_notes_rung_zero_repairs_once(
     from smartpipe.engine.schema import shorthand_to_schema, validate_and_coerce
 
     schema = shorthand_to_schema(("v",))
-    async with build_container({"OPENAI_API_KEY": "sk-x"}):
+    async with build_container({"OPENAI_API_KEY": "sk-x", "SMARTPIPE_CACHE": "off"}):
         validate_and_coerce('```json\n{"v": "a",}\n```', schema)
         validate_and_coerce('```json\n{"v": "b",}\n```', schema)
     stderr = capsys.readouterr().err
@@ -345,7 +356,7 @@ async def test_build_container_notes_rung_zero_repairs_once(
 async def test_build_container_stays_silent_without_repairs(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    async with build_container({"OPENAI_API_KEY": "sk-x"}):
+    async with build_container({"OPENAI_API_KEY": "sk-x", "SMARTPIPE_CACHE": "off"}):
         pass
     assert "repaired deterministically" not in capsys.readouterr().err
 
@@ -358,6 +369,7 @@ async def test_build_container_overlays_stored_keys(tmp_path: Path) -> None:
         "APPDATA": str(tmp_path / "cfg"),
         "XDG_DATA_HOME": str(tmp_path / "data"),
         "LOCALAPPDATA": str(tmp_path / "data"),
+        "SMARTPIPE_CACHE": "off",  # this test asserts the WIRE, not the default-on cache layer
     }
     save_api_key(keys_path(env), "mistral", "mk-stored")
     async with build_container(env) as container:
@@ -484,7 +496,14 @@ async def test_stt_role_wears_the_shared_max_calls_belt(
         return_value=httpx.Response(200, text="hello")
     )
     container = AppContainer(
-        env={"OPENAI_API_KEY": "sk-x", "SMARTPIPE_STT_MODEL": "openai/whisper-1"},
+        env={
+            "OPENAI_API_KEY": "sk-x",
+            "SMARTPIPE_STT_MODEL": "openai/whisper-1",
+            # this test drives the BELT, not the cache (#22 wraps the wire
+            # default-on and this explicit env dict bypasses conftest's
+            # XDG_CACHE_HOME pin — an unpinned run banks into the REAL cache)
+            "SMARTPIPE_CACHE": "off",
+        },
         config=Config(),
         http_client=client,
         retry=FAST,
@@ -541,6 +560,66 @@ def test_stt_auto_matrix(client: httpx.AsyncClient) -> None:
     assert oauth_only.remote_transcriber(openai_ref) is None
 
 
+def test_stt_local_sentinel_builds_the_on_device_wire(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.stt import LocalTranscriber
+
+    container = _container(client, config=Config(stt_model="local"))
+    transcriber = container.remote_transcriber()
+    assert isinstance(transcriber, LocalTranscriber)  # bare wire — free, no belt
+    assert transcriber.ref.provider == "local"
+    assert transcriber.ref.name == "whisper-tiny"  # the configured size, tiny default
+
+
+def test_stt_env_local_overrides_a_remote_config(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.stt import LocalTranscriber
+
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x", "SMARTPIPE_STT_MODEL": "local"},
+        config=Config(stt_model="openai/whisper-1"),
+    )
+    assert isinstance(container.remote_transcriber(), LocalTranscriber)
+
+
+def test_stt_local_passes_the_local_only_fence(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.base import parse_model_ref
+    from smartpipe.models.stt import LocalTranscriber
+
+    container = _container(
+        client, env={"SMARTPIPE_LOCAL_ONLY": "1"}, config=Config(stt_model="local")
+    )
+    # even with an openai chat ref in play, local STT never trips the fence
+    transcriber = container.remote_transcriber(parse_model_ref("ollama/qwen3:8b"))
+    assert isinstance(transcriber, LocalTranscriber)
+
+
+def test_stt_flag_outranks_env_and_config(client: httpx.AsyncClient) -> None:
+    """--stt-model is the highest rung of the shared resolution (#20)."""
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x", "SMARTPIPE_STT_MODEL": "openai/gpt-4o-mini-transcribe"},
+        config=Config(stt_model="openai/whisper-1"),
+    )
+    transcriber = container.remote_transcriber(flag="openai/gpt-4o-transcribe")
+    assert transcriber is not None and transcriber.ref.name == "gpt-4o-transcribe"
+
+
+def test_stt_flag_rides_the_existing_faults(client: httpx.AsyncClient) -> None:
+    """The flag reaches the SAME build: missing key and unsupported wires
+    fault exactly as the env/config rungs do."""
+    with pytest.raises(SetupFault, match="OPENAI_API_KEY"):
+        _container(client).remote_transcriber(flag="openai/whisper-1")
+    with pytest.raises(SetupFault, match="openai/whisper-1"):
+        _container(client).remote_transcriber(flag="mistral/voxtral-mini")
+
+
+def test_stt_flag_local_builds_the_on_device_wire(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.stt import LocalTranscriber
+
+    container = _container(client, config=Config(stt_model="openai/whisper-1"))
+    assert isinstance(container.remote_transcriber(flag="local"), LocalTranscriber)
+
+
 # --- fallback-model resolution (item 11) ----------------------------------------
 
 
@@ -571,20 +650,31 @@ def test_fallback_refuses_embedding_models(client: httpx.AsyncClient, embedder: 
         _container(client).fallback_ref(embedder)
 
 
-async def test_fallback_chat_model_builds_the_normal_wire(client: httpx.AsyncClient) -> None:
-    container = _container(client, env={"OPENAI_API_KEY": "sk-test"})
-    ref = container.fallback_ref("gpt-4o-mini")
-    assert ref is not None
-    model = _wire(await container.fallback_chat_model(ref))
-    assert isinstance(model, OpenAIChatModel)
+async def test_resilient_chat_model_wires_primary_and_arms_fallback(
+    client: httpx.AsyncClient,
+) -> None:
+    # the composed resilient chat a per-item verb runs on: the primary wired
+    # with the configured fallback ARMED (built lazily only on a trip). The
+    # WiredChat carries an honest receipt seam — nothing has switched yet.
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-test"},
+        config=Config(model="gpt-4o-mini", fallback_model="gpt-4o"),
+    )
+    wired = await container.resilient_chat_model()
+    assert str(wired.primary_ref) == "openai/gpt-4o-mini"
+    assert wired.fallback_ref is not None and str(wired.fallback_ref) == "openai/gpt-4o"
+    assert wired.switched is False  # no trip, so the receipt reads the primary
 
 
-async def test_fallback_chat_model_missing_key_is_setup_fault(client: httpx.AsyncClient) -> None:
-    container = _container(client)
-    ref = container.fallback_ref("gpt-4o-mini")
-    assert ref is not None
-    with pytest.raises(SetupFault):
-        await container.fallback_chat_model(ref)
+async def test_resilient_chat_model_without_a_configured_fallback(
+    client: httpx.AsyncClient,
+) -> None:
+    container = _container(client, config=Config(model="ollama/qwen3:8b"))
+    wired = await container.resilient_chat_model()
+    assert str(wired.primary_ref) == "ollama/qwen3:8b"
+    assert wired.fallback_ref is None
+    assert wired.switched is False
 
 
 # --- the media-embed-model role (item 40) ---------------------------------------
@@ -663,6 +753,25 @@ def test_ocr_role_mistral_rides_the_dedicated_wire(client: httpx.AsyncClient) ->
     assert str(parser.ref) == "mistral/mistral-ocr-latest"
 
 
+def test_ocr_mistral_wire_gets_the_dedicated_longer_ladder(client: httpx.AsyncClient) -> None:
+    """A5.3: the composition root wires the dedicated OCR ladder (attempts=5,
+    cap ~30s) into the paid wire — NOT the default chat ladder — because a page
+    parse is cheaper to wait on than to re-buy."""
+    from smartpipe.models.admission import AdmittedDocumentParser
+    from smartpipe.models.ocr import OCR_RETRY_POLICY, MistralOcrParser
+
+    container = _container(
+        client, env={"MISTRAL_API_KEY": "mk-x"}, config=Config(ocr_model="mistral-ocr-latest")
+    )
+    parser = container.document_parser()
+    assert isinstance(parser, AdmittedDocumentParser)
+    assert isinstance(parser.inner, MistralOcrParser)
+    assert parser.inner.retry is OCR_RETRY_POLICY  # the frozen preset, not container.retry
+    assert parser.inner.retry.attempts == 5
+    assert parser.inner.retry.max_delay == 30.0
+    assert parser.inner.retry is not container.retry  # the default chat ladder is untouched
+
+
 def test_ocr_role_mistral_without_key_is_setup_fault(client: httpx.AsyncClient) -> None:
     container = _container(client, config=Config(ocr_model="mistral-ocr-latest"))
     with pytest.raises(SetupFault, match="MISTRAL_API_KEY"):
@@ -676,6 +785,72 @@ def test_ocr_role_other_refs_ride_the_vision_wire(client: httpx.AsyncClient) -> 
     parser = container.document_parser()
     assert isinstance(parser, VisionOcrParser)
     assert str(parser.ref) == "ollama/llava"
+
+
+def test_probe_document_parser_bypasses_result_caches_on_both_routes(
+    client: httpx.AsyncClient,
+) -> None:
+    """C8: a probe must exercise the WIRE, never yesterday's cache. The mistral
+    route banks page conversions (A7) and the vision route's page calls ride the
+    CHAT cache — a probe against either would "pass" on a cached reply without a
+    single call, the exact false-positive class the role probes exist to kill."""
+    from smartpipe.models.cache import CachingChatModel, CachingDocumentParser
+    from smartpipe.models.ocr import VisionOcrParser
+
+    mistral = _container(
+        client,
+        env={"MISTRAL_API_KEY": "mk", "SMARTPIPE_CACHE": "on"},
+        config=Config(ocr_model="mistral/mistral-ocr-latest"),
+    )
+    assert isinstance(mistral.document_parser(), CachingDocumentParser)
+    probe = mistral.probe_document_parser()
+    assert probe is not None and not isinstance(probe, CachingDocumentParser)
+
+    vision = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x", "SMARTPIPE_CACHE": "on"},
+        config=Config(ocr_model="openai/gpt-4o-mini"),
+    )
+    cached = vision.document_parser()
+    assert isinstance(cached, VisionOcrParser) and isinstance(cached.chat, CachingChatModel)
+    probed = vision.probe_document_parser()
+    assert isinstance(probed, VisionOcrParser) and not isinstance(probed.chat, CachingChatModel)
+
+
+async def test_probe_chat_embed_and_stt_wires_bypass_result_caches(
+    client: httpx.AsyncClient,
+) -> None:
+    """Fable review: the schema probe rode the cached chat wire, so a second
+    `doctor --probe` within the TTL announced "tiny paid calls" while every
+    verdict came from banked replies with zero wire exercise. Probe accessors
+    bypass the caches on ALL the matrix wires (chat, embed, stt)."""
+    from smartpipe.models.cache import (
+        CachingChatModel,
+        CachingEmbeddingModel,
+        CachingMediaEmbeddingModel,
+        CachingTranscriber,
+    )
+
+    container = _container(
+        client,
+        env={
+            "OPENAI_API_KEY": "sk-x",
+            "SMARTPIPE_STT_MODEL": "openai/whisper-1",
+            "SMARTPIPE_CACHE": "on",
+        },
+        config=Config(model="ollama/qwen3:8b", embed_model="openai/text-embedding-3-small"),
+    )
+    assert isinstance(await container.chat_model(), CachingChatModel)
+    assert not isinstance(await container.probe_chat_model(), CachingChatModel)
+    assert isinstance(
+        await container.embedding_model(), CachingEmbeddingModel | CachingMediaEmbeddingModel
+    )
+    assert not isinstance(
+        await container.probe_embedding_model(),
+        CachingEmbeddingModel | CachingMediaEmbeddingModel,
+    )
+    assert isinstance(container.remote_transcriber(), CachingTranscriber)
+    assert not isinstance(container.remote_transcriber(use_cache=False), CachingTranscriber)
 
 
 def test_ocr_role_flag_beats_env_beats_config(client: httpx.AsyncClient) -> None:
@@ -694,6 +869,75 @@ def test_ocr_role_refuses_an_embedding_ref(client: httpx.AsyncClient) -> None:
     container = _container(client, config=Config(ocr_model="jina/jina-clip-v2"))
     with pytest.raises(SetupFault, match="embedding model"):
         container.document_parser()
+
+
+# --- the OCR document cache (A7): bank paid Mistral conversions across runs ----------
+
+
+def _ocr_cache_env() -> dict[str, str]:
+    return {
+        "MISTRAL_API_KEY": "mk-x",
+        "SMARTPIPE_CACHE": "on",
+        "XDG_CACHE_HOME": "/nonexistent-smartpipe-tests",
+    }
+
+
+def test_ocr_cache_wraps_the_mistral_wire_outermost(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedDocumentParser
+    from smartpipe.models.cache import CachingDocumentParser
+    from smartpipe.models.ocr import MistralOcrParser
+
+    container = _container(
+        client, env=_ocr_cache_env(), config=Config(ocr_model="mistral-ocr-latest")
+    )
+    parser = container.document_parser()
+    assert isinstance(parser, CachingDocumentParser)  # cache OUTERMOST
+    assert isinstance(parser.inner, AdmittedDocumentParser)  # then admission
+    assert isinstance(parser.inner.inner, MistralOcrParser)  # (uncapped: no budget layer)
+    assert str(parser.ref) == "mistral/mistral-ocr-latest"  # identity preserved
+    assert container.caches == [parser]  # swept with the chat caches
+
+
+def test_ocr_cache_disabled_bypasses(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedDocumentParser
+
+    container = _container(
+        client, env={"MISTRAL_API_KEY": "mk-x"}, config=Config(ocr_model="mistral-ocr-latest")
+    )
+    parser = container.document_parser()
+    assert isinstance(parser, AdmittedDocumentParser)  # no cache layer when the posture is off
+    assert container.caches == []
+
+
+def test_ocr_cache_preserves_page_billing(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.ocr import OcrBilling, parser_billing
+
+    container = _container(
+        client, env=_ocr_cache_env(), config=Config(ocr_model="mistral-ocr-latest")
+    )
+    parser = container.document_parser()
+    assert parser is not None
+    assert parser_billing(parser) is OcrBilling.PAGE  # the belt still reads per-page billing
+
+
+async def test_cache_receipt_counts_ocr_document_hits(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from smartpipe.models.cache import CachingDocumentParser
+    from smartpipe.models.ocr import MistralOcrParser
+
+    async with build_container({"XDG_CACHE_HOME": str(tmp_path)}) as container:
+        wire = MistralOcrParser(
+            ref=ModelRef("mistral", "mistral-ocr-latest"),
+            client=container.http_client,
+            api_key="mk-x",
+            retry=FAST,
+        )
+        cached = CachingDocumentParser(wire, tmp_path)
+        cached.hits = 940  # a pilot's banked page conversions on a rerun
+        cached.misses = 3
+        container.caches.append(cached)
+    assert "cache: 940 hits · 3 misses" in capsys.readouterr().err
 
 
 # --- request batching (item 62): posture, wiring order, the disclosure note --------
@@ -742,11 +986,11 @@ def test_batching_size_env_is_validated_loudly(client: httpx.AsyncClient) -> Non
 
 
 async def test_coalescer_sits_inside_the_cache(client: httpx.AsyncClient) -> None:
-    # cache → coalescer → admission → wire: hits never enqueue; fan-out replies are cached
-    # per item in the same shape the solo path caches (item 62 §5)
-    from smartpipe.models.admission import AdmittedChatModel
+    # cache → coalescer → rate_limit+breaker → wire: hits never enqueue; fan-out replies
+    # are cached per item in the same shape the solo path caches (item 62 §5)
     from smartpipe.models.cache import CachingChatModel
     from smartpipe.models.coalesce import CoalescingChatModel
+    from smartpipe.models.resilience import ResilientChatModel
 
     container = _container(
         client,
@@ -756,19 +1000,19 @@ async def test_coalescer_sits_inside_the_cache(client: httpx.AsyncClient) -> Non
     model = await container.chat_model()
     assert isinstance(model, CachingChatModel)
     assert isinstance(model.inner, CoalescingChatModel)
-    assert isinstance(model.inner.inner, AdmittedChatModel)
+    assert isinstance(model.inner.inner, ResilientChatModel)
     assert isinstance(model.inner.inner.inner, OllamaChatModel)
     assert container.coalescers == [model.inner]
 
 
 async def test_coalescer_absent_when_batching_off(client: httpx.AsyncClient) -> None:
-    from smartpipe.models.admission import AdmittedChatModel
+    from smartpipe.models.resilience import ResilientChatModel
 
     container = _container(
         client, env={"SMARTPIPE_BATCH": "off"}, config=Config(model="ollama/qwen3:8b")
     )
     model = await container.chat_model()
-    assert isinstance(model, AdmittedChatModel)
+    assert isinstance(model, ResilientChatModel)
     assert isinstance(model.inner, OllamaChatModel)
     assert container.coalescers == []
 
@@ -777,7 +1021,9 @@ async def test_batch_receipt_notes_once_per_run(capsys: pytest.CaptureFixture[st
     from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.models.coalesce import CoalescingChatModel
 
-    async with build_container({"OPENAI_API_KEY": "sk-x"}) as container:
+    # cache off so the OUTERMOST layer is the coalescer this test drives (default-on cache
+    # would wrap it and its miss would add a "cache:" receipt note)
+    async with build_container({"OPENAI_API_KEY": "sk-x", "SMARTPIPE_CACHE": "off"}) as container:
         model = await container.chat_model("ollama/qwen3:8b")
         assert isinstance(model, CoalescingChatModel)
         model.packed_calls = 42
@@ -789,7 +1035,7 @@ async def test_batch_receipt_notes_once_per_run(capsys: pytest.CaptureFixture[st
 
 
 async def test_no_batch_note_when_nothing_batched(capsys: pytest.CaptureFixture[str]) -> None:
-    async with build_container({"OPENAI_API_KEY": "sk-x"}) as container:
+    async with build_container({"OPENAI_API_KEY": "sk-x", "SMARTPIPE_CACHE": "off"}) as container:
         await container.chat_model("ollama/qwen3:8b")  # built, but nothing flew packed
     assert "batched" not in capsys.readouterr().err
 
@@ -812,6 +1058,168 @@ async def test_cache_receipt_names_item_misses_not_calls(
         cached.misses = 7
         container.caches.append(cached)
     assert "cache: 2 hits · 7 misses" in capsys.readouterr().err
+
+
+# --- caching defaults ON (owner directive: always enable caching) ------------
+#
+# The posture is exercised through the PUBLIC surface (the chat wire the container
+# hands verbs): a cached run wraps the wire OUTERMOST in a CachingChatModel. These
+# build the container DIRECTLY (not via `_container`, which pins the posture off)
+# so the unset default is what's under test.
+
+
+def _unpinned(
+    client: httpx.AsyncClient,
+    *,
+    env: Mapping[str, str] | None = None,
+    config: Config | None = None,
+) -> AppContainer:
+    isolated = {
+        "XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests",
+        "XDG_CACHE_HOME": "/nonexistent-smartpipe-tests",  # never the developer's real cache
+        **(env or {}),
+    }
+    return AppContainer(
+        env=isolated,
+        config=config or Config(model="ollama/qwen3:8b"),
+        http_client=client,
+        retry=FAST,
+    )
+
+
+async def test_chat_model_is_cached_by_default_when_unset(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.cache import CachingChatModel
+
+    model = await _unpinned(client).chat_model()  # nothing configured → default on
+    assert isinstance(model, CachingChatModel)
+
+
+async def test_chat_model_env_opt_out_still_bypasses_the_cache(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.cache import CachingChatModel
+
+    for value in ("off", "0", "no", "false"):
+        model = await _unpinned(client, env={"SMARTPIPE_CACHE": value}).chat_model()
+        assert not isinstance(model, CachingChatModel)
+
+
+async def test_chat_model_config_opt_out_still_bypasses_the_cache(
+    client: httpx.AsyncClient,
+) -> None:
+    from smartpipe.models.cache import CachingChatModel
+
+    # config `cache = false` is preserved as the one non-default falsy posture
+    container = _unpinned(client, config=Config(model="ollama/qwen3:8b", cache=False))
+    assert not isinstance(await container.chat_model(), CachingChatModel)
+
+
+async def test_chat_model_env_on_beats_a_config_opt_out(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.cache import CachingChatModel
+
+    container = _unpinned(
+        client, env={"SMARTPIPE_CACHE": "on"}, config=Config(model="ollama/qwen3:8b", cache=False)
+    )
+    assert isinstance(await container.chat_model(), CachingChatModel)
+
+
+# --- fold embedder honors the configured embed-model (specified wins, local fallback) --
+
+
+async def test_fold_embedder_falls_back_to_local_when_nothing_configured(
+    client: httpx.AsyncClient,
+) -> None:
+    from importlib.util import find_spec
+
+    container = _container(client)
+    embedder = await container.fold_embedder()
+    # D44: on-device fastembed where its wheels exist (pythons < 3.14), else the
+    # free ollama loopback default — same nomic family either way, never a paid wire.
+    if find_spec("fastembed") is not None:
+        assert embedder.ref.provider == "local"
+        assert str(embedder.ref) == "local/nomic-embed-text-v1.5"
+    else:
+        assert embedder.ref.provider == "ollama"
+        assert str(embedder.ref) == "ollama/nomic-embed-text"
+
+
+async def test_fold_embedder_honors_config_embed_model(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x"},
+        config=Config(embed_model="openai/text-embedding-3-small"),
+    )
+    embedder = await container.fold_embedder()
+    assert str(embedder.ref) == "openai/text-embedding-3-small"
+
+
+async def test_fold_embedder_flag_beats_config(client: httpx.AsyncClient) -> None:
+    container = _container(
+        client,
+        env={"OPENAI_API_KEY": "sk-x"},
+        config=Config(embed_model="openai/text-embedding-3-small"),
+    )
+    embedder = await container.fold_embedder("openai/text-embedding-3-large")
+    assert str(embedder.ref) == "openai/text-embedding-3-large"
+
+
+async def test_free_on_device_fold_stays_off_the_billable_belt(
+    client: httpx.AsyncClient,
+) -> None:
+    """The canonicalization fold is graph infrastructure (like NER), not the
+    user's metered per-item work: the free on-device wire must NOT draw from the
+    --max-calls belt, or a bare ``graph --fast --max-calls N`` would charge a $0
+    fold and could flip a fully-completed run to PARTIAL. Restores the pre-configurable
+    behavior (the local fold was never budget-wrapped)."""
+    import asyncio
+    from importlib.util import find_spec
+
+    from smartpipe.models.budget import CallBudget
+    from smartpipe.models.local_embed import LocalEmbeddingModel
+
+    if find_spec("fastembed") is None:  # 3.14: the free default folds via ollama, not local
+        pytest.skip("the on-device local fold default needs fastembed wheels")
+    container = AppContainer(
+        env={"XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests"},
+        config=Config(),
+        http_client=client,
+        retry=FAST,
+        budget=CallBudget(limit=1, stop=asyncio.Event()),
+    )
+    embedder = await container.fold_embedder()  # nothing configured -> on-device local
+    # the cache layer (default-on, #22) rides OUTERMOST and charges nothing;
+    # underneath it the wire is RAW — never a _BudgetedEmbed/Admitted wrapper
+    from smartpipe.models.cache import CachingEmbeddingModel
+
+    assert isinstance(embedder, CachingEmbeddingModel)
+    assert isinstance(embedder.inner, LocalEmbeddingModel)
+
+
+async def test_free_ollama_fold_stays_off_the_billable_belt(
+    client: httpx.AsyncClient,
+) -> None:
+    """On Python 3.14 (no fastembed wheels) the free DEFAULT fold resolves to
+    loopback ollama, which 373823b already rules free (not "paid embeddings"). It
+    must stay off the --max-calls belt too, like the local fold — otherwise the
+    exact `graph --fast --max-calls N` PARTIAL-flip bug survives on 3.14. Configure
+    ollama explicitly so this holds on every python."""
+    import asyncio
+
+    from smartpipe.models.budget import CallBudget
+    from smartpipe.models.ollama import OllamaEmbeddingModel
+
+    container = AppContainer(
+        env={"XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests"},
+        config=Config(embed_model="ollama/nomic-embed-text"),
+        http_client=client,
+        retry=FAST,
+        budget=CallBudget(limit=1, stop=asyncio.Event()),
+    )
+    embedder = await container.fold_embedder()
+    # the cache layer (default-on, #22) rides OUTERMOST and charges nothing;
+    # under it: the raw ollama wire — never Admitted/_BudgetedEmbed wrappers
+    from smartpipe.models.cache import CachingEmbeddingModel
+
+    assert isinstance(embedder, CachingEmbeddingModel)
+    assert isinstance(embedder.inner, OllamaEmbeddingModel)
 
 
 def test_concurrency_configures_the_shared_outbound_policy_once(
@@ -838,17 +1246,21 @@ async def test_container_closes_coalescers_before_the_http_client(
         await original(model)
 
     monkeypatch.setattr(CoalescingChatModel, "aclose", recording_close)
-    async with build_container({}) as container:
+    # cache off: this test drives coalescer close ordering, not the cache (default-on
+    # would otherwise build a wrapper pointed at the real ~/.cache and sweep it at exit)
+    async with build_container({"SMARTPIPE_CACHE": "off"}) as container:
         client = container.http_client
         await container.chat_model("ollama/qwen3:8b")
     assert observed == [True]
     assert client.is_closed
 
 
-def test_graph_internal_models_are_resolved_and_disclosed_at_the_composition_root(
+async def test_graph_internal_models_are_resolved_and_disclosed_at_the_composition_root(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from importlib.util import find_spec
+
     from smartpipe.io import manifest
     from smartpipe.models.local_ner import GlinerEntityFinder
 
@@ -865,14 +1277,21 @@ def test_graph_internal_models_are_resolved_and_disclosed_at_the_composition_roo
     container = _container(client, env={"SMARTPIPE_NER_PRECISION": "fp32"})
 
     finder = container.entity_finder(("person",))
-    embedder = container.fold_embedder()
+    embedder = await container.fold_embedder()
 
+    # D44: the fold default is on-device local where fastembed's wheels exist,
+    # else the free ollama loopback (Python 3.14+) — assert whichever this runs on.
+    fold_ref = (
+        "local/nomic-embed-text-v1.5"
+        if find_spec("fastembed") is not None
+        else "ollama/nomic-embed-text"
+    )
     assert isinstance(finder, GlinerEntityFinder)
     assert finder.precision == "fp32"
-    assert str(embedder.ref) == "local/nomic-embed-text-v1.5"
+    assert str(embedder.ref) == fold_ref
     assert recorded == [
         ("ner", "local/gliner-small-v2.1@fp32"),
-        ("fold_embed", "local/nomic-embed-text-v1.5"),
+        ("fold_embed", fold_ref),
     ]
 
 
@@ -894,9 +1313,350 @@ async def test_local_only_disables_ambient_proxies_on_the_shared_transport(
         "NO_PROXY": "",
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
         "XDG_DATA_HOME": str(tmp_path / "data"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),  # never the real result cache (#22 bank)
     }
 
     async with build_container(env):
         pass
 
     assert observed == [False]
+
+
+# --- embed + STT caches (#22): outermost wrap, honest receipts, the free fold --------
+
+
+def _embed_cache_env() -> dict[str, str]:
+    return {
+        "SMARTPIPE_CACHE": "on",
+        "XDG_CACHE_HOME": "/nonexistent-smartpipe-tests",
+    }
+
+
+async def test_embed_cache_wraps_the_remote_wire_outermost(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedEmbeddingModel
+    from smartpipe.models.cache import CachingEmbeddingModel
+
+    container = _container(
+        client,
+        env={**_embed_cache_env(), "OPENAI_API_KEY": "sk-x"},
+        config=Config(embed_model="openai/text-embedding-3-small"),
+    )
+    model = await container.embedding_model()
+    assert isinstance(model, CachingEmbeddingModel)  # cache OUTERMOST
+    assert isinstance(model.inner, AdmittedEmbeddingModel)  # then admission
+    assert str(model.ref) == "openai/text-embedding-3-small"  # identity preserved
+    assert container.caches == [model]  # swept with the chat caches
+
+
+async def test_embed_cache_wraps_the_local_wire_too(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.cache import CachingEmbeddingModel
+    from smartpipe.models.local_embed import LocalEmbeddingModel
+
+    container = _container(client, env=_embed_cache_env())
+    model = await container.embedding_model()
+    assert isinstance(model, CachingEmbeddingModel)
+    assert isinstance(model.inner, LocalEmbeddingModel)  # no admission on-device
+
+
+async def test_embed_cache_disabled_bypasses(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.local_embed import LocalEmbeddingModel
+
+    container = _container(client)
+    model = await container.embedding_model()
+    assert isinstance(model, LocalEmbeddingModel)  # no cache layer when the posture is off
+    assert container.caches == []
+
+
+async def test_media_embed_cache_preserves_the_capability_marker(
+    client: httpx.AsyncClient,
+) -> None:
+    from smartpipe.models.base import supports_media_embedding
+    from smartpipe.models.cache import CachingMediaEmbeddingModel
+
+    container = _container(
+        client,
+        env={**_embed_cache_env(), "JINA_API_KEY": "jk-x"},
+        config=Config(media_embed_model="jina/jina-clip-v2"),
+    )
+    model = await container.media_embedding_model()
+    assert isinstance(model, CachingMediaEmbeddingModel)
+    assert supports_media_embedding(model)  # the cache must not strip embed_parts
+
+
+async def test_fold_embedder_free_path_is_cached_and_stays_off_belt(
+    client: httpx.AsyncClient,
+) -> None:
+    """The cafa99b invariant survives the cache (#22): the FREE fold is banked
+    but never budgeted or admitted — a miss embeds on the raw wire, a hit costs
+    nothing, and neither can charge --max-calls."""
+    from smartpipe.models.budget import CallBudget
+    from smartpipe.models.cache import CachingEmbeddingModel
+    from smartpipe.models.local_embed import LocalEmbeddingModel
+
+    container = AppContainer(
+        env={**_embed_cache_env(), "XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests"},
+        config=Config(),
+        http_client=client,
+        retry=FAST,
+        budget=CallBudget(limit=1, stop=None),
+    )
+    model = await container.fold_embedder()
+    assert isinstance(model, CachingEmbeddingModel)  # banked…
+    assert isinstance(model.inner, LocalEmbeddingModel)  # …with NO budget/admission layer
+    assert container.caches == [model]
+
+
+async def test_fold_preflight_double_build_keeps_the_receipt_honest(
+    respx_mock: respx.MockRouter,
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    """run_graph builds the fold embedder TWICE (the #27 preflight, then the
+    fold). Each build appends its own wrapper to container.caches — fine ONLY
+    because the discarded preflight wrapper counts zero traffic, so the summed
+    receipt equals the real hits/misses, never a doubled figure."""
+    import json as json_mod
+
+    from smartpipe.models.cache import CachingEmbeddingModel
+
+    def _answer(request: httpx.Request) -> httpx.Response:
+        texts = json_mod.loads(request.content)["input"]
+        return httpx.Response(200, json={"embeddings": [[1.0, 2.0] for _ in texts]})
+
+    route = respx_mock.post("http://localhost:11434/api/embed").mock(side_effect=_answer)
+    container = _container(
+        client,
+        env={
+            **_embed_cache_env(),
+            "XDG_CACHE_HOME": str(tmp_path),
+            "SMARTPIPE_EMBED_MODEL": "ollama/nomic-embed-text",
+        },
+    )
+    await container.fold_embedder()  # the preflight build — discarded unused
+    fold = await container.fold_embedder()  # the fold-time build
+    await fold.embed(["Ann", "Bob"])  # two misses
+    await fold.embed(["Ann", "Bob"])  # two hits
+    assert route.call_count == 1
+    wrappers = [w for w in container.caches if isinstance(w, CachingEmbeddingModel)]
+    assert len(wrappers) == 2  # one per build — growth is fine…
+    assert sum(w.hits for w in wrappers) == 2  # …because the sums stay honest
+    assert sum(w.misses for w in wrappers) == 2
+
+
+async def test_second_identical_run_embeds_zero_texts(
+    respx_mock: respx.MockRouter,
+    tmp_path: Path,
+) -> None:
+    """The e2e headline (#22): a rerun's fold serves every vector from the bank
+    — ZERO texts reach the wire — and the free fold never touches the belt on
+    EITHER run (hits AND misses stay un-belted)."""
+    import json as json_mod
+
+    def _answer(request: httpx.Request) -> httpx.Response:
+        texts = json_mod.loads(request.content)["input"]
+        return httpx.Response(200, json={"embeddings": [[1.0, 2.0] for _ in texts]})
+
+    route = respx_mock.post("http://localhost:11434/api/embed").mock(side_effect=_answer)
+    env = {
+        "SMARTPIPE_CACHE": "on",
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "APPDATA": str(tmp_path / "config"),
+        "SMARTPIPE_EMBED_MODEL": "ollama/nomic-embed-text",
+    }
+    async with build_container(env, max_calls=1) as container:
+        fold = await container.fold_embedder()
+        await fold.embed(["Ann", "Bob", "Acme"])  # three misses, ONE wire call
+        assert container.budget is not None
+        assert container.budget.calls == 0  # misses never charged the belt
+    assert route.call_count == 1
+
+    async with build_container(env, max_calls=1) as container:
+        fold = await container.fold_embedder()
+        vectors = await fold.embed(["Ann", "Bob", "Acme"])
+        assert vectors == ((1.0, 2.0), (1.0, 2.0), (1.0, 2.0))
+        assert container.budget is not None
+        assert container.budget.calls == 0  # hits neither
+    assert route.call_count == 1  # the second run embedded ZERO texts
+
+
+def test_stt_cache_wraps_the_remote_transcriber_outermost(client: httpx.AsyncClient) -> None:
+    from smartpipe.models.admission import AdmittedTranscriber
+    from smartpipe.models.cache import CachingTranscriber
+
+    container = _container(
+        client,
+        env={**_embed_cache_env(), "OPENAI_API_KEY": "sk-x"},
+        config=Config(stt_model="openai/whisper-1"),
+    )
+    transcriber = container.remote_transcriber()
+    assert isinstance(transcriber, CachingTranscriber)  # cache OUTERMOST
+    assert isinstance(transcriber.inner, AdmittedTranscriber)  # then admission
+    assert str(transcriber.ref) == "openai/whisper-1"
+    assert container.caches == [transcriber]
+
+
+async def test_stt_rerun_never_re_pays_the_wire_or_the_belt(
+    respx_mock: respx.MockRouter,
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    import asyncio
+
+    from smartpipe.models.base import AudioData
+    from smartpipe.models.budget import CallBudget
+
+    route = respx_mock.post("https://api.openai.com/v1/audio/transcriptions").mock(
+        return_value=httpx.Response(200, text="hello")
+    )
+    container = AppContainer(
+        env={
+            "OPENAI_API_KEY": "sk-x",
+            "SMARTPIPE_STT_MODEL": "openai/whisper-1",
+            "SMARTPIPE_CACHE": "on",
+            "XDG_CACHE_HOME": str(tmp_path),
+            "XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests",
+        },
+        config=Config(),
+        http_client=client,
+        retry=FAST,
+        budget=CallBudget(limit=1, stop=asyncio.Event()),
+    )
+    transcriber = container.remote_transcriber()
+    assert transcriber is not None
+    clip = AudioData(b"waveform", "audio/wav")
+    assert await transcriber.transcribe(clip) == "hello"  # the miss spends the one belt unit
+    assert await transcriber.transcribe(clip) == "hello"  # the hit spends NOTHING
+    assert route.call_count == 1
+
+
+async def test_build_container_installs_and_resets_the_transcript_bank(
+    tmp_path: Path,
+) -> None:
+    from smartpipe.models.cache import TranscriptBank
+    from smartpipe.parsing.extract import configured_transcript_cache
+
+    env = {
+        "SMARTPIPE_CACHE": "on",
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "APPDATA": str(tmp_path / "config"),
+    }
+    async with build_container(env) as container:
+        bank = configured_transcript_cache()
+        assert isinstance(bank, TranscriptBank)
+        assert bank in container.caches  # the receipt and the sweep both see it
+    assert configured_transcript_cache() is None  # reset with the whisper token
+
+
+async def test_build_container_resets_the_bank_on_error_too(tmp_path: Path) -> None:
+    from smartpipe.parsing.extract import configured_transcript_cache
+
+    env = {
+        "SMARTPIPE_CACHE": "on",
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "APPDATA": str(tmp_path / "config"),
+    }
+    with pytest.raises(RuntimeError, match="mid-run explosion"):
+        async with build_container(env):
+            assert configured_transcript_cache() is not None
+            raise RuntimeError("mid-run explosion")
+    assert configured_transcript_cache() is None
+
+
+async def test_build_container_unwinds_tokens_and_client_on_a_mid_build_fault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C5 review: a fault BETWEEN token installs and the yield (bank dir, budget,
+    policy construction) must reset the already-installed ContextVars and close
+    the HTTP client — previously both leaked past the invocation."""
+    import smartpipe.container as container_module
+    from smartpipe.models.http_support import make_client
+    from smartpipe.parsing.extract import configured_transcript_cache, configured_whisper_size
+
+    built: list[httpx.AsyncClient] = []
+
+    def capturing_client(*, trust_env: bool) -> httpx.AsyncClient:
+        instance = make_client(trust_env=trust_env)
+        built.append(instance)
+        return instance
+
+    def exploding_cache_dir(env: Mapping[str, str]) -> Path:
+        raise RuntimeError("mid-build explosion")
+
+    monkeypatch.setattr(container_module, "make_client", capturing_client)
+    monkeypatch.setattr(container_module, "_cache_dir", exploding_cache_dir)
+    env = {
+        "SMARTPIPE_CACHE": "on",  # forces the bank path → the exploding cache dir
+        "SMARTPIPE_WHISPER_MODEL": "small",
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "APPDATA": str(tmp_path / "config"),
+    }
+    with pytest.raises(RuntimeError, match="mid-build explosion"):
+        async with build_container(env):
+            raise AssertionError("the container must not be yielded")  # pragma: no cover
+    assert configured_whisper_size() == "tiny"  # the installed size token unwound
+    assert configured_transcript_cache() is None  # never installed, still None
+    assert len(built) == 1 and built[0].is_closed  # the client did not leak
+
+
+async def test_build_container_keeps_the_bank_off_when_caching_is_off(
+    tmp_path: Path,
+) -> None:
+    from smartpipe.parsing.extract import configured_transcript_cache
+
+    env = {
+        "SMARTPIPE_CACHE": "off",
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "APPDATA": str(tmp_path / "config"),
+    }
+    async with build_container(env) as container:
+        assert configured_transcript_cache() is None  # posture off ⇒ byte-identical
+        assert container.caches == []
+
+
+async def test_cache_receipt_sums_every_surface(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The one receipt line now sums SIX cache-bearing types (#22)."""
+    from smartpipe.models.cache import (
+        CachingEmbeddingModel,
+        CachingMediaEmbeddingModel,
+        CachingTranscriber,
+        TranscriptBank,
+    )
+
+    class _Embedder:
+        ref = ModelRef("local", "nomic-embed-text-v1.5")
+
+        async def embed(self, texts: object) -> tuple[tuple[float, ...], ...]:
+            raise AssertionError("never driven")
+
+        async def embed_parts(self, parts: object) -> tuple[tuple[float, ...], ...]:
+            raise AssertionError("never driven")
+
+    class _Stt:
+        ref = ModelRef("openai", "whisper-1")
+
+        async def transcribe(self, audio: object) -> str:
+            raise AssertionError("never driven")
+
+    env = {
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "APPDATA": str(tmp_path / "config"),
+    }
+    async with build_container(env) as container:
+        embed_cache = CachingEmbeddingModel(_Embedder(), tmp_path)
+        embed_cache.hits, embed_cache.misses = 3, 1
+        media_cache = CachingMediaEmbeddingModel(_Embedder(), tmp_path)
+        media_cache.hits, media_cache.misses = 2, 0
+        stt_cache = CachingTranscriber(_Stt(), tmp_path)
+        stt_cache.hits, stt_cache.misses = 1, 1
+        bank = TranscriptBank(tmp_path)
+        bank.hits, bank.misses = 4, 2
+        container.caches.extend([embed_cache, media_cache, stt_cache, bank])
+    assert "cache: 10 hits · 4 misses" in capsys.readouterr().err

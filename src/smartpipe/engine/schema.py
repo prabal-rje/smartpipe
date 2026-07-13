@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
+    import jsonschema
+
 __all__ = [
     "BARE_PROPERTY",
     "deterministic_repairs",
@@ -294,9 +296,25 @@ def _validated(
     try:
         jsonschema.validate(trimmed, dict(schema))
     except jsonschema.ValidationError as exc:
-        raise ItemError(f"output does not match the schema: {exc.message}") from exc
+        raise ItemError(f"output does not match the schema: {_condensed_miss(exc)}") from exc
     _check_temporal(trimmed, schema)  # format: date/date-time — a miss reads like a type miss
     return trimmed
+
+
+_INSTANCE_CHARS = 160  # of an echoed failing instance; the rest collapses to a marker
+
+
+def _condensed_miss(exc: jsonschema.ValidationError) -> str:
+    """jsonschema echoes the failing instance verbatim into ``exc.message`` (a
+    wrong-shape reply lands the WHOLE reply there). Truncate that echoed repr —
+    and only it — so the pinned 'does not match the schema' phrasing and
+    jsonschema's own reason stay intact while the blob stops flooding skip lines
+    (B4). A message that doesn't echo the instance is returned untouched."""
+    blob = repr(exc.instance)
+    if len(blob) <= _INSTANCE_CHARS or blob not in exc.message:
+        return exc.message
+    condensed = f"{blob[:_INSTANCE_CHARS]}… (+{len(blob) - _INSTANCE_CHARS:,} chars)"
+    return exc.message.replace(blob, condensed, 1)
 
 
 def _extract_json(reply: str) -> object:

@@ -108,6 +108,13 @@ async def _run(
     ):
         begin_manifest(manifest_path, verb="split")
         return await settled(
-            run_split(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            run_split(
+                request,
+                container,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stop=stop,
+                budget=container.budget,
+            ),
             container.budget,
         )

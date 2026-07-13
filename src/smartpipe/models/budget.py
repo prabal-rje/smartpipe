@@ -96,6 +96,27 @@ class CallBudget:
         self._reserve(pages)
         self.ocr_pages += pages
 
+    def release_ocr_pages(self, pages: int) -> None:
+        """Refund a page reservation whose OCR upload failed before it converted
+        anything (a 429 ladder exhausted, the breaker open). Reservation charges
+        the belt the instant a document's page count is known — before the wire
+        call — so an over-belt PDF never uploads partially. When that call then
+        fails, the pages were never processed, so counting them would let a dead
+        document eat a later one's belt share. Only ever called for a reservation
+        that SUCCEEDED: one that itself hit the belt raised before charging, so
+        there is nothing to refund (the ``exhausted`` latch, once tripped, stands
+        — un-setting a drain already in motion is never safe)."""
+        if pages < 1:
+            raise ValueError(f"budget units must be >= 1, got {pages}")
+        # Internal invariant: release is only ever called once, for a reservation
+        # that itself succeeded (an over-belt reservation raised BEFORE charging).
+        # A double-release or an unmatched release would drive the counters
+        # negative and silently hand a later document phantom belt — assert it.
+        assert self.calls >= pages, "release_ocr_pages underflow: no matching reservation"
+        assert self.ocr_pages >= pages, "release_ocr_pages underflow: no matching reservation"
+        self.calls -= pages
+        self.ocr_pages -= pages
+
     def describe_usage(self) -> str:
         if not self._saw_ocr:
             return _count(self.model_calls, "call", suffix="made")
@@ -178,8 +199,12 @@ class _BudgetedParser:
         return self.inner.ref
 
     async def parse_image(self, image: ImageData) -> str:
-        self.budget.reserve_ocr_pages(1)
-        return await self.inner.parse_image(image)
+        self.budget.reserve_ocr_pages(1)  # may raise before charging: no refund owed
+        try:
+            return await self.inner.parse_image(image)
+        except BaseException:  # any failure incl. cancel — page unconverted, refund it
+            self.budget.release_ocr_pages(1)
+            raise
 
     async def parse_pdf(self, path: Path) -> tuple[OcrPage, ...]:
         import asyncio
@@ -187,8 +212,12 @@ class _BudgetedParser:
         from smartpipe.models.ocr import pdf_page_count
 
         pages = await asyncio.to_thread(pdf_page_count, path)
-        self.budget.reserve_ocr_pages(pages)
-        return await self.inner.parse_pdf(path)
+        self.budget.reserve_ocr_pages(pages)  # may raise before charging: no refund owed
+        try:
+            return await self.inner.parse_pdf(path)
+        except BaseException:  # any failure incl. cancel — nothing converted, refund all
+            self.budget.release_ocr_pages(pages)
+            raise
 
 
 @dataclass(frozen=True, slots=True)

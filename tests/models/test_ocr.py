@@ -80,23 +80,104 @@ async def test_401_names_the_key(respx_mock: respx.MockRouter) -> None:
 async def test_wire_error_is_an_item_error(respx_mock: respx.MockRouter) -> None:
     respx_mock.post(URL).mock(return_value=httpx.Response(422, text="bad document"))
     async with httpx.AsyncClient() as client:
-        with pytest.raises(ItemError, match="422"):
+        with pytest.raises(ItemError, match="422") as excinfo:
             await _parser(client).parse_image(ImageData(b"x", "image/png"))
+    # B4: keep the status, drop the raw wire body — a human reason, not a JSON dump.
+    assert "bad document" not in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
-    ("status", "fault"),
-    ((429, RetryableError), (503, TransportError)),
+    ("status", "fault", "reason"),
+    ((429, RetryableError, "rate limited"), (503, TransportError, "server error")),
 )
 async def test_exhausted_transient_faults_reach_shared_admission(
     respx_mock: respx.MockRouter,
     status: int,
     fault: type[ItemError],
+    reason: str,
 ) -> None:
     respx_mock.post(URL).mock(return_value=httpx.Response(status, text="try later"))
     async with httpx.AsyncClient() as client:
-        with pytest.raises(fault):
+        with pytest.raises(fault) as excinfo:
             await _parser(client).parse_image(ImageData(b"x", "image/png"))
+    # B4: the message renders the HUMAN reason, never the raw wire body.
+    message = str(excinfo.value)
+    assert reason in message and str(status) in message
+    assert "try later" not in message
+
+
+async def test_429_body_is_never_dumped_into_the_message(respx_mock: respx.MockRouter) -> None:
+    """B4: a 429 whose JSON body could be a paragraph of wire detail collapses to
+    the honest 'rate limited' — the body is dropped, the status kept."""
+    respx_mock.post(URL).mock(
+        return_value=httpx.Response(429, json={"detail": "quota_exhausted_marker_xyz"})
+    )
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RetryableError) as excinfo:
+            await _parser(client).parse_image(ImageData(b"x", "image/png"))
+    message = str(excinfo.value)
+    assert message == "ocr error 429: rate limited"
+    assert "quota_exhausted_marker_xyz" not in message
+
+
+async def test_429_retry_after_reaches_the_fault(respx_mock: respx.MockRouter) -> None:
+    """A5.2: the server's Retry-After survives onto the exhausted fault so the
+    shared admission policy can pace the ref's next call — not just this wire's
+    internal ladder."""
+    respx_mock.post(URL).mock(
+        return_value=httpx.Response(429, headers={"Retry-After": "12"}, text="slow down")
+    )
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RetryableError) as excinfo:
+            await _parser(client).parse_image(ImageData(b"x", "image/png"))
+    assert excinfo.value.retry_after == 12.0
+
+
+async def test_429_without_a_retry_after_header_carries_no_hint(
+    respx_mock: respx.MockRouter,
+) -> None:
+    respx_mock.post(URL).mock(return_value=httpx.Response(429, text="slow down"))
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RetryableError) as excinfo:
+            await _parser(client).parse_image(ImageData(b"x", "image/png"))
+    assert excinfo.value.retry_after is None
+
+
+async def test_the_dedicated_ocr_ladder_rides_out_four_rate_limits(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """A5.3: the OCR wire's dedicated ladder attempts five times, so four
+    consecutive 429s are ridden out and the fifth attempt's success is returned —
+    the default three-attempt ladder would have abandoned the (paid) page. The
+    attempt count is taken from the real ``OCR_RETRY_POLICY`` (base delay zeroed so
+    the test is instant) so a shrink to 3 fails here too."""
+    from dataclasses import replace
+
+    from smartpipe.models.ocr import OCR_RETRY_POLICY
+
+    ladder = replace(OCR_RETRY_POLICY, base_delay=0.0)
+    assert ladder.attempts == 5
+
+    attempts = 0
+
+    def responder(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 5:
+            return httpx.Response(429, text="slow down")
+        return httpx.Response(200, json={"pages": [_PAGE]})
+
+    respx_mock.post(URL).mock(side_effect=responder)
+    async with httpx.AsyncClient() as client:
+        parser = MistralOcrParser(
+            ref=ModelRef("mistral", "mistral-ocr-latest"),
+            client=client,
+            api_key="mk-x",
+            retry=ladder,
+        )
+        text = await parser.parse_image(ImageData(b"x", "image/png"))
+    assert text == "# Hello\n\nWorld"
+    assert attempts == 5
 
 
 async def test_unexpected_shape_is_an_item_error(respx_mock: respx.MockRouter) -> None:

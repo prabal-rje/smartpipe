@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
     from smartpipe.models.base import EmbeddingModel, ModelRef
+    from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import Transcriber
 
@@ -81,6 +82,7 @@ async def run_cluster(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     if request.explode is not None and request.explode != "members":
         raise UsageFault("--explode takes exactly 'members' (one row per input item)")
@@ -91,7 +93,9 @@ async def run_cluster(
     failure_policy = context.failure_policy(model.ref.provider)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, _total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     items = [item async for item in items_iter]
     if not items:
         return outcome_exit_code(done=0, skipped=0, failed=0)

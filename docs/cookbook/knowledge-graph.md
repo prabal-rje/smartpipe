@@ -14,8 +14,11 @@ output shown is from a real run.
 smartpipe graph --fast 'reports/*.pdf' 'recordings/*.mp3' data/feedback.txt --save corpus.html
 ```
 
-`--fast` never calls a model: a local NER model finds the entities,
+`--fast` calls no chat model: a local NER model finds the entities,
 co-occurrence weights the edges, and the recordings are transcribed on-device.
+(Two configured roles can spend here, each disclosed: a cloud `embed-model`
+on the name fold, a remote `stt-model` per clip. This run configures
+neither.)
 `stdout` is JSONL edges, heaviest first, each carrying the files behind it:
 
 ```json
@@ -34,16 +37,26 @@ The `stderr` receipt discloses every conversion and ends with the honest
 tally (trimmed to the load-bearing lines):
 
 ```text
-⚠ degraded: recordings/meeting-01.mp3 audio → text (whisper tiny)
-note: degraded: audio → text ×5 · figures dropped ×1
+note: converted: recordings/meeting-01.mp3 audio → text (whisper tiny)
+note: converted: audio → text ×5
+note: degraded: figures dropped ×1
 note: 14 entity names folded into 7 nodes
 note: graph saved: corpus.html
 note: graph: 78 entities (14 folded) · 969 edges (0 pruned) · 0 tok
 ```
 
-`0 tok` is the point: nothing left the machine. `corpus.html` is the
-interactive view - search, a live weight filter, and a provenance card on
-every hovered edge.
+`0 tok` is the point: nothing left the machine on this run. (The receipt is
+live - had a cloud `embed-model` or remote `stt-model` been configured, its
+spend would print here instead, and entity names or audio would ride that
+wire.) `corpus.html` is the interactive view - search, a live weight filter,
+and a provenance card on every hovered edge.
+
+> **One long recording?** A corpus that is effectively one window (a single
+> long MP3, one big document read whole) makes everything co-occur with
+> everything - the run flags it (`near-complete graph …`), and `--window
+> sentence` plus `--min-weight 2`, in that order, restore signal. The
+> [`graph` page](../verbs/graph.md) explains why min-weight alone is not
+> enough there.
 
 ## Name the entity types your corpus is about
 

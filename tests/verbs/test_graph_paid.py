@@ -11,19 +11,34 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from smartpipe.core.errors import ExitCode, UsageFault
+from smartpipe.core.errors import (
+    ExitCode,
+    RetryableError,
+    SetupFault,
+    SourceCounts,
+    TooManyFailures,
+    TransportError,
+    UsageFault,
+)
 from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io import manifest
+from smartpipe.io.inputs import InputSpec
 from smartpipe.models.base import ModelRef
-from smartpipe.models.budget import CallBudget, budgeted_chat
+from smartpipe.models.budget import CallBudget, budgeted_chat, budgeted_embed
 from smartpipe.verbs.graph import GraphRequest, run_graph
 from smartpipe.verbs.graphfull import CONFIRM_PARTIAL, extraction_prompt
 from tests.verbs.test_graph import FakeEmbedder, FakeFinder
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+    from pathlib import Path
 
-    from smartpipe.models.base import ChatModel, CompletionRequest
+    from smartpipe.models.base import ChatModel, CompletionRequest, EmbeddingModel
+    from smartpipe.models.resilience import WiredChat
+    from smartpipe.models.stt import Transcriber
+
+
+_CANARY_MARK = "Alice pays Bob for the shipment."  # mirrors graphfull._CANARY_SNIPPET
 
 
 class FakeChat:
@@ -52,28 +67,87 @@ class FakeChat:
             return self.replies[min(len(self.calls) - 1, len(self.replies) - 1)]
         return self.default
 
+    @property
+    def extraction_calls(self) -> list[CompletionRequest]:
+        """The corpus calls the run actually spent — the A2 schema-canary probe
+        (a fixed synthetic snippet, sent once before ingestion) filtered out so
+        counts and unpacks reflect real work."""
+        return [call for call in self.calls if _CANARY_MARK not in call.user]
+
 
 @dataclass
 class PaidContext:
-    """The full graph seam: the free half's fakes plus a scriptable chat wire."""
+    """The full graph seam: the free half's fakes plus a scriptable chat wire.
+    ``embedder`` is protocol-typed so belt tests can hand in budgeted wrappers."""
 
     chat: ChatModel
     finder: FakeFinder
-    embedder: FakeEmbedder
+    embedder: EmbeddingModel
+    backup: ChatModel | None = None  # A4: the configured --fallback-model target
+    breaker_limit: int = 5  # kept == failure_policy.transport_limit (the breaker invariant)
     concurrency_value: int = 1  # sequential: deterministic call order under test
+    halt_min_sample: int = 20  # lower it to trip the >50 % halt on a few chunks
     finder_labels: tuple[str, ...] = ()
     chat_resolutions: int = field(default=0)
+    stt: Transcriber | None = None
+    stt_flags: list[str | None] = field(default_factory=list["str | None"])
 
     def entity_finder(self, labels: Sequence[str]) -> FakeFinder:
         self.finder_labels = tuple(labels)
         return self.finder
 
-    def fold_embedder(self) -> FakeEmbedder:
+    async def fold_embedder(self, flag: str | None = None) -> EmbeddingModel:
+        del flag
         return self.embedder
 
+    def remote_transcriber(self, *, flag: str | None = None) -> Transcriber | None:
+        self.stt_flags.append(flag)
+        return self.stt
+
     async def chat_model(self, flag: str | None = None) -> ChatModel:
+        # Retained for any construction that still peeks at the plain wire; the
+        # migrated paid modes run on resilient_chat_model instead (A4).
         self.chat_resolutions += 1
         return self.chat
+
+    def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
+        return self.backup.ref if self.backup is not None else None
+
+    async def fallback_chat_model(self, ref: object) -> ChatModel:
+        assert self.backup is not None
+        return self.backup
+
+    def batching(self) -> None:
+        return None
+
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        # Compose THIS fake's fallback wiring into the WiredChat seam the migrated
+        # paid modes run on — mirrors test_map.FakeContext.resilient_chat_model.
+        from tests.helpers.wiring import build_wired
+
+        self.chat_resolutions += 1
+        ref = self.fallback_ref(fallback_flag)
+        if ref is None:
+            return build_wired(
+                self.chat,
+                concurrency=self.concurrency_value,
+                breaker_limit=self.breaker_limit,
+                batching=None,
+            )
+
+        async def fallback() -> ChatModel:
+            return await self.fallback_chat_model(ref)
+
+        return build_wired(
+            self.chat,
+            concurrency=self.concurrency_value,
+            breaker_limit=self.breaker_limit,
+            fallback_factory=fallback,
+            fallback_ref=ref,
+            batching=None,
+        )
 
     def document_parser(self, flag: str | None = None) -> None:
         return None
@@ -85,8 +159,9 @@ class PaidContext:
         from smartpipe.cli import screens
 
         return FailurePolicy(
-            transport_limit=5,
-            transport_screen=screens.provider_down(provider, 5),
+            transport_limit=self.breaker_limit,
+            transport_screen=screens.provider_down(provider, self.breaker_limit),
+            min_sample=self.halt_min_sample,
         )
 
 
@@ -193,7 +268,7 @@ async def test_full_mode_extracts_folds_and_serializes(
 async def test_full_mode_instruction_carries_the_focus_preamble() -> None:
     chat = FakeChat()
     await _run(GraphRequest(focus="who pays whom"), _context(chat), "Ann met Bob\n")
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert call.user.startswith("who pays whom\n\nExtract triples:")
     assert "<input>\nAnn met Bob\n</input>" in call.user
 
@@ -207,7 +282,7 @@ async def test_enum_ontology_reaches_the_schema() -> None:
         _context(chat),
         "Ann met Bob\n",
     )
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert call.json_schema is not None
     outer = as_record(as_record(call.json_schema.get("properties")).get("triples"))  # type: ignore[union-attr]
     inner = as_record(as_record(outer.get("items")).get("properties"))  # type: ignore[union-attr]
@@ -254,6 +329,133 @@ async def test_full_mode_skips_invalid_replies_and_exits_partial(
     assert "skipped: line 2" in capsys.readouterr().err
 
 
+# --- A1: a fail-fast halt salvages what was already extracted ------------------------
+
+
+async def test_full_mode_halt_salvages_the_extracted_edges() -> None:
+    """The >50 % failure halt must still write the edges from the chunks that DID
+    succeed before it tripped — run B discarded 7 good extractions and 943 paid
+    OCR pages to this exact gap. The run still exits ALL_FAILED, not empty-handed."""
+    chat = FakeChat(
+        by_content={"Ann pays Bob": triples(("Ann", "pays", "Bob")), "junk": "not json"}
+    )
+    context = _context(chat)
+    context.halt_min_sample = 2  # trip the ratio on three chunks, not twenty
+    out = io.StringIO()
+    with pytest.raises(TooManyFailures) as excinfo:
+        await run_graph(
+            GraphRequest(focus="pays"),
+            context,
+            stdin=io.StringIO("Ann pays Bob\njunk one\njunk two\n"),
+            stdout=out,
+            stop=None,
+            clock=lambda: 0.0,
+            ask=None,
+            budget=None,
+        )
+    edges = _edges(out.getvalue())
+    assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in edges)  # salvaged
+    # file-unit accounting for the manifest: one good source, two failed
+    assert excinfo.value.source_counts == SourceCounts(succeeded=1, skipped=2, failed=2)
+
+
+async def test_full_mode_halt_reraises_file_unit_not_chunk_unit_counts() -> None:
+    """The halt's manifest denominator counts SOURCE FILES, not extraction chunks:
+    one over-split file that fails is one skipped source, never its chunk count."""
+    chat = FakeChat(
+        by_content={"Ann pays Bob": triples(("Ann", "pays", "Bob")), "static": "not json"}
+    )
+    context = _context(chat)
+    context.halt_min_sample = 2
+    big_junk = "static " * 1500  # ~2,600 est. tokens → two chunks, both invalid
+    out = io.StringIO()
+    with pytest.raises(TooManyFailures) as excinfo:
+        await run_graph(
+            GraphRequest(focus="pays"),
+            context,
+            stdin=io.StringIO(f"Ann pays Bob\n{big_junk}\n"),
+            stdout=out,
+            stop=None,
+            clock=lambda: 0.0,
+            ask=None,
+            budget=None,
+        )
+    # one good file + one failed (two-chunk) file: file-unit (1,1,1), NOT chunk (1,2,2)
+    assert excinfo.value.source_counts == SourceCounts(succeeded=1, skipped=1, failed=1)
+    assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in _edges(out.getvalue()))
+
+
+async def test_full_mode_halt_settles_the_manifest_at_all_failed(tmp_path: object) -> None:
+    """A1's central claim, exercised end to end THROUGH ``settled`` — the seam it was
+    built for. Prior halt tests only read ``excinfo.value.source_counts``; this drives
+    the halt through the CLI boundary and asserts the manifest it writes records
+    FILE-unit counts at exit ``all_failed``, with the salvaged edge already on stdout."""
+    from pathlib import Path
+
+    from smartpipe.cli.manifest_option import settled
+    from smartpipe.io import source_accounting
+
+    assert isinstance(tmp_path, Path)
+    target = tmp_path / "halt.json"
+    source_accounting.reset()  # the composition root arms this once per run
+    manifest.reset()
+    manifest.begin(target, verb="graph", argv=("graph",))
+    chat = FakeChat(
+        by_content={"Ann pays Bob": triples(("Ann", "pays", "Bob")), "junk": "not json"}
+    )
+    context = _context(chat)
+    context.halt_min_sample = 2  # trip the ratio on three chunks
+    out = io.StringIO()
+    work = run_graph(
+        GraphRequest(focus="pays"),
+        context,
+        stdin=io.StringIO("Ann pays Bob\njunk one\njunk two\n"),
+        stdout=out,
+        stop=None,
+        clock=lambda: 0.0,
+        ask=None,
+        budget=None,
+    )
+    with pytest.raises(TooManyFailures) as excinfo:
+        await settled(work, None)  # the boundary writes the manifest, then re-raises
+
+    assert excinfo.value.source_counts == SourceCounts(succeeded=1, skipped=2, failed=2)
+    document = json.loads(target.read_text(encoding="utf-8"))
+    assert document["run"]["exit_status"] == "all_failed"
+    assert document["run"]["exit_code"] == int(ExitCode.ALL_FAILED)
+    # file-unit books, NOT the runner's chunk-unit halt display (2 of 3 items)
+    assert document["items"] == {"in": 3, "succeeded": 1, "skipped": 2, "failed": 2}
+    assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in _edges(out.getvalue()))
+
+
+async def test_hybrid_naming_halt_keeps_the_co_occurrence_graph_and_exits_partial(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A naming fail-fast leaves the free co-occurrence graph fully intact, so the
+    run salvages it as co-occurs and exits PARTIAL — never ALL_FAILED: the sources
+    all succeeded, only the naming enhancement stopped early."""
+    chat = FakeChat(default='{"relation": ""}')  # every naming call names nothing → fails
+    context = _context(chat)
+    context.halt_min_sample = 2
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(focus="who", name_top=2),
+        context,
+        stdin=io.StringIO("Ann met Bob\nAnn met Bob\nAnn met Acme\n"),
+        stdout=out,
+        stop=None,
+        clock=lambda: 0.0,
+        ask=None,
+        budget=None,
+    )
+    assert code is ExitCode.PARTIAL
+    assert [(e["source"], e["target"], e["relation"]) for e in _edges(out.getvalue())] == [
+        ("Ann", "Bob", "co-occurs"),
+        ("Acme", "Ann", "co-occurs"),
+    ]
+    assert "naming stopped early" in capsys.readouterr().err
+
+
 # --- the pre-flight cost plan (pinned wordings, ledger 66f) --------------------------
 
 
@@ -272,7 +474,11 @@ async def test_preflight_plan_names_the_short_belt(
         budget=budget,
     )
     err = capsys.readouterr().err
-    assert "note: ~3 extraction calls across 3 files; belt is 2 — the graph will be partial" in err
+    # belt 2, canary charges 1 → 1 left; the note reports the REMAINING, not the
+    # raw belt (GLM SHOULD-FIX 1), so the one-short shortfall is visible.
+    assert (
+        "note: ~3 extraction calls across 3 files; 1 left in the belt — the graph will be partial"
+    ) in err
     assert code is ExitCode.PARTIAL
 
 
@@ -301,11 +507,13 @@ async def test_preflight_stays_plain_when_the_belt_covers_the_need(
     assert "no belt set" not in err
 
 
-async def test_tty_confirm_decline_spends_nothing_and_exits_zero(
+async def test_tty_confirm_decline_spends_only_the_canary_and_exits_zero(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    # GLM review NIT 3: the canary fires BEFORE the partial-graph prompt, so a
+    # decline spends the one probe (not literally nothing) — the name says so.
     stop = asyncio.Event()
-    budget = CallBudget(limit=1, stop=stop)
+    budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat()
     context = _context(budgeted_chat(chat, budget))
     asked: list[str] = []
@@ -317,7 +525,7 @@ async def test_tty_confirm_decline_spends_nothing_and_exits_zero(
     code, out = await _run(
         GraphRequest(focus="pays"),
         context,
-        "Ann one\nBob two\n",
+        "Ann one\nBob two\nCat three\n",  # 3 chunks > belt 2 → belt_short → the prompt
         stop=stop,
         ask=decline,
         budget=budget,
@@ -326,13 +534,13 @@ async def test_tty_confirm_decline_spends_nothing_and_exits_zero(
     assert out == ""  # nothing extracted, nothing written
     assert asked == ["proceed with a partial graph? [y/N]"]
     assert asked == [CONFIRM_PARTIAL]
-    assert chat.calls == []  # declined at the plan: zero spend
+    assert chat.extraction_calls == []  # declined at the plan: only the canary probe fired
     assert "the graph will be partial" in capsys.readouterr().err
 
 
 async def test_piped_run_never_prompts_and_the_belt_governs() -> None:
     stop = asyncio.Event()
-    budget = CallBudget(limit=1, stop=stop)
+    budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat([triples(("Ann", "pays", "Bob"))])
     context = _context(budgeted_chat(chat, budget))
     # ask=None + a StringIO stdin (isatty False) = the piped path: no prompt
@@ -340,7 +548,7 @@ async def test_piped_run_never_prompts_and_the_belt_governs() -> None:
         GraphRequest(focus="pays"), context, "Ann one\nBob two\n", stop=stop, budget=budget
     )
     assert code is ExitCode.PARTIAL
-    assert len(chat.calls) == 1  # the belt, not a prompt, capped the run
+    assert len(chat.extraction_calls) == 1  # the belt, not a prompt, capped the run
     assert len(_edges(out)) == 1
 
 
@@ -348,7 +556,7 @@ async def test_belt_census_wording_and_partial_graph(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     stop = asyncio.Event()
-    budget = CallBudget(limit=1, stop=stop)
+    budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat([triples(("Ann", "pays", "Bob"))])
     context = _context(budgeted_chat(chat, budget))
     code, out = await _run(
@@ -394,7 +602,7 @@ async def test_belt_remainder_is_skipped_but_not_failed_in_manifest(tmp_path: ob
     manifest.reset()
     manifest.begin(target, verb="graph", argv=("graph",))
     stop = asyncio.Event()
-    budget = CallBudget(limit=1, stop=stop)
+    budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat([triples(("Ann", "pays", "Bob"))])
     context = _context(budgeted_chat(chat, budget))
     context.concurrency_value = 3  # admit the remainder so it becomes typed Unsent
@@ -456,7 +664,7 @@ async def test_hybrid_naming_call_carries_pair_windows_focus_and_enum() -> None:
         _context(chat),
         "Ann pays Bob\nBob thanks Ann\n",
     )
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert "source: Ann" in call.user
     assert "target: Bob" in call.user
     assert "they appear together in:" in call.user
@@ -481,11 +689,25 @@ async def test_hybrid_composes_without_fast_and_with_it() -> None:
         assert edge["relation"] == "pays"
 
 
+async def test_hybrid_threads_the_stt_flag_to_the_resolution() -> None:
+    """#20: the hybrid scan honors --stt-model exactly like --fast — one
+    resolution carrying the flag, before the free pass reads a byte."""
+    chat = FakeChat(default='{"relation": "pays"}')
+    context = _context(chat)
+    code, _ = await _run(
+        GraphRequest(name_top=1, stt_model_flag="openai/whisper-1"),
+        context,
+        "Ann pays Bob\n",
+    )
+    assert code is ExitCode.OK
+    assert context.stt_flags == ["openai/whisper-1"]
+
+
 async def test_hybrid_belt_shortfall_keeps_co_occurs_and_discloses(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     stop = asyncio.Event()
-    budget = CallBudget(limit=1, stop=stop)
+    budget = CallBudget(limit=2, stop=stop)  # +1 belt unit for the A2 schema canary
     chat = FakeChat(default='{"relation": "pays"}')
     context = _context(budgeted_chat(chat, budget))
     code, out = await _run(
@@ -512,6 +734,27 @@ async def test_hybrid_on_empty_input_is_ok_and_silent() -> None:
     assert code is ExitCode.OK
     assert out == ""
     assert chat.calls == []
+
+
+async def test_hybrid_density_hint_fires_before_the_naming_receipt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A4 (C6 #34): in hybrid the hint lands right after pruning — BEFORE the
+    paid naming spend and therefore before the '· 1 named' receipt — so a user
+    can Ctrl-C instead of paying to have window math named."""
+    names = tuple(f"P{n:02d}" for n in range(1, 21))  # one line: C(20,2) = 190 of 190
+    chat = FakeChat(default='{"relation": "pays"}')
+    code, out = await _run(
+        GraphRequest(name_top=1),
+        _context(chat, known=dict.fromkeys(names, "person")),
+        " ".join(names) + "\n",
+    )
+    assert code is ExitCode.OK
+    assert len(_edges(out)) == 190
+    err = capsys.readouterr().err
+    hint = err.index("note: near-complete graph (190 of 190 possible edges)")
+    receipt = err.index("· 1 named ·")
+    assert hint < receipt
 
 
 # --- ADOPT: edge-shaped records on stdin ---------------------------------------------
@@ -542,6 +785,24 @@ async def test_adopt_subject_relation_object_rows_fold_and_serialize(
     assert "note: graph: 2 entities (0 folded) · 1 edges (0 pruned) · 0 tok" in (
         capsys.readouterr().err
     )
+
+
+async def test_adopt_receipt_reports_real_spend_once_the_meter_moves(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """C3 #28: adopt's receipt reads the LIVE meter (receipt_tail) — a paid
+    fold can no longer hide behind a hardcoded ``· 0 tok``."""
+    from smartpipe.io import metering
+
+    metering.add_tokens(tokens_in=48_000, tokens_out=12_000)
+    code, out = await _run(
+        GraphRequest(), _context(FakeChat()), '{"source": "Ann", "target": "Bob"}\n'
+    )
+    assert code is ExitCode.OK
+    assert out  # the adopted edge reached stdout
+    err = capsys.readouterr().err
+    assert "· run: ↑48.0k ↓12.0k tok" in err
+    assert "· 0 tok" not in err
 
 
 async def test_adopt_source_target_rows_keep_weight_relation_and_provenance() -> None:
@@ -585,6 +846,36 @@ async def test_adopt_canonicalizes_near_duplicate_names() -> None:
     assert code is ExitCode.OK
     (edge,) = _edges(out)
     assert (edge["source"], edge["target"], edge["weight"]) == ("Acme Corp", "Ann", 2)
+
+
+async def test_adopt_drained_stop_exits_partial_not_ok(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """B1 review: a drained Ctrl-C during adopt's fold must exit PARTIAL, never OK —
+    like full/hybrid/fast mode already do. run_adopt used to return OK unconditionally,
+    so an interrupted adopt run looked clean."""
+    rows = (
+        '{"subject": "Ann", "relation": "pays", "object": "Bob"}\n'
+        '{"subject": "Cid", "relation": "pays", "object": "Dan"}\n'
+    )
+    stop = asyncio.Event()
+
+    def should_stop() -> bool:
+        stop.set()  # the fold's first cooperative check trips the run-level drain
+        return True
+
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(),
+        _context(FakeChat()),
+        stdin=io.StringIO(rows),
+        stdout=out,
+        stop=stop,
+        should_stop=should_stop,
+        clock=lambda: 0.0,
+    )
+    assert code is ExitCode.PARTIAL  # NOT OK — the drained fold is a partial (was the bug)
+    assert "interrupted" in capsys.readouterr().err
 
 
 async def test_mixed_stdin_refuses_before_any_output() -> None:
@@ -642,9 +933,9 @@ async def test_full_mode_splits_oversized_text_and_labels_the_chunks() -> None:
     chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), f"{long_text}\n")
     assert code is ExitCode.OK
-    assert len(chat.calls) > 1  # one call per token chunk
+    assert len(chat.extraction_calls) > 1  # one call per token chunk
     (edge,) = _edges(out)
-    assert edge["weight"] == len(chat.calls)  # every chunk asserted the triple
+    assert edge["weight"] == len(chat.extraction_calls)  # every chunk asserted the triple
     first = _source_records(edge)[0]
     assert first["as"] == "tokens"
     assert first["segment"] == 1
@@ -659,7 +950,7 @@ async def test_full_mode_routes_image_records_through_the_vision_ladder() -> Non
     chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), f"{record}\n")
     assert code is ExitCode.OK
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert len(call.media) == 1  # the figure rode the request natively
     assert len(_edges(out)) == 1
 
@@ -679,7 +970,7 @@ async def test_full_mode_slices_audio_and_sends_it_natively() -> None:
     chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), f"{record}\n")
     assert code is ExitCode.OK
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert len(call.media) == 1  # one sub-10-minute slice, heard natively
     assert len(_edges(out)) == 1
 
@@ -720,7 +1011,7 @@ async def test_full_mode_on_empty_input_is_ok_and_silent() -> None:
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), "")
     assert code is ExitCode.OK
     assert out == ""
-    assert chat.calls == []
+    assert chat.extraction_calls == []  # empty stdin: at most the canary probe, no extraction
 
 
 async def test_full_mode_interrupt_drains_and_reports(
@@ -730,7 +1021,8 @@ async def test_full_mode_interrupt_drains_and_reports(
 
     class StoppingChat(FakeChat):
         async def complete(self, request: CompletionRequest) -> str:
-            stop.set()  # a Ctrl-C mid-run: intake halts, in-flight work drains
+            if _CANARY_MARK not in request.user:
+                stop.set()  # a Ctrl-C mid-run (not the canary): intake halts, work drains
             return await super().complete(request)
 
     chat = StoppingChat(default=triples(("Ann", "pays", "Bob")))
@@ -765,7 +1057,8 @@ async def test_hybrid_interrupt_drains_and_reports(
 
     class StoppingChat(FakeChat):
         async def complete(self, request: CompletionRequest) -> str:
-            stop.set()
+            if _CANARY_MARK not in request.user:
+                stop.set()
             return await super().complete(request)
 
     chat = StoppingChat(default='{"relation": "pays"}')
@@ -789,7 +1082,7 @@ async def test_hybrid_document_window_names_without_snippets() -> None:
         GraphRequest(name_top=1, window="document"), _context(chat), "Ann here\nBob there\n"
     )
     assert code is ExitCode.OK
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert "source: Ann" in call.user
     assert "they appear together in:" not in call.user
     (edge,) = _edges(out)
@@ -800,7 +1093,7 @@ async def test_hybrid_naming_windows_cap_at_three() -> None:
     chat = FakeChat(default='{"relation": "pays"}')
     corpus = "".join(f"Ann met Bob v{n}\n" for n in range(5))
     await _run(GraphRequest(name_top=1), _context(chat), corpus)
-    (call,) = chat.calls
+    (call,) = chat.extraction_calls
     assert "[3] Ann met Bob v2" in call.user
     assert "[4]" not in call.user
 
@@ -853,7 +1146,7 @@ async def test_full_mode_whitespace_only_input_is_ok_and_silent() -> None:
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), "   \n")
     assert code is ExitCode.OK
     assert out == ""
-    assert chat.calls == []  # nothing worth an extraction call
+    assert chat.extraction_calls == []  # whitespace chunks to nothing: no extraction call
 
 
 async def test_adopt_ignores_a_boolean_weight() -> None:
@@ -877,7 +1170,7 @@ async def test_full_mode_labels_figures_beside_text() -> None:
     chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), f"{record}\n")
     assert code is ExitCode.OK
-    assert len(chat.calls) == 2  # the text chunk and the figure chunk
+    assert len(chat.extraction_calls) == 2  # the text chunk and the figure chunk
     (edge,) = _edges(out)
     assert any("img.1" in label for label in _source_labels(edge))
 
@@ -897,7 +1190,7 @@ async def test_full_mode_slices_long_audio_into_labeled_minutes() -> None:
     chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
     code, out = await _run(GraphRequest(focus="pays"), _context(chat), f"{record}\n")
     assert code is ExitCode.OK
-    assert len(chat.calls) == 2  # two ten-minute slices, one call each
+    assert len(chat.extraction_calls) == 2  # two ten-minute slices, one call each
     (edge,) = _edges(out)
     labels = _source_labels(edge)
     assert any("§00:00-10:00" in label for label in labels)
@@ -932,3 +1225,616 @@ def test_tty_asker_is_absent_when_stdin_is_piped() -> None:
     from smartpipe.verbs.graphfull import tty_asker
 
     assert tty_asker(io.StringIO("data\n")) is None
+
+
+# --- A2: the schema canary refuses total incapacity BEFORE any ingestion spend -----
+
+
+async def test_full_mode_canary_refuses_before_spend_when_the_model_fails_the_schema() -> None:
+    # the canary snippet comes back wrong-shaped twice (initial + the one repair
+    # rung map_one grants) → the model cannot hold the extraction schema, so the
+    # run refuses at SETUP before a single real chunk (or paid OCR page) is sent.
+    chat = FakeChat(by_content={"Alice pays Bob": "not json at all"})
+    context = _context(chat)
+    with pytest.raises(SetupFault) as excinfo:
+        await _run(GraphRequest(focus="who pays whom"), context, "Ann pays Bob\n")
+    message = str(excinfo.value)
+    assert "ollama/fake" in message
+    assert "cannot hold" in message
+    # the real corpus never reached the wire — only the fixed canary snippet did
+    assert all("Ann pays Bob" not in call.user for call in chat.calls)
+    assert any("Alice pays Bob" in call.user for call in chat.calls)
+
+
+async def test_full_mode_canary_passes_then_extracts_normally() -> None:
+    chat = FakeChat(
+        by_content={
+            "Alice pays Bob": triples(("Alice", "pays", "Bob")),
+            "Ann pays Bob": triples(("Ann", "pays", "Bob")),
+        }
+    )
+    code, out = await _run(GraphRequest(focus="who pays whom"), _context(chat), "Ann pays Bob\n")
+    assert code == ExitCode.OK
+    assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in _edges(out))
+    assert any("Alice pays Bob" in call.user for call in chat.calls)  # the probe fired
+
+
+async def test_full_mode_canary_does_not_relabel_an_availability_fault_as_incapacity() -> None:
+    # a transient wire fault at canary time is NOT a schema verdict: it must
+    # propagate as itself, never masquerade as "cannot hold the schema".
+    class DownChat(FakeChat):
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls.append(request)
+            raise RetryableError("rate limited")
+
+    with pytest.raises(RetryableError):
+        await _run(GraphRequest(focus="who pays whom"), _context(DownChat()), "Ann pays Bob\n")
+
+
+async def test_hybrid_mode_canary_refuses_before_the_naming_loop_spends() -> None:
+    # hybrid names its strongest edges through a single-field schema; if the
+    # model cannot hold even that, refuse before the naming loop spends. The
+    # canary is guarded by there being edges to name, so an empty corpus is free.
+    chat = FakeChat(by_content={"Alice pays Bob": "not json"})
+    context = _context(chat)
+    with pytest.raises(SetupFault):
+        await _run(GraphRequest(name_top=5), context, "Ann pays Bob and Bob pays Ann\n")
+
+
+async def test_hybrid_canary_probes_the_naming_surface_not_a_bare_sentence() -> None:
+    # GLM review NIT 5: the hybrid probe must exercise the SAME payload the
+    # naming loop drives (source:/target: plus a co-occurrence window), not a
+    # bare sentence — a model that emits relation JSON for free text is not
+    # proof it can name from a pair window.
+    chat = FakeChat(default='{"relation": "pays"}')
+    await _run(GraphRequest(name_top=1), _context(chat), "Ann pays Bob and Bob pays Ann\n")
+    probe = next(call for call in chat.calls if _CANARY_MARK in call.user)
+    assert "source:" in probe.user
+    assert "target:" in probe.user
+    assert "they appear together in:" in probe.user
+
+
+async def test_a_belt_sized_to_the_chunk_count_is_one_short_from_the_probe(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # GLM review SHOULD-FIX 1: the canary spends one belt unit, so a belt equal
+    # to the chunk count leaves room for one fewer extraction. The plan must SAY
+    # "partial" up front — counting the probe against the belt — not silently
+    # drop the last chunk after promising a full graph. And the number it reports
+    # is the REMAINING (2 left of a belt-3), not the raw belt — so a reader who
+    # bumps the belt raises it PAST the chunk count, not merely up to it.
+    stop = asyncio.Event()
+    budget = CallBudget(limit=3, stop=stop)  # 3 chunks, but the probe eats one unit
+    chat = FakeChat([triples(("Ann", "pays", "Bob"))])
+    context = _context(budgeted_chat(chat, budget))
+    code, _ = await _run(
+        GraphRequest(focus="pays"),
+        context,
+        "one Ann Bob\ntwo Ann Bob\nthree Ann Bob\n",
+        stop=stop,
+        budget=budget,
+    )
+    err = capsys.readouterr().err
+    assert "2 left in the belt — the graph will be partial" in err
+    assert code is ExitCode.PARTIAL
+
+
+async def test_belt_of_one_does_its_one_real_call_and_skips_the_probe() -> None:
+    # GLM review SHOULD-FIX 2: a belt that cannot afford the probe PLUS a real
+    # call must not burn its only unit on the canary. The probe protects work,
+    # and a belt of one has at most one call to protect — so skip it and spend
+    # the unit on the real extraction (pre-A2 behaviour).
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    chat = FakeChat([triples(("Ann", "pays", "Bob"))])
+    context = _context(budgeted_chat(chat, budget))
+    code, out = await _run(
+        GraphRequest(focus="pays"), context, "Ann pays Bob\n", stop=stop, budget=budget
+    )
+    assert code is ExitCode.OK
+    assert all(_CANARY_MARK not in call.user for call in chat.calls)  # the probe never fired
+    assert len(chat.extraction_calls) == 1  # the one belt unit went to real work
+    assert len(_edges(out)) == 1
+
+
+async def test_empty_input_at_belt_of_one_spends_nothing() -> None:
+    # GLM review SHOULD-FIX 2, the cited case: `echo -n "" | graph --max-calls 1`
+    # must not spend its only unit probing an empty stream. With the belt unable
+    # to afford probe + work, the canary is skipped and nothing is spent.
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    chat = FakeChat()
+    context = _context(budgeted_chat(chat, budget))
+    code, out = await _run(GraphRequest(focus="pays"), context, "", stop=stop, budget=budget)
+    assert code is ExitCode.OK
+    assert out == ""
+    assert chat.calls == []  # not even the probe fired
+
+
+# --- #27: the fold-embedder preflight faults BEFORE any spend -------------------------
+
+
+class _BrokenFoldContext(PaidContext):
+    """A context whose fold embedder cannot be built — a missing key in miniature."""
+
+    async def fold_embedder(self, flag: str | None = None) -> FakeEmbedder:
+        del flag
+        raise SetupFault("error: model 'text-embedding-3-small' needs an OpenAI API key")
+
+
+def _broken_fold_context(chat: ChatModel) -> _BrokenFoldContext:
+    return _BrokenFoldContext(chat=chat, finder=FakeFinder(PEOPLE), embedder=FakeEmbedder({}))
+
+
+async def test_broken_fold_embedder_faults_before_the_canary_spends() -> None:
+    """#27: the preflight builds the fold embedder at dispatch, so a broken embed
+    config faults BEFORE the schema canary (or any extraction) reaches the wire."""
+    chat = FakeChat()
+    with pytest.raises(SetupFault, match="OpenAI API key"):
+        await _run(GraphRequest(focus="who pays whom"), _broken_fold_context(chat), "Ann Bob\n")
+    assert chat.calls == []  # not even the canary probe fired
+
+
+async def test_bare_terminal_refusal_outranks_a_broken_embed_config() -> None:
+    """#27 order pin: adopt at a bare terminal refuses on the three-forms screen
+    (usage, 64) even when the embed config is ALSO broken (setup, 2)."""
+    out = io.StringIO()
+    with pytest.raises(UsageFault, match="three forms"):
+        await run_graph(
+            GraphRequest(),
+            _broken_fold_context(FakeChat()),
+            stdin=_TtyIn(""),
+            stdout=out,
+            clock=lambda: 0.0,
+        )
+
+
+async def test_invalid_entities_outranks_a_broken_embed_config() -> None:
+    """#27 review SHOULD-FIX: grammar outranks wiring — an --entities dial that
+    parses empty refuses at USAGE even when the embed config is also broken."""
+    with pytest.raises(UsageFault, match="--entities"):
+        await _run(
+            GraphRequest(fast=True, entities=" , "), _broken_fold_context(FakeChat()), "Ann\n"
+        )
+
+
+async def test_invalid_relations_outranks_a_broken_embed_config() -> None:
+    """The --relations twin: an all-blank vocabulary refuses at USAGE before
+    the fold-embedder preflight can fault at SETUP."""
+    with pytest.raises(UsageFault, match="--relations"):
+        await _run(
+            GraphRequest(focus="who pays whom", relations=" , "),
+            _broken_fold_context(FakeChat()),
+            "Ann\n",
+        )
+
+
+# --- #29: a belt-cut fold flips the run to PARTIAL — in every mode --------------------
+
+# 65 names → a 64-batch plus one; fixed-width so FakeFinder's substring match
+# never sees two entities on one line (no co-occurrence edges, nothing to name)
+_BELT_NAMES = {f"N{n:02d}": "person" for n in range(65)}
+_BELT_CORPUS = "".join(f"N{n:02d} alone\n" for n in range(65))
+
+
+async def test_full_mode_belt_cut_fold_exits_partial_with_the_edge_on_stdout(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """#29 ruling: the paid fold stays metered, and a belt that cuts it flips
+    the run to PARTIAL (1) — never 0 (the ux.md belt rule: a partial graph
+    never exits clean). The extracted edge is still written, unfolded."""
+    stop = asyncio.Event()
+    budget = CallBudget(limit=2, stop=stop)  # canary + one extraction; none left to fold
+    chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
+    context = PaidContext(
+        chat=budgeted_chat(chat, budget),
+        finder=FakeFinder(PEOPLE),
+        embedder=budgeted_embed(FakeEmbedder({}), budget),
+    )
+    code, out = await _run(
+        GraphRequest(focus="pays"), context, "Ann pays Bob\n", stop=stop, budget=budget
+    )
+    assert code is ExitCode.PARTIAL  # the fold was belt-cut: never a clean 0
+    (edge,) = _edges(out)
+    assert (edge["source"], edge["target"]) == ("Ann", "Bob")  # still on stdout
+    err = capsys.readouterr().err
+    assert "entity folding skipped (call budget reached (--max-calls 2))" in err
+    assert "done: interrupted" not in err  # a belt stop is not a Ctrl-C
+
+
+async def test_fast_mode_belt_cut_fold_exits_partial_not_interrupted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The belt shares the run's stop event: when it cuts a paid fold on
+    --fast, the run exits PARTIAL without wearing the Ctrl-C drain summary."""
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    context = PaidContext(
+        chat=FakeChat(),
+        finder=FakeFinder(_BELT_NAMES),
+        embedder=budgeted_embed(FakeEmbedder({}), budget),
+    )
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(fast=True),
+        context,
+        stdin=io.StringIO(_BELT_CORPUS),
+        stdout=out,
+        stop=stop,
+        clock=lambda: 0.0,
+        budget=budget,
+    )
+    assert code is ExitCode.PARTIAL
+    err = capsys.readouterr().err
+    assert "done: interrupted" not in err  # the belt stop is not a user interrupt
+    assert (
+        "entity folding stopped early (call budget reached (--max-calls 1)) — "
+        "64 of 65 names embedded"
+    ) in err
+
+
+async def test_hybrid_belt_cut_fold_exits_partial_not_ok() -> None:
+    """Hybrid's scan carries the fold cut out through FastScan.fold_cut: with
+    no edges to name (and so no naming skips), the belt-cut fold alone must
+    still flip the exit to PARTIAL."""
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    context = PaidContext(
+        chat=FakeChat(),
+        finder=FakeFinder(_BELT_NAMES),
+        embedder=budgeted_embed(FakeEmbedder({}), budget),
+    )
+    code, out = await _run(
+        GraphRequest(name_top=3), context, _BELT_CORPUS, stop=stop, budget=budget
+    )
+    assert code is ExitCode.PARTIAL  # solo names give nothing to name — the fold cut decides
+    assert out == ""
+
+
+async def test_adopt_belt_cut_fold_exits_partial_not_interrupted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)
+    rows = "".join(
+        json.dumps({"source": f"S{n}", "target": f"T{n}"}) + "\n" for n in range(33)
+    )  # 66 names: one full batch charges the belt, the second raises UnsentError
+    context = PaidContext(
+        chat=FakeChat(),
+        finder=FakeFinder(PEOPLE),
+        embedder=budgeted_embed(FakeEmbedder({}), budget),
+    )
+    code, out = await _run(GraphRequest(), context, rows, stop=stop, budget=budget)
+    assert code is ExitCode.PARTIAL
+    assert len(_edges(out)) == 33  # every adopted row is still written
+    err = capsys.readouterr().err
+    assert "done: interrupted" not in err  # a belt stop is not a Ctrl-C
+    assert "entity folding stopped early (call budget reached (--max-calls 1))" in err
+
+
+async def test_full_mode_sigint_after_an_exact_belt_still_reports_interrupted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Review BLOCKER: the belt latch is HISTORICAL. When the last extraction
+    exactly exhausts --max-calls (run complete, no shortfall) and the user THEN
+    Ctrl-Cs during the free fold, the fold's INTERRUPT cut must take the
+    drain-summary path — the latch must not silently swallow the Ctrl-C."""
+    stop = asyncio.Event()
+    budget = CallBudget(limit=2, stop=stop)  # canary + the one chunk: exactly exhausted
+    chat = FakeChat(default=triples(("Ann", "pays", "Bob")))
+    context = _context(budgeted_chat(chat, budget))
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(focus="pays"),
+        context,
+        stdin=io.StringIO("Ann pays Bob\n"),
+        stdout=out,
+        stop=stop,
+        should_stop=lambda: True,  # the SIGINT lands as the free fold starts
+        clock=lambda: 0.0,
+        ask=None,
+        budget=budget,
+    )
+    assert code is ExitCode.PARTIAL  # the cut fold is a salvaged partial
+    err = capsys.readouterr().err
+    assert "done: interrupted" in err  # the Ctrl-C is acknowledged, not swallowed
+    assert "entity folding interrupted — 0 of 2 names embedded" in err
+
+
+async def test_hybrid_sigint_during_the_fold_after_the_belt_latch_reports_interrupted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Review BLOCKER, hybrid twin. Hybrid's fold precedes naming, so the
+    concrete case is a paid fold whose first batch exactly latches the belt;
+    the user's Ctrl-C before the second batch is an INTERRUPT cut and must not
+    be suppressed by the (already latched) exhaustion flag."""
+    stop = asyncio.Event()
+    budget = CallBudget(limit=1, stop=stop)  # batch one exactly latches the belt
+    polls = iter((False,))  # False once, then latched true — a SIGINT between batches
+    context = PaidContext(
+        chat=FakeChat(),
+        finder=FakeFinder(_BELT_NAMES),
+        embedder=budgeted_embed(FakeEmbedder({}), budget),
+    )
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(name_top=3),
+        context,
+        stdin=io.StringIO(_BELT_CORPUS),
+        stdout=out,
+        stop=stop,
+        should_stop=lambda: next(polls, True),
+        clock=lambda: 0.0,
+        budget=budget,
+    )
+    assert code is ExitCode.PARTIAL  # the cut fold is a salvaged partial
+    err = capsys.readouterr().err
+    assert "done: interrupted" in err  # the Ctrl-C is acknowledged, not swallowed
+    assert "entity folding interrupted — 64 of 65 names embedded" in err
+
+
+# --- A4: --fallback-model failover into both paid modes (item 11) --------------------
+
+
+class CanaryThenDown(FakeChat):
+    """Passes the A2 schema canary (a fixed synthetic snippet), then dies on the
+    wire for every REAL chunk — a primary that proved the schema but went down."""
+
+    async def complete(self, request: CompletionRequest) -> str:
+        self.calls.append(request)
+        if _CANARY_MARK in request.user:
+            return triples(("Alice", "pays", "Bob"))  # the canary passes
+        raise TransportError("ollama error 503: overloaded")  # every real chunk fails
+
+
+async def test_full_mode_failover_switches_to_the_backup(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A4: the primary clears the canary, then every real extraction call dies on
+    # the wire. The breaker trips and swaps WHOLESALE to the configured fallback,
+    # replaying the held window onto it — the same seam map/extend/filter/join use.
+    backup = FakeChat([triples(("Ann", "pays", "Bob"))])
+    backup.ref = ModelRef("openai", "gpt-4o-mini")
+    primary = CanaryThenDown()
+    context = PaidContext(
+        chat=primary,
+        finder=FakeFinder(PEOPLE),
+        embedder=FakeEmbedder({}),
+        backup=backup,
+        breaker_limit=2,
+        concurrency_value=4,  # a held window before the trip, like map's switch test
+    )
+    code, out = await _run(
+        GraphRequest(focus="who pays whom"),
+        context,
+        "one Ann Bob\ntwo Ann Bob\nthree Ann Bob\nfour Ann Bob\nfive Ann Bob\nsix Ann Bob\n",
+    )
+    assert code is ExitCode.OK  # the held window re-ran on the backup — nothing lost
+    edges = _edges(out)
+    assert any((e["source"], e["target"]) == ("Ann", "Bob") for e in edges)  # backup answered
+    err = capsys.readouterr().err
+    assert "switching to openai/gpt-4o-mini for the rest of the run" in err
+    assert "answers: openai/gpt-4o-mini" in err  # the receipt keeps the swap visible
+    # the "nothing lost" claim is load-bearing: the primary answered only its
+    # breaker window, the backup answered every held + remaining chunk, and no
+    # chunk fell through to a skip (mirrors test_map's failover-switch assertions).
+    assert len(primary.extraction_calls) == 2  # the breaker window, then never again
+    assert len(backup.calls) == 6  # the held window replayed onto the backup + the rest
+    assert "skipped" not in err
+
+
+async def test_full_mode_failover_on_a_dead_backup_dies_loudly() -> None:
+    # A4: the primary clears the canary then dies, and the configured fallback is
+    # ALSO down. One window on the primary, one on the backup, then honest death on
+    # the provider-down screen — never a silent empty graph.
+    class AlwaysDown(FakeChat):
+        async def complete(self, request: CompletionRequest) -> str:
+            self.calls.append(request)
+            raise TransportError("openai error 503: overloaded")
+
+    backup = AlwaysDown()
+    backup.ref = ModelRef("openai", "gpt-4o-mini")
+    primary = CanaryThenDown()
+    context = PaidContext(
+        chat=primary,
+        finder=FakeFinder(PEOPLE),
+        embedder=FakeEmbedder({}),
+        backup=backup,
+        breaker_limit=2,
+        concurrency_value=1,  # sequential: a deterministic two-window death
+    )
+    with pytest.raises(SetupFault, match="looks down"):
+        await _run(
+            GraphRequest(focus="who pays whom"),
+            context,
+            "one Ann\ntwo Ann\nthree Ann\nfour Ann\nfive Ann\nsix Ann\n",
+        )
+    # both wires were actually tried before the honest death: the primary ran its
+    # breaker window, the swap landed on the backup, and the backup's own failures
+    # tripped it too — not a silent give-up (mirrors test_map's dead-backup counts).
+    assert len(primary.extraction_calls) == 2  # the breaker window on the primary
+    assert len(backup.calls) == 2  # the held window replayed onto the dead backup
+
+
+async def test_full_mode_ocr_breaker_during_read_stops_at_setup_not_a_bug(
+    tmp_path: object,
+) -> None:
+    """A5.1 (completion): when the configured OCR wire's breaker concludes it is
+    DOWN during the read phase of a paid graph run, the fault stops the run as a
+    SetupFault (which ``die`` maps to SETUP, exit 2) — NOT the internal-BUG screen
+    (exit 70) that a raw item error escaping run_full's read loop would produce.
+    This is the graph-verb end of the exit-70 defect the reader conversion closes."""
+    from pathlib import Path
+
+    from smartpipe.core.errors import CircuitOpenTransport
+    from smartpipe.io.inputs import InputSpec
+    from tests.io.test_ocr_ingest import RaisingParser
+
+    assert isinstance(tmp_path, Path)
+    (tmp_path / "scan.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    class _OcrDown(PaidContext):
+        def document_parser(self, flag: str | None = None) -> RaisingParser:  # type: ignore[override]
+            return RaisingParser(CircuitOpenTransport("ocr wire down", trip_id=1))
+
+    context = _OcrDown(
+        chat=FakeChat([triples(("Ann", "pays", "Bob"))]),  # clears the schema canary
+        finder=FakeFinder(PEOPLE),
+        embedder=FakeEmbedder({}),
+    )
+    with pytest.raises(SetupFault, match="circuit opened"):
+        await _run(
+            GraphRequest(
+                focus="who pays whom",
+                ocr_model_flag="mistral/mistral-ocr-latest",
+                input=InputSpec(patterns=(str(tmp_path / "scan.png"),), from_files=False),
+            ),
+            context,
+        )
+
+
+# --- C2: canary visibility + the lazy read's canary ordering (D3/D4) ----------------
+
+
+async def test_full_mode_canary_wears_the_pending_caption(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#37 D4: the pre-spend schema probe can sit on a cold wire for the whole
+    retry ladder — it now wears the pinned pending caption while it runs."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    chat = FakeChat(
+        by_content={
+            "Alice pays Bob": triples(("Alice", "pays", "Bob")),
+            "Ann pays Bob": triples(("Ann", "pays", "Bob")),
+        }
+    )
+    code, _ = await _run(GraphRequest(focus="who pays whom"), _context(chat), "Ann pays Bob\n")
+    assert code == ExitCode.OK
+    assert "checking the model holds the schema" in capsys.readouterr().err
+
+
+async def test_hybrid_canary_wears_the_pending_caption(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    chat = FakeChat(default='{"relation": "pays"}')
+    code, _ = await _run(
+        GraphRequest(name_top=1), _context(chat), "Ann pays Bob and Bob pays Ann\n"
+    )
+    assert code == ExitCode.OK
+    assert "checking the model holds the schema" in capsys.readouterr().err
+
+
+async def test_full_mode_surface_fold_owns_a_visible_element(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#37 D4 (run_full's fold_surfaces site): the label-cluster fold wears a
+    [fold] count line, painted at start."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    chat = FakeChat(
+        by_content={
+            "Alice pays Bob": triples(("Alice", "pays", "Bob")),
+            "Ann pays Bob": triples(("Ann", "pays", "Bob")),
+        }
+    )
+    code, _ = await _run(GraphRequest(focus="who pays whom"), _context(chat), "Ann pays Bob\n")
+    assert code == ExitCode.OK
+    err = capsys.readouterr().err
+    assert any("[fold]" in frame and "0/" in frame for frame in err.split("\r"))
+
+
+async def test_adopt_surface_fold_owns_a_visible_element(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#37 D4 (run_adopt's fold_surfaces site): same element, zero model calls."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    chat = FakeChat()
+    records = '{"source": "Ann", "target": "Bob"}\n{"source": "ann", "target": "Bob"}\n'
+    code, out = await _run(GraphRequest(), _context(chat), records)
+    assert code == ExitCode.OK
+    assert out  # the adopted edges reached stdout
+    assert chat.calls == []  # adopt spends nothing
+    err = capsys.readouterr().err
+    assert any("[fold]" in frame and "0/" in frame for frame in err.split("\r"))
+
+
+def _counting_load(monkeypatch: pytest.MonkeyPatch, events: list[str]) -> None:
+    """Route readers._load_file through an event recorder (the D3 lazy seam)."""
+    from smartpipe.io import readers
+
+    real_load = readers._load_file  # pyright: ignore[reportPrivateUsage] — the seam under test
+
+    def recording_load(path: object, ordinal: int, warned: set[str], census: object) -> object:
+        events.append("load")
+        return real_load(path, ordinal, warned, census)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(readers, "_load_file", recording_load)
+
+
+async def test_canary_fires_before_the_first_file_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A2's intent, finally literal (D3): with the plain glob streaming lazily,
+    the schema probe fires before a single corpus file is even READ — no more
+    eager slurp-at-resolve ahead of the capability verdict."""
+    events: list[str] = []
+
+    class RecordingChat(FakeChat):
+        async def complete(self, request: CompletionRequest) -> str:
+            if _CANARY_MARK in request.user:
+                events.append("canary")
+            return await super().complete(request)
+
+    _counting_load(monkeypatch, events)
+    (tmp_path / "a.txt").write_text("Ann pays Bob\n", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("Bob pays Ann\n", encoding="utf-8")
+    chat = RecordingChat()
+    spec = InputSpec(patterns=(str(tmp_path / "*.txt"),), from_files=False)
+    out = io.StringIO()
+    code = await run_graph(
+        GraphRequest(focus="who pays whom", input=spec),
+        _context(chat),
+        stdin=_TtyIn(""),  # a bare terminal: files only, total = files NAMED
+        stdout=out,
+        clock=lambda: 0.0,
+    )
+    assert code == ExitCode.OK
+    assert "load" in events  # the corpus did load…
+    assert events[0] == "canary"  # …but only after the model proved the schema
+
+
+async def test_all_skipped_glob_still_fires_the_canary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The accepted D3 delta: total is files NAMED (never 0 for a matched glob),
+    so a glob whose every file fails to load still spends the ONE schema probe —
+    cached on a rerun; the price of never loading files before the model is
+    proven."""
+    import sys
+
+    if sys.platform == "win32":  # pragma: no cover — chmod 0o000 is a POSIX arrange
+        pytest.skip("POSIX permission test")
+    locked = tmp_path / "locked.txt"
+    locked.write_text("secret\n", encoding="utf-8")
+    locked.chmod(0o000)
+    chat = FakeChat(by_content={"Alice pays Bob": triples(("Alice", "pays", "Bob"))})
+    spec = InputSpec(patterns=(str(locked),), from_files=False)
+    out = io.StringIO()
+    try:
+        code = await run_graph(
+            GraphRequest(focus="who pays whom", input=spec),
+            _context(chat),
+            stdin=_TtyIn(""),
+            stdout=out,
+            clock=lambda: 0.0,
+        )
+    finally:
+        locked.chmod(0o600)
+    assert code == ExitCode.OK  # nothing loaded, nothing extracted — a clean empty run
+    assert len(chat.calls) == 1  # exactly the probe
+    assert _CANARY_MARK in chat.calls[0].user
+    assert "cannot read" in capsys.readouterr().err  # the skip stayed disclosed

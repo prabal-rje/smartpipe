@@ -53,11 +53,11 @@ from smartpipe.models.openai_compat import (
     require_api_key,
     resolve_base_url,
 )
-from smartpipe.models.resolve import resolve_chat_ref, resolve_embed_ref
+from smartpipe.models.resolve import resolve_chat_ref, resolve_embed_ref, resolve_stt
 from smartpipe.models.retry import RetryPolicy
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Mapping, Sequence
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 
     import httpx
 
@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     from smartpipe.models.admission import OutboundCallPolicy
     from smartpipe.models.base import ChatModel, EmbeddingModel
     from smartpipe.models.ocr import DocumentParser
+    from smartpipe.models.resilience import ResilientChatModel, WiredChat
     from smartpipe.models.stt import Transcriber
 
 __all__ = ["AppContainer", "build_container"]
@@ -102,6 +103,32 @@ class AppContainer:
         manifest.record_model("chat", str(resolved.ref))
         return self._wrap_chat(self._build_chat(resolved.ref))
 
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat:
+        """The composed resilient chat model a per-item verb runs on (item 11):
+        the primary wire wrapped in the run's breaker + concurrency gate with the
+        configured fallback armed LAZILY underneath it. The failover swaps by
+        itself on a provider-down trip — the verb calls one plain ``ChatModel``
+        (``wired.model``) and never branches on the wire's health; ``wired.route``
+        keeps the answered-per-model receipt honest. The fallback ref resolves
+        HERE, before a cent is spent (an embedding-model fallback is refused at
+        this line, exactly as ``fallback_ref``'s eager fence)."""
+        from smartpipe.models.resilience import WiredChat
+
+        resolved = await resolve_chat_ref(flag, self.env, self.config, self.probe_ollama)
+        if resolved.notice is not None:
+            diagnostics.note(resolved.notice)
+        manifest.record_model("chat", str(resolved.ref))
+        fallback = self.fallback_ref(fallback_flag)  # embedder/fence refused here, pre-spend
+        resilient = self._resilient_chat_core(self._build_chat(resolved.ref), fallback_ref=fallback)
+        return WiredChat(
+            model=self._wrap_outer(resilient),
+            route=resilient.route,
+            primary_ref=resolved.ref,
+            fallback_ref=fallback,
+        )
+
     def batching(self) -> BatchSettings | None:
         """The run's coalescing posture (item 62): SMARTPIPE_BATCH > config
         ``batching`` > ON (the product pitch is seamless cost reduction).
@@ -115,14 +142,66 @@ class AppContainer:
         )
 
     def _wrap_chat(self, model: ChatModel) -> ChatModel:
-        wired = model if self.budget is None else budgeted_chat(model, self.budget)
-        from smartpipe.models.admission import admitted_chat
+        """The no-fallback resilient chat build (solo ``chat_model``, the vision
+        OCR wire): the breaker + concurrency-gate core with no failover, plus the
+        shared outer coalescer/cache."""
+        return self._wrap_outer(self._resilient_chat_core(model))
 
-        wired = admitted_chat(wired, self.call_policy)
+    def _resilient_chat_core(
+        self, model: ChatModel, *, fallback_ref: ModelRef | None = None
+    ) -> ResilientChatModel:
+        """Budget the wire, then wrap it in the run's breaker + concurrency gate
+        as a standalone ``ResilientChatModel`` — the doctrine: robustness is
+        COMPOSED combinators at the root, not something the caller reasons about.
+        The breaker + gate that ``OutboundCallPolicy`` used to own are now a
+        standalone ``Breaker`` and a ``rate_limited`` gate stacked here; embed/
+        OCR/STT keep ``admitted_*`` (this decomposition is chat-only, because
+        failover is a chat concern). When ``fallback_ref`` is set, the breaker's
+        trip builds that model LAZILY (through ``_build_fallback_adapter``) and
+        swaps to it wholesale — announced on stderr, the receipt reading ``.route``.
+        """
+        from smartpipe.models.resilience import Breaker, Cooldown, ResilientChatModel
+
+        wired = model if self.budget is None else budgeted_chat(model, self.budget)
+        fallback_factory: Callable[[], Awaitable[ChatModel]] | None = None
+        if fallback_ref is not None:
+            target = fallback_ref
+
+            async def build_fallback() -> ChatModel:
+                return self._build_fallback_adapter(target)
+
+            fallback_factory = build_fallback
+        return ResilientChatModel(
+            wired,
+            breaker=Breaker(limit=self.call_policy.breaker_limit),
+            concurrency=self.call_policy.concurrency,
+            cooldown=Cooldown(),
+            fallback_factory=fallback_factory,
+            fallback_ref=fallback_ref,
+            announce=diagnostics.warn,
+            note=diagnostics.note,
+        )
+
+    def _build_fallback_adapter(self, ref: ModelRef) -> ChatModel:
+        """The failover model as a RAW budgeted adapter — no coalescer/cache of
+        its own. The shared coalescer sits OUTSIDE the breaker and re-packs the
+        replayed window onto whatever the breaker routes to, so the fallback must
+        not double-coalesce; the budget belt is shared. Keys/login are checked
+        HERE (on the first trip), so an unusable fallback surfaces as
+        ``circuit_broken``'s honest 'unusable' note and the run dies loudly."""
+        manifest.record_model("chat_fallback", str(ref))
+        adapter = self._build_chat(ref)
+        return adapter if self.budget is None else budgeted_chat(adapter, self.budget)
+
+    def _wrap_outer(self, model: ChatModel) -> ChatModel:
+        """Wrap a resilient chat core in the run's OUTER layers — the coalescer
+        (batching) then the cache — shared by every chat build. The layering is
+        load-bearing: cache → coalescer → breaker+gate → budget → adapter, so a
+        hit never enqueues, one packed flight is one charged call (item 62 §5/§9),
+        and a replayed window re-packs onto the swapped fallback target."""
+        wired = model
         settings = self.batching()
         if settings is not None:
-            # cache → coalescer → admission → budget → adapter: hits never
-            # enqueue, and one packed flight is one charged call (item 62 §5/§9)
             from smartpipe.models.coalesce import CoalescingChatModel
 
             wired = CoalescingChatModel(
@@ -140,6 +219,81 @@ class AppContainer:
         wrapper = CachingChatModel(wired, _cache_dir(self.env))
         self.caches.append(wrapper)
         return wrapper
+
+    def _cache_parser(self, parser: DocumentParser) -> DocumentParser:
+        """Cache the dedicated OCR wire OUTERMOST (A7), mirroring ``_wrap_outer``'s
+        chat layering: cache → admission → budget → parser, so a hit short-circuits
+        before admission gates it or the page belt meters it — a rerun re-reads a
+        banked conversion for free (a pilot paid 943 conversions that reruns re-paid).
+        Gated on the same posture and dir as the chat cache, and appended to
+        ``self.caches`` so the shared daily TTL/LRU sweep covers it too (D38/15)."""
+        if not _cache_enabled(self.env, self.config):
+            return parser
+        from smartpipe.models.cache import CachingDocumentParser
+
+        wrapper = CachingDocumentParser(parser, _cache_dir(self.env))
+        self.caches.append(wrapper)
+        return wrapper
+
+    def _cache_embed(self, model: EmbeddingModel) -> EmbeddingModel:
+        """Bank per-TEXT vectors OUTERMOST (#22), mirroring ``_cache_parser``:
+        cache → admission → budget → adapter, so a hit never takes the outbound
+        semaphore or charges the belt. ``cached_embed`` splits on the media
+        capability so a joint embedder keeps its ``embed_parts`` marker (the
+        verbs probe it on the WRAPPED model). Called once per build — a caller
+        that builds twice (run_graph's #27 preflight) appends two wrappers, and
+        the receipt stays honest because the discarded one counts zero traffic."""
+        if not _cache_enabled(self.env, self.config):
+            return model
+        from smartpipe.models.cache import cached_embed
+
+        wrapper = cached_embed(model, _cache_dir(self.env))
+        self.caches.append(wrapper)
+        return wrapper
+
+    def _cache_stt(self, transcriber: Transcriber) -> Transcriber:
+        """Bank remote transcriptions OUTERMOST (#22), same posture/dir/sweep
+        as every other cache surface."""
+        if not _cache_enabled(self.env, self.config):
+            return transcriber
+        from smartpipe.models.cache import CachingTranscriber
+
+        wrapper = CachingTranscriber(transcriber, _cache_dir(self.env))
+        self.caches.append(wrapper)
+        return wrapper
+
+    def probe_fallback_model(self) -> ChatModel | None:
+        """Build the effective fallback directly and bypass result caching."""
+        ref = self.fallback_ref()
+        if ref is None:
+            return None
+        return self._resilient_chat_core(self._build_chat(ref))
+
+    async def probe_chat_model(self) -> ChatModel:
+        """The chat wire for ``doctor --probe`` WITHOUT the result cache or
+        coalescer: a probe must exercise the wire, never yesterday's banked
+        reply — a cached "✓" answers nothing about today's wire. Breaker,
+        gate, and belt still ride (a probe is a disclosed tiny paid call)."""
+        resolved = await resolve_chat_ref(None, self.env, self.config, self.probe_ollama)
+        if resolved.notice is not None:
+            diagnostics.note(resolved.notice)
+        manifest.record_model("chat", str(resolved.ref))
+        return self._resilient_chat_core(self._build_chat(resolved.ref))
+
+    async def probe_embedding_model(self) -> EmbeddingModel:
+        """The embed wire for ``doctor --probe`` without the vector cache —
+        same honesty rule as ``probe_chat_model``; budget+admission ride."""
+        ref = resolve_embed_ref(None, self.env, self.config)
+        manifest.record_model("embed", str(ref))
+        return self._wrap_embed(self._build_embed(ref), use_cache=False)
+
+    def probe_document_parser(self) -> DocumentParser | None:
+        """Build the effective OCR role without its outer result cache."""
+        return self.document_parser(use_cache=False)
+
+    async def probe_media_embedding_model(self) -> EmbeddingModel | None:
+        """Build the effective media embed role without its outer result cache."""
+        return await self.media_embedding_model(use_cache=False)
 
     def fallback_ref(self, flag: str | None = None) -> ModelRef | None:
         """The chat failover target (item 11): --fallback-model >
@@ -163,14 +317,6 @@ class AppContainer:
                 "  Pick a chat fallback, or drop the setting."
             )
         return ref
-
-    async def fallback_chat_model(self, ref: ModelRef) -> ChatModel:
-        """The failover model, built at SWITCH time through the normal wire —
-        keys/login are checked here, so a fallback with missing credentials
-        surfaces as the ordinary SetupFault (the caller notes it and dies on
-        the provider-down screen)."""
-        manifest.record_model("chat_fallback", str(ref))
-        return self._wrap_chat(self._build_chat(ref))
 
     async def context_window(self, ref: ModelRef) -> int | None:
         """The model's context window: env override > one cached live probe > None
@@ -197,7 +343,9 @@ class AppContainer:
         manifest.record_model("embed", str(ref))
         return self._wrap_embed(self._build_embed(ref))
 
-    async def media_embedding_model(self, flag: str | None = None) -> EmbeddingModel | None:
+    async def media_embedding_model(
+        self, flag: str | None = None, *, use_cache: bool = True
+    ) -> EmbeddingModel | None:
         """The ``media-embed-model`` role (item 40): a JOINT text+image space
         that media items route to while text items keep ``embed-model``. Unset
         = None (today's resolution). A text-only ref is refused here, before
@@ -225,9 +373,16 @@ class AppContainer:
                 '  Set one in config.toml: media-embed-model = "jina/jina-clip-v2" — '
                 "or unset the role."
             )
-        return self._wrap_embed(model)
+        if use_cache:
+            return self._wrap_embed(model)
+        wired = model if self.budget is None else budgeted_embed(model, self.budget)
+        from smartpipe.models.admission import admitted_embed
 
-    def document_parser(self, flag: str | None = None) -> DocumentParser | None:
+        return admitted_embed(wired, self.call_policy)
+
+    def document_parser(
+        self, flag: str | None = None, *, use_cache: bool = True
+    ) -> DocumentParser | None:
         """The ``ocr-model`` role (item 40): when set, ingested PDFs and images
         parse through it (owner ruling — configuring the role IS the consent;
         every use is disclosed per row). A mistral ref rides the dedicated
@@ -246,51 +401,75 @@ class AppContainer:
         if ref.provider == "mistral":
             from smartpipe.models.admission import admitted_parser
             from smartpipe.models.budget import budgeted_parser
-            from smartpipe.models.ocr import MistralOcrParser
+            from smartpipe.models.ocr import OCR_RETRY_POLICY, MistralOcrParser
 
             parser = MistralOcrParser(
                 ref=ref,
                 client=self.http_client,
                 api_key=require_api_key(self.env, ref.name, MISTRAL_WIRE),
                 base_url=resolve_base_url(self.env, MISTRAL_WIRE),
-                retry=self.retry,
+                # A5.3: the paid wire gets the dedicated longer ladder (attempts=5,
+                # cap ~30s), NOT the default chat retry — a page is cheaper to wait
+                # on than to re-buy. Composition root decides the degree of protection.
+                retry=OCR_RETRY_POLICY,
             )
             # item 48: the dedicated OCR wire wears the belt too — one charge
             # per page (the vision rung below is budgeted via its chat)
             wired = parser if self.budget is None else budgeted_parser(parser, self.budget)
-            return admitted_parser(wired, self.call_policy)
+            # A7: cache OUTERMOST so a rerun banks the paid page conversions —
+            # the hit short-circuits before admission gates or the belt meters it
+            admitted = admitted_parser(wired, self.call_policy)
+            return self._cache_parser(admitted) if use_cache else admitted
         from smartpipe.models.ocr import VisionOcrParser
 
-        return VisionOcrParser(chat=self._wrap_chat(self._build_chat(ref)))
+        if use_cache:
+            return VisionOcrParser(chat=self._wrap_chat(self._build_chat(ref)))
+        # probe wiring (C8): the vision rung's page calls ride the CHAT cache, so a
+        # probe against a cached wire would "pass" on yesterday's reply without ever
+        # exercising the wire — the exact false-positive class the probes exist to
+        # kill. Bypass the result cache the same way probe_fallback_model does.
+        return VisionOcrParser(chat=self._resilient_chat_core(self._build_chat(ref)))
 
-    def remote_transcriber(self, chat_ref: ModelRef | None = None) -> Transcriber | None:
-        """The stt-model role (D39/05): explicit env/config wins; otherwise the
-        owner's auto-matrix — an openai KEY means whisper-1 (the API supports
-        it; ChatGPT-login does not, so OAuth-only stays local); gemini hears
-        natively (no preemption); ollama has no STT (local whisper)."""
-        raw = self.env.get("SMARTPIPE_STT_MODEL", "").strip() or (self.config.stt_model or "")
-        if not raw:
-            if (
-                chat_ref is not None
-                and chat_ref.provider == "openai"
-                and self.env.get("OPENAI_API_KEY", "").strip()
-            ):
-                raw = "openai/whisper-1"  # the key wire supports transcriptions
-            else:
-                return None
-        ref = parse_model_ref(raw)
+    def remote_transcriber(
+        self, chat_ref: ModelRef | None = None, *, flag: str | None = None, use_cache: bool = True
+    ) -> Transcriber | None:
+        """The stt-model role (D39/05), resolved through the shared matrix
+        (``resolve_stt``): an explicit flag (#20: graph's ``--stt-model``) or
+        env/config wins — ``local`` pins on-device whisper as rung 0;
+        otherwise an openai KEY means whisper-1 (the API supports it;
+        ChatGPT-login does not, so OAuth-only stays local); gemini hears
+        natively (no preemption); ollama has no STT (ladder)."""
+        resolution = resolve_stt(
+            self.env,
+            self.config.stt_model,
+            chat_ref.provider if chat_ref is not None else None,
+            flag=flag,
+        )
+        if resolution.kind == "ladder":
+            return None
+        if resolution.kind == "local":
+            from smartpipe.models.stt import LocalTranscriber
+            from smartpipe.parsing.extract import configured_whisper_size
+
+            local_ref = ModelRef(provider="local", name=f"whisper-{configured_whisper_size()}")
+            self._fence(local_ref, "stt")  # passes — the fence admits local wires
+            manifest.record_model("stt", str(local_ref))
+            return LocalTranscriber(ref=local_ref)  # free wire: no budget/admission belt
+        assert resolution.ref is not None
+        ref = parse_model_ref(resolution.ref)
         self._fence(ref, "stt")
         if ref.provider != "openai":
             raise SetupFault(
                 f"error: no STT wire for {ref.provider!r} yet\n"
                 "  Remote transcription supports openai models — in config.toml: "
-                'stt-model = "openai/whisper-1"'
+                'stt-model = "openai/whisper-1"  (or "local" for on-device whisper)'
             )
         key = self.env.get("OPENAI_API_KEY", "").strip()
         if not key:
             raise SetupFault(
                 "error: remote transcription needs OPENAI_API_KEY\n"
-                "  export OPENAI_API_KEY=sk-…   (or unset stt-model to use the ladder)"
+                '  export OPENAI_API_KEY=sk-…   (or set stt-model = "local", '
+                "or unset it for the ladder)"
             )
         from smartpipe.models.admission import admitted_transcriber
         from smartpipe.models.budget import budgeted_transcriber
@@ -304,25 +483,52 @@ class AppContainer:
             retry=self.retry,
         )
         wired = adapter if self.budget is None else budgeted_transcriber(adapter, self.budget)
-        return admitted_transcriber(wired, self.call_policy)
+        # cache OUTERMOST (#22): a banked transcription never re-pays the wire,
+        # admission, or the belt — reruns of the same clip are free. Probe wires
+        # (use_cache=False) skip the bank: a probe must exercise the wire itself.
+        admitted = admitted_transcriber(wired, self.call_policy)
+        return self._cache_stt(admitted) if use_cache else admitted
 
     def entity_finder(self, labels: Sequence[str]) -> EntityFinder:
         """``graph --fast``'s NER (wave G1): ALWAYS the local GLiNER wire —
-        the free mode never routes entities through a paid model."""
+        the free mode never routes entities through a paid model.
+
+        Deliberately NOT cached (#22): span extraction is fast on-device
+        inference with no wire to save, and per-text span payloads would flood
+        the shared LRU (evicting banked PAID chat/OCR/embed entries) for zero
+        cost reduction."""
         from smartpipe.models.local_ner import GlinerEntityFinder, ner_precision
 
         precision = ner_precision(self.env)
         manifest.record_model("ner", f"local/gliner-small-v2.1@{precision}")
         return GlinerEntityFinder(labels=tuple(labels), precision=precision)
 
-    def fold_embedder(self) -> EmbeddingModel:
-        """``graph --fast``'s canonicalization embedder: ALWAYS local, whatever
-        ``embed-model`` says — free by definition means no cloud vectors."""
-        from smartpipe.models.local_embed import LocalEmbeddingModel
-
-        ref = parse_model_ref("local/nomic-embed-text-v1.5")
+    async def fold_embedder(self, flag: str | None = None) -> EmbeddingModel:
+        """The graph's canonicalization fold embedder (owner ruling: specified
+        wins, local fallback). It honors ``--embed-model`` > SMARTPIPE_EMBED_MODEL
+        > config ``embed-model`` — the SAME resolution ``embedding_model`` uses —
+        and falls back to the on-device local model (free) only when nothing is
+        set. A configured cloud embed-model therefore folds through paid vectors
+        in EVERY mode (``--fast`` included); ``fold_vectors`` discloses that."""
+        ref = resolve_embed_ref(flag, self.env, self.config)
         manifest.record_model("fold_embed", str(ref))
-        return LocalEmbeddingModel(ref=ref)
+        model = self._build_embed(ref)
+        # The fold is graph infrastructure (like NER), not the user's metered
+        # per-item work: a FREE wire stays OFF the billable belt - local on-device,
+        # OR loopback/self-hosted ollama (the 3.14 default when fastembed's wheels
+        # are absent), the same free split 373823b uses for disclosure - so a bare
+        # ``--fast`` run can't charge --max-calls or flip a $0 fold to PARTIAL on
+        # ANY python. A paid cloud fold is metered + admitted + disclosed via
+        # ``_wrap_embed``.
+        if ref.provider in ("local", "ollama"):
+            # cached but NEVER budgeted/admitted: the free fold stays off-belt
+            # (the cafa99b invariant) AND banks its vectors (#22) — a miss
+            # embeds on the raw wire, a hit costs nothing, neither can charge
+            # --max-calls. run_graph builds this twice (#27 preflight + fold);
+            # each build appends its own wrapper, which keeps the receipt
+            # honest because the discarded preflight wrapper counts zero.
+            return self._cache_embed(model)
+        return self._wrap_embed(model)
 
     def concurrency(self, flag: int | None = None) -> int:
         """Max parallel model calls: flag > SMARTPIPE_CONCURRENCY > config > default 4."""
@@ -425,19 +631,22 @@ class AppContainer:
             retry=self.retry,
         )
 
-    def _wrap_embed(self, model: EmbeddingModel) -> EmbeddingModel:
-        """Budget then admit one remote embedding request.
+    def _wrap_embed(self, model: EmbeddingModel, *, use_cache: bool = True) -> EmbeddingModel:
+        """Budget then admit one remote embedding request, then cache OUTERMOST.
 
         The built-in on-device embedder performs no API call, so it stays off
         the API-call semaphore. Ollama remains admitted: it is an HTTP API even
-        when its endpoint is loopback.
+        when its endpoint is loopback. Both returns ride ``_cache_embed`` (#22)
+        so a banked text never reaches admission or the belt — except probe
+        wires (``use_cache=False``), which must exercise the wire itself.
         """
         wired = model if self.budget is None else budgeted_embed(model, self.budget)
         if model.ref.provider == "local":
-            return wired
+            return self._cache_embed(wired) if use_cache else wired
         from smartpipe.models.admission import admitted_embed
 
-        return admitted_embed(wired, self.call_policy)
+        admitted = admitted_embed(wired, self.call_policy)
+        return self._cache_embed(admitted) if use_cache else admitted
 
     def _fence(self, ref: ModelRef, role: str) -> None:
         """--local-only (item 65d): refuse any wire that would leave this
@@ -606,7 +815,7 @@ def _cache_enabled(env: Mapping[str, str], config: Config) -> bool:
         return True
     if flag in ("0", "false", "off", "no"):
         return False
-    return bool(config.cache)
+    return config.cache is not False  # unset = on
 
 
 def _batching_enabled(env: Mapping[str, str], config: Config) -> bool:
@@ -672,7 +881,9 @@ async def build_container(
     from smartpipe.engine.schema import reset_deterministic_repairs
     from smartpipe.io import metering, source_accounting
     from smartpipe.parsing.extract import (
+        configure_transcript_cache,
         configure_whisper_size,
+        reset_transcript_cache,
         reset_whisper_size,
         whisper_size,
     )
@@ -690,22 +901,50 @@ async def build_container(
     metering.reset()  # a fresh run's meter (D40)
     reset_deterministic_repairs()  # rung 0's tally is run-scoped, like the meter (item 58)
     reset_run_disclosures()  # native-embedding/date notes are once per invocation
+    from smartpipe.models.ollama import reset_ollama_disclosures
+
+    reset_ollama_disclosures()
     manifest.reset()  # the --manifest collector is run-scoped too (item 65a); begin() re-arms
     source_accounting.reset()  # dropped inputs/OCR owners are invocation-scoped
-    whisper_token = configure_whisper_size(whisper_size(resolved_env))
-    container = AppContainer(
-        # env > stored key, per provider — `auth login`'s store fills only the gaps
-        env=resolved_env,
-        config=config,
-        http_client=client,
-        color_mode=color_mode,
-        budget=None if limit is None else CallBudget(limit=limit, stop=stop),
-        stop=stop,
-        call_policy=OutboundCallPolicy(
-            concurrency=call_concurrency,
-            breaker_limit=breaker_limit,
-        ),
-    )
+    # C5 review: the construction window below can raise (bank/cache-dir, budget,
+    # policy) — a mid-build fault must reset every token already installed and
+    # close the client, or invocation state and the HTTP client leak past this
+    # invocation. None-sentinels track exactly what to unwind.
+    whisper_token = None
+    transcript_token = None
+    try:
+        whisper_token = configure_whisper_size(whisper_size(resolved_env))
+        # the local whisper transcript bank (#22) rides the same ContextVar-at-seam
+        # pattern as the size above: installed here, reset in the same finally;
+        # posture off ⇒ None ⇒ transcribe_audio stays byte-identical
+        bank = None
+        if _cache_enabled(resolved_env, config):
+            from smartpipe.models.cache import TranscriptBank
+
+            bank = TranscriptBank(_cache_dir(resolved_env))
+        transcript_token = configure_transcript_cache(bank)
+        container = AppContainer(
+            # env > stored key, per provider — `auth login`'s store fills only the gaps
+            env=resolved_env,
+            config=config,
+            http_client=client,
+            color_mode=color_mode,
+            budget=None if limit is None else CallBudget(limit=limit, stop=stop),
+            stop=stop,
+            call_policy=OutboundCallPolicy(
+                concurrency=call_concurrency,
+                breaker_limit=breaker_limit,
+            ),
+        )
+        if bank is not None:
+            container.caches.append(bank)  # the receipt and the daily sweep both see it
+    except BaseException:
+        if transcript_token is not None:
+            reset_transcript_cache(transcript_token)
+        if whisper_token is not None:
+            reset_whisper_size(whisper_token)
+        await client.aclose()
+        raise
     try:
         yield container
     finally:
@@ -725,7 +964,10 @@ async def build_container(
             _cache_receipt(container)
         finally:
             source_accounting.discard()
+            # pyright proves both tokens non-None here: the yield is reachable
+            # only after the construction try completed both assignments
             reset_whisper_size(whisper_token)
+            reset_transcript_cache(transcript_token)
 
 
 def _repair_receipt() -> None:
@@ -760,10 +1002,33 @@ def _batch_receipt(container: AppContainer) -> None:
 
 
 def _cache_receipt(container: AppContainer) -> None:
-    from smartpipe.models.cache import CachingChatModel
+    from smartpipe.models.cache import (
+        CachingChatModel,
+        CachingDocumentParser,
+        CachingEmbeddingModel,
+        CachingMediaEmbeddingModel,
+        CachingTranscriber,
+        TranscriptBank,
+    )
 
-    hits = sum(w.hits for w in container.caches if isinstance(w, CachingChatModel))
-    misses = sum(w.misses for w in container.caches if isinstance(w, CachingChatModel))
+    # all six cache-bearing surfaces sum into the ONE receipt line (#22):
+    # chat, OCR pages (A7), text embeds, media-marked embeds, remote STT,
+    # and the local whisper transcript bank
+    banked = tuple(
+        w
+        for w in container.caches
+        if isinstance(
+            w,
+            CachingChatModel
+            | CachingDocumentParser
+            | CachingEmbeddingModel
+            | CachingMediaEmbeddingModel
+            | CachingTranscriber
+            | TranscriptBank,
+        )
+    )
+    hits = sum(w.hits for w in banked)
+    misses = sum(w.misses for w in banked)
     if hits or misses:
         diagnostics.note(f"cache: {hits:,} hits · {misses:,} misses")
     if container.caches:

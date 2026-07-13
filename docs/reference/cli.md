@@ -109,15 +109,18 @@ These apply to the model-using verbs (`map`, `filter`, `top_k`, `reduce`; `embed
 ## `use`
 
 ```bash
-smartpipe use                    # interactive setup: text model, embeddings, OCR
+smartpipe use                    # interactive setup: text model, embeddings, OCR, speech
 smartpipe use gemini             # one-shot: gemini chat + its paired embedder
 smartpipe use ollama             # one-shot: the best installed local model
 smartpipe use gpt-5.4-mini       # one-shot: that model + its provider's pairing
 ```
 
-`smartpipe use` is the setup door. Bare, it runs three stages in order - the
-text model, the embedding model (the auto-pair suggestion preselected), then
-an optional OCR model (one keypress skips it). Every provider appears with a
+`smartpipe use` is the setup door. Bare, it runs four stages in order - the
+text model, the embedding model (the auto-pair suggestion preselected), an
+optional OCR model, then an optional speech-to-text choice (one keypress
+skips either): `local whisper` pins free on-device transcription,
+`openai/whisper-1` is the paid remote wire, and skipping keeps the automatic
+ladder. Every provider appears with a
 connected badge; picking an unconnected one drops into the `auth login`
 connect flow inline and continues. Every stage has a `back` row (typing
 `back` or `b` works too), re-runs preselect your current choices and restamp
@@ -300,6 +303,7 @@ per shell in [Installing smartpipe → Tab completion](../install.md#tab-complet
 | `SMARTPIPE_MISTRAL_BASE_URL` / `SMARTPIPE_GEMINI_BASE_URL` / `SMARTPIPE_OPENROUTER_BASE_URL` | Point a provider's wire elsewhere (proxies, gateways). |
 | `SMARTPIPE_CONTEXT_TOKENS` | Assert your model's context window (beats the table and the probe; the fix for OpenAI/Anthropic deployments the table underestimates). |
 | `SMARTPIPE_WHISPER_MODEL` | Local transcription size: `tiny` (default), `base`, `small`, `medium`, `large-v3`. |
+| `SMARTPIPE_FIGURE_CAP` | Embedded figures attached per document item (default `8`; whole numbers ≥ 1 - the request-size guard). Figures past the cap are dropped and censused on `stderr`. |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY` / `JINA_API_KEY` | Cloud credentials - the environment always wins over a key stored by `auth login`. |
 | `OLLAMA_HOST` | Ollama endpoint (default `http://localhost:11434`). |
 | `SMARTPIPE_LOCAL_ONLY` | The `--local-only` fence as an env var: refuse remote model/data wires so input stays local. Supporting data-free network requests are allowed. Any value other than `0`/`false`/`off`/`no` arms it (fail closed). |

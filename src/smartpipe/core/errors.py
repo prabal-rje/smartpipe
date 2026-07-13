@@ -24,6 +24,7 @@ __all__ = [
     "UnsentError",
     "UsageFault",
     "is_recoverable_item_error",
+    "is_systemic_availability_fault",
 ]
 
 
@@ -93,6 +94,12 @@ class RetryableError(ItemError):
     groups one consecutive availability streak through its breaker trip;
     ``call_id`` identifies the single actual call whose failure may fan out to
     several coalesced item waiters.
+
+    ``retry_after`` carries a server-supplied backoff (a ``Retry-After`` header,
+    in seconds) THROUGH the exhausted ladder to the run-scoped outbound policy,
+    which honours it as a per-ref cooldown floor for that ref's next admission
+    (A5.2). ``None`` when the server gave no hint. The value is unclamped here —
+    the policy clamps a hostile ask, exactly as ``with_retries`` clamps the sleep.
     """
 
     def __init__(
@@ -101,9 +108,11 @@ class RetryableError(ItemError):
         *,
         series_id: int | None = None,
         call_id: int | None = None,
+        retry_after: float | None = None,
     ) -> None:
         self.series_id = series_id
         self.call_id = call_id
+        self.retry_after = retry_after
         super().__init__(message)
 
 
@@ -124,8 +133,9 @@ class TransportError(RetryableError):
         *,
         series_id: int | None = None,
         call_id: int | None = None,
+        retry_after: float | None = None,
     ) -> None:
-        super().__init__(message, series_id=series_id, call_id=call_id)
+        super().__init__(message, series_id=series_id, call_id=call_id, retry_after=retry_after)
 
 
 class CircuitOpenTransport(TransportError):
@@ -134,10 +144,25 @@ class CircuitOpenTransport(TransportError):
     ``trip_id`` identifies one run-scoped breaker event. A packed flight may
     fan this marker to several item waiters, but the runner switches providers
     once for the shared event and replays each affected item exactly once.
+
+    ``switched`` records whether the resilience decorator swapped to a live
+    fallback for this trip. ``True`` means a backup is now armed and the runner
+    should replay the held window onto it; ``False`` means no fallback was
+    available (none configured, an unusable one, or the backup itself died) and
+    the run must die on the provider-down screen. It is the single signal the
+    runner branches on, replacing the retired verb-side failover hook.
     """
 
-    def __init__(self, message: str, *, trip_id: int, call_id: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        trip_id: int,
+        call_id: int | None = None,
+        switched: bool = False,
+    ) -> None:
         self.trip_id = trip_id
+        self.switched = switched
         super().__init__(message, series_id=trip_id, call_id=call_id)
 
 
@@ -149,6 +174,20 @@ def is_recoverable_item_error(fault: ItemError) -> bool:
     second paid call and hide the real outage or budget stop.
     """
     return not isinstance(fault, (RetryableError, UnsentError, ExcludedError))
+
+
+def is_systemic_availability_fault(fault: ItemError) -> bool:
+    """A fault that condemns the WHOLE run, not one item: the run-scoped breaker
+    concluded the wire is down, or the page belt is exhausted. Neither may be
+    relabeled as a per-file 'falling back to local extraction'; the run must
+    surface the truth and stop (A1's salvage keeps what was already extracted).
+
+    Deliberately NOT the whole ``TransportError``/``RetryableError`` family: a
+    plain ladder that exhausted on ONE file (a bounded 429 or 5xx) is isolated,
+    not systemic — it degrades that file and feeds the breaker streak, so a
+    sustained storm still trips ``CircuitOpenTransport`` and stops the run here.
+    Widening this to all transport faults would make one unlucky file fatal."""
+    return isinstance(fault, (CircuitOpenTransport, UnsentError))
 
 
 @dataclass(frozen=True, slots=True)

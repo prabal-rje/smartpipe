@@ -31,6 +31,9 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from smartpipe.io import metering, source_accounting
 
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    # …nor the developer's real result cache (caching ships ON by default now —
+    # owner directive): pin it inside tmp_path so a run's misses/sweep land here.
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     # …nor the developer's real key store (the auth-login wave): every test
     # resolves the data-dir auth.json inside its own tmp_path.
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
@@ -58,12 +61,25 @@ def isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # test_batching.py, tests/models/test_coalesce.py, test_cli_map.py's
     # batching test, which re-enables it explicitly).
     monkeypatch.setenv("SMARTPIPE_BATCH", "off")
+    # Caching (owner directive) also ships ON, but the CLI/golden tests assert exact
+    # stdout/stderr and token counts that a cache layer perturbs (a miss adds a "cache:"
+    # receipt note; a hit changes the observed tokens). Pin it OFF here for determinism —
+    # the same posture pin as batching above — while default-ON has dedicated coverage
+    # (tests/test_container.py's cache-default unit tests, the cache/OCR-cache wiring tests
+    # that re-enable it explicitly).
+    monkeypatch.setenv("SMARTPIPE_CACHE", "off")
     # …nor an ambient --local-only fence (item 65d): the flag exports
     # SMARTPIPE_LOCAL_ONLY into os.environ, so the delenv both isolates tests
     # from the developer's shell and undoes any in-process export at teardown
     monkeypatch.delenv("SMARTPIPE_LOCAL_ONLY", raising=False)
     metering.reset()
     source_accounting.reset()
+    # …and no status line registered with the terminal arbiter (C2 #32): a test
+    # that drew a bar without finish()ing must not make a later test's
+    # diagnostics redraw a stale line into a dead stream.
+    from smartpipe.io import progress
+
+    monkeypatch.setattr(progress, "_active", None, raising=False)
 
 
 @pytest.fixture

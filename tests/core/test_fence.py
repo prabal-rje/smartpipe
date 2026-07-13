@@ -111,7 +111,7 @@ def test_cloud_ocr_is_refused_naming_local_extraction() -> None:
 
 def test_cloud_stt_is_refused_naming_local_whisper() -> None:
     ref = ModelRef(provider="openai", name="whisper-1")
-    with pytest.raises(SetupFault, match="unset stt-model"):
+    with pytest.raises(SetupFault, match='stt-model = "local"'):
         ensure_local_wire(ref, FENCED, role="stt", ollama_host=LOCALHOST)
 
 
@@ -130,6 +130,18 @@ def test_local_and_localhost_ollama_pass_the_fence() -> None:
     )
     ensure_local_wire(
         ModelRef(provider="ollama", name="qwen3:8b"), FENCED, role="chat", ollama_host=LOCALHOST
+    )
+
+
+@pytest.mark.parametrize("role", ["chat", "embed", "media_embed", "ocr", "stt"])
+def test_ollama_cloud_tag_is_refused_before_the_host_check(role: str) -> None:
+    ref = ModelRef(provider="ollama", name="qwen3.5:cloud")
+    with pytest.raises(SetupFault) as caught:
+        ensure_local_wire(ref, FENCED, role=role, ollama_host=LOCALHOST)
+    assert str(caught.value) == (
+        "error: --local-only refused ollama/qwen3.5:cloud - Ollama Cloud runs on "
+        "ollama.com; items would leave this machine.\n"
+        "  Pick a local tag (ollama list) to stay inside the fence."
     )
 
 

@@ -6,6 +6,7 @@ test at the bottom runs only when the model is already in the HF cache.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,7 @@ from smartpipe.models.local_ner import (
     NER_REPO,
     GlinerEntityFinder,
     NerEngine,
+    hf_implicit_token_env,
     ner_precision,
     span_grid,
     split_words,
@@ -26,7 +28,7 @@ from smartpipe.models.local_ner import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Generator, Mapping, Sequence
 
 
 # --- pure preprocessing ------------------------------------------------------
@@ -245,6 +247,136 @@ def test_finder_loads_the_precision_injected_by_the_composition_root(
 
     finder.find("Alice")
     assert observed == ["fp32"]
+
+
+# --- the pre-warm seam: load() up front so the download shows a status line ----
+
+
+def test_load_with_an_injected_engine_never_downloads(monkeypatch: pytest.MonkeyPatch) -> None:
+    import smartpipe.models.local_ner as local_ner
+
+    def explode(precision: str) -> NerEngine:
+        del precision
+        raise AssertionError("an injected engine must never trigger a download")
+
+    monkeypatch.setattr(local_ner, "_load_engine", explode)
+    finder = GlinerEntityFinder(
+        labels=("person",),
+        engine=NerEngine(session=FakeSession({}, num_classes=1), tokenizer=FakeTokenizer()),
+    )
+    finder.load()  # no raise: the injected engine short-circuits the load
+
+
+def test_load_triggers_exactly_one_engine_load_then_reuses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import smartpipe.models.local_ner as local_ner
+
+    expected = NerEngine(session=FakeSession({}, num_classes=1), tokenizer=FakeTokenizer())
+    loads: list[str] = []
+
+    def load(precision: str) -> NerEngine:
+        loads.append(precision)
+        return expected
+
+    monkeypatch.setattr(local_ner, "_announced", True)
+    monkeypatch.setattr(local_ner, "_load_engine", load)
+    finder = GlinerEntityFinder(labels=("person",), precision="q8")
+
+    finder.load()
+    finder.load()  # the second call reuses the engine loaded by the first
+    assert loads == ["q8"]
+    assert finder.engine is expected
+
+
+def test_load_quiet_silences_hub_progress_around_the_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import smartpipe.models.local_ner as local_ner
+
+    entered: list[bool] = []
+
+    @contextmanager
+    def fake_silence() -> Generator[None]:
+        entered.append(True)
+        yield
+
+    expected = NerEngine(session=FakeSession({}, num_classes=1), tokenizer=FakeTokenizer())
+
+    def load(precision: str) -> NerEngine:
+        del precision
+        return expected
+
+    monkeypatch.setattr(local_ner, "_announced", True)
+    monkeypatch.setattr(local_ner, "_load_engine", load)
+    monkeypatch.setattr(local_ner, "_hf_progress_silenced", fake_silence)
+    finder = GlinerEntityFinder(labels=("person",))
+
+    finder.load(quiet=True)
+    assert entered == [True]  # the caller owns the row, so hub chatter is suppressed
+    assert finder.engine is expected
+
+
+# --- the huggingface_hub warning knob (B5) -------------------------------------
+
+
+def test_hf_implicit_token_env_disables_the_unauthenticated_warning() -> None:
+    env: dict[str, str] = {}
+    hf_implicit_token_env(env)
+    assert env["HF_HUB_DISABLE_IMPLICIT_TOKEN"] == "1"
+
+
+def test_hf_implicit_token_env_never_overrides_a_configured_choice() -> None:
+    env = {"HF_HUB_DISABLE_IMPLICIT_TOKEN": "0"}
+    hf_implicit_token_env(env)
+    assert env["HF_HUB_DISABLE_IMPLICIT_TOKEN"] == "0"
+
+
+def test_load_engine_sets_the_token_env_before_importing_huggingface_hub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The load-bearing B5 property the helper-only tests never touch: the toggle
+    is in place BEFORE ``from huggingface_hub import hf_hub_download`` resolves, so
+    the "unauthenticated requests" warning is silenced even on the first uncached
+    download. Captured at the import line itself via PEP 562, with fakes standing in
+    for the three heavy wires so CI downloads nothing."""
+    import os
+    import sys
+    import types
+
+    import smartpipe.models.local_ner as local_ner
+
+    monkeypatch.delenv("HF_HUB_DISABLE_IMPLICIT_TOKEN", raising=False)
+
+    class _StopBeforeDownloadError(Exception):
+        pass
+
+    captured: dict[str, str | None] = {}
+
+    def _hf_getattr(name: str) -> object:
+        if name != "hf_hub_download":
+            raise AttributeError(name)
+        # PEP 562: this fires exactly when `from huggingface_hub import
+        # hf_hub_download` looks the symbol up — strictly before any download.
+        captured["env"] = os.environ.get("HF_HUB_DISABLE_IMPLICIT_TOKEN")
+
+        def _download(*_args: object, **_kwargs: object) -> str:
+            raise _StopBeforeDownloadError  # never touch the network or onnxruntime
+
+        return _download
+
+    fake_hf = types.ModuleType("huggingface_hub")
+    fake_hf.__getattr__ = _hf_getattr  # type: ignore[attr-defined]
+    fake_tokenizers = types.ModuleType("tokenizers")
+    fake_tokenizers.Tokenizer = object  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setitem(sys.modules, "tokenizers", fake_tokenizers)
+
+    with pytest.raises(_StopBeforeDownloadError):
+        local_ner._load_engine("q8")  # pyright: ignore[reportPrivateUsage] — the wire under test
+
+    assert captured["env"] == "1"  # the env was set before the import bound the symbol
 
 
 # --- the live wire (owner-run; CI always skips) --------------------------------

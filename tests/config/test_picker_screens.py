@@ -1,4 +1,4 @@
-"""Golden pins for the three-stage flow's non-interactive screens (plan/ux.md).
+"""Golden pins for the staged flow's non-interactive screens (plan/ux.md).
 
 Each scenario drives ``run_config_flow`` through the NUMBERED fallback
 (the exact surface a TERM=dumb or piped-key user sees) with every prompt
@@ -9,9 +9,9 @@ answered by its default, and pins the full transcript. Refresh with
 from __future__ import annotations
 
 from smartpipe.cli.config_cmd import run_config_flow
-from smartpipe.config.picker import ChipSources, ProbeChip
+from smartpipe.config.picker import ChipSources, ProbeChip, RegistryCaps
 from smartpipe.config.store import Config
-from smartpipe.io.arrow_menu import numbered_choose
+from smartpipe.io.arrow_menu import SEPARATOR, numbered_choose, ordinal_of
 from tests.helpers.golden import assert_golden
 
 _NOW = 1_751_900_000.0
@@ -24,6 +24,7 @@ async def _transcript(
     catalogs: dict[str, tuple[str, ...] | None],
     embed_catalogs: dict[str, tuple[str, ...] | None] | None = None,
     chips: dict[str, ProbeChip] | None = None,
+    registry: dict[str, RegistryCaps] | None = None,
     picks: list[int | None] | None = None,
 ) -> str:
     said: list[str] = []
@@ -46,11 +47,14 @@ async def _transcript(
         picked = start if scripted is None or not scripted else scripted.pop(0)
         if picked is None:
             return None
+        # a raw pick must name a selectable row; the typed digit is its ORDINAL
+        # (separators take no number in the fallback)
+        assert labels[picked] != SEPARATOR, f"pick {picked} landed on a separator in {title!r}"
         return numbered_choose(
             title,
             labels,
             start,
-            ask=lambda _question, _default: str(picked + 1),
+            ask=lambda _question, _default: str(ordinal_of(labels, picked)),
             say=said.append,
         )
 
@@ -61,7 +65,7 @@ async def _transcript(
         login=lambda: False,
         fetch_catalog=fetch,
         fetch_embed_catalog=fetch_embed,
-        chips=ChipSources(probed=chips or {}, registry={}, declared={}),
+        chips=ChipSources(probed=chips or {}, registry=registry or {}, declared={}),
         now=_NOW,
         choose=choose,
         ask=ask,
@@ -96,11 +100,34 @@ async def test_flow_typed_fallback_screen_matches_golden() -> None:
     assert_golden("config_flow_typed_fallback", rendered)
 
 
+async def test_flow_ocr_curated_screen_matches_golden() -> None:
+    # models.dev tags all of these image-input, but the OCR stage curates like
+    # the chat stage: the noise variants (chatgpt-image / gpt-realtime) and the
+    # dated snapshot drop out, and the survivors lead with one model per
+    # provider so the openai list can't bury anthropic/gemini under the cap.
+    rendered = await _transcript(
+        env={"OPENAI_API_KEY": "sk-x"},
+        tags=None,
+        catalogs={"openai": None},  # typed fallback pins the chat model deterministically
+        registry={
+            "openai/chatgpt-image-latest": RegistryCaps(image=True, audio=False),
+            "openai/gpt-realtime-2.1": RegistryCaps(image=True, audio=False),
+            "openai/gpt-4o-2024-08-06": RegistryCaps(image=True, audio=False),
+            "openai/gpt-4o": RegistryCaps(image=True, audio=False),
+            "openai/gpt-5.4": RegistryCaps(image=True, audio=False),
+            "anthropic/claude-opus-4-8": RegistryCaps(image=True, audio=False),
+            "gemini/gemini-3.1-flash": RegistryCaps(image=True, audio=False),
+            "openai/o4-mini": RegistryCaps(image=False, audio=False),  # text-only: dropped
+        },
+    )
+    assert_golden("config_flow_ocr_curated", rendered)
+
+
 async def test_flow_back_navigation_screen_matches_golden() -> None:
     rendered = await _transcript(
         env={"OPENAI_API_KEY": "sk-x"},
         tags=None,
         catalogs={"openai": ("gpt-5.4-mini",)},
-        picks=[1, 0, 8, 7, 6, 0, 0],
+        picks=[1, 0, 10, 8, 7, 0, 0],
     )
     assert_golden("config_flow_back_navigation", rendered)

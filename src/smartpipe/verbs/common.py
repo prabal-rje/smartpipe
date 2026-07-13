@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclasses_field
 from typing import TYPE_CHECKING, Protocol, TypeVar, assert_never
@@ -31,12 +32,12 @@ from smartpipe.models.base import AudioData, ImageData, MediaEmbeddingModel, Vid
 from smartpipe.verbs.convert import AUDIO_NEEDS_TEXT, Converter
 
 if TYPE_CHECKING:
-    import asyncio
     from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
     from pathlib import Path
 
     from smartpipe.io.items import Item
-    from smartpipe.models.base import ChatModel, EmbeddingModel, MediaData
+    from smartpipe.io.progress import Spinner
+    from smartpipe.models.base import EmbeddingModel, MediaData
 
 __all__ = [
     "AUDIO_NEEDS_TEXT",
@@ -44,7 +45,6 @@ __all__ = [
     "IMAGE_NEEDS_MAP",
     "ExecutionPolicySource",
     "GeometryFence",
-    "ModelSlot",
     "Oversize",
     "WindowGate",
     "batched",
@@ -52,7 +52,6 @@ __all__ = [
     "embed_in_batches",
     "ensure_text",
     "interrupted_exit_code",
-    "make_failover",
     "media_embedder",
     "native_route",
     "note_ambiguous_temporal",
@@ -62,12 +61,37 @@ __all__ = [
     "reset_run_disclosures",
     "resolve_schema",
     "row_embedder",
+    "spin_pending",
     "transcribe",
+    "warn_unenforced_schema",
 ]
 
 T = TypeVar("T")
 
 EMBED_BATCH_SIZE = 64  # texts per embed call on finite corpora (plan/post-1.0/06)
+_PENDING_TICK_S = 0.1  # the pending-spinner cadence (matches the redraw floor)
+
+
+async def spin_pending(
+    spinner: Spinner,
+    message: str,
+    awaitable: Awaitable[T],
+    *,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> T:
+    """Animate ``spinner`` with ``message`` while ``awaitable`` runs, then return
+    its result — the caller-owned status row for a blocking wait (a model load).
+    The injectable ``sleep`` keeps the cadence deterministic in tests."""
+    task = asyncio.ensure_future(awaitable)
+    spinner.message = message
+    spinner.start(None)
+    try:
+        while not task.done():
+            spinner.tick()
+            await sleep(_PENDING_TICK_S)
+    finally:
+        spinner.finish()
+    return await task
 
 
 class ExecutionPolicySource(Protocol):
@@ -76,59 +100,6 @@ class ExecutionPolicySource(Protocol):
     def concurrency(self, flag: int | None = None) -> int: ...
 
     def failure_policy(self, provider: str) -> FailurePolicy: ...
-
-
-@dataclass(slots=True)
-class ModelSlot:
-    """The run's current chat model, swappable WHOLESALE by the failover (item
-    11) — never per-item interleaving. The tally counts answered items per
-    model so the end receipt keeps the seam visible."""
-
-    current: ChatModel
-    counts: dict[str, int] = dataclasses_field(default_factory=dict[str, int])
-    switched: bool = False
-
-    def tally(self, label: str) -> None:
-        self.counts[label] = self.counts.get(label, 0) + 1
-
-    def receipt(self) -> str:
-        split = " · ".join(
-            f"{label} ×{count}"  # noqa: RUF001 — the pinned count mark (D27 rollup style)
-            for label, count in self.counts.items()
-        )
-        return f"answers: {split}"
-
-
-def make_failover(
-    slot: ModelSlot,
-    resolve: Callable[[], Awaitable[ChatModel]],
-    *,
-    limit: int,
-) -> Callable[[], Awaitable[bool]]:
-    """The verb-side failover hook: build the configured fallback at switch
-    time (keys/login checked here), swap the slot wholesale, announce loudly.
-    An unusable fallback returns False — the runner then dies on the ordinary
-    provider-down screen, with the reason already noted."""
-
-    async def switch() -> bool:
-        from smartpipe.core.errors import SempipeError
-
-        provider = slot.current.ref.provider
-        try:
-            fallback = await resolve()
-        except SempipeError as fault:
-            first = str(fault).splitlines()[0].removeprefix("error: ")
-            diagnostics.note(f"fallback model unusable — {first}")
-            return False
-        slot.current = fallback
-        slot.switched = True
-        diagnostics.warn(
-            f"{provider} looks down ({limit} consecutive transport failures) — "
-            f"switching to {fallback.ref} for the rest of the run"
-        )
-        return True
-
-    return switch
 
 
 def outcome_exit_code(
@@ -260,7 +231,8 @@ async def ensure_text(
                 else:
                     spoken = await asyncio.to_thread(transcriber, audio)
                     if log is not None:
-                        log.note(where, "audio → text", _whisper_detail())
+                        # a planned transcription — the converted channel (C3 #33)
+                        log.convert(where, "audio → text", _whisper_detail())
                 text = _merge(text, spoken)
             case VideoData() as video:
                 if converter is not None:
@@ -482,13 +454,16 @@ def batched(items: Sequence[T], size: int) -> Iterator[tuple[T, ...]]:
 
 
 _native_noted = False  # one disclosure per invocation, not per item
+_unenforced_schema_warned = False  # A3: one schema-enforcement warning per invocation
+_LOOSE_SCHEMA_PROVIDERS = frozenset({"ollama"})  # attach the schema as advisory, not enforced
 
 
 def reset_run_disclosures() -> None:
     """Reset stderr disclosure caps at one invocation boundary."""
-    global _ambiguous_dates_seen, _native_noted
+    global _ambiguous_dates_seen, _native_noted, _unenforced_schema_warned
     _ambiguous_dates_seen = 0
     _native_noted = False
+    _unenforced_schema_warned = False
 
 
 def note_native_once(model: object) -> None:
@@ -501,6 +476,33 @@ def note_native_once(model: object) -> None:
         diagnostics.note(
             f"media embedded natively ({getattr(ref, 'provider', '?')}/{getattr(ref, 'name', '?')})"
             " — no captions"
+        )
+
+
+def warn_unenforced_schema(model: object) -> None:
+    """A3: one loud line per run when a schema-attached request comes back
+    violating its schema even after the one repair rung. For a wire whose schema
+    is advisory (ollama's ``format``) this is the expected miss of many cloud
+    models; for a strict-enforcing wire the same event is surprising enough to
+    read as a provider-side regression. Graph inherits this automatically — its
+    chunks flow through ``map_one``."""
+    global _unenforced_schema_warned
+    if _unenforced_schema_warned:
+        return
+    _unenforced_schema_warned = True
+    ref = getattr(model, "ref", None)
+    provider = getattr(ref, "provider", "?")
+    name = f"{provider}/{getattr(ref, 'name', '?')}"
+    if provider in _LOOSE_SCHEMA_PROVIDERS:
+        diagnostics.warn(
+            f"{name} was asked to enforce the reply schema but its reply violates it "
+            "— this model likely ignores constrained decoding (cloud models often do); "
+            "a stricter --model, or graph's schema canary, catches this early."
+        )
+    else:
+        diagnostics.warn(
+            f"{name} returned a reply that violates the schema its wire enforces "
+            "— possibly a provider-side API regression."
         )
 
 

@@ -43,18 +43,57 @@ from smartpipe.models.admission import (
     admitted_chat,
     supports_deferred_chat,
 )
+from smartpipe.models.base import ModelRef
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from smartpipe.engine.coalesce import BatchSettings
-    from smartpipe.models.base import ChatModel, CompletionRequest, ModelRef
+    from smartpipe.models.base import ChatModel, CompletionRequest
 
-__all__ = ["STOPPED_BEFORE_SEND", "CoalescingChatModel", "OutboundCallPolicy"]
+__all__ = [
+    "STOPPED_BEFORE_SEND",
+    "CoalescingChatModel",
+    "OutboundCallPolicy",
+    "PackingMeasurement",
+    "packing_withheld",
+    "packing_withheld_for",
+]
 
 # ux.md §12 with batching: an in-flight batch drains; queued-but-unflown
 # submissions obey the stop — no new wire calls after Ctrl-C.
 STOPPED_BEFORE_SEND = "run stopping — not sent"
+_PACKING_WITHHOLDING_POINTS = 20
+
+
+def packing_withheld(*, solo_success: int, packed_success: int) -> bool:
+    """Whether measured packed success trails solo by more than 20 points."""
+    if not (0 <= solo_success <= 100 and 0 <= packed_success <= 100):
+        raise ValueError("success percentages must be in 0..100")
+    return solo_success - packed_success > _PACKING_WITHHOLDING_POINTS
+
+
+@dataclass(frozen=True, slots=True)
+class PackingMeasurement:
+    ref: ModelRef
+    solo_success: int
+    packed_success: int
+
+
+# C7 live matrix, 2026-07-12: grounded solo 100%, real packed shape 0%.
+_PACKING_MEASUREMENTS = (PackingMeasurement(ModelRef("ollama", "glm-5.2:cloud"), 100, 0),)
+
+
+def packing_withheld_for(ref: ModelRef) -> bool:
+    """Withhold only model refs whose measured gap crossed the H1c threshold."""
+    return any(
+        measurement.ref == ref
+        and packing_withheld(
+            solo_success=measurement.solo_success,
+            packed_success=measurement.packed_success,
+        )
+        for measurement in _PACKING_MEASUREMENTS
+    )
 
 
 @dataclass(slots=True)
@@ -115,12 +154,10 @@ class CoalescingChatModel:
         return self.inner.ref
 
     async def complete(self, request: CompletionRequest) -> str:
-        if self._closed:
+        if self._closed or self._stopping():
             raise UnsentError(STOPPED_BEFORE_SEND)
-        if not eligible(request, self.settings.size):
+        if packing_withheld_for(self.ref) or not eligible(request, self.settings.size):
             return await self.inner.complete(request)
-        if self._stopping():
-            raise UnsentError(STOPPED_BEFORE_SEND)
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         entry = self._enqueue(request, future)
         try:

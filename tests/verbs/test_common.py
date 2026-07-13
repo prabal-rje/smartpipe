@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import io
+
 import pytest
 
 from smartpipe.core.errors import ExitCode
 from smartpipe.io import diagnostics
-from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code
+from smartpipe.io.progress import Spinner
+from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code, spin_pending
 
 
 def test_outcome_exit_code() -> None:
@@ -37,6 +41,44 @@ def test_interrupted_summary_wording_is_contract(capsys: pytest.CaptureFixture[s
     err = capsys.readouterr().err
     assert "done: interrupted — 7 processed · 2 skipped\n" in err
     assert "done: interrupted — drain timed out\n" in err
+
+
+async def test_spin_pending_animates_the_row_until_the_awaitable_resolves() -> None:
+    stream = io.StringIO()
+    spinner = Spinner(stream=stream, enabled=True, ascii_only=True, clock=lambda: 0.0)
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        await asyncio.sleep(0)  # yield so the wrapped work can make progress
+
+    async def work() -> str:
+        for _ in range(3):
+            await asyncio.sleep(0)
+        return "ready"
+
+    result = await spin_pending(spinner, "preparing local NER model", work(), sleep=fake_sleep)
+    assert result == "ready"
+    assert "preparing local NER model" in stream.getvalue()  # the row was animated
+    assert stream.getvalue().endswith("\x1b[K")  # the line was cleared on finish
+    assert sleeps and sleeps[0] == pytest.approx(0.1)  # the injected pending cadence
+
+
+async def test_spin_pending_stays_silent_but_still_returns_with_a_disabled_spinner() -> None:
+    stream = io.StringIO()
+    spinner = Spinner(stream=stream, enabled=False, ascii_only=True, clock=lambda: 0.0)
+
+    async def fake_sleep(seconds: float) -> None:
+        del seconds
+        await asyncio.sleep(0)
+
+    async def work() -> int:
+        await asyncio.sleep(0)
+        return 42
+
+    result = await spin_pending(spinner, "preparing", work(), sleep=fake_sleep)
+    assert result == 42
+    assert stream.getvalue() == ""  # a piped run pays nothing
 
 
 def test_note_ambiguous_temporal_caps_at_five(

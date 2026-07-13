@@ -107,6 +107,17 @@ async def test_tiny_corpus_is_a_usage_fault() -> None:
         await _run("a\nb\n")
 
 
+async def test_a_declined_over_belt_ocr_reads_nothing_and_exits_ok() -> None:
+    # A8 review BLOCKER: on a belt-shortfall decline, resolve_items abandons the
+    # manifest and yields an EMPTY corpus (total 0) - the exact shape an empty
+    # stdin takes here. outliers must then exit 0 having spent nothing, like its
+    # sibling whole-set verbs (cluster/distinct/top_k), NOT raise "needs at least
+    # 3 items" - a misleading usage fault (exit 2) for a run the user declined.
+    code, rows, _err = await _run("")
+    assert code is ExitCode.OK
+    assert rows == []
+
+
 async def test_all_embedding_failures_are_an_outcome_not_a_post_spend_usage_fault() -> None:
     class FailedEmbedding(FakeEmbedding):
         async def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:

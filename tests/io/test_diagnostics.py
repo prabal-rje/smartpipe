@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import io
+from typing import TYPE_CHECKING
+
 import pytest
 
-from smartpipe.core.errors import SetupFault, TooManyFailures, UsageFault
+from smartpipe.core.errors import SetupFault, TooManyFailures, UnsentError, UsageFault
 from smartpipe.io import diagnostics
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _exit_code(excinfo: pytest.ExceptionInfo[SystemExit]) -> int:
@@ -50,6 +56,20 @@ def test_die_too_many_failures_exits_3(capsys: pytest.CaptureFixture[str]) -> No
     assert "61 of 100" in capsys.readouterr().err
 
 
+def test_die_read_phase_belt_exhaustion_exits_3_not_bug(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A5.1: a page belt (--max-calls) exhausted mid-read escapes a whole-set verb
+    as a raw UnsentError; die maps it to ALL_FAILED (3) with the belt truth, never
+    the BUG screen (70) a stray item error would otherwise get."""
+    with pytest.raises(SystemExit) as excinfo:
+        diagnostics.die(UnsentError("stopped by --max-calls (0 OCR pages processed)"))
+    assert _exit_code(excinfo) == 3
+    err = capsys.readouterr().err
+    assert "stopped by --max-calls" in err
+    assert "bug in smartpipe" not in err  # not the internal-error screen
+
+
 def test_die_with_debug_appends_traceback(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit):
         diagnostics.die(UsageFault("bad"), debug=True)
@@ -83,6 +103,118 @@ def test_internal_error_with_debug_shows_traceback(capsys: pytest.CaptureFixture
     assert "Rerun with --debug" not in err
 
 
+def test_degradation_log_buckets_repeated_skips(capsys: pytest.CaptureFixture[str]) -> None:
+    """B4: a flood of same-reason skips (one absolute-path line per chunk) collapses
+    to the first-N verbatim, one suppression line, then a rollup — the same shape
+    the degrade ledger uses, keyed by the reason PREFIX before the echoed instance."""
+    log = diagnostics.DegradationLog()
+    for i in range(8):
+        log.skip(f"corpus/chunk-{i}", f"output does not match the schema: instance {i}")
+    log.finish()
+    err = capsys.readouterr().err
+    verbatim = [line for line in err.splitlines() if line.startswith("⚠ skipped:")]
+    assert len(verbatim) == 5  # _DEGRADE_CAP: first N verbatim, keeping the full reason
+    # the verbatim line keeps the FULL reason (only the rollup collapses to the prefix)
+    assert verbatim[0] == "⚠ skipped: corpus/chunk-0 (output does not match the schema: instance 0)"
+    assert err.count("skips follow") == 1  # exactly one suppression line
+    assert "note: skipped: output does not match the schema ×8" in err  # the rollup  # noqa: RUF001
+
+
+def test_degradation_log_skip_rollup_ranks_reasons(capsys: pytest.CaptureFixture[str]) -> None:
+    """Distinct reason prefixes bucket independently and rank heaviest-first."""
+    log = diagnostics.DegradationLog()
+    for i in range(3):
+        log.skip(f"a-{i}", f"model did not return valid JSON: {i}")
+    for i in range(2):
+        log.skip(f"b-{i}", "the model named no relation")
+    log.finish()
+    err = capsys.readouterr().err
+    rollup = "note: skipped: model did not return valid JSON ×3 · the model named no relation ×2"  # noqa: RUF001
+    assert rollup in err
+
+
+def test_degradation_log_finish_still_rolls_up_degrades(capsys: pytest.CaptureFixture[str]) -> None:
+    """The degrade rollup is untouched by the convert/skip buckets — a genuine
+    loss (figures dropped) keeps its ⚠ voice and its own rollup."""
+    log = diagnostics.DegradationLog()
+    log.note("report.pdf", "figures dropped", "2 images — captions convert them")
+    log.finish()
+    err = capsys.readouterr().err
+    assert "⚠ degraded: report.pdf figures dropped" in err
+    assert "note: degraded: figures dropped ×1" in err  # noqa: RUF001 — the pinned rollup mark
+    assert "skipped:" not in err  # no skips this run
+    assert "converted:" not in err  # no conversions this run
+
+
+# --- C3 #33: the converted channel — expected conversions are calm ---------------
+
+
+def test_convert_rows_are_calm_notes(capsys: pytest.CaptureFixture[str]) -> None:
+    """An EXPECTED conversion (a converter doing its job) is a note-toned row on
+    its own channel — never a ⚠."""
+    log = diagnostics.DegradationLog()
+    log.convert("scan.pdf p.1", "document → markdown", "parsed by mistral/mistral-ocr-latest")
+    err = capsys.readouterr().err
+    assert err == (
+        "note: converted: scan.pdf p.1 document → markdown (parsed by mistral/mistral-ocr-latest)\n"
+    )
+    assert "⚠" not in err
+
+
+def test_convert_channel_caps_suppresses_and_rolls_up(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """First _DEGRADE_CAP rows verbatim, ONE note-toned suppression line, one
+    rollup — the same shape as the degrade/skip buckets, calm throughout."""
+    log = diagnostics.DegradationLog()
+    for i in range(8):
+        log.convert(f"line {i}", "audio → text", "whisper tiny")
+    log.finish()
+    err = capsys.readouterr().err
+    verbatim = [line for line in err.splitlines() if line.startswith("note: converted: line")]
+    assert len(verbatim) == 5  # the shared _DEGRADE_CAP
+    assert (
+        "note: more audio → text conversions follow (suppressed; the rollup lands at the end)"
+        in err
+    )
+    assert err.count("conversions follow") == 1  # exactly one suppression line
+    assert "note: converted: audio → text ×8" in err  # noqa: RUF001 — the pinned rollup mark
+    assert "⚠" not in err  # calm end to end
+
+
+def test_convert_and_degrade_counters_are_independent(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """One kind can legitimately live in BOTH buckets (video → text converts on
+    one row, degrades on another); the caps and rollups never share counts."""
+    log = diagnostics.DegradationLog()
+    log.convert("a.mp4", "video → text", "watched by ollama/omni")
+    log.convert("b.mp4", "video → text", "watched by ollama/omni")
+    log.note("c.mp4", "video → text", "audio track only; frames dropped")
+    log.finish()
+    err = capsys.readouterr().err
+    assert "note: converted: video → text ×2" in err  # noqa: RUF001 — the pinned rollup mark
+    assert "note: degraded: video → text ×1" in err  # noqa: RUF001 — the pinned rollup mark
+
+
+def test_finish_rolls_up_converted_then_degraded_then_skipped(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The cross-bucket rollup ORDER is pinned (C3 #33, the first such pin):
+    converted → degraded → skipped — the calm bulk first, the losses last,
+    nearest the receipt."""
+    log = diagnostics.DegradationLog()
+    log.skip("chunk-1", "output does not match the schema: x")
+    log.note("clip.mp4", "figures dropped", "2 images")
+    log.convert("call.mp3", "audio → text", "whisper tiny")
+    log.finish()
+    err = capsys.readouterr().err
+    converted = err.index("note: converted: audio → text")
+    degraded = err.index("note: degraded: figures dropped")
+    skipped = err.index("note: skipped: output does not match the schema")
+    assert converted < degraded < skipped
+
+
 def test_error_prefix_is_red_only_on_tty(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -90,3 +222,70 @@ def test_error_prefix_is_red_only_on_tty(
     with pytest.raises(SystemExit):
         diagnostics.die(UsageFault("bad"))
     assert capsys.readouterr().err == "\x1b[31merror:\x1b[0m bad\n"
+
+
+# --- C2 #32: every one-line diagnostic rides the terminal arbiter --------------
+
+
+class _Terminal(io.StringIO):
+    """Records every write in order — the status line and the diagnostics share
+    one stderr, exactly like a real run."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.writes: list[str] = []
+
+    def write(self, s: str, /) -> int:
+        self.writes.append(s)
+        return super().write(s)
+
+
+_ARBITERED: list[tuple[str, Callable[[], None], str]] = [
+    ("note", lambda: diagnostics.note("x"), "note: x\n"),
+    ("warn", lambda: diagnostics.warn("x"), "⚠ x\n"),
+    ("preview", lambda: diagnostics.preview("cost line"), "cost line\n"),
+    (
+        "interrupted_summary",
+        lambda: diagnostics.interrupted_summary(processed=1, skipped=2),
+        "done: interrupted — 1 processed · 2 skipped\n",
+    ),
+    ("drain_timed_out", diagnostics.drain_timed_out, "done: interrupted — drain timed out\n"),
+    ("report_error", lambda: diagnostics.report_error("boom"), "error: boom\n"),
+]
+
+
+@pytest.mark.parametrize(
+    ("emit", "expected"),
+    [(emit, expected) for _, emit, expected in _ARBITERED],
+    ids=[name for name, _, _ in _ARBITERED],
+)
+def test_diagnostics_ride_the_terminal_arbiter(
+    emit: Callable[[], None], expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a status line up, every one-line diagnostic erases it, lands whole,
+    and lets it redraw — never gluing onto the drawn row (#32)."""
+    import sys
+
+    from smartpipe.io.progress import Spinner
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)  # preview's gate
+    terminal = _Terminal()
+    monkeypatch.setattr(sys, "stderr", terminal)
+    spinner = Spinner(stream=terminal, enabled=True, ascii_only=True, clock=lambda: 0.0)
+    spinner.start(total=4)  # paints the zero state — registers with the arbiter
+    marker = len(terminal.writes)
+    emit()
+    assert terminal.writes[marker] == "\r\x1b[K"  # the line was erased first
+    assert terminal.writes[marker + 1] == expected  # the diagnostic landed whole
+    assert terminal.writes[-1].startswith("\r[")  # the status line came back
+
+
+def test_diagnostics_stay_byte_identical_without_a_status_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No active status line (every piped/cron run): the arbiter is a
+    pass-through and the bytes are exactly the pre-arbiter ones."""
+    diagnostics.note("using ollama/qwen3:8b")
+    diagnostics.warn("skipped: x")
+    assert capsys.readouterr().err == "note: using ollama/qwen3:8b\n⚠ skipped: x\n"

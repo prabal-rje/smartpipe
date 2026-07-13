@@ -157,6 +157,157 @@ async def test_an_unsent_budget_refusal_does_not_reset_the_actual_call_streak() 
         await policy.execute(ref, retryable)
 
 
+class _FakeClock:
+    """A driven monotonic clock: ``sleep`` advances it, so a cooldown wait is
+    deterministic and instant. Mirrors ``tests/models/test_retry.py``'s recorder,
+    but the clock ADVANCES on sleep so a ``while now < not-before`` gate settles."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def read(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+async def test_a_retry_after_hint_paces_the_next_admission_of_that_ref() -> None:
+    clock = _FakeClock()
+    # breaker_limit=0 disables the trip so the cooldown is isolated from it
+    policy = OutboundCallPolicy(concurrency=1, breaker_limit=0, clock=clock.read, sleep=clock.sleep)
+    ref = ModelRef("mistral", "ocr")
+
+    async def rate_limited_call() -> str:
+        raise RetryableError("ocr error 429: rate limited", retry_after=5.0)
+
+    with pytest.raises(RetryableError):
+        await policy.execute(ref, rate_limited_call)
+    assert clock.sleeps == []  # the failed call itself never sleeps
+
+    async def ok() -> str:
+        return "done"
+
+    # the NEXT admission of that ref honours the server's floor before proceeding
+    assert await policy.execute(ref, ok) == "done"
+    assert clock.sleeps == [5.0]
+    assert clock.now == 5.0
+
+
+async def test_a_tripped_breaker_dies_before_paying_a_stale_cooldown() -> None:
+    """A5.2 review: the breaker check must run BEFORE the cooldown wait. A run whose
+    OCR wire the breaker condemned is STOPPING, not pacing — it must die on the open
+    circuit immediately, never sleep out a floor recorded from the same 429 first.
+    Pins the ordering the comments claim (a reversed order would sleep 5s here)."""
+    clock = _FakeClock()
+    # breaker_limit=1: one 429 both ARMS the floor and TRIPS the breaker
+    policy = OutboundCallPolicy(concurrency=1, breaker_limit=1, clock=clock.read, sleep=clock.sleep)
+    ref = ModelRef("mistral", "ocr")
+
+    async def rate_limited_call() -> str:
+        raise RetryableError("ocr error 429: rate limited", retry_after=5.0)
+
+    with pytest.raises(CircuitOpenTransport):
+        await policy.execute(ref, rate_limited_call)  # arms the 5s floor AND opens the circuit
+    assert clock.sleeps == []  # the tripping call itself never slept
+
+    async def would_succeed() -> str:
+        return "unreachable"
+
+    with pytest.raises(CircuitOpenTransport):
+        await policy.execute(ref, would_succeed)  # the open circuit dies FIRST
+    assert clock.sleeps == []  # the 5s floor was NEVER slept — the breaker won the race
+
+
+async def test_a_cooldown_on_one_ref_does_not_gate_a_different_ref() -> None:
+    clock = _FakeClock()
+    policy = OutboundCallPolicy(concurrency=2, breaker_limit=0, clock=clock.read, sleep=clock.sleep)
+    hot = ModelRef("mistral", "ocr")
+    cool = ModelRef("openai", "embed")
+
+    async def rate_limited_call() -> str:
+        raise RetryableError("429", retry_after=9.0)
+
+    with pytest.raises(RetryableError):
+        await policy.execute(hot, rate_limited_call)
+
+    async def ok() -> str:
+        return "ok"
+
+    assert await policy.execute(cool, ok) == "ok"  # the other ref is untouched
+    assert clock.sleeps == []
+    assert await policy.execute(hot, ok) == "ok"  # the hot ref still owes the wait
+    assert clock.sleeps == [9.0]
+
+
+async def test_a_429_without_a_retry_after_records_no_cooldown() -> None:
+    clock = _FakeClock()
+    policy = OutboundCallPolicy(concurrency=1, breaker_limit=0, clock=clock.read, sleep=clock.sleep)
+    ref = ModelRef("mistral", "ocr")
+
+    async def bare_429() -> str:
+        raise RetryableError("429")  # no server hint
+
+    with pytest.raises(RetryableError):
+        await policy.execute(ref, bare_429)
+
+    async def ok() -> str:
+        return "ok"
+
+    assert await policy.execute(ref, ok) == "ok"
+    assert clock.sleeps == []  # no hint -> no cross-call pacing
+
+
+async def test_a_hostile_retry_after_is_clamped_before_it_paces() -> None:
+    clock = _FakeClock()
+    policy = OutboundCallPolicy(concurrency=1, breaker_limit=0, clock=clock.read, sleep=clock.sleep)
+    ref = ModelRef("mistral", "ocr")
+
+    async def hostile() -> str:
+        raise RetryableError("429", retry_after=86_400.0)  # a full day
+
+    with pytest.raises(RetryableError):
+        await policy.execute(ref, hostile)
+
+    async def ok() -> str:
+        return "ok"
+
+    await policy.execute(ref, ok)
+    assert clock.sleeps == [60.0]  # the abuse ceiling, not a day
+
+
+async def test_a_smaller_concurrent_hint_never_shrinks_a_larger_floor() -> None:
+    clock = _FakeClock()
+    policy = OutboundCallPolicy(concurrency=2, breaker_limit=0, clock=clock.read, sleep=clock.sleep)
+    ref = ModelRef("mistral", "ocr")
+    b_in_flight = asyncio.Event()
+    a_recorded = asyncio.Event()
+
+    async def big() -> str:
+        await b_in_flight.wait()  # B is already past its cooldown check (sees no floor)
+        a_recorded.set()  # ... then the BIG floor records first
+        raise RetryableError("429", retry_after=30.0)
+
+    async def small() -> str:
+        b_in_flight.set()
+        await a_recorded.wait()  # the small ask lands AFTER the big floor is in place
+        raise RetryableError("429", retry_after=1.0)
+
+    task_a = asyncio.create_task(policy.execute(ref, big))
+    task_b = asyncio.create_task(policy.execute(ref, small))
+    results = await asyncio.gather(task_a, task_b, return_exceptions=True)
+    assert all(isinstance(r, RetryableError) for r in results)
+    assert clock.sleeps == []  # no prior floor -> neither concurrent call waited
+
+    async def ok() -> str:
+        return "ok"
+
+    await policy.execute(ref, ok)
+    assert clock.sleeps == [30.0]  # the big floor survived the small concurrent one
+
+
 async def test_media_embedding_capability_survives_admission() -> None:
     class _MediaEmbed:
         ref = ModelRef("jina", "clip")

@@ -5,6 +5,392 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+- Make graph entity-name folding report determinate per-name progress and use an exact chunked NumPy GEMM strategy when available, with the pure-Python implementation as a dependency-free fallback. The shared `distinct` leader-clustering semantics remain input-order stable and first-match exact.
+
+### Added
+- **`doctor --probe` now exercises every configured remote role (C8).** In
+  addition to the five-call modality/schema baseline and optional remote STT,
+  configured `ocr-model`, `fallback-model`, and `media-embed-model` roles each
+  receive one deterministic tiny request through their real container wire. The
+  announcement derives its count from successfully built plans; build faults
+  spend nothing and render their own `✗` row, while runtime faults never suppress
+  later role exercises.
+- **Ollama structured-output and vision conformance (C7).** Schema-attached
+  Ollama requests now ground the exact schema in the user message while retaining
+  the native `format`; `:cloud` tags warn eagerly about unenforced schemas, carry
+  a picker capability chip and post-pick note, and are refused by `--local-only`
+  for every role. Doctor and `doctor --probe` now expose schema capability, with
+  the probe exercising one tiny schema-shaped reply.
+- **`graph` honors the stt-model role in the scanning modes (C4 #20).**
+  `--fast` and `--name-top` now transcribe audio and video tracks through the
+  resolved `stt-model` — `--stt-model` (new flag, shell-completed) >
+  `SMARTPIPE_STT_MODEL` > config, where configuring or flagging the role IS
+  the consent (the `ocr-model` rule). The resolve doubles as a preflight: a
+  missing key, an unsupported wire, or a `--local-only` fence hit faults at
+  SETUP (2) before a byte is read. A paid wire is disclosed once per run
+  (`transcribing audio via openai/whisper-1 (paid transcription)`) on top of
+  the per-row conversion notes; `stt-model = "local"` rides the same seam
+  free and quiet. Bare `--fast` stays byte-identical, local, and free — no
+  chat ref is consulted, so an ambient OpenAI key changes nothing. The flag
+  refuses outside the scanning modes (`--stt-model rides the scanning modes —
+  pair it with --fast or --name-top`); full mode's native ladder is a
+  ledgered follow-up. The `--fast` receipt's cost segment now reads the live
+  meter (still `0 tok` when nothing metered) so a paid transcription shows up
+  in it.
+- **You can always see it working (C2 #19/#32/#36/#37).** Four visibility fixes
+  with one pinned rule behind them — every phase that can hold the terminal for
+  more than ~2 seconds owns a visible element, painted immediately:
+  - *First paint at `start()` (#36/#37).* Every status line now shows its zero
+    state the moment its phase begins — `0% · 0/N` for a known total,
+    `Processing [0] 0.0/s` for an unknown one, the caption for a pending wait —
+    instead of waiting for the first completion. The fold bar's first byte no
+    longer waits on the first embed batch (which an admission cooldown plus the
+    retry ladder can hold for minutes); `start(0)` and non-TTY stderr stay
+    silent.
+  - *A terminal arbiter for diagnostics (#32).* Every one-line stderr message
+    (notes, warnings, previews, the drain summary, an error screen's first
+    line) now erases the live status line, prints whole, and lets the line
+    redraw — from any thread. A local-NER note fired from a worker thread used
+    to glue onto the pending caption (`…preparing local NER modelnote: …`);
+    that interleave is now structurally impossible. The raw SIGINT
+    acknowledgement stays lock-free by design.
+  - *Plain `--in` globs read lazily (#19).* Whole-crate file lists now load
+    each file only when the pipeline pulls it — a 62-file MP3 corpus no longer
+    transcodes in silence before the first bar frame. The read bar's total is
+    the number of files the glob NAMED (an unreadable file warns, skips, and
+    honestly leaves the bar short of 100%); chained pipes keep streaming with
+    an unknown total. One accepted delta: a glob whose files all fail to load
+    still spends the paid modes' one schema-canary probe (cached on rerun).
+  - *Fold and canary visibility (#37).* The label-cluster fold now wears a
+    `[fold]` count line at all three call sites (fast scan, full, adopt), and
+    the pre-spend schema canary wears a pending caption — `checking the model
+    holds the schema` — while it probes. A PTY smoke pins the zero-state
+    frames against a real terminal.
+- **A density hint when the graph is window math, not signal (C6 #34).** The
+  scanning modes (`--fast` and `--name-top` hybrid) now notice a near-complete
+  graph — at least 20 folded nodes with the kept edges ≥ 0.8 of the C(n,2)
+  possible — and say so once on stderr: `near-complete graph (N of M possible
+  edges) — everything co-occurs with everything; --window sentence tightens it,
+  then --min-weight 2 keeps recurring pairs`. The thresholds are structural
+  (one long MP3 read as one chunk window makes a complete graph by
+  construction), the guidance is ordered deliberately (`--min-weight 2` alone
+  empties a one-window corpus), and hybrid fires the hint BEFORE its paid
+  naming spend so Ctrl-C beats paying to name geometry. Full/adopt modes are
+  untouched.
+- **Graph batches its text chunks (C5 #21).** The full-extraction and
+  hybrid-naming workers now ride the run's coalescing posture exactly like
+  map/extend/filter (item 62): eligible TEXT chunks pack onto the shared
+  coalescer (full's 4-property triple schema admits 10 per call, 6 with
+  `--entities`; hybrid's single-property naming schema admits 12), media
+  chunks stay solo behind the wire semaphore, and the schema canary keeps
+  firing solo. One packed flight charges one `--max-calls` unit; stdout is
+  byte-identical batching on or off. The pre-spend plan note says true
+  things while coalescing: it gains `(batching may pack text chunks into
+  fewer wire calls)` and the belt-short tail softens from "the graph will
+  be partial" to "may be partial"; batching off keeps today's strings
+  byte-identical.
+- **Embeddings and transcriptions now cache across runs (C5 #22).** The one
+  result-cache posture, store, sweep, and receipt now cover four more
+  surfaces beside chat completions and OCR pages: text embeddings bank
+  PER TEXT (a rerun's graph fold embeds zero unchanged names; duplicate
+  texts in one call pay once; the on-device key carries the fastembed
+  version so an upgrade re-embeds), joint media embedders keep their
+  `embed_parts` capability marker through the cache (pixels stay uncached
+  v1 pass-throughs), remote STT transcriptions key on
+  provider/model/mime/bytes, and local whisper transcripts bank behind a
+  synchronous ContextVar-installed `TranscriptBank` whose hits skip the
+  whisper model load entirely. Cache layers stay OUTERMOST — a hit never
+  charges the belt, takes admission, or counts as a call — and the free
+  graph fold stays off-belt AND banked. A cache-write failure never sinks
+  a computed batch. NER is deliberately not cached (fast local inference;
+  banking spans would flood the LRU for zero wire savings).
+- **`SMARTPIPE_FIGURE_CAP` resizes the per-document figure ceiling (C6 #35).**
+  The D32 default of 8 embedded figures per document item is now an env knob:
+  whole numbers ≥ 1 set the cap; unset/blank keeps 8; anything else — `"0"`
+  included, on purpose: attach-nothing is a cost off-switch, a different
+  feature — refuses at SETUP (exit 2) before the first item is read, on every
+  file kind: the knob is validated where each file-reading door constructs its
+  figure census, so even an audio-only or csv-only corpus faults up front (a
+  pure-stdin run never consults the knob — stdin items never attach embedded
+  figures). The figure census rollup now names the knob when anything was
+  capped (`(100 capped — SMARTPIPE_FIGURE_CAP raises it)`); the per-file note
+  is unchanged.
+
+### Changed
+- **smartpipe says true things (C3 #28/#31/#33).** Three honesty fixes.
+  *Converted is not degraded:* the disclosure ledger grew a third channel —
+  an expected conversion (whisper/stt transcript, LLM caption/watch, an
+  ocr-model parse) now prints a calm `note: converted:` row instead of a
+  `⚠ degraded:` warning; genuine loss (frames/figures dropped, a failed
+  native attempt, OCR fallbacks) keeps the ⚠. Rollup order at end of run is
+  pinned: converted → degraded → skipped. *Live adopt receipt:* piping edge
+  records into `graph` no longer prints a hardcoded `· 0 tok` — the receipt
+  reads the meter, so a paid canonicalization fold shows its real spend
+  (`· run: ↑… ↓… tok`); still byte-identical `0 tok` when nothing metered.
+  *Qualified --fast claims:* help and docs no longer say "zero model calls" —
+  `--fast` is on-device with no chat-model calls, and exactly two configured
+  roles can spend, disclosed: a cloud `--embed-model` on the name fold
+  (entity names ride that wire) and a remote `--stt-model` per clip (audio
+  rides that wire). The caption-consent message now also notes that ollama
+  `:cloud` tags ride Ollama's cloud, off-device (C7 ruling 2).
+- **Result caching now ships ON by default (owner directive: always cache).** The
+  posture ladder is unchanged (SMARTPIPE_CACHE > config `cache`), but the unset
+  default flips from off to on, mirroring batching's default-on: `_cache_enabled`
+  now returns `config.cache is not False`, and `config show` / `using` reports
+  `cache  on  (default)`. Every explicit opt-out still works untouched
+  (SMARTPIPE_CACHE=0/off/false/no at the env, or `cache = false` in config.toml).
+- **The `graph` fold embedder now honors the configured embed-model, with a
+  local fallback (owner ruling: specified wins).** The name-canonicalization
+  fold in every graph mode (`--fast`, a focus prompt, `--name-top`, adopt) now
+  resolves its embedder through the same chain `embed` uses - a new
+  `--embed-model` flag > SMARTPIPE_EMBED_MODEL > config `embed-model` - and falls
+  back to the free on-device local model only when nothing is set (the prior
+  always-local behavior). Because a configured cloud embedder then spends even on
+  the "free" `--fast` path, `fold_vectors` emits a one-line stderr disclosure
+  (`folding N entity names via <ref> (paid embeddings)`) whenever the resolved
+  fold embedder is a paid cloud wire — the on-device local model and free
+  loopback/self-hosted ollama stay quiet.
+- **The chat wire's breaker, concurrency gate, and failover are now composed as
+  decorators at the composition root.** A new `models/resilience.py` provides
+  native-Python resilience combinators (`retried`, `circuit_broken`,
+  `rate_limited`) plus the `Breaker`/`Cooldown` collaborators, and the container
+  stacks them into a `ResilientChatModel` — the per-ref transport streak, trip
+  signal, and concurrency semaphore that `OutboundCallPolicy` owned for chat now
+  live in first-class wrappers the root composes. The provider-down failover
+  rides the same stack: `circuit_broken(*, fallback_factory=…)` owns the trip
+  AND the wholesale swap — on the breaker opening it builds the configured
+  fallback lazily and routes every later call to it for the rest of the run,
+  raising `CircuitOpenTransport(switched=…)` so the runner replays the held
+  in-flight window onto the swapped target. Per-item verbs (`map`, `extend`,
+  `filter`, `join`) now ask the container for one `resilient_chat_model()` and
+  run on the returned `WiredChat` — a plain `ChatModel` plus an honest
+  answered-per-model receipt — and never branch on the wire's health. This
+  retires the caller-handled failover machinery wholesale: `verbs/common.py`'s
+  `ModelSlot` and `make_failover`, and `run_ordered`'s `failover=`/`switch()`
+  seam (the runner keeps its held-window replay, now reading
+  `CircuitOpenTransport.switched` instead of driving the swap itself). Behavior
+  is preserved end to end — the failover contract's tests still pass byte for
+  byte; embed/OCR/STT keep the shared admission policy (failover is a chat
+  concern).
+
+### Fixed
+- **`doctor --probe` exercises the resolved STT path (C4).** The probe used to
+  render a resolved display string as health — an invalid key, an unsupported
+  wire, or missing whisper wheels all charted fine. A remote resolution now
+  sends one tiny disclosed transcription through the real container wire
+  (announced: `probing modalities with 5 tiny calls (… · stt: whisper-1)`) and
+  reports the exercised truth under the matrix (`stt: ✓ transcribed via
+  openai/whisper-1`, or `stt: ✗` with the wire's own first error line). A
+  `local` resolution is verified but never run (no model download inside
+  doctor): `stt: – local whisper ready (not exercised)`; nothing resolved
+  keeps today's 4-call announcement and adds no line.
+- **A cut `graph` fold no longer discards paid work (#30).** `fold_vectors` now
+  keeps every vector already embedded when the fold is cut — by a drained
+  Ctrl-C (polled per batch, on the synchronous predicate only), by the
+  `--max-calls` belt, or by a wire fault mid-run (including a runtime
+  `SetupFault`: the wire dying mid-fold degrades to a partial fold instead of
+  killing a fully-paid run). Already-embedded names still fold; the rest keep
+  their spelling; the graph is always written. New stderr wordings:
+  `entity folding interrupted — N of M names embedded; the rest keep their
+  spelling` (note) and `entity folding stopped early (…) — N of M names
+  embedded; the rest keep their spelling` (warn); the nothing-embedded
+  `entity folding skipped (…)` line is unchanged. The verb-level
+  `fold_assertions` calls also run ungated now, so a latched Ctrl-C can no
+  longer zero the salvage write (the owner's 28-minute, 0-byte loss).
+- **`graph` preflights the fold embedder before any spend (#27).** A broken
+  embed config (missing key, chat-model-as-embedder) now faults at exit 2 at
+  dispatch time, in every mode, before any read, NER grind, schema canary, or
+  paid extraction — previously a small corpus could exit 0 on a config any
+  real run would fault on, and a big run discovered it only after paying. The
+  bare-terminal three-forms refusal still outranks the preflight (exit 64).
+- **A belt-cut `graph` fold flips the run to PARTIAL, never 0 (#29 ruling).**
+  The paid fold stays metered against `--max-calls`; when the belt cuts it,
+  all four modes exit 1 with the salvaged graph on stdout, and the belt stop
+  never wears the `done: interrupted` drain summary (that line is reserved for
+  a real Ctrl-C). Free local/ollama folds stay off-belt and cannot flip the
+  exit.
+- **An over-belt OCR corpus now asks before it overspends (A8).** The shared
+  ingestion preflight (`ocr_preflight` in `io/readers.py`) disclosed a paid
+  page count but never had the belt handle or a way to ask — so a 6,863-page
+  scan corpus against a `--max-calls 4000` belt silently guaranteed a partial
+  parse plus mid-read belt exhaustion. It now takes the run's `CallBudget` and a
+  `tty_asker`-style asker threaded through `resolve_items`: when the billable
+  pages exceed the *remaining* belt (`limit − calls`) at a TTY, it prints the
+  joint math (`~N OCR pages through <ref> exceed --max-calls (M remaining)`) and
+  prompts `proceed with a partial parse? [y/N]` before a cent is spent — exactly
+  as the extraction preflight's `CONFIRM_PARTIAL` does. A decline abandons the
+  manifest and reads nothing (a clean exit 0, zero pages billed; `outliers` now
+  treats the empty corpus as done like its `cluster`/`distinct`/`top_k` siblings
+  rather than raising a spurious "needs at least 3 items" usage fault) instead of
+  falling through to a garbage binary read; a non-TTY run keeps today's
+  disclose-and-proceed note; a corpus within the belt never asks. `ocr_preflight`
+  now returns a typed `OcrDecision` (route/fallback/declined) instead of a bare
+  bool, and every OCR-capable verb (graph, map, extend, filter, embed, join,
+  split, distinct, reduce, top_k, outliers, cluster, diff, and reader mode)
+  threads `container.budget` down to it.
+- **A sustained rate-limit storm is now paced, not burned through.** The
+  outbound-call policy (`OutboundCallPolicy`, shared by the embed/OCR/STT wires)
+  had no cross-call cooldown: a ref that returned `429` was retried immediately on
+  its next admission, so a dedicated wire could exhaust its whole ladder in ~2 s.
+  Two fixes work together. (1) **Per-ref cooldown (A5.2):** a `429` carrying a
+  server `Retry-After` now threads that hint onto the exhausted `RetryableError`
+  (a new typed `retry_after` field) all the way to the policy, which records a
+  per-ref "not-before" floor and makes that ref's *next* admission wait it out —
+  keyed per `ModelRef` (a hot ref never stalls a different one), clamped to the
+  60 s abuse ceiling, extended-never-shrunk when concurrent `429`s disagree, and
+  driven by an injected clock/sleep so it is deterministic under test. The wait
+  happens outside the concurrency gate, so a cooling ref frees its slot for the
+  other roles sharing the policy. (2) **Longer dedicated OCR ladder (A5.3):** the
+  paid Mistral OCR wire is now built with its own frozen `OCR_RETRY_POLICY`
+  (`attempts=5`, cap ~30 s) instead of the default 3-attempt chat ladder — a page
+  parse is far cheaper to wait on than to re-buy, since every retry avoids a fresh
+  paid conversion. The default chat ladder is untouched.
+- **Paid Mistral OCR conversions are now banked across runs — a rerun re-reads
+  them for free instead of re-paying.** The `ocr-model` document wire
+  (`MistralOcrParser`, charged per page) had no cache layer, so every rerun
+  re-uploaded and re-paid every page; a pilot spent 943 paid conversions (~$1.89)
+  with nothing banked. A new `CachingDocumentParser` now wraps that wire
+  OUTERMOST — `cache → admission → budget → parser`, mirroring the chat cache — so
+  a hit short-circuits before admission gates it or the page belt meters it. Both
+  paid methods cache: `parse_image` keys on the image bytes and mime, `parse_pdf`
+  on the file's bytes, each under the OCR model's `provider/name` and a route tag
+  so an image hash never collides with a pdf hash (nor one image format with
+  another); the page tuple round-trips byte-identical. Banking is best-effort — an
+  unwritable cache dir or a full disk never sinks a run that already paid for its
+  pages. It rides the same posture (`SMARTPIPE_CACHE`), directory, and
+  daily TTL/LRU sweep as the chat cache, and its hits join the once-per-run
+  `cache: N hits · M misses` receipt. (Vision-OCR page images already rode the
+  chat cache; this closes the dedicated Mistral document wire.)
+- **The status bar now shows when only stdout is redirected — `graph … >
+  edges.jsonl` no longer looks hung.** The stderr spinner gate is re-pinned to
+  stderr alone (it required BOTH stderr and stdout to be TTYs before), so a
+  redirected or piped stdout — how `graph` and the other verbs are meant to be
+  driven — keeps the progress bar on stderr, exactly as `curl`/`rsync` do. A
+  pilot run redirected `graph`'s edges to a file and saw nothing for minutes,
+  thinking it had hung. `graph`'s projected-grind note now keys its "(progress
+  below; Ctrl-C is safe)" clause on whether the bar is actually animating, so a
+  fully-piped run (no bar) no longer promises progress it won't display.
+- **Note floods no longer bury the load-bearing lines.** Three high-volume
+  diagnostics now collapse the way the degrade ledger already does - the first few
+  print verbatim, then one rollup closes the run. Embedded-figure notes route
+  through a per-run `FigureCensus`, so a 200-file corpus ends with one
+  `figures attached: N files · M figures` line instead of N near-identical `note:`
+  lines (a small run is unchanged). `graph`'s per-chunk skip warnings bucket
+  through the run's `DegradationLog` keyed by the reason prefix, so a run of
+  identical schema failures rolls up to `skipped: <reason> ×N` instead of
+  repeating one absolute-path line per chunk. The schema-mismatch message now
+  truncates the echoed model reply (~160 chars) while keeping the pinned
+  "does not match the schema" phrasing and jsonschema's own reason. And the OCR
+  wire's 429/5xx errors render a human reason ("rate limited" / "server error")
+  with the status code, never the raw JSON wire body.
+- **`graph` honors `--fallback-model` - the failover was dead weight before.**
+  Both paid modes (a focus prompt for extraction, `--name-top` for naming) now run
+  on the composed resilient chat wire, so a provider-down primary trips the breaker
+  and swaps to the configured fallback WHOLESALE, replaying the held window onto
+  it - the same `switching to <model> for the rest of the run` line and
+  answered-per-model receipt the per-item verbs print. A pilot run configured a
+  `fallback-model` that `graph` silently ignored; now it engages.
+- **`graph` proves the model can hold the schema before spending on OCR.**
+  Both paid modes now fire one synthetic extraction ("Alice pays Bob for the
+  shipment.") through the compiled schema before any ingestion — full mode
+  before the reader touches a paid page, hybrid before the naming loop. A model
+  that cannot produce the typed shape (even after the one shape-repair rung)
+  refuses at SETUP (2) naming the model and a fix, instead of burning the whole
+  run — a pilot run spent 943 OCR pages and 7 extractions before a wholesale
+  schema collapse. The probe charges one belt unit and is cached, so a rerun's
+  check is free; the partial-run plan counts that unit, so a belt sized exactly
+  to the corpus warns "partial" up front instead of silently dropping the last
+  chunk — and the note reports what is LEFT in the belt ("2 left in the belt" for
+  a belt-3 on 3 chunks), not the raw limit, so the shortfall is honest and a
+  reader who raises the belt clears the chunk count instead of landing one short
+  again. The probe is skipped entirely when the belt can't afford it plus
+  real work (a `--max-calls 1` run does its one real call unprobed). An
+  availability fault at canary time (belt/429/breaker) propagates as itself and
+  is never mistaken for a capability verdict.
+- **A model that keeps breaking the reply schema now says so, once.** When a
+  schema-attached request comes back violating its schema even after the one
+  paid repair rung — so the item skips — `map` (and `graph`, whose chunks flow
+  through it) prints one loud stderr line per run naming the model. A loose wire
+  that only advises the schema (ollama's `format`, which many cloud models
+  ignore) is told it "likely ignores constrained decoding"; a strict-enforcing
+  wire (openai, mistral) doing the same is flagged as a possible provider-side
+  regression. A run of skips now reads as "wrong model" instead of a mystery.
+- **A fail-fast halt no longer throws away everything already extracted.** When
+  the failure policy trips mid-extraction (too many chunks failed the schema),
+  `graph` full mode now folds and writes the edges it already has to stdout,
+  then exits ALL_FAILED (3) carrying that salvaged graph, instead of
+  propagating past the writer and leaving a 0-byte file. A pilot run lost 7
+  good extractions and 943 paid OCR pages to this exact gap. Hybrid mode
+  salvages too: the free co-occurrence graph is already whole, so a naming-model
+  collapse stops only the naming pass and exits PARTIAL (1) with the strongest
+  edges kept as co-occurs.
+- **A failed OCR upload no longer eats a later document's page belt.** The
+  dedicated OCR wire reserves a document's full page count against
+  `--max-calls` before uploading, so an over-belt PDF never uploads partially.
+  When that upload then fails — a 429 ladder exhausted, the breaker open — the
+  reservation is now refunded, because those pages were never converted; a dead
+  document can no longer starve the documents that come after it.
+- **The huggingface_hub "set a HF_TOKEN" warning stays off stderr.** The first
+  `graph --fast` run downloads the local NER weights through huggingface_hub,
+  which printed an unauthenticated-request warning straight to stderr. smartpipe
+  now sets that warning's own documented toggle
+  (`HF_HUB_DISABLE_IMPLICIT_TOKEN`) the same per-library way onnxruntime's log
+  level is pinned, so diagnostics own stderr — never the hub's chatter.
+- **The `use` wizard's OCR-stage model picker is curated, not a capability
+  dump.** The document-OCR stage listed every model models.dev tags
+  image-input in raw registry order, so junk like `chatgpt-image-latest` and
+  `gpt-realtime-2.1` ranked as document parsers and a blind 30-row cap buried
+  real parsers under "(N more not shown)". It now applies the SAME curation the
+  text/chat stage already does — the openai capability-dump denylist
+  (realtime/image/audio/search/…) and the dated `-YYYY-MM-DD` snapshot drop —
+  and leads the survivors with one model per provider so a long openai list
+  can't crowd out anthropic/gemini/etc. The dedicated `mistral-ocr-latest` wire
+  and the picked vision chat model still lead the menu as their own rows.
+- **`graph --fast`/`--hybrid` no longer look hung while the local NER model
+  loads.** The one-time weights download and ONNX session init happened silently
+  inside the first per-item NER call, with no smartpipe-owned feedback. A
+  caller-owned `preparing local NER model` status line now covers that load up
+  front, under the same final-stage TTY gate as every other bar; huggingface_hub's
+  own download bar is deferred to when the spinner is gated off (a piped stdout),
+  so the two never fight over the terminal row.
+- **A dead OCR wire stops the run instead of silently wrecking every scan.** The
+  "falling back to local extraction" path is now two-tier: an isolated file whose
+  429 retry ladder exhausted still degrades to local extraction, but with an honest
+  `ocr rate-limited: <file>` (the raw wire body is no longer dumped). A SYSTEMIC
+  availability fault never masquerades as a fallback — and never crashes as an
+  internal bug: when the breaker concludes the OCR wire is down, the run stops at
+  SETUP (exit 2) with the truth ("rate-limited … rerun later"), converted to a
+  setup fault that flows cleanly past every per-file handler so no verb grinds the
+  rest of the corpus into bogus skips; a page belt exhausted mid-read stops
+  ALL_FAILED (exit 3) with the belt truth rather than the internal-error screen a
+  stray item error would trigger. A pilot run degraded a whole scanned corpus to
+  near-garbage local text under a sustained rate limit, and reported belt
+  exhaustion mid-read as "ocr failed … falling back".
+- **Ctrl-C now works during `graph`'s heavy fold, and a stuck run can always be
+  killed.** Three coupled fixes to the interrupt path. (B1) The CPU-bound fold
+  phases (`fold_surfaces`/`fold_edges` and their assertion twins) ran ON the event
+  loop thread, so a large corpus — a pilot folded 627,520 edges from 302 files —
+  starved the loop for minutes: no signal callbacks, no bar redraws, Ctrl-C
+  ignored. They now run OFF the loop via `asyncio.to_thread`, drive a `fold`-stage
+  progress bar, and poll an injected `should_stop` per window so a drained Ctrl-C
+  salvages a clean partial graph (edges written, exit reflects partial), mirroring
+  the extraction-halt salvage. The projected-grind note now says "files" (the pass
+  iterates files) and names the fold as its own phase. (B2) The SIGINT handler was
+  a `loop.add_signal_handler` callback — unreachable exactly while the loop was
+  starved. It is now a raw `signal.signal` handler that runs between bytecodes on
+  the main thread, backed by a `threading.Event` any worker thread reads
+  synchronously; the first press writes a direct fd-2 acknowledgment
+  ("stopping — draining; press Ctrl-C again to exit now") and arms the drain
+  watchdog, the second hard-exits 130. A new watchdog escalation closes a latent
+  hang: after the cap cancels the run, `asyncio.run`'s teardown still JOINS running
+  executor threads, so a stuck to-thread (a mid-inference call, an uncooperative
+  fold) could hold the drain far past the cap — an off-loop daemon now takes the
+  hard-exit path itself after a short grace. Windows is no longer carved out
+  (`signal.signal` supports SIGINT there). (B6) Hard-exit paths (`os._exit`) skipped
+  the manifest's `abandon()`, leaking the 0-byte `*.manifest.tmp` the run reserved
+  eagerly; a hard-exit cleanup hook now unlinks it before exit. The drain grace has
+  its own `SMARTPIPE_DRAIN_GRACE_SECONDS` test seam alongside `SMARTPIPE_DRAIN_SECONDS`.
+
 ## [1.5.1] — 2026-07-10
 
 ### Fixed

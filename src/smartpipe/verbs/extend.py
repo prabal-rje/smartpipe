@@ -25,10 +25,8 @@ from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source, source_record
 from smartpipe.io.progress import make_stderr_spinner
 from smartpipe.verbs.common import (
-    ModelSlot,
     WindowGate,
     interrupted_exit_code,
-    make_failover,
     outcome_exit_code,
     resolve_schema,
 )
@@ -42,6 +40,7 @@ if TYPE_CHECKING:
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
     from smartpipe.io.writers import OutputFormat
+    from smartpipe.models.budget import CallBudget
 
 __all__ = ["ExtendRequest", "base_fields", "run_extend"]
 
@@ -88,6 +87,7 @@ async def run_extend(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     tokens = parse_prompt(request.prompt, allow_descriptions=True)
     schema = resolve_schema(request.schema_path, request.schema_dsl, loader=load_schema)
@@ -103,10 +103,14 @@ async def run_extend(
         return await print_dry_run(plan, instruction, items_iter, stdout=stdout)
     log = diagnostics.DegradationLog()
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
-    model = await context.chat_model(request.model_flag)
-    slot = ModelSlot(model)
-    fallback = context.fallback_ref(request.fallback_flag)  # embed refs refused here (free)
+    items_iter, total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
+    # The resilient stack: the primary wire + breaker + gate, the configured
+    # fallback armed underneath it (embed-ref fallbacks refused here, pre-spend).
+    # `model` IS the resilient callable — the breaker swaps to the backup inside it.
+    wired = await context.resilient_chat_model(request.model_flag, request.fallback_flag)
+    model = wired.model
     spinner = make_stderr_spinner()
     # the arbiter: result writes pause the status line, so they never interleave
     writer = context.writer(
@@ -146,13 +150,18 @@ async def run_extend(
     )
 
     async def worker(item: Item) -> tuple[Item, Mapping[str, object]]:
-        current = slot.current  # captured per item: the failover swaps wholesale
+        # `model` is the resilient stack; the breaker routes to the fallback
+        # underneath it, so the worker calls one plain model and never swaps.
+        # Capture the ANSWERING ref at entry (mirrors the old `current = slot.current`):
+        # after a swap the oversize gate must size for the fallback's window, and the
+        # receipt must count under the wire that answers — not the dead primary.
+        answering = wired.answering_ref()
         over = await gate.budget_for_oversized(
             item.text,
             item.media,
-            provider=current.ref.provider,
-            model_name=current.ref.name,
-            window=partial(context.context_window, current.ref),
+            provider=answering.provider,
+            model_name=answering.name,
+            window=partial(context.context_window, answering),
         )
         if over is not None and request.whole:
             # --whole: the old D26 refusal — reproducibility beats handling
@@ -162,12 +171,12 @@ async def run_extend(
             # schema. Oversized items never batch (item 62 §7) — solo, wire-gated.
             async with wire:
                 result = await transform_oversized(
-                    current, plan, instruction, item, over, keep_invalid=request.keep_invalid
+                    model, plan, instruction, item, over, keep_invalid=request.keep_invalid
                 )
         else:
             attempt = partial(
                 map_one,
-                current,
+                model,
                 plan,
                 instruction,
                 item,
@@ -193,7 +202,7 @@ async def run_extend(
                 # item 3: the wire rejected the estimate on a MACHINE-cut item
                 async with wire:
                     result = await transform_resplit(
-                        current,
+                        model,
                         plan,
                         instruction,
                         item,
@@ -201,17 +210,10 @@ async def run_extend(
                         cause=exc,
                     )
         assert isinstance(result, Mapping)  # structured mode: validated against the schema
-        slot.tally(str(current.ref))
+        wired.tally(answering)  # count under the wire captured at entry (item 11)
         return item, result
 
     policy = context.failure_policy(model.ref.provider)
-    failover = (
-        make_failover(
-            slot, partial(context.fallback_chat_model, fallback), limit=policy.transport_limit
-        )
-        if fallback is not None
-        else None
-    )
     done = 0
     skipped = 0
     failed = 0
@@ -223,7 +225,7 @@ async def run_extend(
         concurrency=workers,
         failure_policy=policy,
         stop=stop,
-        failover=failover,
+        fallback_armed=wired.armed,
         halt_sources=sources,
     )
     try:
@@ -259,8 +261,8 @@ async def run_extend(
         log.finish()
     if tally is not None and tally.counts:
         diagnostics.note(tally.final_line())
-    if slot.switched:
-        diagnostics.note(slot.receipt())  # the seam stays visible (item 11)
+    if wired.switched:
+        diagnostics.note(wired.receipt())  # the seam stays visible (item 11)
     if stop is not None and stop.is_set():
         diagnostics.interrupted_summary(processed=done, skipped=skipped)
         return interrupted_exit_code(

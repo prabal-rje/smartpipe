@@ -2,17 +2,18 @@
 
 Spec §6.1 + ledger item 67: one status line overwritten in place — a
 determinate bar (``engine/progressbar``) when the total is known, the running
-count + rate when it isn't. The animation renders only in a pipeline's FINAL
-stage — stderr and stdout both terminals. A piped stdout (mid-pipe stage) or a
-piped stderr (cron) suppresses it entirely — stdout stays sacred, the log
-stays clean, and two smartpipes in one pipe never fight over the terminal row.
-The render functions are pure; ``Spinner`` adds the clock, throttling, and the
-stderr writes.
+count + rate when it isn't. The animation renders whenever stderr is a terminal
+(B3 re-pin): because the bar lives on stderr, a redirected or piped stdout — how
+the verbs are meant to be driven (``graph … > edges.jsonl``) — no longer turns
+it off, matching ``curl``/``rsync``. A piped stderr (cron, ``2>log``) suppresses
+it entirely — stdout stays sacred and the log stays clean. The render functions
+are pure; ``Spinner`` adds the clock, throttling, and the stderr writes.
 """
 
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -29,7 +30,9 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Spinner",
+    "interject",
     "make_stderr_spinner",
+    "render_pending",
     "render_unknown",
     "set_stage_label",
     "stage_label",
@@ -44,6 +47,35 @@ _CLEAR_LINE = "\x1b[K"
 # so a stage's status line wears the same ``[name]`` prefix its receipts do.
 # A metering-style documented exception to no-globals (one stage at a time).
 _stage_label: str | None = None
+
+# The terminal arbiter (C2 #32) — the same documented exception, and for the
+# same reason: one terminal, at most one live status line at a time. ``_active``
+# is whichever spinner last painted; ``interject`` erases it, lets a diagnostic
+# own the row, and redraws it. The RLock (never a plain Lock) serializes redraws
+# against diagnostics from worker threads AND survives the same-thread nesting
+# ``interject → paused()`` needs; it is never held across an ``await`` (every
+# guarded body is synchronous). ``_suspended`` marks "the line is currently
+# erased" (inside ``paused``): a diagnostic fired from within a guarded result
+# write then emits plainly instead of redrawing into a row the surrounding
+# pause is about to redraw itself.
+_lock = threading.RLock()
+_active: Spinner | None = None
+_suspended = False
+
+
+def interject(emit: Callable[[], None]) -> None:
+    """Route one whole stderr line around the live status line: erase → emit →
+    redraw, atomically under the arbiter lock. With no line up (piped stderr,
+    cron, or between stages) this is a plain pass-through — byte-identical
+    output. ``diagnostics`` routes every one-line message through here; the raw
+    SIGINT acknowledgement deliberately does NOT (it must never take a lock)."""
+    with _lock:
+        active = _active
+        if active is None or _suspended:
+            emit()
+            return
+        with active.paused():
+            emit()
 
 
 def set_stage_label(name: str | None) -> None:
@@ -67,6 +99,12 @@ def render_unknown(
     return line
 
 
+def render_pending(frame: str, message: str) -> str:
+    """An indeterminate wait line: the spinner frame then a caller-owned message
+    (no count, no rate — nothing is being iterated, just held)."""
+    return f"{frame} {message}"
+
+
 @dataclass(slots=True)
 class Spinner:
     stream: TextIO
@@ -77,6 +115,7 @@ class Spinner:
     matched: int | None = None  # filter's status-line segment
     extra: str | None = None  # map's live --tally segment
     label: str | None = None  # pipeline stage name — prefixes the line like receipts
+    message: str | None = None  # the indeterminate-wait caption drawn by tick()
     _done: int = 0
     _start: float = 0.0
     _last_draw: float = field(default=-1.0)
@@ -89,6 +128,26 @@ class Spinner:
         self._done = 0
         self._start = self.clock()
         self._last_draw = -1.0
+        self._draw_initial()
+
+    def _draw_initial(self) -> None:
+        """D1 (the one rule, ux.md): the first paint happens AT ``start`` — a
+        phase that stalls before its first completion still owns a visible zero
+        state. A set ``message`` paints the pending caption; a known nonzero
+        total paints the ``0% · 0/N`` bar; an unknown total paints
+        ``Processing [0]``; a known-empty total (0) paints nothing — there is
+        no work to watch. Only ``start`` paints eagerly: construction never
+        writes, so a bar built and abandoned stays silent."""
+        if not self.enabled:
+            return
+        if self.message is not None:
+            self.tick()  # start() reset the throttle, so this always paints
+            return
+        if self.total == 0:
+            return
+        now = self.clock()
+        self._last_draw = now  # the zero state counts against the redraw throttle
+        self._draw(now)
 
     def advance(self) -> None:
         self._done += 1
@@ -101,26 +160,63 @@ class Spinner:
         self._last_draw = now
         self._draw(now)
 
-    def finish(self) -> None:
-        if self.enabled and self._drew:
-            self.stream.write(f"\r{_CLEAR_LINE}")
+    def tick(self) -> None:
+        """Redraw the indeterminate ``message`` line, cycling the frame — the
+        animation for a blocking wait (a model load) where nothing is being
+        iterated. Throttled like ``advance`` and never touches ``_done``, so a
+        pending wait is not miscounted as progress."""
+        if not self.enabled:
+            return
+        now = self.clock()
+        if now - self._last_draw < _MIN_REDRAW_S:
+            return
+        self._last_draw = now
+        global _active
+        with _lock:
+            frame = self._next_frame()
+            line = render_pending(frame, self.message or "")
+            if self._color():
+                line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
+            if self.label is not None:
+                line = f"[{self.label}] {line}"
+            self._line = line
+            self.stream.write(f"\r{line}{_CLEAR_LINE}")
             self.stream.flush()
+            self._drew = True
+            _active = self
+
+    def finish(self) -> None:
+        global _active
+        with _lock:
+            if _active is self:
+                _active = None  # deregister — later diagnostics emit plainly
+            if self.enabled and self._drew:
+                self.stream.write(f"\r{_CLEAR_LINE}")
+                self.stream.flush()
 
     @contextmanager
     def paused(self) -> Generator[None]:
         """The terminal arbiter primitive: erase the status line, let the caller
         own the terminal, then redraw the same line. Result emission wraps itself
-        in this so no result byte ever lands between a draw and its erase."""
-        if not self._drew:
-            yield
-            return
-        self.stream.write(f"\r{_CLEAR_LINE}")
-        self.stream.flush()
-        try:
-            yield
-        finally:
-            self.stream.write(f"\r{self._line}{_CLEAR_LINE}")
+        in this so no result byte ever lands between a draw and its erase; the
+        whole span holds the arbiter lock (reentrant — ``interject`` nests here)
+        and marks ``_suspended`` so a diagnostic fired from inside the body
+        lands plainly on the already-erased row."""
+        global _suspended
+        with _lock:
+            if not self._drew:
+                yield
+                return
+            self.stream.write(f"\r{_CLEAR_LINE}")
             self.stream.flush()
+            was_suspended = _suspended
+            _suspended = True
+            try:
+                yield
+            finally:
+                _suspended = was_suspended
+                self.stream.write(f"\r{self._line}{_CLEAR_LINE}")
+                self.stream.flush()
 
     def guard(self, stream: TextSink) -> TextSink:
         """Route a result stream through the arbiter: each write pauses the
@@ -135,38 +231,45 @@ class Spinner:
 
         return self.enabled and not os.environ.get("NO_COLOR")
 
-    def _draw(self, now: float) -> None:
+    def _next_frame(self) -> str:
         frames = _ASCII if self.ascii_only else _BRAILLE
         frame = frames[self._frame % len(frames)]
         self._frame += 1
-        elapsed = max(now - self._start, 1e-9)
-        rate = self._done / elapsed
-        color = self._color()
-        if self.total is None:
-            line = render_unknown(
-                frame, done=self._done, rate=rate, matched=self.matched, extra=self.extra
-            )
-            if color:
-                line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
-            if self.label is not None:
-                line = f"[{self.label}] {line}"
-        else:
-            line = render_bar(
-                self._done,
-                self.total,
-                rate=rate,
-                ascii_only=self.ascii_only,
-                label=self.label,
-            )
-        from smartpipe.io import metering
+        return frame
 
-        consumed = metering.status_segment()  # D40: live observed units
-        if consumed:
-            line += f"   \x1b[2m{consumed}\x1b[0m" if color else f"   {consumed}"
-        self._line = line
-        self.stream.write(f"\r{line}{_CLEAR_LINE}")
-        self.stream.flush()
-        self._drew = True
+    def _draw(self, now: float) -> None:
+        global _active
+        with _lock:
+            frame = self._next_frame()
+            elapsed = max(now - self._start, 1e-9)
+            rate = self._done / elapsed
+            color = self._color()
+            if self.total is None:
+                line = render_unknown(
+                    frame, done=self._done, rate=rate, matched=self.matched, extra=self.extra
+                )
+                if color:
+                    line = f"\x1b[36m{frame}\x1b[0m{line[len(frame) :]}"
+                if self.label is not None:
+                    line = f"[{self.label}] {line}"
+            else:
+                line = render_bar(
+                    self._done,
+                    self.total,
+                    rate=rate,
+                    ascii_only=self.ascii_only,
+                    label=self.label,
+                )
+            from smartpipe.io import metering
+
+            consumed = metering.status_segment()  # D40: live observed units
+            if consumed:
+                line += f"   \x1b[2m{consumed}\x1b[0m" if color else f"   {consumed}"
+            self._line = line
+            self.stream.write(f"\r{line}{_CLEAR_LINE}")
+            self.stream.flush()
+            self._drew = True
+            _active = self
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,16 +292,18 @@ class _GuardedSink:
 
 
 def make_stderr_spinner() -> Spinner:
-    """A spinner wired to the real stderr — animated only in a pipeline's final
-    stage (stderr AND stdout both TTYs; a piped stdout means a downstream process
-    owns the terminal, so mid-pipe stages keep line-atomic notes and the receipt
-    but never a ``\\r`` animation), with a Braille or ASCII frame set depending
-    on the encoding. Inside a ``run`` pipeline the stage's name rides along so
-    any drawn line wears the same ``[name]`` prefix its receipts do."""
+    """A spinner wired to the real stderr — animated whenever stderr is a TTY
+    (B3 re-pin). The bar lives on stderr, so a redirected or piped *stdout* —
+    ``graph … > edges.jsonl``, the way these verbs are meant to be driven — no
+    longer suppresses it, exactly as ``curl``/``rsync`` keep their progress on
+    stderr while stdout is piped onward. A redirected *stderr* (cron, ``2>log``)
+    still suppresses it entirely, so logs stay clean. The frame set is Braille or
+    ASCII depending on the encoding; inside a ``run`` pipeline the stage's name
+    rides along so any drawn line wears the same ``[name]`` prefix its receipts do."""
     encoding = (sys.stderr.encoding or "").lower()
     return Spinner(
         stream=sys.stderr,
-        enabled=tty.stderr_is_tty() and tty.stdout_is_tty(),
+        enabled=tty.stderr_is_tty(),
         ascii_only="utf" not in encoding,
         clock=time.monotonic,
         label=stage_label(),

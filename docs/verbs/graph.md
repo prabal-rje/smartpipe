@@ -1,10 +1,13 @@
 # graph - the corpus as a knowledge graph
 
 Point `graph` at a folder of mixed files and get back who and what connects,
-as weighted edges with a source citation on every one. `--fast` does it with
-**zero model calls** - a local NER model finds the entities, co-occurrence
-draws the edges, and corpus data stays on the machine. First use may download
-the local model weights.
+as weighted edges with a source citation on every one. `--fast` does it
+**on-device, with no chat-model calls** - a local NER model finds the
+entities, co-occurrence draws the edges, and corpus data stays on the
+machine, with two disclosed exceptions you configure yourself: a cloud
+[`embed-model`](../concepts/models-and-providers.md) spends on the name fold
+(entity names ride that wire), and a remote `stt-model` spends per clip
+(audio rides that wire). First use may download the local model weights.
 
 ![The interactive HTML view: colored entity nodes sized by mentions, with a hovered edge showing its per-file provenance card](../assets/graph-hero.png)
 
@@ -13,7 +16,8 @@ hover shows the files that back it.*
 
 ## The three cost forms
 
-**Free** - local NER + co-occurrence, `$0` by construction:
+**Free** - local NER + co-occurrence, `$0` by default (only a configured
+cloud `embed-model` or remote `stt-model` spends, disclosed):
 
 ```bash
 smartpipe graph --fast 'case/*.md' --entities "person, organization, vessel, account" --save case.html
@@ -50,6 +54,15 @@ hybrid upgrade the strongest edges trade `co-occurs` for a model-read relation:
 {"source":"Corvus Holdings","relation":"transfers, sent, initiated","target":"Elena Vasquez","weight":8,"sources":[{"path":"01-intake-memo.md","as":"file"},{"path":"02-wire-log.md","as":"file"},{"path":"04-email-vasquez.md","as":"file"},{"path":"05-email-webb.md","as":"file"},{"path":"06-audit-note.md","as":"file"},{"path":"10-charter-draft.md","as":"file"},{"path":"14-timeline.md","as":"file"},{"path":"15-open-questions.md","as":"file"}]}
 ```
 
+**One long document?** A corpus that is effectively a single window - one long
+recording, one big file read whole - makes *everything* co-occur with
+*everything*: a near-complete graph is window math, not signal, and the run
+says so on `stderr` when it happens. Reach for two dials from [the options
+table](#options), in this order: `--window sentence` first, to tighten what
+"together" means, then `--min-weight 2` to keep only the pairs that recur.
+`--min-weight 2` *alone* empties a one-window corpus - every pair there
+co-occurs exactly once, so nothing recurs until the window is smaller.
+
 The entity types are yours to name: the default set is `"person, organization,
 location"`, and `--entities "person, vessel, account"` retargets the same local
 model at whatever your corpus is about - no retraining, no configuration.
@@ -71,8 +84,8 @@ on `stderr`.
 | text, `.jsonl`, `.csv` | read directly | chunked at ~2k tokens, one extraction call per chunk |
 | PDF with a text layer | text extracted locally; embedded figures dropped (noted) | text chunks, plus one vision call per embedded figure |
 | scanned PDF, images | skipped and censused | read by the vision model (or `--ocr-model` at ingestion) |
-| audio | transcribed locally with whisper (noted per row) | 10-minute slices ride the audio ladder - native where the model hears |
-| video | audio track transcribed locally; no track = skipped | 10-minute slices - native video where the wire watches, else frames + transcript |
+| audio | transcribed locally with whisper — or through `--stt-model`/the configured role (a paid wire is disclosed) | 10-minute slices ride the audio ladder - native where the model hears |
+| video | audio track transcribed locally (or via `--stt-model`); no track = skipped | 10-minute slices - native video where the wire watches, else frames + transcript |
 
 The census is one line, with the fix inside:
 
@@ -197,7 +210,7 @@ without re-reading the corpus.
 
 | Flag | Meaning |
 |---|---|
-| `--fast` | the free mode: local NER + co-occurrence, zero model calls |
+| `--fast` | the free mode: local NER + co-occurrence, on-device (a cloud `embed-model` or remote `stt-model` spends, disclosed) |
 | `--entities "a, b"` | entity types to find (default `"person, organization, location"`); with a focus prompt they become the subject/object type enum |
 | `--relations "pays, owns"` | closed relation vocabulary for the model-read modes (typed ontology) |
 | `--name-top N` | hybrid mode: free pass, then one naming call per edge for the N strongest (repair retries and the fold's embedding calls also count against `--max-calls`) |
@@ -206,6 +219,7 @@ without re-reading the corpus.
 | `--save PATH` | also write `.graphml`/`.dot`/`.mmd`/`.csv`/`.html`, or a `directory/` for an Obsidian vault |
 | `--top N` | cap display formats to the N biggest hubs |
 | `--model`, `--concurrency`, `--max-calls` | the usual model dials for the paid modes |
+| `--stt-model MODEL` | scanning modes (`--fast`/`--name-top`): transcribe audio/video through the [stt-model role](../concepts/models-and-providers.md#the-stt-model-role) — `openai/whisper-1` spends per clip (disclosed once per run), `local` pins free on-device whisper; refused elsewhere |
 | `--ocr-model MODEL` | full mode: parse scanned PDFs/images at ingestion (each use disclosed) |
 | `FILES…`, `--from-files`, `--as` | the usual [file inputs](../inputs/files.md) |
 

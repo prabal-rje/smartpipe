@@ -19,7 +19,7 @@ from smartpipe.core.errors import UsageFault
 from smartpipe.engine.clustering import leader_clusters
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
 __all__ = [
     "FOLD_THRESHOLD",
@@ -85,6 +85,12 @@ class EntityFinder(Protocol):
     """The NER seam: implementations live in ``models/``; tests inject fakes."""
 
     def find(self, text: str) -> tuple[EntitySpan, ...]: ...
+    def load(self, *, quiet: bool = False) -> None:
+        """Trigger the one-time model load up front so the download/session-init
+        shows a caller-owned status instead of a silent block. ``quiet`` asks the
+        implementation to suppress its own third-party progress chatter because
+        the caller owns the terminal row."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +225,9 @@ def fold_surfaces(
     vectors: Mapping[str, tuple[float, ...]],
     *,
     threshold: float = FOLD_THRESHOLD,
+    should_stop: Callable[[], bool] | None = None,
+    progress: Callable[[], None] | None = None,
+    clustering: Callable[..., list[list[int]]] = leader_clusters,
 ) -> dict[str, str]:
     """Surface name → canonical name, label-scoped, two rungs.
 
@@ -227,6 +236,15 @@ def fold_surfaces(
     representatives with a vector fold onto the most frequent member of their
     cluster. Names without a vector (or when ``vectors`` is empty — the
     embedder was unavailable) keep their own node.
+
+    ``should_stop``/``progress`` (B1) are injected effects the pure fold reports
+    through: on a stop request the remaining label groups are left unclustered —
+    each keeps its own node, the same graceful degradation an absent embedder
+    gives — so the returned map is always a clean partial, never a crash.
+    ``progress`` ticks exactly ``len(counts)`` times on a full run; an
+    interrupted run ticks SHORT by design — a determinate bar ending below its
+    total is the honest picture of a cut fold, and the caller's ``finish()``
+    clears the row either way.
     """
     representative: dict[str, str] = {}
     representatives: list[SurfaceCount] = []
@@ -246,18 +264,29 @@ def fold_surfaces(
     for surface in representatives:
         by_label.setdefault(surface.label, []).append(surface)
     for members in by_label.values():
+        if should_stop is not None and should_stop():
+            break  # leave the rest unclustered — each keeps its own node (clean partial)
         embedded = sorted(
             (member for member in members if member.name in vectors),
             key=lambda member: -member.count,  # stable: ties keep first-appearance order
         )
-        clusters = leader_clusters(
-            [tuple(vectors[member.name]) for member in embedded], threshold=threshold
+        clusters = clustering(
+            [tuple(vectors[member.name]) for member in embedded],
+            threshold=threshold,
+            should_stop=should_stop,
+            progress=progress,
         )
+        if progress is not None:
+            for _ in range(len(members) - len(embedded)):
+                progress()
         for cluster in clusters:
             leader = embedded[cluster[0]].name
             for position in cluster:
                 canonical[embedded[position].name] = leader
 
+    if progress is not None:
+        for _ in range(len(counts) - len(representatives)):
+            progress()
     return {surface: canonical.get(leader, leader) for surface, leader in representative.items()}
 
 
@@ -298,14 +327,24 @@ def fold_edges(
     *,
     relation: str = "co-occurs",
     cap: int = _SOURCE_CAP,
+    should_stop: Callable[[], bool] | None = None,
+    progress: Callable[[], None] | None = None,
 ) -> tuple[GraphEdge, ...]:
     """Undirected co-occurrence edges: canonical order-independent pairs,
-    weight = windows containing both, provenance deduped and capped."""
+    weight = windows containing both, provenance deduped and capped.
+
+    ``should_stop``/``progress`` (B1) are injected effects the pure fold reports
+    through: this trio is quadratic in the entities per window and can dominate a
+    large-corpus run, so it is checked once per window. A stop request breaks
+    cleanly and folds every edge seen so far into the result (the caller salvages,
+    mirroring A1)."""
     weights: dict[tuple[str, str], int] = {}
     kept_refs: dict[tuple[str, str], list[SpineRef]] = {}
     seen_refs: dict[tuple[str, str], set[SpineRef]] = {}
     hidden: dict[tuple[str, str], int] = {}
     for window in entity_windows:
+        if should_stop is not None and should_stop():
+            break  # salvage what folded so far — the caller writes the partial graph
         present = dict.fromkeys(canonical.get(name, name) for name in window.names)
         for pair in combinations(sorted(present), 2):
             weights[pair] = weights.get(pair, 0) + 1
@@ -318,6 +357,8 @@ def fold_edges(
                 kept.append(window.ref)
             else:
                 hidden[pair] = hidden.get(pair, 0) + 1
+        if progress is not None:
+            progress()
     edges = [
         GraphEdge(
             source=source,
@@ -374,15 +415,23 @@ def fold_assertions(
     canonical: Mapping[str, str],
     *,
     cap: int = _SOURCE_CAP,
+    should_stop: Callable[[], bool] | None = None,
 ) -> tuple[GraphEdge, ...]:
     """Directed, relation-keyed edges: weights sum per canonical
     (source, relation, target) fold key, provenance refs dedupe and cap,
-    heaviest first. A pair folding onto one node is a self-loop — dropped."""
+    heaviest first. A pair folding onto one node is a self-loop — dropped.
+
+    ``should_stop`` (B1 review) is the same injected stop the other two trio
+    members poll: this one runs under ``to_thread`` too, so without it a Ctrl-C
+    here could only escape via the watchdog hard-exit. A stop request breaks
+    cleanly and folds every assertion seen so far into the result (clean partial)."""
     weights: dict[tuple[str, str, str], int] = {}
     kept_refs: dict[tuple[str, str, str], list[SpineRef]] = {}
     seen_refs: dict[tuple[str, str, str], set[SpineRef]] = {}
     hidden: dict[tuple[str, str, str], int] = {}
     for assertion in assertions:
+        if should_stop is not None and should_stop():
+            break  # salvage what folded so far — the caller writes the partial graph
         source = canonical.get(assertion.source, assertion.source)
         target = canonical.get(assertion.target, assertion.target)
         if source == target:

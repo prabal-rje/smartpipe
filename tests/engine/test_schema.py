@@ -316,6 +316,35 @@ def test_bare_fields_accept_scalars_but_not_null() -> None:
         validate_and_coerce('{"vendor": {"nested": true}, "total": 1}', schema)
 
 
+def test_shape_failure_truncates_the_echoed_instance_keeps_the_pinned_phrase() -> None:
+    """B4: jsonschema echoes the FAILING INSTANCE into its message — for a
+    wrong-shape reply that is the whole model reply, and one skip line per chunk
+    then drowns the run. The echoed blob is truncated (~160 chars) while the
+    pinned 'does not match the schema' phrasing and jsonschema's own reason
+    survive verbatim."""
+    schema = shorthand_to_schema(("vendor",))
+    blob = "z" * 500
+    reply = json.dumps({"vendor": {"buried": blob}})
+    with pytest.raises(ItemError) as excinfo:
+        validate_and_coerce(reply, schema)
+    message = str(excinfo.value)
+    assert "does not match the schema" in message  # the golden-pinned phrase, untouched
+    assert "is not of type" in message  # jsonschema's own reason (the message tail) survives
+    assert blob not in message  # the giant instance blob is gone
+    assert "… (+" in message and "chars)" in message  # the truncation marker
+    assert len(message) < 300  # bounded, not the whole reply
+
+
+def test_short_shape_failure_is_left_intact() -> None:
+    """A small instance is not truncated — nothing to collapse, so no marker."""
+    schema = shorthand_to_schema(("vendor",))
+    with pytest.raises(ItemError) as excinfo:
+        validate_and_coerce('{"vendor": {"a": 1}}', schema)
+    message = str(excinfo.value)
+    assert "does not match the schema" in message
+    assert "… (+" not in message  # nothing was truncated
+
+
 def test_nullable_bare_field_admits_null() -> None:
     schema = shorthand_to_schema(("vendor",), nullable=frozenset({"vendor"}))
     assert validate_and_coerce('{"vendor": null}', schema) == {"vendor": None}

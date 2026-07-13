@@ -16,10 +16,18 @@ adopted pipe-in edges. Three modes, one fold + serialize spine shared with G1.
 from __future__ import annotations
 
 import asyncio
-import sys
 from typing import TYPE_CHECKING
 
-from smartpipe.core.errors import ExitCode, ItemError, SourceCounts, UsageFault
+from smartpipe.core.errors import (
+    ExitCode,
+    ItemError,
+    SetupFault,
+    SourceCounts,
+    TooManyFailures,
+    UsageFault,
+    is_recoverable_item_error,
+)
+from smartpipe.engine.coalesce import max_group, worker_capacity
 from smartpipe.engine.graphkg import (
     EdgeAssertion,
     assertion_surface_counts,
@@ -41,13 +49,18 @@ from smartpipe.engine.prompts import (
 from smartpipe.engine.runner import Done, run_ordered
 from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.items import Item, ItemSource, describe_source, project_content
+from smartpipe.io.progress import make_stderr_spinner
+from smartpipe.io.tty import tty_asker
 from smartpipe.models.base import AudioData, ImageData, VideoData
-from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code
+from smartpipe.verbs.common import interrupted_exit_code, outcome_exit_code, spin_pending
 from smartpipe.verbs.graph import (
     FastScan,
+    FoldCut,
     GraphModelContext,
     GraphRequest,
+    fold_cut_flips_partial,
     fold_vectors,
+    note_dense_graph,
     note_folds,
     parse_entities,
     parse_relations,
@@ -65,7 +78,9 @@ if TYPE_CHECKING:
     from typing import TextIO
 
     from smartpipe.engine.graphkg import GraphEdge, SpineRef
+    from smartpipe.models.base import ChatModel
     from smartpipe.models.budget import CallBudget
+    from smartpipe.models.stt import Transcriber
 
 __all__ = [
     "CONFIRM_PARTIAL",
@@ -83,6 +98,15 @@ _AV_SLICE_SECONDS = 600  # split's default duration unit: --by minutes → 10-mi
 _NUDGE_CALLS = 100  # beltless plans past this many calls earn the nudge
 _SNIPPET_CAP = 3  # co-occurrence context windows per naming call
 _SNIPPET_CHARS = 400  # each window arrives trimmed — context, not the corpus
+_CANARY_SNIPPET = "Alice pays Bob for the shipment."  # A2: the pre-spend schema probe
+# The hybrid probe must exercise the SAME payload the naming loop drives — a
+# pair plus a co-occurrence window (see _naming_item) — not a bare sentence, so
+# it proves the model can name from a pair window, not merely emit relation JSON
+# for free text (GLM review NIT 5). It still embeds _CANARY_SNIPPET verbatim so
+# the receipt/test filters that key on that marker recognise it.
+_CANARY_NAMING_SNIPPET = (
+    f"source: Alice\ntarget: Bob\n\nthey appear together in:\n[1] {_CANARY_SNIPPET}"
+)
 
 CONFIRM_PARTIAL = "proceed with a partial graph? [y/N]"
 
@@ -96,7 +120,7 @@ def three_forms_fault(where: str | None = None) -> UsageFault:
     )
     return UsageFault(
         f"{head}\n"
-        "  --fast                   the free co-occurrence mode — local NER, zero model calls\n"
+        "  --fast                   the free co-occurrence mode — local NER, on-device\n"
         '  a focus prompt           graph "who pays whom" notes/*.md — model extraction\n'
         '  edge records on stdin    {"source", "target"} or {"subject", "relation", "object"} '
         "rows"
@@ -126,6 +150,54 @@ def extraction_prompt(
     )
 
 
+def _canary_affordable(budget: CallBudget | None) -> bool:
+    """The canary is a real belt call, so skip it when the belt can't also
+    afford at least one unit of real work: a probe that drains the whole belt
+    leaves nothing to protect, and a belt of one has at most one call to guard
+    (GLM review — this is what keeps `--max-calls 1` doing its one real call
+    instead of burning the unit on the probe, and empty stdin at a belt of one
+    from spending anything at all)."""
+    return budget is None or budget.limit - budget.calls >= 2
+
+
+async def _schema_canary(
+    model: ChatModel,
+    plan: MapPlan,
+    instruction: str,
+    log: diagnostics.DegradationLog,
+    *,
+    what: str,
+    snippet: str = _CANARY_SNIPPET,
+) -> None:
+    """Fire ONE synthetic extraction through the compiled schema before any
+    ingestion or paid OCR (A2). A model that cannot hold ``what`` would otherwise
+    burn the whole paid run on unparseable replies — pilot run B spent 943 OCR
+    pages and 7 extractions before a wholesale schema halt. ``map_one`` already
+    grants the one shape-repair rung, so a canary that still comes back wrong is
+    total incapacity, not a fluke; a rerun's identical probe is a cache hit, so
+    the check costs nothing the second time. An availability fault at canary time
+    (belt exhausted, 429 ladder spent, breaker open) is NOT a capability verdict
+    — it propagates as itself, never relabeled."""
+    canary = Item(
+        raw=snippet,
+        text=snippet,
+        data=None,
+        source=ItemSource(kind="stdin", name="schema canary", index=0),
+    )
+    try:
+        await map_one(model, plan, instruction, canary, log)
+    except ItemError as failed:
+        if not is_recoverable_item_error(failed):
+            raise  # belt/429/breaker — terminal, and no statement about the schema
+        raise SetupFault(
+            f"error: {model.ref} cannot hold {what}\n"
+            "  A canary extraction on a fixed snippet came back the wrong shape,\n"
+            "  so this model would burn the whole run on unparseable replies.\n"
+            "  Try --model openai/gpt-5.4-nano (or your configured fallback), or\n"
+            "  run --fast for the free co-occurrence graph."
+        ) from failed
+
+
 async def run_full(
     request: GraphRequest,
     context: GraphModelContext,
@@ -133,6 +205,7 @@ async def run_full(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None,
+    should_stop: Callable[[], bool] | None = None,
     ask: Callable[[str], bool] | None,
     budget: CallBudget | None,
     concurrency: int,
@@ -147,8 +220,31 @@ async def run_full(
     instruction = to_instruction(tokens)
 
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
+    # The resilient stack: primary wire + breaker + concurrency gate, the configured
+    # fallback armed lazily underneath (item 11). `model` IS the resilient callable —
+    # a provider-down trip swaps to the backup inside it and the worker never branches
+    # on the wire's health; the canary below runs on the primary, and a swap during it
+    # is fine. An embed-ref fallback is refused at this line, pre-spend.
+    wired = await context.resilient_chat_model(request.model_flag, request.fallback_flag)
+    model = wired.model  # may have emitted a note / SetupFault during resolution
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    # A8: the OCR read phase wears the belt too — a scan corpus larger than the
+    # remaining --max-calls asks before spending (a decline reads nothing, exit 0).
+    items_iter, total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget, ask=ask
+    )
+    if total != 0 and _canary_affordable(budget):
+        # A2: prove the model holds the schema BEFORE iterating spends paid OCR.
+        # A known-empty file list (total == 0) has nothing to protect; a stdin
+        # stream (total is None) always probes, since its size is unknowable
+        # here — unless the belt can't afford the probe plus real work. The
+        # probe can sit on a cold wire for the whole retry ladder, so it wears
+        # the pinned pending caption while it runs (D4 #37).
+        await spin_pending(
+            make_stderr_spinner(),
+            "checking the model holds the schema",
+            _schema_canary(model, plan, instruction, log, what="the extraction schema"),
+        )
     read_bar = stage("read")
     read_bar.start(total)
     items: list[Item] = []
@@ -168,7 +264,7 @@ async def run_full(
         try:
             made = await _chunk_item(item)
         except ItemError as exc:
-            diagnostics.warn(f"skipped: {describe_source(item.source)} ({exc})")
+            log.skip(describe_source(item.source), str(exc))  # B4: bucketed, not one line/chunk
             failed_sources.add(owner)
             continue
         if not made:
@@ -178,6 +274,7 @@ async def run_full(
         chunks.extend(made)
         chunk_owners.extend([owner] * len(made))
     if not chunks:
+        log.finish()  # flush any chunk-skip rollup (B4) — no extraction phase to do it
         source_counts = _source_counts(items, succeeded=empty_sources, failed=failed_sources)
         return outcome_exit_code(
             done=len(empty_sources),
@@ -186,13 +283,40 @@ async def run_full(
             source_counts=source_counts,
         )
 
-    # the pre-flight cost plan (ledger 66f): the note prints BEFORE any spend
+    # the pre-flight cost plan (ledger 66f): the note prints BEFORE any spend.
+    # A2: the canary (and any read-phase OCR) has already charged the belt, so
+    # the partial-run test must read what REMAINS, not the raw limit — else a
+    # belt sized exactly to the chunk count silently yields a partial after
+    # promising a full graph (GLM review SHOULD-FIX 1). The note reports that
+    # REMAINING, not the raw limit, so the shortfall the user must close is
+    # honest: a belt of 3 on 3 chunks shows "2 left" (the probe took one), not a
+    # "belt is 3" that reads as exactly-enough and understates by one probe unit.
+    # Batching (#21): the model is already coalescer-wrapped at the composition
+    # root (item 62's _wrap_outer), so the whole verb-side fix is intake — text
+    # chunks opt in via ``map_one(batch=True)`` and the runner widens to fill
+    # groups; ``wire`` keeps every SOLO path (media chunks) at the documented
+    # max-parallel-calls contract regardless of that boost (map.py's pattern).
+    batching = context.batching()
+    group_size = 1 if batching is None else max_group(plan.schema, batching.size)
+    coalescing = group_size >= 2
+    workers = worker_capacity(call_concurrency=concurrency, group_size=group_size)
+    wire = asyncio.Semaphore(concurrency)
+
     belt = budget.limit if budget is not None else None
+    # budget is not None is redundant given belt (belt None ⟺ budget None) but
+    # pyright cannot span the two statements — it narrows budget.calls here.
+    remaining = belt - budget.calls if belt is not None and budget is not None else None
     plural = "s" if len(items) != 1 else ""
     plan_note = f"~{len(chunks):,} extraction calls across {len(items):,} file{plural}"
-    belt_short = belt is not None and belt < len(chunks)
+    if coalescing:
+        # honesty rider (#21): packed chunks share wire calls, so the raw count
+        # above is a ceiling — and a belt shortfall below is no longer certain.
+        plan_note += " (batching may pack text chunks into fewer wire calls)"
+    belt_short = remaining is not None and remaining < len(chunks)
     if belt_short:
-        plan_note += f"; belt is {belt:,} — the graph will be partial"
+        assert remaining is not None  # belt_short ⟹ remaining is not None
+        verdict = "may" if coalescing else "will"
+        plan_note += f"; {remaining:,} left in the belt — the graph {verdict} be partial"
     elif belt is None and len(chunks) > _NUDGE_CALLS:
         plan_note += " — no belt set"
     diagnostics.note(plan_note)
@@ -202,12 +326,25 @@ async def run_full(
             from smartpipe.io import manifest
 
             manifest.abandon()
+            log.finish()  # flush any chunk-skip rollup (B4) before the declined-plan exit
             return ExitCode.OK  # declined at the plan: nothing spent
 
-    model = await context.chat_model(request.model_flag)  # may emit a note / SetupFault
-
     async def worker(chunk: Item) -> tuple[Item, str | Mapping[str, object]]:
-        return chunk, await map_one(model, plan, instruction, chunk, log)
+        # Capture the answering ref at entry (mirrors map's `slot.current`): after a
+        # swap the receipt must count under the wire that answered, not the dead
+        # primary. Graph's chunks are pre-cut, so `answering`'s only use is the tally.
+        answering = wired.answering_ref()
+        if coalescing and not chunk.media:
+            # coalescible text chunk — no wire gate: the shared flight IS the
+            # call (gating the group fill against `wire` would deadlock-prone
+            # it), and it is budgeted downstream. Canaries never come here —
+            # they fire pre-loop with map_one's default batch=False.
+            result = await map_one(model, plan, instruction, chunk, log, batch=True)
+        else:
+            async with wire:  # media rides solo (item 62 §7), wire-gated
+                result = await map_one(model, plan, instruction, chunk, log)
+        wired.tally(answering)  # count one answered chunk under the wire captured at entry
+        return chunk, result
 
     assertions: list[EdgeAssertion] = []
     done = 0
@@ -218,10 +355,12 @@ async def run_full(
     outcomes = run_ordered(
         _iter_items(chunks),
         worker,
-        concurrency=concurrency,
+        concurrency=workers,  # staging slots widen to fill groups; `wire` gates solo calls
         failure_policy=context.failure_policy(model.ref.provider),
         stop=stop,
+        fallback_armed=wired.armed,
     )
+    halted: TooManyFailures | None = None
     try:
         outcome_position = 0
         async for outcome in outcomes:
@@ -233,25 +372,68 @@ async def run_full(
                 done += 1
                 completed_chunks[owner] = completed_chunks.get(owner, 0) + 1
             else:  # Skipped — the union has no third case
-                diagnostics.warn(f"skipped: {describe_source(outcome.source)} ({outcome.reason})")
+                log.skip(describe_source(outcome.source), outcome.reason)  # B4: bucketed
                 chunk_skipped += 1
                 if outcome.failed:
                     failed_sources.add(owner)
             extract_bar.advance()
+    except TooManyFailures as exc:
+        halted = exc  # the failure policy tripped mid-extraction — salvage, then re-raise
     finally:
         extract_bar.finish()
         log.finish()
 
-    counts = assertion_surface_counts(assertions)
-    vectors = await fold_vectors(context, [surface.name for surface in counts])
-    canonical = fold_surfaces(counts, vectors)
+    # Salvage runs through the SAME fold/write path a clean exit takes: the
+    # already-extracted assertions are folded, pruned, and written below BEFORE any
+    # halt re-raise. The fold itself salvages too (#30): fold_vectors keeps every
+    # vector embedded before a Ctrl-C, a mid-fold wire fault, or the belt
+    # (FoldOutcome), so a cut fold means fewer folded names — never a lost run.
+    # B1: the fold trio runs OFF the event loop so a Ctrl-C during it is
+    # delivered and the bar redraws; fold_surfaces polls ``should_stop`` and
+    # degrades to a clean partial canonical map on a stop. fold_assertions runs
+    # UNGATED (the deliberate B1-review rollback): a latched SIGINT would cut it
+    # at assertion #1 and the salvage would write an EMPTY graph — the write
+    # below is cheap and must carry everything already paid for.
+    counts = await asyncio.to_thread(assertion_surface_counts, assertions)
+    fold = await fold_vectors(
+        context,
+        [surface.name for surface in counts],
+        request.embed_model_flag,
+        should_stop=should_stop,
+    )
+    # C9: inject the accelerated exact clustering strategy + a determinate
+    # per-name bar (this is the fold the AFG incident starved on — 36,899 names).
+    from smartpipe.engine.clustering import select_leader_clustering
+
+    surface_bar = stage("fold")  # D4 (#37): the label-cluster fold stays visible
+    surface_bar.start(len(counts))
+    try:  # C2 review: a cancel/fault mid-fold must still clear the row + deregister
+        canonical = await asyncio.to_thread(
+            fold_surfaces,
+            counts,
+            fold.vectors,
+            should_stop=should_stop,
+            progress=surface_bar.advance,
+            clustering=select_leader_clustering(),
+        )
+    finally:
+        surface_bar.finish()
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
-    nodes = build_nodes(counts, canonical)
-    kept, _pruned = prune_edges(fold_assertions(assertions, canonical), request.min_weight)
+    nodes = await asyncio.to_thread(build_nodes, counts, canonical)
+    folded_edges = await asyncio.to_thread(fold_assertions, assertions, canonical)
+    kept, _ = prune_edges(folded_edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
         save_graph(request.save, nodes, kept, top=request.top)
+
+    ok_sources = empty_sources | {
+        owner
+        for owner, expected in expected_chunks.items()
+        if completed_chunks.get(owner, 0) == expected and owner not in failed_sources
+    }
+    skipped_sources = len(items) - len(ok_sources)
+    source_counts = _source_counts(items, succeeded=ok_sources, failed=failed_sources)
 
     belt_partial = budget is not None and budget.exhausted and done < len(chunks)
     if belt_partial:
@@ -263,14 +445,31 @@ async def run_full(
         f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
         f"{len(kept):,} edges · {receipt_tail()}"
     )
-    ok_sources = empty_sources | {
-        owner
-        for owner, expected in expected_chunks.items()
-        if completed_chunks.get(owner, 0) == expected and owner not in failed_sources
-    }
-    skipped_sources = len(items) - len(ok_sources)
-    source_counts = _source_counts(items, succeeded=ok_sources, failed=failed_sources)
-    if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
+    if wired.switched:
+        diagnostics.note(wired.receipt())  # the failover seam stays visible (item 11)
+    if halted is not None:
+        # the failure policy tripped mid-extraction: the fold + write above
+        # SALVAGED every chunk that landed before it (run B lost 7 extractions and
+        # 943 paid OCR pages to this exact gap). Re-raise carrying the verb's
+        # FILE-unit counts — the runner halts on chunks, but the manifest accounts
+        # sources — so settled() finalizes ALL_FAILED on the same books a clean
+        # exit shows, with the salvaged edges already on stdout (ux.md exit-3 screen).
+        raise TooManyFailures(
+            halted.failed,
+            halted.total,
+            halted.last_reason,
+            source_counts=source_counts,
+        ) from halted
+    # The stop event conflates a Ctrl-C with the belt's own drain, and the belt
+    # latch is HISTORICAL (review blocker): the last extraction can exactly
+    # exhaust the belt (run complete, stop set, no shortfall) BEFORE the user
+    # Ctrl-Cs the free fold. The fold's own INTERRUPT report is the truth about
+    # a real Ctrl-C there, so it overrides the latch — never silently swallowed.
+    if (
+        stop is not None
+        and stop.is_set()
+        and (fold.cut is FoldCut.INTERRUPT or not (budget is not None and budget.exhausted))
+    ):
         diagnostics.interrupted_summary(processed=done, skipped=chunk_skipped)
         return interrupted_exit_code(
             done=len(ok_sources),
@@ -283,25 +482,11 @@ async def run_full(
         done=len(ok_sources),
         skipped=skipped_sources,
         failed=len(failed_sources),
-        partial=belt_partial,
+        # a belt-cut FOLD also flips the exit (#29) — the extraction may be
+        # complete, but the graph's canonicalization is not.
+        partial=belt_partial or fold_cut_flips_partial(fold.cut),
         source_counts=source_counts,
     )
-
-
-def tty_asker(stdin: TextIO) -> Callable[[str], bool] | None:
-    """The one y/N confirm, TTY-only: piped stdin (data) or piped stderr (cron)
-    can't ask — the plan note stands and the belt governs."""
-    from smartpipe.io import tty
-
-    if not (stdin.isatty() and tty.stderr_is_tty()):
-        return None
-
-    def ask(question: str) -> bool:
-        sys.stderr.write(f"{question} ")
-        sys.stderr.flush()
-        return stdin.readline().strip().lower() in ("y", "yes")
-
-    return ask
 
 
 async def _chunk_item(item: Item) -> list[Item]:
@@ -460,38 +645,89 @@ async def run_hybrid(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None,
+    should_stop: Callable[[], bool] | None = None,
     transcriber: Callable[[AudioData], str],
     clock: Callable[[], float],
     budget: CallBudget | None,
     concurrency: int,
+    stt: Transcriber | None = None,
 ) -> ExitCode:
     assert request.name_top is not None  # dispatched here on exactly that
     relations = parse_relations(request.relations)
     scan = await scan_corpus(
-        request, context, stdin=stdin, stop=stop, transcriber=transcriber, clock=clock
+        request,
+        context,
+        stdin=stdin,
+        stop=stop,
+        should_stop=should_stop,
+        transcriber=transcriber,
+        clock=clock,
+        stt=stt,
     )
     if scan is None:
         return outcome_exit_code(done=0, skipped=0, failed=0)
-    kept, _pruned = prune_edges(scan.edges, request.min_weight)
+    kept, _ = prune_edges(scan.edges, request.min_weight)
+    note_dense_graph(len(scan.nodes), len(kept))  # #34: BEFORE the paid naming spend
     want = min(request.name_top, len(kept))
     candidates = kept[:want]  # already sorted heaviest first — the N strongest
 
     named: dict[tuple[str, str], str] = {}
     naming_skips = 0
+    naming_halted = False
     if candidates:
-        model = await context.chat_model(request.model_flag)
+        # The resilient stack (item 11): primary naming wire + breaker + gate, the
+        # configured fallback armed lazily underneath. `model` IS the resilient
+        # callable — a provider-down trip swaps to the backup and the worker never
+        # branches on health; the canary below runs on the primary.
+        wired = await context.resilient_chat_model(request.model_flag, request.fallback_flag)
+        model = wired.model
         plan = MapPlan("structured", _naming_schema(relations), MAP_JSON_SYSTEM)
         instruction = _naming_instruction(request.focus)
         log = diagnostics.DegradationLog()
+        # A2: hybrid's only paid phase is naming (the scan is free), so the canary
+        # sits here — fired only when there are edges to name (never on empty
+        # input) and only when the belt can afford the probe plus real naming.
+        # The probe drives the naming-shaped payload, not a bare sentence (NIT 5).
+        if _canary_affordable(budget):
+            await spin_pending(  # the pinned pending caption rides here too (D4 #37)
+                make_stderr_spinner(),
+                "checking the model holds the schema",
+                _schema_canary(
+                    model,
+                    plan,
+                    instruction,
+                    log,
+                    what="the relation-naming schema",
+                    snippet=_CANARY_NAMING_SNIPPET,
+                ),
+            )
+
+        # Batching (#21): naming asks are text-only by construction, so with the
+        # posture on they pack onto the shared coalescer exactly like full-mode
+        # text chunks — intake widens to fill groups, `wire` gates any solo call.
+        batching = context.batching()
+        group_size = 1 if batching is None else max_group(plan.schema, batching.size)
+        coalescing = group_size >= 2
+        workers = worker_capacity(call_concurrency=concurrency, group_size=group_size)
+        wire = asyncio.Semaphore(concurrency)
 
         async def worker(item: Item) -> tuple[int, str]:
-            result = await map_one(model, plan, instruction, item, log)
+            answering = wired.answering_ref()  # captured at entry, like map's slot.current
+            if coalescing and not item.media:
+                # coalescible naming ask — no wire gate: the shared flight IS
+                # the call (double-gating the group fill would deadlock-prone
+                # it). The canary fired pre-loop, solo (default batch=False).
+                result = await map_one(model, plan, instruction, item, log, batch=True)
+            else:
+                async with wire:  # solo path stays at the documented call cap
+                    result = await map_one(model, plan, instruction, item, log)
             from collections.abc import Mapping as MappingABC
 
             assert isinstance(result, MappingABC)  # the plan is structured
             relation = result.get("relation")
             if not isinstance(relation, str) or not relation.strip():
                 raise ItemError("the model named no relation")
+            wired.tally(answering)  # count one named edge under the wire captured at entry
             return item.source.index, relation.strip()
 
         asks = [_naming_item(position, edge, scan) for position, edge in enumerate(candidates)]
@@ -500,9 +736,10 @@ async def run_hybrid(
         outcomes = run_ordered(
             _iter_items(asks),
             worker,
-            concurrency=concurrency,
+            concurrency=workers,  # staging slots widen to fill groups (see run_full)
             failure_policy=context.failure_policy(model.ref.provider),
             stop=stop,
+            fallback_armed=wired.armed,
         )
         try:
             async for outcome in outcomes:
@@ -512,13 +749,23 @@ async def run_hybrid(
                     named[edge.source, edge.target] = relation
                 else:  # Skipped — that edge keeps co-occurs, nothing lost
                     naming_skips += 1
-                    diagnostics.warn(
-                        f"skipped: {describe_source(outcome.source)} ({outcome.reason})"
-                    )
+                    log.skip(describe_source(outcome.source), outcome.reason)  # B4: bucketed
                 name_bar.advance()
+        except TooManyFailures:
+            # the naming model failed the schema on too many edges. Unlike full
+            # mode, the FREE co-occurrence graph is already whole — only the
+            # enhancement stopped. Salvage it below (unnamed edges keep co-occurs)
+            # and exit PARTIAL: the sources all succeeded, so ALL_FAILED would lie.
+            naming_halted = True
+            diagnostics.note(
+                "naming stopped early — too many edges failed the schema; "
+                "the strongest remain co-occurs"
+            )
         finally:
             name_bar.finish()
             log.finish()
+        if wired.switched:
+            diagnostics.note(wired.receipt())  # the failover seam stays visible (item 11)
 
     belt_short = budget is not None and budget.exhausted and len(named) < want
     if belt_short:
@@ -534,19 +781,35 @@ async def run_hybrid(
         f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
         f"{len(renamed):,} edges · {len(named):,} named · {receipt_tail()}"
     )
-    if stop is not None and stop.is_set() and not (budget is not None and budget.exhausted):
+    if naming_halted:  # the co-occurrence graph was salvaged above — partial, not fatal
+        return outcome_exit_code(
+            done=len(scan.gathered),
+            skipped=scan.skipped,
+            failed=scan.failed,
+            partial=True,
+        )
+    # The same historical-latch trap as run_full (review blocker), carried out
+    # through FastScan.fold_cut: a fold-reported INTERRUPT is a real Ctrl-C and
+    # overrides an exhausted belt; a cut fold also makes the salvage partial.
+    if (
+        stop is not None
+        and stop.is_set()
+        and (scan.fold_cut is FoldCut.INTERRUPT or not (budget is not None and budget.exhausted))
+    ):
         diagnostics.interrupted_summary(processed=len(scan.gathered), skipped=scan.skipped)
         return interrupted_exit_code(
             done=len(scan.gathered),
             skipped=scan.skipped,
             failed=scan.failed,
-            partial=bool(naming_skips),
+            partial=bool(naming_skips) or scan.fold_cut is FoldCut.INTERRUPT,
         )
     return outcome_exit_code(
         done=len(scan.gathered),
         skipped=scan.skipped,
         failed=scan.failed,
-        partial=belt_short or bool(naming_skips),
+        # a belt-cut FOLD in the scan also flips the exit (#29), carried out
+        # through FastScan.fold_cut — even when there was nothing to name.
+        partial=belt_short or bool(naming_skips) or fold_cut_flips_partial(scan.fold_cut),
     )
 
 
@@ -603,11 +866,13 @@ async def run_adopt(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> ExitCode:
     """Edge records in, graph out — zero extraction calls: adopt each row's
-    endpoints/relation/weight/provenance, canonicalize, fold, serialize."""
-    if not request.input.patterns and not request.input.from_files and stdin.isatty():
-        raise three_forms_fault()  # a bare terminal has no records to adopt
+    endpoints/relation/weight/provenance, canonicalize, fold, serialize.
+
+    The bare-terminal three-forms refusal lives in ``run_graph`` (#27): it must
+    outrank the fold-embedder preflight that fires there before dispatch."""
     items_iter, total = readers.resolve_items(request.input, stdin, stop=stop)
     read_bar = stage("read")
     read_bar.start(total)
@@ -619,21 +884,57 @@ async def run_adopt(
     if not assertions:
         raise three_forms_fault()
 
-    counts = assertion_surface_counts(assertions)
-    vectors = await fold_vectors(context, [surface.name for surface in counts])
-    canonical = fold_surfaces(counts, vectors)
+    # B1: the fold trio runs off the event loop (see run_full) so a Ctrl-C is
+    # delivered even on a large adopted corpus. fold_vectors salvages on any cut
+    # (#30) and fold_assertions runs UNGATED (the B1-review rollback, see
+    # run_full): a latched SIGINT must not zero the write below.
+    counts = await asyncio.to_thread(assertion_surface_counts, assertions)
+    fold = await fold_vectors(
+        context,
+        [surface.name for surface in counts],
+        request.embed_model_flag,
+        should_stop=should_stop,
+    )
+    # C9: inject the accelerated exact clustering strategy + a determinate
+    # per-name bar (this is the fold the AFG incident starved on — 36,899 names).
+    from smartpipe.engine.clustering import select_leader_clustering
+
+    surface_bar = stage("fold")  # D4 (#37): the label-cluster fold stays visible
+    surface_bar.start(len(counts))
+    try:  # C2 review: a cancel/fault mid-fold must still clear the row + deregister
+        canonical = await asyncio.to_thread(
+            fold_surfaces,
+            counts,
+            fold.vectors,
+            should_stop=should_stop,
+            progress=surface_bar.advance,
+            clustering=select_leader_clustering(),
+        )
+    finally:
+        surface_bar.finish()
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
-    nodes = build_nodes(counts, canonical)
-    kept, pruned = prune_edges(fold_assertions(assertions, canonical), request.min_weight)
+    nodes = await asyncio.to_thread(build_nodes, counts, canonical)
+    folded_edges = await asyncio.to_thread(fold_assertions, assertions, canonical)
+    kept, pruned = prune_edges(folded_edges, request.min_weight)
     write_edges(kept, stdout)
     if request.save is not None:
         save_graph(request.save, nodes, kept, top=request.top)
     diagnostics.note(
+        # C3 #28: the cost segment reads the LIVE meter — byte-identical
+        # "0 tok" when nothing metered, the truth once a paid fold spends.
         f"graph: {len(counts):,} entities ({folded_names:,} folded) · "
-        f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
+        f"{len(kept):,} edges ({pruned:,} pruned) · {receipt_tail()}"
     )
-    return outcome_exit_code(done=len(assertions), skipped=0, failed=0)
+    fold_partial = fold_cut_flips_partial(fold.cut)
+    if stop is not None and stop.is_set() and not fold_partial:
+        # B1 review: a drained Ctrl-C during the fold salvaged a partial graph on
+        # stdout — say so and exit INTERRUPTED/PARTIAL, never OK (like run_full/
+        # hybrid). A BELT cut set the same stop event with no Ctrl-C (#29): it
+        # must never wear the drain summary — it exits PARTIAL below instead.
+        diagnostics.interrupted_summary(processed=len(assertions), skipped=0)
+        return interrupted_exit_code(done=len(assertions), skipped=0, failed=0, partial=True)
+    return outcome_exit_code(done=len(assertions), skipped=0, failed=0, partial=fold_partial)
 
 
 def _adopt_assertion(item: Item) -> EdgeAssertion:

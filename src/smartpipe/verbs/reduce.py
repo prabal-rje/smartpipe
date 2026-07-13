@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from smartpipe.io.items import Item
     from smartpipe.io.writers import ResultWriter
     from smartpipe.models.base import ChatModel, ModelRef
+    from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import Transcriber
 
@@ -106,6 +107,7 @@ async def run_reduce(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     tokens = parse_prompt(request.prompt, allow_paths=True)
     reject_comma_groups(tokens)
@@ -124,11 +126,11 @@ async def run_reduce(
     concurrency = context.concurrency(request.concurrency_flag)
     if request.window is not None:
         return await _run_windowed(
-            request, tokens, schema, context, stdin, stdout, stop, concurrency
+            request, tokens, schema, context, stdin, stdout, stop, concurrency, budget
         )
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, _total = readers.resolve_items(request.input, stdin, ocr=ocr)
+    items_iter, _total = readers.resolve_items(request.input, stdin, ocr=ocr, budget=budget)
     collected = [item async for item in items_iter]  # whole-set verbs need everything
     if not collected:
         log.finish()
@@ -257,6 +259,7 @@ async def _run_windowed(
     stdout: TextIO,
     stop: asyncio.Event | None,
     concurrency: int,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     """Stream mode (stage-08 §4.2): one reduce per window, emitted as it lands;
     the trailing partial window is flushed so Ctrl+C never discards buffered lines."""
@@ -336,7 +339,9 @@ async def _run_windowed(
         writer.write_record(record)
         produced += 1
 
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, _total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     try:
         async for item in items_iter:
             source_id = consumed

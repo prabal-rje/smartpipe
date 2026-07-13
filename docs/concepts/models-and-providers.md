@@ -208,13 +208,19 @@ Most verbs use a **chat** model. `embed` and `top_k` use a separate
 
 ## The stt-model role
 
-The `stt-model` config key (e.g. `stt-model = "openai/whisper-1"` in
-`config.toml`) names a dedicated remote
-transcriber. When set, it runs FIRST in the audio ladder (a configured
-transcriber signals wanting verbatim text - LLM hearing paraphrases),
-falling back to the LLM rung and local `whisper` on failure. It is a paid
-cloud conversion, so the `allow-captions` consent gates it like every other
-one. Unset, smartpipe picks the sensible strategy automatically:
+The `stt-model` config key - the speech-to-text stage of `smartpipe use`
+sets it - names a dedicated transcriber. When set, it runs FIRST in the
+audio ladder (a configured transcriber signals wanting verbatim text - LLM
+hearing paraphrases), falling back to the LLM rung and local `whisper` on
+failure. Two forms:
+
+- `stt-model = "openai/whisper-1"` - the remote wire. A paid cloud
+  conversion, so the `allow-captions` consent gates it like every other one.
+- `stt-model = "local"` - pins on-device whisper as the first rung: free,
+  verbatim, and audio never leaves your machine (no consent needed - nothing
+  is uploaded or billed).
+
+Unset, smartpipe picks the sensible strategy automatically:
 
 | Your situation | Transcription |
 |---|---|
@@ -224,8 +230,23 @@ one. Unset, smartpipe picks the sensible strategy automatically:
 | Ollama | local whisper (no STT endpoint) |
 
 `SMARTPIPE_STT_MODEL` / `stt-model` override the matrix per run or per
-account. Only the `openai` wire exists today; the key accepts
-`provider/model` so more can land behind the same seam.
+account (`SMARTPIPE_STT_MODEL=local` works too). Only the `openai` remote
+wire exists today; the key accepts `provider/model` so more can land behind
+the same seam. `smartpipe doctor` has an `stt` row showing which path the
+ladder would take and whether it is healthy, and `doctor --probe` goes
+further for a remote resolution: one tiny disclosed transcription through
+the real wire, so a bad key or a dead endpoint reports as itself instead of
+charting healthy (a `local` resolution is verified but never run — no model
+download inside doctor).
+
+`graph`'s scanning modes (`--fast` and `--name-top`) honor the role too:
+`--stt-model` > `SMARTPIPE_STT_MODEL` > config, and there configuring or
+flagging the role IS the consent (the `ocr-model` rule) — audio and video
+tracks transcribe through the resolved wire, disclosed once per run when it
+is paid. Bare `--fast` with nothing configured stays local and free: the
+scanning modes never consult the auto-matrix with a chat model, so an
+ambient OpenAI key changes nothing. Full mode's native audio ladder does
+not honor the role yet — the flag refuses outside the scanning modes.
 
 
 ## The ocr-model role

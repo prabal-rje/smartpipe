@@ -9,6 +9,7 @@ inside admission so a queued call cannot reserve spend before it may run.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, TypeGuard, TypeVar, runtime_checkable
 
@@ -53,6 +54,11 @@ __all__ = [
 
 T = TypeVar("T")
 
+# The abuse ceiling for a server-supplied Retry-After, mirroring retry.py's
+# ``_HINT_CEILING_SECONDS``: past 60 s a "hint" stops being a hint and starts being
+# a request to hang the run, so a hostile ask is clamped before it paces a ref.
+_RETRY_AFTER_CEILING_SECONDS = 60.0
+
 
 @runtime_checkable
 class DeferredChatModel(Protocol):
@@ -85,12 +91,20 @@ class OutboundCallPolicy:
 
     concurrency: int = 4
     breaker_limit: int = DEFAULT_BREAKER_LIMIT
+    # Injected effects so tests drive the cooldown with a fake clock (like
+    # with_retries' sleep/rand and the breaker's cooldown); production reads the
+    # monotonic clock, since a Retry-After is a RELATIVE "wait N seconds from now".
+    clock: Callable[[], float] = time.monotonic
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     _configured: bool = False
     _started: bool = False
     _semaphore: asyncio.Semaphore = field(init=False)
     _retryable_streaks: dict[str, int] = field(default_factory=dict[str, int])
     _retryable_series: dict[str, int] = field(default_factory=dict[str, int])
     _open: dict[str, _OpenCircuit] = field(default_factory=dict[str, _OpenCircuit])
+    # A5.2: per-ref "not-before" floor (monotonic seconds). A 429 carrying a
+    # Retry-After records it here; a later admission of that ref waits it out.
+    _not_before: dict[str, float] = field(default_factory=dict[str, float])
     _series_serial: int = 0
     _call_serial: int = 0
 
@@ -122,10 +136,13 @@ class OutboundCallPolicy:
         """
         self._started = True
         key = str(ref)
+        # A tripped breaker dies BEFORE paying a cooldown wait; then pace this ref
+        # OUTSIDE the gate so a cooling ref frees its slot for the other roles that
+        # share this one policy (embed/OCR/STT), instead of holding it idle.
+        self._raise_if_open(key)
+        await self._await_cooldown(key)
         async with self._semaphore:
-            opened = self._open.get(key)
-            if opened is not None:
-                raise CircuitOpenTransport(opened.message, trip_id=opened.trip_id)
+            self._raise_if_open(key)  # re-check: a concurrent trip may have landed while pacing
             try:
                 reply = await operation()
             except asyncio.CancelledError:
@@ -133,6 +150,7 @@ class OutboundCallPolicy:
             except UnsentError:
                 raise
             except RetryableError as fault:
+                self._note_cooldown(key, fault)  # honour the server's floor for the NEXT call
                 self._call_serial += 1
                 call_id = self._call_serial
                 series_id = self._retryable_series.get(key)
@@ -166,6 +184,44 @@ class OutboundCallPolicy:
     def _reset(self, key: str) -> None:
         self._retryable_streaks.pop(key, None)
         self._retryable_series.pop(key, None)
+        # NOT the cooldown: a floor recorded from a concurrent 429 must survive one
+        # sibling call succeeding, or the pacing would leak the moment any page got
+        # through. An expired floor is inert (its ``remaining`` is already <= 0).
+
+    def _raise_if_open(self, key: str) -> None:
+        opened = self._open.get(key)
+        if opened is not None:
+            raise CircuitOpenTransport(opened.message, trip_id=opened.trip_id)
+
+    async def _await_cooldown(self, key: str) -> None:
+        """Wait out any recorded per-ref cooldown before proceeding.
+
+        Loops so a floor EXTENDED by a concurrent 429 while this coroutine slept is
+        still honoured; the map read and the guard run in one step (no ``await``
+        between them), so asyncio's single-threaded scheduling makes them atomic.
+        """
+        while True:
+            not_before = self._not_before.get(key)
+            if not_before is None:
+                return
+            remaining = not_before - self.clock()
+            if remaining <= 0:
+                return
+            await self.sleep(remaining)
+
+    def _note_cooldown(self, key: str, fault: RetryableError) -> None:
+        """Record the server's Retry-After as this ref's not-before floor (A5.2).
+
+        Clamped to the abuse ceiling; a fresh hint only EXTENDS an existing floor,
+        never shrinks it (a later, smaller ask must not undo a wait already owed).
+        """
+        hint = fault.retry_after
+        if hint is None:
+            return
+        not_before = self.clock() + min(hint, _RETRY_AFTER_CEILING_SECONDS)
+        existing = self._not_before.get(key)
+        if existing is None or not_before > existing:
+            self._not_before[key] = not_before
 
     @staticmethod
     def _validate(concurrency: int, breaker_limit: int) -> None:

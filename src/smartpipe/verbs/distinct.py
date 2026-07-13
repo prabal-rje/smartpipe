@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from smartpipe.core.errors import ExitCode, UsageFault
-from smartpipe.engine.clustering import leader_clusters
 from smartpipe.engine.runner import Done
 from smartpipe.io import diagnostics, readers, source_accounting
 from smartpipe.io.inputs import STDIN
@@ -29,6 +28,7 @@ if TYPE_CHECKING:
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item
     from smartpipe.models.base import ChatModel, EmbeddingModel, ModelRef
+    from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
     from smartpipe.models.stt import Transcriber
 
@@ -63,13 +63,16 @@ async def run_distinct(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     if not 0.0 < request.threshold <= 1.0:
         raise UsageFault("--threshold is a cosine similarity: between 0 and 1")
     concurrency = context.concurrency(request.concurrency_flag)
     log = diagnostics.DegradationLog()  # per-row conversion disclosure (D27)
     ocr = readers.OcrIngest.lazy(lambda: context.document_parser(request.ocr_model_flag), log)
-    items_iter, _total = readers.resolve_items(request.input, stdin, stop=stop, ocr=ocr)
+    items_iter, _total = readers.resolve_items(
+        request.input, stdin, stop=stop, ocr=ocr, budget=budget
+    )
     items = [item async for item in items_iter]
     if not items:
         return outcome_exit_code(done=0, skipped=0, failed=0)
@@ -156,7 +159,11 @@ async def run_distinct(
             )
     log.finish()
     # unexamined rows are KEPT in the output but never compared - the honest skip count
-    clusters = leader_clusters([vectors[p] for p in embed_order], threshold=request.threshold)
+    from smartpipe.engine.clustering import select_leader_clustering
+
+    clusters = select_leader_clustering()(
+        [vectors[p] for p in embed_order], threshold=request.threshold
+    )
     kept: set[int] = set(unexamined)
     near_dupes_of: dict[int, list[int]] = {}
     near_folded = 0

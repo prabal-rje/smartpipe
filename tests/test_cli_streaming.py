@@ -25,6 +25,7 @@ from tests.helpers.paced import PacedOllama
 if TYPE_CHECKING:
     from smartpipe.io.writers import ResultWriter, TextSink
     from smartpipe.models.base import ChatModel
+    from smartpipe.models.resilience import WiredChat
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX pipes/signals")
 
@@ -99,6 +100,19 @@ async def test_map_emits_before_eof_in_process() -> None:
 
         async def fallback_chat_model(self, ref: object) -> ChatModel:
             raise AssertionError("fallback never resolved without a configured ref")
+
+        async def resilient_chat_model(
+            self, flag: str | None = None, fallback_flag: str | None = None
+        ) -> WiredChat:
+            from tests.helpers.wiring import build_wired
+
+            primary = EchoUpper()
+            return build_wired(
+                primary,
+                concurrency=self.concurrency(),
+                breaker_limit=self.failure_policy(primary.ref.provider).transport_limit,
+                batching=self.batching(),
+            )
 
         def concurrency(self, flag: int | None = None) -> int:
             return 2

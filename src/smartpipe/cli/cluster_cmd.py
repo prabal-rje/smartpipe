@@ -128,6 +128,13 @@ async def _run(
             request = replace(request, allow_captions=True)  # profile consent (D35)
         begin_manifest(manifest_path, verb="cluster")
         return await settled(
-            run_cluster(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            run_cluster(
+                request,
+                container,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stop=stop,
+                budget=container.budget,
+            ),
             container.budget,
         )

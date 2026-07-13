@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
     from smartpipe.io.items import Item
     from smartpipe.io.readers import OcrIngest
+    from smartpipe.models.budget import CallBudget
 
 __all__ = ["DiffRequest", "run_diff"]
 
@@ -57,6 +58,7 @@ async def run_diff(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    budget: CallBudget | None = None,
 ) -> ExitCode:
     if request.top is not None and request.top < 1:
         raise UsageFault(f"--top must be >= 1, got {request.top}")
@@ -66,7 +68,7 @@ async def run_diff(
     right = await _right_items(request.right, ocr)
     if not right:
         raise UsageFault("diff needs items on BOTH sides — left is stdin, right is --right FILE")
-    left_iter, _total = readers.resolve_items(STDIN, stdin, stop=stop, ocr=ocr)
+    left_iter, _total = readers.resolve_items(STDIN, stdin, stop=stop, ocr=ocr, budget=budget)
     left = [item async for item in left_iter]
     if not left or not right:
         raise UsageFault("diff needs items on BOTH sides — left is stdin, right is --right FILE")

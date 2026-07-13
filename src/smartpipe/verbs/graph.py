@@ -2,10 +2,13 @@
 
 Four ways in, one fold + serialize spine (waves G1/G2):
 
-- ``--fast`` (G1): local NER + co-occurrence — zero model calls, on-device,
-  free by construction (the tests pin it). This module owns that half and the
-  shared machinery every mode reuses: the corpus scan, the canonicalization
-  fold, the JSONL edge writer, ``--save``, and the receipt tail.
+- ``--fast`` (G1): local NER + co-occurrence, on-device — no chat-model calls;
+  the bare run is free by construction (the tests pin it), and only two
+  configured roles spend, disclosed: a cloud ``--embed-model`` on the fold
+  (entity names ride that wire) and a remote ``--stt-model`` per clip (audio
+  rides that wire). This module owns that half and the shared machinery every
+  mode reuses: the corpus scan, the canonicalization fold, the JSONL edge
+  writer, ``--save``, and the receipt tail.
 - A positional focus prompt (G2, FULL), ``--name-top`` (G2, HYBRID), and
   edge-shaped stdin records (G2, ADOPT) live in ``verbs/graphfull`` and are
   dispatched to from here — imported lazily so ``--fast`` never pays for them.
@@ -19,9 +22,17 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Protocol, assert_never
 
-from smartpipe.core.errors import ExitCode, ItemError, UsageFault
+from smartpipe.core.errors import (
+    ExitCode,
+    ItemError,
+    SempipeError,
+    SetupFault,
+    UnsentError,
+    UsageFault,
+)
 from smartpipe.engine.graphkg import (
     ItemEntities,
     SpineRef,
@@ -57,7 +68,9 @@ from smartpipe.verbs.common import (
     ExecutionPolicySource,
     batched,
     ensure_text,
+    interrupted_exit_code,
     outcome_exit_code,
+    spin_pending,
 )
 from smartpipe.verbs.common import transcribe as whisper_transcribe
 
@@ -66,20 +79,28 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import TextIO
 
+    from smartpipe.engine.coalesce import BatchSettings
     from smartpipe.engine.graphkg import EntityFinder, GraphEdge, GraphNode, SurfaceCount
     from smartpipe.io.inputs import InputSpec
     from smartpipe.io.items import Item, ItemSource
-    from smartpipe.models.base import AudioData, ChatModel, EmbeddingModel
+    from smartpipe.models.base import AudioData, EmbeddingModel
     from smartpipe.models.budget import CallBudget
     from smartpipe.models.ocr import DocumentParser
+    from smartpipe.models.resilience import WiredChat
+    from smartpipe.models.stt import Transcriber
+    from smartpipe.verbs.convert import Converter
 
 __all__ = [
     "DEFAULT_ENTITIES",
     "FastScan",
+    "FoldCut",
+    "FoldOutcome",
     "GraphContext",
     "GraphModelContext",
     "GraphRequest",
+    "fold_cut_flips_partial",
     "fold_vectors",
+    "note_dense_graph",
     "note_folds",
     "parse_entities",
     "parse_relations",
@@ -94,8 +115,11 @@ __all__ = [
 
 DEFAULT_ENTITIES = ("person", "organization", "location")
 
-_PACE_SAMPLE = 20  # windows before this machine's pace is worth projecting
+_PACE_SAMPLE = 20  # files before this machine's pace is worth projecting
 _PACE_NOTE_S = 120.0  # projected grinds past two minutes get one honest note
+_FOLD_NOTE_WINDOWS = 5_000  # co-occurrence windows past which the fold is worth naming
+_DENSE_HINT_NODES = 20  # nodes before near-completeness is worth a hint (tiny graphs are dense)
+_DENSE_HINT_DENSITY = 0.8  # kept share of C(n,2) past which the graph reads as a hairball
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,25 +134,40 @@ class GraphRequest:
     save: str | None = None
     top: int | None = None  # display-format hub cap
     model_flag: str | None = None  # --model: the extraction/naming chat wire (G2)
+    fallback_flag: str | None = None  # --fallback-model: chat failover when the breaker trips
     concurrency_flag: int | None = None  # --concurrency (G2)
     ocr_model_flag: str | None = None  # --ocr-model: document parsing at ingestion (G2)
+    # --embed-model: the canonicalization fold embedder (specified wins, local fallback)
+    embed_model_flag: str | None = None
+    # --stt-model: the scanning modes' transcriber (#20); flag > env > config
+    stt_model_flag: str | None = None
     input: InputSpec = STDIN
 
 
 class GraphContext(Protocol):
     """What ``--fast`` needs — deliberately NO chat accessor: the free half
-    cannot ask for a paid model even by accident."""
+    cannot ask for a paid model even by accident. The transcriber accessor is
+    here because the SCANNING modes read audio themselves (#20): configuring
+    or flagging ``stt-model`` is the consent, and bare ``--fast`` resolves the
+    ladder (None) — no chat ref is ever passed, so an ambient OpenAI key can't
+    flip the free mode remote."""
 
     def entity_finder(self, labels: Sequence[str]) -> EntityFinder: ...
-    def fold_embedder(self) -> EmbeddingModel: ...
+    async def fold_embedder(self, flag: str | None = None) -> EmbeddingModel: ...
+    def remote_transcriber(self, *, flag: str | None = None) -> Transcriber | None: ...
 
 
 class GraphModelContext(GraphContext, ExecutionPolicySource, Protocol):
-    """The paid half's seam (G2): everything ``--fast`` has, plus the chat
-    wire and its dials — the same accessors ``map`` composes with."""
+    """The paid half's seam (G2): everything ``--fast`` has, plus the composed
+    resilient chat wire and its dials — the same accessors ``map`` composes with.
+    The paid modes run on the returned ``WiredChat`` (breaker + concurrency gate
+    with the configured fallback armed underneath), never on a plain chat model."""
 
-    async def chat_model(self, flag: str | None = None) -> ChatModel: ...
+    async def resilient_chat_model(
+        self, flag: str | None = None, fallback_flag: str | None = None
+    ) -> WiredChat: ...
     def document_parser(self, flag: str | None = None) -> DocumentParser | None: ...
+    def batching(self) -> BatchSettings | None: ...  # item 62 posture — graph packs too (#21)
 
 
 def parse_entities(raw: str | None) -> tuple[str, ...]:
@@ -163,13 +202,18 @@ async def run_graph(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None = None,
+    should_stop: Callable[[], bool] | None = None,
     transcriber: Callable[[AudioData], str] = whisper_transcribe,
     clock: Callable[[], float] = time.monotonic,
     ask: Callable[[str], bool] | None = None,
     budget: CallBudget | None = None,
 ) -> ExitCode:
     """Dispatch on the mode grammar: ``--name-top`` → hybrid, a focus prompt →
-    full, ``--fast`` → the free half, else stdin must carry edge records."""
+    full, ``--fast`` → the free half, else stdin must carry edge records.
+
+    ``should_stop`` (B1) is the synchronous stop predicate the CPU-bound fold
+    phases poll from their worker thread — a starved loop can't deliver the async
+    ``stop`` in time, so the folds read this ``threading.Event``-backed callable."""
     if request.min_weight < 1:
         raise UsageFault("--min-weight needs a positive co-occurrence count")
     if request.top is not None and request.top < 1:
@@ -185,7 +229,47 @@ async def run_graph(
             "or --name-top\n"
             '  Example: smartpipe graph "who pays whom" --relations "pays, owns" notes/*.md'
         )
+    if request.stt_model_flag is not None and not request.fast and request.name_top is None:
+        # #20: only the SCANNING modes read audio themselves — full mode's native
+        # ladder does not honor the role yet (ledgered), so the flag refuses there.
+        raise UsageFault(
+            "--stt-model rides the scanning modes — pair it with --fast or --name-top\n"
+            "  Example: smartpipe graph --fast --stt-model openai/whisper-1 calls/*.mp3"
+        )
+    # Grammar outranks wiring (#27 review): every request-only validation runs
+    # BEFORE the fold-embedder preflight below, so a bad dial refuses at USAGE
+    # even when the embed config is also broken. Both parsers are pure and
+    # cheap; the modes re-parse for their own use (signatures stay stable).
+    parse_entities(request.entities)
+    parse_relations(request.relations)
     concurrency = context.concurrency(request.concurrency_flag)
+    adopt_dispatch = not request.fast and request.focus is None and request.name_top is None
+    if (
+        adopt_dispatch
+        and not request.input.patterns
+        and not request.input.from_files
+        and stdin.isatty()
+    ):
+        # Hoisted from run_adopt (#27): a bare terminal has no records to adopt,
+        # and that usage refusal must outrank a broken embed config below.
+        from smartpipe.verbs.graphfull import three_forms_fault
+
+        raise three_forms_fault()
+    # #27 preflight: build the fold embedder NOW, in every mode, so a broken embed
+    # config (missing key, chat-model-as-embedder) faults at exit 2 BEFORE any
+    # read, NER grind, or paid extraction. The instance is discarded — the fold
+    # rebuilds it (manifest.record_model is idempotent, one fold_embed entry).
+    await context.fold_embedder(request.embed_model_flag)
+    # #20 preflight: the SCANNING modes resolve their transcriber here — after
+    # every usage validation, before a byte of stdin/files is read — so a
+    # missing key, an unsupported wire, or the --local-only fence faults at
+    # SETUP (2) pre-read. No chat ref is passed: bare --fast plus an ambient
+    # OpenAI key stays local; only an explicit flag/env/config goes remote.
+    stt = (
+        context.remote_transcriber(flag=request.stt_model_flag)
+        if request.fast or request.name_top is not None
+        else None
+    )
     if request.name_top is not None:
         from smartpipe.verbs.graphfull import run_hybrid
 
@@ -195,10 +279,12 @@ async def run_graph(
             stdin=stdin,
             stdout=stdout,
             stop=stop,
+            should_stop=should_stop,
             transcriber=transcriber,
             clock=clock,
             budget=budget,
             concurrency=concurrency,
+            stt=stt,
         )
     if request.focus is not None:
         from smartpipe.verbs.graphfull import run_full
@@ -209,6 +295,7 @@ async def run_graph(
             stdin=stdin,
             stdout=stdout,
             stop=stop,
+            should_stop=should_stop,
             ask=ask,
             budget=budget,
             concurrency=concurrency,
@@ -220,12 +307,16 @@ async def run_graph(
             stdin=stdin,
             stdout=stdout,
             stop=stop,
+            should_stop=should_stop,
             transcriber=transcriber,
             clock=clock,
+            stt=stt,
         )
     from smartpipe.verbs.graphfull import run_adopt
 
-    return await run_adopt(request, context, stdin=stdin, stdout=stdout, stop=stop)
+    return await run_adopt(
+        request, context, stdin=stdin, stdout=stdout, stop=stop, should_stop=should_stop
+    )
 
 
 def _guard_save_outputs(raw: str, fmt: SaveFormat) -> None:
@@ -245,6 +336,37 @@ def _guard_save_outputs(raw: str, fmt: SaveFormat) -> None:
             assert_never(unreachable)
 
 
+class FoldCut(Enum):
+    """How the canonicalization fold ended (#30) — the exit wiring keys on this."""
+
+    NONE = "none"  # ran to completion (or fewer than two names — nothing to fold)
+    INTERRUPT = "interrupt"  # a drained Ctrl-C cut it — the drain summary already tells
+    FAULT = "fault"  # a mid-fold wire/content fault — degrades; the run exits by its counts
+    BELT = "belt"  # --max-calls cut a PAID fold — the run flips to PARTIAL, never 0
+
+
+@dataclass(frozen=True, slots=True)
+class FoldOutcome:
+    """What the fold salvaged: every vector embedded before any cut, plus the cut."""
+
+    vectors: Mapping[str, tuple[float, ...]]
+    cut: FoldCut
+
+
+def fold_cut_flips_partial(cut: FoldCut) -> bool:
+    """#29 ruling: only a BELT cut flips the run to PARTIAL — an interrupt
+    already exits by the drain rules, and a mid-fold fault exits by the run's
+    normal counts (ruling 5). A belt stop must also never wear the Ctrl-C
+    drain summary; the interrupted branches gate on this."""
+    match cut:
+        case FoldCut.BELT:
+            return True
+        case FoldCut.NONE | FoldCut.INTERRUPT | FoldCut.FAULT:
+            return False
+        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+            assert_never(unreachable)
+
+
 @dataclass(frozen=True, slots=True)
 class FastScan:
     """Everything the free pass produces — the fast mode writes it out as-is;
@@ -258,6 +380,7 @@ class FastScan:
     edges: tuple[GraphEdge, ...]
     skipped: int  # items the free ladder couldn't read (censused already)
     failed: int  # skipped items whose attempted local NER call failed
+    fold_cut: FoldCut  # how the name fold ended (#30) — BELT flips the exit to PARTIAL
 
 
 async def scan_corpus(
@@ -266,11 +389,16 @@ async def scan_corpus(
     *,
     stdin: TextIO,
     stop: asyncio.Event | None,
+    should_stop: Callable[[], bool] | None = None,
     transcriber: Callable[[AudioData], str],
     clock: Callable[[], float],
+    stt: Transcriber | None = None,
 ) -> FastScan | None:
     """The zero-call pass shared by ``--fast`` and hybrid: read, local NER,
-    fold, co-occurrence edges. ``None`` means empty input (exit 0, silent)."""
+    fold, co-occurrence edges. ``None`` means empty input (exit 0, silent).
+    ``stt`` (#20) is the resolved ``stt-model`` transcriber: when set, audio
+    and video tracks convert through it (chat rungs stay dead — no chat model
+    is handed to the converter); ``None`` keeps today's path byte-identical."""
     labels = parse_entities(request.entities)
     mode = parse_window(request.window)
 
@@ -284,9 +412,24 @@ async def scan_corpus(
     read_bar.finish()
     if not items:
         return None
+    _note_paid_transcription(stt, items)
 
     finder = context.entity_finder(labels)
+    if labels:  # empty labels never load the model (find short-circuits) — skip the ~190 MB pull
+        warm_bar = make_stderr_spinner()
+        await spin_pending(
+            warm_bar,
+            "preparing local NER model",
+            asyncio.to_thread(finder.load, quiet=warm_bar.enabled),
+        )
     log = diagnostics.DegradationLog()
+    converter: Converter | None = None
+    if stt is not None:
+        from smartpipe.verbs.convert import make_converter
+
+        # chat=None keeps every LLM rung dead (caption leak impossible);
+        # allow_paid opens the stt rung — configuring the role IS the consent.
+        converter = make_converter(None, allow_paid=True, log=log, stt=stt)
     gathered: list[ItemEntities] = []
     no_free_text = 0
     failed = 0
@@ -300,7 +443,7 @@ async def scan_corpus(
             # projection first (a no-op for media records), THEN the free ladder:
             # a transcript must never be re-projected away by the original record
             textual = await ensure_text(
-                project_content(item), transcriber=transcriber, log=log, converter=None
+                project_content(item), transcriber=transcriber, log=log, converter=converter
             )
         except ItemError:
             # the free ladder has no rung for this item (image/scan) — censused below
@@ -325,7 +468,12 @@ async def scan_corpus(
         )
         entity_bar.advance()
         if position == _PACE_SAMPLE and len(items) > _PACE_SAMPLE:
-            _note_projected_grind(clock() - stage_start, len(items))
+            # The bar the note points at IS ``entity_bar``; key the promise on its
+            # own ``enabled`` flag so a suppressed bar never advertises "progress
+            # below" (B3 — stderr-only gate; a piped stderr turns the bar off).
+            _note_projected_grind(
+                clock() - stage_start, len(items), progress_visible=entity_bar.enabled
+            )
     entity_bar.finish()
     log.finish()
     if no_free_text:
@@ -335,22 +483,74 @@ async def scan_corpus(
             "the full mode or ocr-model reads them"
         )
 
-    counts = surface_counts(gathered)
-    vectors = await fold_vectors(context, [surface.name for surface in counts])
-    canonical = fold_surfaces(counts, vectors)
+    # B1: the fold trio is CPU-bound and can dominate a large corpus (the
+    # co-occurrence fold is quadratic in the entities per window). Run it OFF the
+    # event loop so a single Ctrl-C is delivered and the fold-stage bar redraws;
+    # the pure fold polls ``should_stop`` per window and salvages a clean partial.
+    counts = await asyncio.to_thread(surface_counts, gathered)
+    fold = await fold_vectors(
+        context,
+        [surface.name for surface in counts],
+        request.embed_model_flag,
+        should_stop=should_stop,
+    )
+    # C9: the label-cluster fold reports exact per-name progress.
+    from smartpipe.engine.clustering import select_leader_clustering
+
+    clustering = select_leader_clustering()
+    # D4 (#37): the label-cluster fold owns a visible element too — an unknown-
+    # total count line (groups, not items), advanced by the injected callback
+    # from the worker thread (the arbiter lock makes that safe). Distinct name:
+    # ``fold_bar`` below is the co-occurrence fold's.
+    surface_bar = stage("fold")
+    surface_bar.start(len(counts))
+    try:  # C2 review: a cancel/fault mid-fold must still clear the row + deregister
+        canonical = await asyncio.to_thread(
+            fold_surfaces,
+            counts,
+            fold.vectors,
+            should_stop=should_stop,
+            progress=surface_bar.advance,
+            clustering=clustering,
+        )
+    finally:
+        surface_bar.finish()
     folded_names, folded_nodes = fold_stats(canonical)
     note_folds(folded_names, folded_nodes)
+    nodes = await asyncio.to_thread(build_nodes, counts, canonical)
+    entity_windows = windows(gathered, mode)
+    _note_fold_phase(len(entity_windows))
+    fold_bar = stage("fold")
+    fold_bar.start(len(entity_windows))
+    edges = await asyncio.to_thread(
+        fold_edges, entity_windows, canonical, should_stop=should_stop, progress=fold_bar.advance
+    )
+    fold_bar.finish()
 
     return FastScan(
         gathered=tuple(gathered),
         counts=counts,
         canonical=canonical,
         folded_names=folded_names,
-        nodes=build_nodes(counts, canonical),
-        edges=fold_edges(windows(gathered, mode), canonical),
+        nodes=nodes,
+        edges=edges,
         skipped=len(items) - len(gathered),
         failed=failed,
+        fold_cut=fold.cut,
     )
+
+
+def _note_paid_transcription(stt: Transcriber | None, items: Sequence[Item]) -> None:
+    """The run-level consent echo (#20), once: only when a PAID wire will
+    transcribe AND the corpus actually carries audio/video. Local (and free
+    loopback/self-hosted ollama, the fold's own split) stays quiet — the
+    per-row converter note still tells which rung heard each clip."""
+    if stt is None or stt.ref.provider in ("local", "ollama"):
+        return
+    from smartpipe.models.base import AudioData, VideoData
+
+    if any(isinstance(part, AudioData | VideoData) for item in items for part in item.media):
+        diagnostics.note(f"transcribing audio via {stt.ref} (paid transcription)")
 
 
 async def _run_fast(
@@ -360,11 +560,20 @@ async def _run_fast(
     stdin: TextIO,
     stdout: TextIO,
     stop: asyncio.Event | None,
+    should_stop: Callable[[], bool] | None,
     transcriber: Callable[[AudioData], str],
     clock: Callable[[], float],
+    stt: Transcriber | None = None,
 ) -> ExitCode:
     scan = await scan_corpus(
-        request, context, stdin=stdin, stop=stop, transcriber=transcriber, clock=clock
+        request,
+        context,
+        stdin=stdin,
+        stop=stop,
+        should_stop=should_stop,
+        transcriber=transcriber,
+        clock=clock,
+        stt=stt,
     )
     if scan is None:
         return outcome_exit_code(done=0, skipped=0, failed=0)
@@ -372,14 +581,32 @@ async def _run_fast(
     write_edges(kept, stdout)
     if request.save is not None:
         save_graph(request.save, scan.nodes, kept, top=request.top)
+    note_dense_graph(len(scan.nodes), len(kept))
+    # #20/#28: the cost segment reads the LIVE meter — still "0 tok" when
+    # nothing metered, and it names real spend once remote STT (or a paid
+    # fold) meters. A paid clip can't hide behind a hardcoded zero.
     diagnostics.note(
         f"graph: {len(scan.counts):,} entities ({scan.folded_names:,} folded) · "
-        f"{len(kept):,} edges ({pruned:,} pruned) · 0 tok"
+        f"{len(kept):,} edges ({pruned:,} pruned) · {receipt_tail()}"
     )
+    fold_partial = fold_cut_flips_partial(scan.fold_cut)
+    if stop is not None and stop.is_set() and not fold_partial:
+        # A drained Ctrl-C (during entity extraction or the fold, B1): the graph
+        # written above is salvaged partial — say so and exit accordingly. A
+        # BELT cut set the same stop event without any Ctrl-C (#29), so it must
+        # never wear the drain summary — it exits PARTIAL below instead.
+        diagnostics.interrupted_summary(processed=len(scan.gathered), skipped=scan.skipped)
+        return interrupted_exit_code(
+            done=len(scan.gathered),
+            skipped=scan.skipped,
+            failed=scan.failed,
+            partial=True,
+        )
     return outcome_exit_code(
         done=len(scan.gathered),
         skipped=scan.skipped,
         failed=scan.failed,
+        partial=fold_partial,
     )
 
 
@@ -428,16 +655,54 @@ def write_edges(edges: Sequence[GraphEdge], stdout: TextIO) -> None:
     write_bar.finish()
 
 
-def _note_projected_grind(elapsed: float, total_windows: int) -> None:
+def _note_projected_grind(elapsed: float, total_files: int, *, progress_visible: bool) -> None:
     """Projected-time honesty (owner ruling): after the sample, this machine's
-    measured pace projects the whole run — past ~2 minutes, say so once."""
-    projected = elapsed / _PACE_SAMPLE * total_windows
+    measured pace projects the whole entity pass — past ~2 minutes, say so once.
+    The unit is FILES (the pass iterates items), not windows — the fold's own
+    windows are named separately by ``_note_fold_phase`` (B1). The "(progress
+    below …)" clause only rides along when the status bar is actually animating
+    (``progress_visible``); with a suppressed bar the projection stays truthful
+    but promises nothing it won't deliver (B3)."""
+    projected = elapsed / _PACE_SAMPLE * total_files
     if projected <= _PACE_NOTE_S:
         return
     minutes = max(1, round(projected / 60))
+    line = f"~{total_files:,} files at this machine's pace — roughly {minutes} min"
+    if progress_visible:
+        line += " (progress below; Ctrl-C is safe)"
+    diagnostics.note(line)
+
+
+def _note_fold_phase(total_windows: int) -> None:
+    """B1: once the entities are gathered, the co-occurrence fold is a distinct
+    quadratic phase that can dominate on large corpora. Name it (past a threshold,
+    so small graphs stay quiet) so a user watching the entity pass finish isn't
+    left wondering why the run keeps going."""
+    if total_windows < _FOLD_NOTE_WINDOWS:
+        return
     diagnostics.note(
-        f"~{total_windows:,} windows at this machine's pace — roughly {minutes} min "
-        "(progress below; Ctrl-C is safe)"
+        f"entities done — folding {total_windows:,} windows; "
+        "this can dominate on large corpora (progress below; Ctrl-C is safe)"
+    )
+
+
+def note_dense_graph(node_count: int, edge_count: int) -> None:
+    """The hairball hint (#34): when nearly every possible pair co-occurs, the
+    graph is window math, not signal — one long document read as one window
+    makes a complete graph by construction. Fired by the SCANNING modes only
+    (fast + hybrid) after pruning; hybrid calls it BEFORE the paid naming
+    spend, so a user can Ctrl-C instead of paying to name geometry. Public
+    because graphfull imports it (pyright strict refuses ``_``-name imports;
+    precedent: ``note_folds``)."""
+    if node_count < _DENSE_HINT_NODES:
+        return  # the floor comes FIRST: it also guards the density division (possible > 0 below)
+    possible = node_count * (node_count - 1) // 2
+    if edge_count / possible < _DENSE_HINT_DENSITY:
+        return
+    diagnostics.note(
+        f"near-complete graph ({edge_count:,} of {possible:,} possible edges) — "
+        "everything co-occurs with everything; --window sentence tightens it, "
+        "then --min-weight 2 keeps recurring pairs"
     )
 
 
@@ -452,25 +717,70 @@ def spine_ref(source: ItemSource) -> SpineRef:
     )
 
 
-async def fold_vectors(context: GraphContext, names: Sequence[str]) -> dict[str, tuple[float, ...]]:
-    """Embed the distinct surface names for the canonicalization fold — local,
-    free. An unavailable embedder degrades to no folding, disclosed."""
+async def fold_vectors(
+    context: GraphContext,
+    names: Sequence[str],
+    embed_flag: str | None = None,
+    *,
+    should_stop: Callable[[], bool] | None = None,
+) -> FoldOutcome:
+    """Embed the distinct surface names for the canonicalization fold. The
+    embedder honors the configured ``embed-model``/``--embed-model`` (specified
+    wins) and falls back to the on-device local model when nothing is set. A
+    non-local (paid) fold is disclosed once, since it spends even on ``--fast``.
+
+    Paid work is never lost (#30): every vector embedded before a cut is kept.
+    ``should_stop`` — the SYNCHRONOUS Ctrl-C predicate, polled once per batch;
+    never the async drain event, which the belt shares and must not cut a free
+    fold — ends it at INTERRUPT. The belt's ``UnsentError`` ends it at BELT; any
+    other mid-fold fault (a wire dying mid-run included, ruling 5) degrades to
+    FAULT. Unembedded names simply keep their spelling downstream. Build faults
+    are NOT caught here: the ``run_graph`` preflight (#27) owns those, fatally."""
     if len(names) < 2:
-        return {}
-    embedder = context.fold_embedder()
+        return FoldOutcome(vectors={}, cut=FoldCut.NONE)
+    embedder = await context.fold_embedder(embed_flag)  # build faults stay fatal (#27)
+    # local is on-device and ollama is free loopback/self-hosted (as convert.py and
+    # fence.py already treat it) — neither spends, so only a paid cloud wire discloses.
+    if embedder.ref.provider not in ("local", "ollama"):
+        diagnostics.note(
+            f"folding {len(names):,} entity names via {embedder.ref} (paid embeddings)"
+        )
     fold_bar = stage("fold")
     fold_bar.start(len(names))
     vectors: dict[str, tuple[float, ...]] = {}
+    cut = FoldCut.NONE
     try:
         for batch in batched(list(names), EMBED_BATCH_SIZE):
+            if should_stop is not None and should_stop():
+                cut = FoldCut.INTERRUPT
+                diagnostics.note(
+                    f"entity folding interrupted — {len(vectors):,} of {len(names):,} "
+                    "names embedded; the rest keep their spelling"
+                )
+                break
             for name, vector in zip(batch, await embedder.embed(list(batch)), strict=True):
                 vectors[name] = vector
                 fold_bar.advance()
-    except ItemError as exc:
-        diagnostics.warn(f"entity folding skipped ({exc}) — every surface form keeps its node")
-        vectors = {}
+    except UnsentError as exc:  # an ItemError subclass — the belt arm must come FIRST
+        cut = FoldCut.BELT
+        _warn_fold_cut(exc, embedded=len(vectors), total=len(names))
+    except (ItemError, SetupFault) as exc:
+        cut = FoldCut.FAULT
+        _warn_fold_cut(exc, embedded=len(vectors), total=len(names))
     fold_bar.finish()
-    return vectors
+    return FoldOutcome(vectors=vectors, cut=cut)
+
+
+def _warn_fold_cut(exc: SempipeError, *, embedded: int, total: int) -> None:
+    """The mid-fold degradation disclosure: what was kept, what keeps its spelling.
+    The nothing-embedded wording stays byte-identical to the pre-#30 skip line."""
+    if embedded == 0:
+        diagnostics.warn(f"entity folding skipped ({exc}) — every surface form keeps its node")
+        return
+    diagnostics.warn(
+        f"entity folding stopped early ({exc}) — {embedded:,} of {total:,} "
+        "names embedded; the rest keep their spelling"
+    )
 
 
 def save_graph(

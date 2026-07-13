@@ -13,7 +13,7 @@ from smartpipe.core.errors import ExitCode
 from smartpipe.io.writers import OutputFormat, RenderMode, ResultWriter, WriterConfig, make_writer
 from smartpipe.verbs.split import SplitRequest, run_split
 from tests.helpers.pdf import minimal_pdf
-from tests.io.test_ocr_ingest import FakeParser
+from tests.io.test_ocr_ingest import FakeParser, RaisingParser
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -388,6 +388,38 @@ class _OcrContext(FakeContext):
         return self.parser
 
 
+async def test_by_pages_ocr_decline_reads_nothing_and_spends_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A8: an over-belt scan corpus asks; a decline abandons the run cleanly."""
+    from smartpipe.io.inputs import InputSpec
+    from smartpipe.models.budget import CallBudget
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "r.pdf").write_bytes(minimal_pdf(["alpha", "beta", "gamma"]))  # 3 pages
+    parser = FakeParser(pages=3)
+    out = io.StringIO()
+    asked: list[str] = []
+
+    def ask(question: str) -> bool:
+        asked.append(question)
+        return False  # decline the belt-shortfall prompt
+
+    code = await run_split(
+        SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),
+        _OcrContext(parser),
+        stdin=_TtyStdin(),
+        stdout=out,
+        budget=CallBudget(limit=2, stop=None),  # belt of 2 < 3 pages
+        ask=ask,  # injected so the prompt fires without a real terminal
+    )
+    assert code is ExitCode.OK  # a clean exit 0 — nothing parsed
+    assert out.getvalue() == ""  # no pages emitted
+    assert asked == ["proceed with a partial parse? [y/N]"]
+    assert parser.pdf_calls == []  # zero spend
+    assert "exceed --max-calls" in capsys.readouterr().err
+
+
 async def test_ocr_role_parses_scans_on_the_token_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -433,7 +465,7 @@ async def test_by_pages_parses_through_the_role_and_keeps_the_grouping(
     assert records[0]["text"] == "page 1 md\n\npage 2 md"  # cut exactly like local pages
     assert records[1]["text"] == "page 3 md"
     err = capsys.readouterr().err
-    assert "degraded: r.pdf p.1 document → markdown" in err  # disclosed per page
+    assert "converted: r.pdf p.1 document → markdown" in err  # disclosed per page (C3 #33)
 
 
 async def test_media_branch_never_constructs_the_ocr_parser(
@@ -498,3 +530,58 @@ async def test_by_pages_falls_back_to_local_extraction_when_the_parse_fails(
     assert "alpha page" in records[0]["text"]  # the local ladder took over
     err = capsys.readouterr().err
     assert "ocr failed: r.pdf" in err and "falling back" in err
+
+
+async def test_by_pages_rate_limit_degrades_with_the_honest_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A5.1: an isolated exhausted 429 ladder still falls back to local page text,
+    but the note is the honest 'rate-limited', not 'ocr failed', not the wire body."""
+    from smartpipe.core.errors import RetryableError
+    from smartpipe.io.inputs import InputSpec
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "r.pdf").write_bytes(minimal_pdf(["alpha page", "beta page"]))
+    out = io.StringIO()
+    code = await run_split(
+        SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),
+        _OcrContext(RaisingParser(RetryableError("429 Too Many Requests"))),
+        stdin=_TtyStdin(),
+        stdout=out,
+    )
+    assert code is ExitCode.OK
+    records = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert "alpha page" in records[0]["text"]  # the local ladder took over
+    err = capsys.readouterr().err
+    assert "ocr rate-limited: r.pdf — falling back to local extraction" in err
+    assert "ocr failed" not in err and "429" not in err
+
+
+async def test_by_pages_systemic_breaker_stops_the_run_without_grinding_the_corpus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A5.1 (completion): a run-scoped breaker verdict SHORT-CIRCUITS the whole
+    ``--by pages`` run — it is converted to a SETUP fault that flows past the
+    per-file ``except ItemError``, so the verb stops at the FIRST file instead of
+    grinding every remaining PDF into a bogus per-file skip. No fallback line, no
+    local garbage, and the second PDF is never even opened."""
+    from smartpipe.core.errors import CircuitOpenTransport, SetupFault
+    from smartpipe.io.inputs import InputSpec
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "a.pdf").write_bytes(minimal_pdf(["alpha page", "beta page"]))
+    (tmp_path / "b.pdf").write_bytes(minimal_pdf(["gamma page", "delta page"]))
+    out = io.StringIO()
+    parser = RaisingParser(CircuitOpenTransport("ocr wire down", trip_id=1))
+    with pytest.raises(SetupFault, match="circuit opened"):
+        await run_split(
+            SplitRequest(by_flag="pages", input=InputSpec(patterns=("*.pdf",), from_files=False)),
+            _OcrContext(parser),
+            stdin=_TtyStdin(),
+            stdout=out,
+        )
+    assert out.getvalue() == ""  # it did NOT degrade to local garbage
+    assert len(parser.pdf_calls) == 1  # stopped at the first file; b.pdf never opened
+    err = capsys.readouterr().err
+    assert "falling back" not in err  # never masquerades as a per-file fallback
+    assert "skipped:" not in err  # NOT ground into per-file skips — it stops cleanly

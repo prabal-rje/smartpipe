@@ -110,6 +110,13 @@ async def _run(request: DiffRequest, max_calls: int | None, manifest_path: Path 
             request = replace(request, allow_captions=True)  # profile consent (D35)
         begin_manifest(manifest_path, verb="diff")
         return await settled(
-            run_diff(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            run_diff(
+                request,
+                container,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stop=stop,
+                budget=container.budget,
+            ),
             container.budget,
         )

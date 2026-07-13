@@ -130,6 +130,13 @@ async def _run(
             request = _replace(request, allow_captions=True)  # profile consent (D35)
         begin_manifest(manifest_path, verb="filter", prompt=request.condition)
         return await settled(
-            run_filter(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            run_filter(
+                request,
+                container,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stop=stop,
+                budget=container.budget,
+            ),
             container.budget,
         )

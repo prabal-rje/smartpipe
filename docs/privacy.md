@@ -144,5 +144,7 @@ With `stt-model` set - or auto-selected because an OpenAI API key is present
 and your chat model is OpenAI - audio bytes are uploaded to OpenAI's
 transcription endpoint. ChatGPT-login-only setups never upload audio for
 transcription (that wire has no STT); local whisper keeps everything on your
-machine. The per-row note names which path ran, and the `allow-captions`
-consent gates the upload like every paid conversion.
+machine. `stt-model = "local"` pins transcription on-device outright - audio
+then never leaves your machine, with no consent needed because nothing is
+uploaded or billed. The per-row note names which path ran, and the
+`allow-captions` consent gates the upload like every paid conversion.

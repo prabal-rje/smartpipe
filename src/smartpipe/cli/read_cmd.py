@@ -102,9 +102,11 @@ async def _run(
         async def consume() -> ExitCode:
             log = diagnostics.DegradationLog()
             ocr = readers.OcrIngest.lazy(lambda: container.document_parser(ocr_flag), log)
-            # the >20-pages preflight note fires inside resolve_items (item 48) —
-            # one machinery, every verb, reader mode included
-            items, _total = readers.resolve_items(spec, sys.stdin, stop=stop, ocr=ocr)
+            # the preflight note (and the A8 belt-shortfall prompt) fire inside
+            # resolve_items (item 48) — one machinery, every verb, reader mode included
+            items, _total = readers.resolve_items(
+                spec, sys.stdin, stop=stop, ocr=ocr, budget=container.budget
+            )
             # records for machines, always — reader mode's whole output IS the record
             writer = make_writer(
                 WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, bare=bare),

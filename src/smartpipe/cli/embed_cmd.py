@@ -114,6 +114,13 @@ async def _run(
             request = _replace(request, allow_captions=True)  # profile consent (D35)
         begin_manifest(manifest_path, verb="embed")
         return await settled(
-            run_embed(request, container, stdin=sys.stdin, stdout=sys.stdout, stop=stop),
+            run_embed(
+                request,
+                container,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stop=stop,
+                budget=container.budget,
+            ),
             container.budget,
         )

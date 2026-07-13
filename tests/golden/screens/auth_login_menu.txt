@@ -1,4 +1,6 @@
+
 Log in to a provider:
+
   1. openai (API key)        ✓ key (env)
   2. openai (ChatGPT login)  needs login
   3. anthropic               needs key
