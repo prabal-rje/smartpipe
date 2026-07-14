@@ -218,6 +218,7 @@ def test_doctor_stt_non_openai_wire_fails_naming_both_fixes(
 def test_doctor_stt_local_reports_the_on_device_wire(
     run_cli: RunCli, respx_mock: respx.MockRouter, isolated_home: Path
 ) -> None:
+    import sys
     from importlib.util import find_spec
 
     (isolated_home / "smartpipe").mkdir()
@@ -229,8 +230,10 @@ def test_doctor_stt_local_reports_the_on_device_wire(
     stt_line = next(line for line in out.splitlines() if line.startswith("stt"))
     if find_spec("faster_whisper") is not None:
         assert "local whisper (config) — on-device, free" in stt_line
+    elif sys.version_info >= (3, 14):
+        assert "stt-model local — waiting on upstream Python 3.14 wheels" in stt_line
     else:
-        assert "whisper" in stt_line  # wheels absent: tracked, message varies by python
+        assert "stt-model local but whisper is unavailable" in stt_line
 
 
 def test_doctor_stt_auto_prefers_whisper_with_openai_chat_and_key(

@@ -1348,22 +1348,40 @@ async def test_embed_cache_wraps_the_remote_wire_outermost(client: httpx.AsyncCl
     assert container.caches == [model]  # swept with the chat caches
 
 
-async def test_embed_cache_wraps_the_local_wire_too(client: httpx.AsyncClient) -> None:
+async def test_embed_cache_wraps_the_default_wire_outermost(client: httpx.AsyncClient) -> None:
+    from importlib.util import find_spec
+
+    from smartpipe.models.admission import AdmittedEmbeddingModel
     from smartpipe.models.cache import CachingEmbeddingModel
     from smartpipe.models.local_embed import LocalEmbeddingModel
+    from smartpipe.models.ollama import OllamaEmbeddingModel
 
     container = _container(client, env=_embed_cache_env())
     model = await container.embedding_model()
     assert isinstance(model, CachingEmbeddingModel)
-    assert isinstance(model.inner, LocalEmbeddingModel)  # no admission on-device
+    if find_spec("fastembed") is not None:
+        assert isinstance(model.inner, LocalEmbeddingModel)  # no admission on-device
+    else:
+        assert isinstance(model.inner, AdmittedEmbeddingModel)  # HTTP fallback is admitted
+        assert isinstance(model.inner.inner, OllamaEmbeddingModel)
 
 
-async def test_embed_cache_disabled_bypasses(client: httpx.AsyncClient) -> None:
+async def test_embed_cache_disabled_bypasses_the_default_wire(client: httpx.AsyncClient) -> None:
+    from importlib.util import find_spec
+
+    from smartpipe.models.admission import AdmittedEmbeddingModel
+    from smartpipe.models.cache import CachingEmbeddingModel
     from smartpipe.models.local_embed import LocalEmbeddingModel
+    from smartpipe.models.ollama import OllamaEmbeddingModel
 
     container = _container(client)
     model = await container.embedding_model()
-    assert isinstance(model, LocalEmbeddingModel)  # no cache layer when the posture is off
+    assert not isinstance(model, CachingEmbeddingModel)
+    if find_spec("fastembed") is not None:
+        assert isinstance(model, LocalEmbeddingModel)
+    else:
+        assert isinstance(model, AdmittedEmbeddingModel)
+        assert isinstance(model.inner, OllamaEmbeddingModel)
     assert container.caches == []
 
 
@@ -1383,15 +1401,18 @@ async def test_media_embed_cache_preserves_the_capability_marker(
     assert supports_media_embedding(model)  # the cache must not strip embed_parts
 
 
-async def test_fold_embedder_free_path_is_cached_and_stays_off_belt(
+async def test_fold_default_free_path_is_cached_and_stays_off_belt(
     client: httpx.AsyncClient,
 ) -> None:
     """The cafa99b invariant survives the cache (#22): the FREE fold is banked
     but never budgeted or admitted — a miss embeds on the raw wire, a hit costs
     nothing, and neither can charge --max-calls."""
+    from importlib.util import find_spec
+
     from smartpipe.models.budget import CallBudget
     from smartpipe.models.cache import CachingEmbeddingModel
     from smartpipe.models.local_embed import LocalEmbeddingModel
+    from smartpipe.models.ollama import OllamaEmbeddingModel
 
     container = AppContainer(
         env={**_embed_cache_env(), "XDG_CONFIG_HOME": "/nonexistent-smartpipe-tests"},
@@ -1402,7 +1423,10 @@ async def test_fold_embedder_free_path_is_cached_and_stays_off_belt(
     )
     model = await container.fold_embedder()
     assert isinstance(model, CachingEmbeddingModel)  # banked…
-    assert isinstance(model.inner, LocalEmbeddingModel)  # …with NO budget/admission layer
+    if find_spec("fastembed") is not None:
+        assert isinstance(model.inner, LocalEmbeddingModel)
+    else:
+        assert isinstance(model.inner, OllamaEmbeddingModel)
     assert container.caches == [model]
 
 
