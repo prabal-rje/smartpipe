@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from smartpipe.core.errors import ExitCode, ItemError, SetupFault, UsageFault
-from smartpipe.engine.graphkg import EntitySpan
+from smartpipe.engine.graphkg import EntitySpan, GraphEdge, SpineRef
 from smartpipe.engine.runner import FailurePolicy
 from smartpipe.io.inputs import InputSpec
 from smartpipe.verbs.graph import (
@@ -41,9 +41,10 @@ class FakeFinder:
         self.poison = poison
         self.calls: list[str] = []
         self.events: list[str] = []  # "load"/"find" in call order — the pre-warm pin
+        self.quiet_calls: list[bool] = []
 
     def load(self, *, quiet: bool = False) -> None:
-        del quiet
+        self.quiet_calls.append(quiet)
         self.events.append("load")
 
     def find(self, text: str) -> tuple[EntitySpan, ...]:
@@ -717,12 +718,153 @@ def test_fold_phase_note_names_the_fold_only_on_large_corpora(
     from smartpipe.verbs import graph as graph_module
 
     threshold: int = graph_module._FOLD_NOTE_WINDOWS  # pyright: ignore[reportPrivateUsage] — pin
-    graph_module._note_fold_phase(threshold - 1)  # pyright: ignore[reportPrivateUsage] — under test
+    graph_module._note_fold_phase(  # pyright: ignore[reportPrivateUsage] — under test
+        threshold - 1, progress_visible=True
+    )
     assert "folding" not in capsys.readouterr().err  # small graphs stay quiet
-    graph_module._note_fold_phase(threshold)  # pyright: ignore[reportPrivateUsage] — under test
+    graph_module._note_fold_phase(  # pyright: ignore[reportPrivateUsage] — under test
+        threshold, progress_visible=False
+    )
     err = capsys.readouterr().err
     assert f"entities done — folding {threshold:,} windows" in err
     assert "this can dominate on large corpora" in err
+    assert "progress below" not in err
+
+    graph_module._note_fold_phase(  # pyright: ignore[reportPrivateUsage] — under test
+        threshold, progress_visible=True
+    )
+    assert "progress below; Ctrl-C is safe" in capsys.readouterr().err
+
+
+async def test_ner_load_stays_quiet_for_tty_stderr_even_when_fifo_disables_spinner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Third-party carriage-return bars must not recreate the pipe collision."""
+    from smartpipe.io import tty
+
+    finder = FakeFinder(PEOPLE)
+    context = FakeContext(finder=finder, embedder=FakeEmbedder({}))
+    monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
+    monkeypatch.setattr(tty, "stdout_allows_progress", lambda: False)
+    code, _out = await _run(GraphRequest(fast=True), context, "Ann met Bob\n")
+    assert code is ExitCode.OK
+    assert finder.quiet_calls == [True]
+
+
+def _edges(count: int = 1) -> tuple[GraphEdge, ...]:
+    return tuple(
+        GraphEdge(
+            source=f"source-{position}",
+            target=f"target-{position}",
+            relation="co-occurs",
+            weight=1,
+            sources=(SpineRef(path=f"input-{position}.txt", position=position),),
+        )
+        for position in range(1, count + 1)
+    )
+
+
+def test_write_edges_guards_direct_terminal_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartpipe.io.progress import Spinner
+    from smartpipe.verbs import graph as graph_module
+
+    class Terminal(io.StringIO):
+        def __init__(self) -> None:
+            super().__init__()
+            self.writes: list[str] = []
+
+        def isatty(self) -> bool:
+            return True
+
+        def write(self, value: str, /) -> int:
+            self.writes.append(value)
+            return super().write(value)
+
+    terminal = Terminal()
+    spinner = Spinner(
+        stream=terminal,
+        enabled=True,
+        ascii_only=True,
+        clock=lambda: 0.0,
+        label="write",
+    )
+
+    def stage(_name: str) -> Spinner:
+        return spinner
+
+    monkeypatch.setattr(graph_module, "stage", stage)
+    graph_module.write_edges(_edges(), terminal)
+
+    drawn = False
+    for chunk in terminal.writes:
+        if chunk == "\r\x1b[K":
+            drawn = False
+        elif chunk.startswith("\r"):
+            drawn = True
+        elif chunk.startswith("{"):
+            assert not drawn, f"edge bytes landed under the status line: {chunk!r}"
+
+
+def test_write_edges_does_not_guard_regular_file_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from smartpipe.io.progress import Spinner
+    from smartpipe.verbs import graph as graph_module
+
+    status = io.StringIO()
+    spinner = Spinner(
+        stream=status,
+        enabled=True,
+        ascii_only=True,
+        clock=lambda: 0.0,
+        label="write",
+    )
+
+    def stage(_name: str) -> Spinner:
+        return spinner
+
+    monkeypatch.setattr(graph_module, "stage", stage)
+    output = tmp_path / "edges.jsonl"
+    with output.open("w", encoding="utf-8") as stream:
+        graph_module.write_edges(_edges(3), stream)
+
+    assert len(output.read_text(encoding="utf-8").splitlines()) == 3
+    assert status.getvalue().count("\r\x1b[K") == 1  # finish only; no per-edge pause cycles
+
+
+def test_write_edges_finishes_the_bar_when_terminal_write_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartpipe.io.progress import Spinner
+    from smartpipe.verbs import graph as graph_module
+
+    class FailingTerminal(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+        def write(self, value: str, /) -> int:
+            if value.startswith("{"):
+                raise OSError("terminal disappeared")
+            return super().write(value)
+
+    terminal = FailingTerminal()
+    spinner = Spinner(
+        stream=terminal,
+        enabled=True,
+        ascii_only=True,
+        clock=lambda: 0.0,
+        label="write",
+    )
+
+    def stage(_name: str) -> Spinner:
+        return spinner
+
+    monkeypatch.setattr(graph_module, "stage", stage)
+    with pytest.raises(OSError, match="terminal disappeared"):
+        graph_module.write_edges(_edges(), terminal)
+    assert terminal.getvalue().endswith("\r\x1b[K")
 
 
 async def test_drained_stop_mid_scan_salvages_and_exits_interrupted(
@@ -790,11 +932,11 @@ async def test_slow_pace_projection_drops_progress_clause_when_stderr_is_piped(
 async def test_slow_pace_projection_promises_progress_when_the_bar_is_on(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """B3: when stderr IS a TTY the status bar animates, so the projection may
-    honestly point at it — the '(progress below; Ctrl-C is safe)' clause returns.
-    NO_COLOR keeps the captured note free of the dim-wrap ANSI codes."""
+    """With TTY stderr and a safe stdout endpoint, the projection can honestly
+    point at the visible bar. NO_COLOR keeps the captured note ANSI-free."""
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    monkeypatch.setattr("smartpipe.io.tty.stdout_allows_progress", lambda: True)
     ticks = iter([0.0] + [100.0] * 200)
     out = io.StringIO()
     lines = "".join(f"Ann {n}\n" for n in range(40))
@@ -1216,6 +1358,7 @@ async def test_fold_bar_zero_state_lands_before_the_first_embed_batch(
     and it used to be the bar's FIRST byte."""
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    monkeypatch.setattr("smartpipe.io.tty.stdout_allows_progress", lambda: True)
     stderr_at_first_batch: list[str] = []
 
     class SnappingEmbedder(FakeEmbedder):
@@ -1244,6 +1387,7 @@ async def test_fast_surface_fold_owns_a_visible_element(
     group — so the quadratic phase never runs faceless."""
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    monkeypatch.setattr("smartpipe.io.tty.stdout_allows_progress", lambda: True)
     out = io.StringIO()
     code = await run_graph(
         GraphRequest(fast=True), _context(PEOPLE), stdin=io.StringIO("Ann met Bob\n"), stdout=out

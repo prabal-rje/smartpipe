@@ -75,14 +75,28 @@ an end-of-file that isn't coming. Two practical notes:
 
 One rule makes smartpipe safe in any pipeline: **only results go to `stdout`.**
 Progress spinners, warnings about skipped items, and diagnostics all go to
-`stderr`. So this always sees clean data:
+`stderr`. A regular-file redirect keeps progress visible on the terminal while
+writing only results to the file:
 
 ```bash
 cat notes.txt \
 | smartpipe map "summarize" > summaries.txt    # only results in the file
 ```
 
-and you still see the progress and any warnings on your terminal.
+and you still see progress and any warnings on your terminal.
+
+A process pipe is different:
+
+```bash
+cat notes.txt \
+| smartpipe map "summarize" \
+| smartpipe readable
+```
+
+The middle process suppresses its carriage-return animation because its stdout
+is a FIFO and its local terminal arbiter cannot coordinate with the downstream
+process. Newline warnings, notes, errors, and receipts remain visible; they may
+appear between downstream result blocks.
 
 ## It dies like a filter
 

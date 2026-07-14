@@ -474,24 +474,23 @@ async def test_map_routes_results_through_the_spinner_arbiter(
             assert not drawn, f"result bytes landed under the status line: {chunk!r}"
 
 
-async def test_piped_stdout_run_still_animates_on_stderr(
+async def test_fifo_stdout_suppresses_animation_but_preserves_results_and_diagnostics(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """B3: with stderr a TTY but stdout a pipe, the status bar DOES animate on
-    stderr — the bar lives on stderr and a piped stdout is how these verbs are
-    driven (``… > out.jsonl``), so carriage-return bytes reach stderr and the
-    line-atomic warning still survives, routed through the arbiter's pause."""
+    """A middle process cannot arbitrate with its downstream terminal writer."""
     from smartpipe.io import tty
 
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
-    monkeypatch.setattr(tty, "stdout_is_tty", lambda: False)
+    monkeypatch.setattr(tty, "stdout_allows_progress", lambda: False)
     context = FakeContext(model=FakeChat(replies=["ok", "__RAISE_ITEM__"]), concurrency=1)
     out = io.StringIO()
     code = await run_map(_request("x"), context, stdin=io.StringIO("a\nb\n"), stdout=out)
     assert code == ExitCode.PARTIAL
     err = capsys.readouterr().err
-    assert "\r" in err  # the bar animates now that stdout being piped no longer gates it off
-    assert "skipped: line 2" in err  # the line-atomic warning stays
+    assert out.getvalue() == "ok\n"
+    assert "\r" not in err
+    assert "skipped: line 2" in err
+    assert err.endswith("\n")
 
 
 # --- fatal errors propagate ---------------------------------------------------

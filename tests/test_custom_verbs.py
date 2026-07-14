@@ -37,9 +37,11 @@ def test_sem_pipelines_work_as_verbs_too(verbs_dir: Path, run_cli: RunCli) -> No
         '[stage.numbers]\nverb = "summarize"\nexpression = "count()"\n',
         encoding="utf-8",
     )
-    code, out, _err = run_cli(["triage"], stdin="ERROR a\nfine\nERROR b\n")
+    code, out, err = run_cli(["triage"], stdin="ERROR a\nfine\nERROR b\n")
     assert code == 0
     assert out.strip() == '{"count":2}'
+    assert "\r" not in err
+    assert "[hot]" in err  # named custom pipelines keep stage-prefixed receipts
 
 
 def test_builtins_always_win(verbs_dir: Path, run_cli: RunCli) -> None:

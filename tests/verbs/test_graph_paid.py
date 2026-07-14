@@ -1703,6 +1703,7 @@ async def test_full_mode_canary_wears_the_pending_caption(
     retry ladder — it now wears the pinned pending caption while it runs."""
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    monkeypatch.setattr("smartpipe.io.tty.stdout_allows_progress", lambda: True)
     chat = FakeChat(
         by_content={
             "Alice pays Bob": triples(("Alice", "pays", "Bob")),
@@ -1719,6 +1720,7 @@ async def test_hybrid_canary_wears_the_pending_caption(
 ) -> None:
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    monkeypatch.setattr("smartpipe.io.tty.stdout_allows_progress", lambda: True)
     chat = FakeChat(default='{"relation": "pays"}')
     code, _ = await _run(
         GraphRequest(name_top=1), _context(chat), "Ann pays Bob and Bob pays Ann\n"
@@ -1734,6 +1736,7 @@ async def test_full_mode_surface_fold_owns_a_visible_element(
     [fold] count line, painted at start."""
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    monkeypatch.setattr("smartpipe.io.tty.stdout_allows_progress", lambda: True)
     chat = FakeChat(
         by_content={
             "Alice pays Bob": triples(("Alice", "pays", "Bob")),
@@ -1752,6 +1755,7 @@ async def test_adopt_surface_fold_owns_a_visible_element(
     """#37 D4 (run_adopt's fold_surfaces site): same element, zero model calls."""
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr("smartpipe.io.tty.stderr_is_tty", lambda: True)
+    monkeypatch.setattr("smartpipe.io.tty.stdout_allows_progress", lambda: True)
     chat = FakeChat()
     records = '{"source": "Ann", "target": "Bob"}\n{"source": "ann", "target": "Bob"}\n'
     code, out = await _run(GraphRequest(), _context(chat), records)

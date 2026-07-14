@@ -261,15 +261,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   daily TTL/LRU sweep as the chat cache, and its hits join the once-per-run
   `cache: N hits · M misses` receipt. (Vision-OCR page images already rode the
   chat cache; this closes the dedicated Mistral document wire.)
-- **The status bar now shows when only stdout is redirected — `graph … >
-  edges.jsonl` no longer looks hung.** The stderr spinner gate is re-pinned to
-  stderr alone (it required BOTH stderr and stdout to be TTYs before), so a
-  redirected or piped stdout — how `graph` and the other verbs are meant to be
-  driven — keeps the progress bar on stderr, exactly as `curl`/`rsync` do. A
-  pilot run redirected `graph`'s edges to a file and saw nothing for minutes,
-  thinking it had hung. `graph`'s projected-grind note now keys its "(progress
-  below; Ctrl-C is safe)" clause on whether the bar is actually animating, so a
-  fully-piped run (no bar) no longer promises progress it won't display.
+- **Regular-file redirects keep progress without corrupting downstream process
+  output (B3).** `graph … > edges.jsonl` still shows its stderr status bar, but
+  producers whose stdout is a FIFO, anonymous pipe, socket, or unclassifiable
+  endpoint suppress carriage-return animation. The in-process terminal arbiter
+  cannot coordinate a middle process's stderr redraws with a downstream process
+  writing to the same terminal. Newline warnings, notes, and receipts remain
+  visible. Graph's grind/fold notes now promise "progress below" only when their
+  corresponding bar is actually visible.
 - **Note floods no longer bury the load-bearing lines.** Three high-volume
   diagnostics now collapse the way the degrade ledger already does - the first few
   print verbatim, then one rollup closes the run. Embedded-figure notes route
@@ -350,9 +349,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
   loads.** The one-time weights download and ONNX session init happened silently
   inside the first per-item NER call, with no smartpipe-owned feedback. A
   caller-owned `preparing local NER model` status line now covers that load up
-  front, under the same final-stage TTY gate as every other bar; huggingface_hub's
-  own download bar is deferred to when the spinner is gated off (a piped stdout),
-  so the two never fight over the terminal row.
+  front, under the same destination-aware gate as every other bar. Whenever
+  stderr is a TTY, huggingface_hub's own carriage-return bar is suppressed too;
+  with process-pipe stdout both bars stay off, preventing a downstream collision.
 - **A dead OCR wire stops the run instead of silently wrecking every scan.** The
   "falling back to local extraction" path is now two-tier: an isolated file whose
   429 retry ladder exhausted still degrades to local extraction, but with an honest

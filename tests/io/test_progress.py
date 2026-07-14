@@ -499,33 +499,43 @@ def test_guard_is_a_passthrough_when_the_spinner_is_disabled() -> None:
     assert spinner.guard(stream) is stream
 
 
-def test_spinner_enabled_when_only_stdout_is_redirected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """B3 re-pin: the bar lives on stderr, so redirecting stdout (``graph … >
-    edges.jsonl``, the verb's normal usage) must NOT suppress it — like curl/rsync
-    showing progress on stderr while stdout is piped. The gate keys on stderr alone."""
+@pytest.mark.parametrize("endpoint_name", ["TERMINAL", "REGULAR_FILE", "NULL_DEVICE"])
+def test_spinner_enabled_for_progress_safe_stdout(
+    monkeypatch: pytest.MonkeyPatch, endpoint_name: str
+) -> None:
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
-    monkeypatch.setattr(tty, "stdout_is_tty", lambda: False)
+    endpoint = getattr(tty.OutputEndpoint, endpoint_name)
+    monkeypatch.setattr(tty, "stdout_allows_progress", lambda: tty.output_allows_progress(endpoint))
     assert make_stderr_spinner().enabled is True
 
 
-def test_spinner_disabled_when_stderr_is_piped(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A piped/redirected stderr (cron, ``2>log``) still suppresses the animation
-    entirely — stdout being a TTY is irrelevant now that the gate is stderr-only."""
-    monkeypatch.setattr(tty, "stderr_is_tty", lambda: False)
-    monkeypatch.setattr(tty, "stdout_is_tty", lambda: True)
+@pytest.mark.parametrize("endpoint_name", ["FIFO", "SOCKET", "UNKNOWN"])
+def test_spinner_disabled_for_progress_unsafe_stdout(
+    monkeypatch: pytest.MonkeyPatch, endpoint_name: str
+) -> None:
+    monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
+    endpoint = getattr(tty.OutputEndpoint, endpoint_name)
+    monkeypatch.setattr(tty, "stdout_allows_progress", lambda: tty.output_allows_progress(endpoint))
     assert make_stderr_spinner().enabled is False
 
 
-def test_spinner_enabled_when_stderr_is_a_tty(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
-    monkeypatch.setattr(tty, "stdout_is_tty", lambda: True)
-    assert make_stderr_spinner().enabled is True
+def test_spinner_disabled_when_stderr_is_piped_without_probing_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tty, "stderr_is_tty", lambda: False)
+
+    def unexpected_probe() -> bool:
+        raise AssertionError("short-circuit must not inspect irrelevant stdout")
+
+    monkeypatch.setattr(tty, "stdout_allows_progress", unexpected_probe)
+    assert make_stderr_spinner().enabled is False
 
 
 def test_make_stderr_spinner_wears_the_current_stage_label(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(tty, "stderr_is_tty", lambda: True)
+    monkeypatch.setattr(tty, "stdout_allows_progress", lambda: True)
     set_stage_label("extract")
     try:
         assert make_stderr_spinner().label == "extract"

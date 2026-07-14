@@ -1,15 +1,18 @@
-"""Terminal detection and the color decision.
+"""Terminal and output-endpoint detection plus the color decision.
 
 ``supports_color`` is pure — the environment is a parameter — so the whole truth
-table is testable. The thin wrappers read real process state at call time.
+table is testable. ``classify_output_endpoint`` is the corresponding pure core
+for progress safety. The thin wrappers read real process state at call time.
 """
 
 from __future__ import annotations
 
 import os
 import shutil
+import stat
 import sys
-from enum import StrEnum
+from contextlib import suppress
+from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, assert_never
 
 if TYPE_CHECKING:
@@ -18,9 +21,14 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ColorMode",
+    "OutputEndpoint",
+    "classify_output_endpoint",
     "enable_windows_vt",
+    "output_allows_progress",
+    "output_endpoint",
     "stderr_is_tty",
     "stderr_supports_color",
+    "stdout_allows_progress",
     "stdout_is_tty",
     "stdout_supports_color",
     "supports_color",
@@ -33,6 +41,92 @@ class ColorMode(StrEnum):
     AUTO = "auto"
     ALWAYS = "always"
     NEVER = "never"
+
+
+class OutputEndpoint(Enum):
+    TERMINAL = "terminal"
+    REGULAR_FILE = "regular_file"
+    NULL_DEVICE = "null_device"
+    FIFO = "fifo"
+    SOCKET = "socket"
+    UNKNOWN = "unknown"
+
+
+def classify_output_endpoint(
+    is_tty: bool,
+    *,
+    mode: int | None,
+    rdev: int | None,
+    null_rdev: int | None,
+) -> OutputEndpoint:
+    """Classify already-observed descriptor facts without performing I/O."""
+    if is_tty:
+        return OutputEndpoint.TERMINAL
+    if mode is None:
+        return OutputEndpoint.UNKNOWN
+    match stat.S_IFMT(mode):
+        case stat.S_IFREG:
+            return OutputEndpoint.REGULAR_FILE
+        case stat.S_IFIFO:
+            return OutputEndpoint.FIFO
+        case stat.S_IFSOCK:
+            return OutputEndpoint.SOCKET
+        case stat.S_IFCHR:
+            if rdev is not None and null_rdev is not None and rdev == null_rdev:
+                return OutputEndpoint.NULL_DEVICE
+            return OutputEndpoint.UNKNOWN
+        case _:
+            return OutputEndpoint.UNKNOWN
+
+
+_DESCRIPTOR_ERRORS = (OSError, OverflowError, TypeError, ValueError)
+
+
+def output_endpoint(stream: TextIO) -> OutputEndpoint:
+    """Classify the exact descriptor currently backing ``stream``.
+
+    A positive ``isatty`` is conclusive. If that probe is unavailable, descriptor
+    inspection still gets a chance. Expected descriptor-boundary failures fail
+    closed; unrelated exceptions remain visible as programming errors.
+    """
+    try:
+        is_tty = stream.isatty()
+    except _DESCRIPTOR_ERRORS:
+        is_tty = False
+    if is_tty:
+        return OutputEndpoint.TERMINAL
+
+    try:
+        descriptor_stat = os.fstat(stream.fileno())
+    except _DESCRIPTOR_ERRORS:
+        return OutputEndpoint.UNKNOWN
+
+    null_rdev: int | None = None
+    if stat.S_ISCHR(descriptor_stat.st_mode):
+        with suppress(*_DESCRIPTOR_ERRORS):
+            null_rdev = os.stat(os.devnull).st_rdev
+    return classify_output_endpoint(
+        False,
+        mode=descriptor_stat.st_mode,
+        rdev=descriptor_stat.st_rdev,
+        null_rdev=null_rdev,
+    )
+
+
+def output_allows_progress(endpoint: OutputEndpoint) -> bool:
+    """Whether carriage-return animation is safe for this stdout endpoint."""
+    match endpoint:
+        case OutputEndpoint.TERMINAL | OutputEndpoint.REGULAR_FILE | OutputEndpoint.NULL_DEVICE:
+            return True
+        case OutputEndpoint.FIFO | OutputEndpoint.SOCKET | OutputEndpoint.UNKNOWN:
+            return False
+        case _ as unreachable:  # pragma: no cover — pyright proves exhaustiveness
+            assert_never(unreachable)
+
+
+def stdout_allows_progress() -> bool:
+    """Classify the current stdout, including intentional in-process rebinding."""
+    return output_allows_progress(output_endpoint(sys.stdout))
 
 
 def stdout_is_tty() -> bool:

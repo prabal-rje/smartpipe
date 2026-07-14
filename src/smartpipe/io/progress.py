@@ -2,12 +2,12 @@
 
 Spec §6.1 + ledger item 67: one status line overwritten in place — a
 determinate bar (``engine/progressbar``) when the total is known, the running
-count + rate when it isn't. The animation renders whenever stderr is a terminal
-(B3 re-pin): because the bar lives on stderr, a redirected or piped stdout — how
-the verbs are meant to be driven (``graph … > edges.jsonl``) — no longer turns
-it off, matching ``curl``/``rsync``. A piped stderr (cron, ``2>log``) suppresses
-it entirely — stdout stays sacred and the log stays clean. The render functions
-are pure; ``Spinner`` adds the clock, throttling, and the stderr writes.
+count + rate when it isn't. Animation requires terminal stderr and a
+progress-safe stdout endpoint: terminal, regular-file redirects, and the null
+device animate; process pipes, sockets, and unknown endpoints suppress it. A
+piped stderr (cron, ``2>log``) also suppresses it entirely — stdout stays sacred
+and the log stays clean. The render functions are pure; ``Spinner`` adds the
+clock, throttling, and the stderr writes.
 """
 
 from __future__ import annotations
@@ -292,18 +292,19 @@ class _GuardedSink:
 
 
 def make_stderr_spinner() -> Spinner:
-    """A spinner wired to the real stderr — animated whenever stderr is a TTY
-    (B3 re-pin). The bar lives on stderr, so a redirected or piped *stdout* —
-    ``graph … > edges.jsonl``, the way these verbs are meant to be driven — no
-    longer suppresses it, exactly as ``curl``/``rsync`` keep their progress on
-    stderr while stdout is piped onward. A redirected *stderr* (cron, ``2>log``)
-    still suppresses it entirely, so logs stay clean. The frame set is Braille or
-    ASCII depending on the encoding; inside a ``run`` pipeline the stage's name
-    rides along so any drawn line wears the same ``[name]`` prefix its receipts do."""
+    """A spinner wired to stderr and gated by both terminal streams' roles.
+
+    Stderr must be a TTY. Stdout must be a terminal, regular file, or null device;
+    FIFO/socket/unknown endpoints suppress animation because this process's
+    arbiter cannot coordinate with a downstream process writing to the same
+    terminal. The stderr check stays first so cron and in-process ``run`` stages
+    never inspect an irrelevant rebound stdout. Inside a ``run`` pipeline the
+    stage's name rides along so any drawn line wears its receipt prefix.
+    """
     encoding = (sys.stderr.encoding or "").lower()
     return Spinner(
         stream=sys.stderr,
-        enabled=tty.stderr_is_tty(),
+        enabled=tty.stderr_is_tty() and tty.stdout_allows_progress(),
         ascii_only="utf" not in encoding,
         clock=time.monotonic,
         label=stage_label(),

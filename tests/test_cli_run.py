@@ -171,6 +171,30 @@ expression = "count()"
     assert code == 0
     assert out.strip() == '{"count":2}'
     assert "[hot]" in err  # stage receipts carry their stage name
+    assert "\r" not in err  # in-process stages bind non-TTY stderr and never animate
+
+
+def test_pipeline_model_stages_stay_spinner_free_and_receipt_prefixed(
+    tmp_path: Path, run_cli: RunCli, respx_mock: respx.MockRouter
+) -> None:
+    script = tmp_path / "pipeline.sem"
+    script.write_text(
+        """\
+[stage.first]
+verb = "map"
+prompt = "first"
+
+[stage.second]
+verb = "map"
+prompt = "second"
+""",
+        encoding="utf-8",
+    )
+    respx_mock.post(CHAT).side_effect = [_reply("FIRST"), _reply("SECOND")]
+    code, out, err = run_cli(["run", str(script)], stdin="input\n")
+    assert code == 0
+    assert out == "SECOND\n"
+    assert "\r" not in err
 
 
 def test_pipeline_dry_run_prints_postures_and_runs_nothing(tmp_path: Path, run_cli: RunCli) -> None:

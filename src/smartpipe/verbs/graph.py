@@ -58,7 +58,7 @@ from smartpipe.engine.graphout import (
     to_nodes_csv,
     to_obsidian,
 )
-from smartpipe.io import diagnostics, manifest, readers
+from smartpipe.io import diagnostics, manifest, readers, tty
 from smartpipe.io.inputs import STDIN
 from smartpipe.io.items import describe_source, project_content
 from smartpipe.io.progress import Spinner, make_stderr_spinner
@@ -420,7 +420,7 @@ async def scan_corpus(
         await spin_pending(
             warm_bar,
             "preparing local NER model",
-            asyncio.to_thread(finder.load, quiet=warm_bar.enabled),
+            asyncio.to_thread(finder.load, quiet=tty.stderr_is_tty()),
         )
     log = diagnostics.DegradationLog()
     converter: Converter | None = None
@@ -470,7 +470,7 @@ async def scan_corpus(
         if position == _PACE_SAMPLE and len(items) > _PACE_SAMPLE:
             # The bar the note points at IS ``entity_bar``; key the promise on its
             # own ``enabled`` flag so a suppressed bar never advertises "progress
-            # below" (B3 — stderr-only gate; a piped stderr turns the bar off).
+            # below" (B3 — stderr TTY + stdout endpoint gate).
             _note_projected_grind(
                 clock() - stage_start, len(items), progress_visible=entity_bar.enabled
             )
@@ -519,8 +519,8 @@ async def scan_corpus(
     note_folds(folded_names, folded_nodes)
     nodes = await asyncio.to_thread(build_nodes, counts, canonical)
     entity_windows = windows(gathered, mode)
-    _note_fold_phase(len(entity_windows))
     fold_bar = stage("fold")
+    _note_fold_phase(len(entity_windows), progress_visible=fold_bar.enabled)
     fold_bar.start(len(entity_windows))
     edges = await asyncio.to_thread(
         fold_edges, entity_windows, canonical, should_stop=should_stop, progress=fold_bar.advance
@@ -635,24 +635,28 @@ def receipt_tail() -> str:
 def write_edges(edges: Sequence[GraphEdge], stdout: TextIO) -> None:
     """The JSONL result stream every mode shares: one edge per line, weighted,
     with spine-ref provenance — behind the ``write`` stage bar."""
-    writer = make_writer(
-        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=None), stdout
-    )
     write_bar = stage("write")
+    endpoint = tty.output_endpoint(stdout)
+    sink = write_bar.guard(stdout) if endpoint is tty.OutputEndpoint.TERMINAL else stdout
+    writer = make_writer(
+        WriterConfig(mode=RenderMode.NDJSON, color=False, width=80, fields=None), sink
+    )
     write_bar.start(len(edges))
-    for edge in edges:
-        writer.write_record(
-            {
-                "source": edge.source,
-                "relation": edge.relation,
-                "target": edge.target,
-                "weight": edge.weight,
-                "sources": [spine_record(ref) for ref in edge.sources],
-            }
-        )
-        write_bar.advance()
-    writer.flush()
-    write_bar.finish()
+    try:
+        for edge in edges:
+            writer.write_record(
+                {
+                    "source": edge.source,
+                    "relation": edge.relation,
+                    "target": edge.target,
+                    "weight": edge.weight,
+                    "sources": [spine_record(ref) for ref in edge.sources],
+                }
+            )
+            write_bar.advance()
+        writer.flush()
+    finally:
+        write_bar.finish()
 
 
 def _note_projected_grind(elapsed: float, total_files: int, *, progress_visible: bool) -> None:
@@ -673,17 +677,17 @@ def _note_projected_grind(elapsed: float, total_files: int, *, progress_visible:
     diagnostics.note(line)
 
 
-def _note_fold_phase(total_windows: int) -> None:
+def _note_fold_phase(total_windows: int, *, progress_visible: bool) -> None:
     """B1: once the entities are gathered, the co-occurrence fold is a distinct
     quadratic phase that can dominate on large corpora. Name it (past a threshold,
     so small graphs stay quiet) so a user watching the entity pass finish isn't
     left wondering why the run keeps going."""
     if total_windows < _FOLD_NOTE_WINDOWS:
         return
-    diagnostics.note(
-        f"entities done — folding {total_windows:,} windows; "
-        "this can dominate on large corpora (progress below; Ctrl-C is safe)"
-    )
+    line = f"entities done — folding {total_windows:,} windows; this can dominate on large corpora"
+    if progress_visible:
+        line += " (progress below; Ctrl-C is safe)"
+    diagnostics.note(line)
 
 
 def note_dense_graph(node_count: int, edge_count: int) -> None:
