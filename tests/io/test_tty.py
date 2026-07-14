@@ -5,6 +5,7 @@ import os
 import socket
 import stat
 import sys
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
@@ -131,8 +132,11 @@ def test_real_socket_backed_stream_suppresses_progress() -> None:
 
 def test_real_null_device_allows_progress() -> None:
     with open(os.devnull, "w", encoding="utf-8") as stream:
+        reports_tty = stream.isatty()
         endpoint = tty.output_endpoint(stream)
-    assert endpoint is tty.OutputEndpoint.NULL_DEVICE
+    # The Windows CRT reports NUL as a TTY; the classifier deliberately trusts it.
+    expected = tty.OutputEndpoint.TERMINAL if reports_tty else tty.OutputEndpoint.NULL_DEVICE
+    assert endpoint is expected
     assert tty.output_allows_progress(endpoint) is True
 
 
@@ -169,6 +173,11 @@ class _UnexpectedIsattyFailure(io.StringIO):
         raise RuntimeError("programming error")
 
 
+@dataclass(frozen=True, slots=True)
+class _StatWithoutRdev:
+    st_mode: int
+
+
 def test_fake_tty_without_fileno_is_terminal() -> None:
     assert tty.output_endpoint(_FakeTtyWithoutDescriptor()) is tty.OutputEndpoint.TERMINAL
 
@@ -202,6 +211,25 @@ def test_fstat_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(os, "fstat", fail_fstat)
     assert tty.output_endpoint(_InvalidDescriptor()) is tty.OutputEndpoint.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        (stat.S_IFREG, tty.OutputEndpoint.REGULAR_FILE),
+        (stat.S_IFCHR, tty.OutputEndpoint.UNKNOWN),
+    ],
+)
+def test_missing_rdev_metadata_is_portable(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: int,
+    expected: tty.OutputEndpoint,
+) -> None:
+    def fstat_without_rdev(_descriptor: int) -> _StatWithoutRdev:
+        return _StatWithoutRdev(st_mode=mode)
+
+    monkeypatch.setattr(os, "fstat", fstat_without_rdev)
+    assert tty.output_endpoint(_InvalidDescriptor()) is expected
 
 
 def test_unexpected_isatty_failure_is_not_swallowed() -> None:

@@ -101,14 +101,15 @@ def output_endpoint(stream: TextIO) -> OutputEndpoint:
     except _DESCRIPTOR_ERRORS:
         return OutputEndpoint.UNKNOWN
 
+    descriptor_rdev = getattr(descriptor_stat, "st_rdev", None)
     null_rdev: int | None = None
     if stat.S_ISCHR(descriptor_stat.st_mode):
         with suppress(*_DESCRIPTOR_ERRORS):
-            null_rdev = os.stat(os.devnull).st_rdev
+            null_rdev = getattr(os.stat(os.devnull), "st_rdev", None)
     return classify_output_endpoint(
         False,
         mode=descriptor_stat.st_mode,
-        rdev=descriptor_stat.st_rdev,
+        rdev=descriptor_rdev,
         null_rdev=null_rdev,
     )
 
