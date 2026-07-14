@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: 
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-07-14
+
 - Make graph entity-name folding report determinate per-name progress and use an exact chunked NumPy GEMM strategy when available, with the pure-Python implementation as a dependency-free fallback. The shared `distinct` leader-clustering semantics remain input-order stable and first-match exact.
 
 ### Added

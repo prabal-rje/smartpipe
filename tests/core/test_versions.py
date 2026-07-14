@@ -95,5 +95,5 @@ def test_is_newer_false(candidate: str, current: str) -> None:
 
 def test_is_newer_unparseable_never_warns() -> None:
     assert not is_newer("garbage", "1.4.0")
-    assert not is_newer("1.5.1", "garbage")
+    assert not is_newer("1.6.0", "garbage")
     assert not is_newer("garbage", "garbage")

@@ -64,13 +64,13 @@ def test_cache_lives_next_to_the_config_file(tmp_path: Path) -> None:
 
 def test_cache_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "update-check.json"
-    write_cache(path, CachedCheck(version="1.5.1", checked_at=_NOW))
-    assert read_cache(path) == CachedCheck(version="1.5.1", checked_at=_NOW)
+    write_cache(path, CachedCheck(version="1.6.0", checked_at=_NOW))
+    assert read_cache(path) == CachedCheck(version="1.6.0", checked_at=_NOW)
 
 
 def test_write_creates_parent_directories(tmp_path: Path) -> None:
     path = tmp_path / "deep" / "er" / "update-check.json"
-    write_cache(path, CachedCheck(version="1.5.1", checked_at=_NOW))
+    write_cache(path, CachedCheck(version="1.6.0", checked_at=_NOW))
     assert read_cache(path) is not None
 
 
@@ -84,9 +84,9 @@ def test_read_missing_file_is_none(tmp_path: Path) -> None:
         "not json",
         "[1, 2]",
         '{"version": 5, "checked_at": 1.0}',
-        '{"version": "1.5.1", "checked_at": "yesterday"}',
-        '{"version": "1.5.1", "checked_at": true}',
-        '{"version": "1.5.1"}',
+        '{"version": "1.6.0", "checked_at": "yesterday"}',
+        '{"version": "1.6.0", "checked_at": true}',
+        '{"version": "1.6.0"}',
     ],
 )
 def test_read_rejects_broken_shapes_silently(tmp_path: Path, body: str) -> None:
@@ -99,7 +99,7 @@ def test_read_rejects_broken_shapes_silently(tmp_path: Path, body: str) -> None:
 
 
 def test_is_fresh_within_a_day() -> None:
-    cached = CachedCheck(version="1.5.1", checked_at=_NOW)
+    cached = CachedCheck(version="1.6.0", checked_at=_NOW)
     assert is_fresh(cached, _NOW + CACHE_TTL_SECONDS - 1)
     assert not is_fresh(cached, _NOW + CACHE_TTL_SECONDS)
     assert not is_fresh(None, _NOW)

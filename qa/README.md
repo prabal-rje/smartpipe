@@ -74,7 +74,7 @@ $ smartpipe where 'total >>> 5' < qa/fixtures/tickets.jsonl; echo "exit=$?"
 ```console
 $ smartpipe distinct --show-groups < qa/fixtures/tickets.jsonl 2>&1 | tail -5
 $ smartpipe distinct --exact < qa/fixtures/tickets.jsonl 2>&1 | tail -1
-$ smartpipe cluster --top 5 < qa/fixtures/feedback.txt --max-calls 12
+$ smartpipe cluster --k 8 --top 5 < qa/fixtures/feedback.txt --max-calls 12
 $ smartpipe outliers 3 < qa/fixtures/tickets.jsonl
 ```
 - [ ] distinct's receipt shows BOTH exact and near folds (the fixture
@@ -94,6 +94,7 @@ $ smartpipe where 'level == "info"' < qa/fixtures/logs.jsonl > /tmp/qa-info.json
 $ smartpipe diff --right /tmp/qa-info.jsonl < /tmp/qa-errors.jsonl --max-calls 20
 $ sed -n '2,3p' qa/fixtures/orders.jsonl | smartpipe join \
     "order {left.desc} and invoice {right.item} name the same product" \
+    --model openai/gpt-5.4-mini \
     --right qa/fixtures/invoices.jsonl --k 3 --max-calls 20
 ```
 - [ ] diff reports payment/timeout themes lopsided to the LEFT and routine
@@ -128,7 +129,7 @@ $ smartpipe sample 10 < qa/fixtures/tickets.jsonl | sha256sum
 ## 7. Media in, meaning out
 
 ```console
-$ smartpipe filter "mentions anything" --allow-captions --max-calls 6 < qa/fixtures/media.jsonl
+$ smartpipe filter "mentions anything" --allow-captions --max-calls 8 < qa/fixtures/media.jsonl
 $ smartpipe map "describe this" --max-calls 6 < qa/fixtures/media.jsonl
 ```
 - [ ] Per-row conversion notes name the path taken (whisper-1 / heard by /
@@ -184,7 +185,8 @@ $ smartpipe map "translate to French" --max-calls 3 < qa/fixtures/feedback.txt 2
 $ yes "hello" | smartpipe where 'text has "hello"' | head -1; echo "exit=$?"
 $ head -40 qa/fixtures/tickets.jsonl | SMARTPIPE_BATCH=off smartpipe map "Extract {label}" --max-calls 50   # press Ctrl-C mid-run
 ```
-- [ ] With stderr discarded, stdout is PURE results (`| jq .` never chokes).
+- [ ] With stderr discarded, stdout is PURE results: two French text lines,
+      with no receipt, progress frame, warning, or ANSI byte mixed in.
 - [ ] The `| head` pipe exits promptly (SIGPIPE handled, exit 141 or 0).
 - [ ] Ctrl-C drains gracefully: partial results flushed, interrupted
       summary printed, and the exit reflects drained work (0 when everything

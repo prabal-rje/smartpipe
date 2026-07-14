@@ -1,1 +1,1 @@
-smartpipe 1.5.1 is available (you have 1.5.0) — run: smartpipe update
+smartpipe 1.6.0 is available (you have 1.5.1) — run: smartpipe update
